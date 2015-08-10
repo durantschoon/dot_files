@@ -1,0 +1,33 @@
+# These should all be sh/bash compatible
+
+alias a='alias'
+alias ag='alias | grep'
+alias c2n='tr ":" "\012"'
+alias cx='chmod +x'
+alias ds='dirs -v'
+alias eg=egrep
+alias g=grep
+alias h=history
+alias hgr='history | grep'
+alias ipy=ipython
+alias ipn='ipython notebook --pylab inline'
+alias ll='ls -l'
+alias m='less'
+alias md='mkdir -p'
+alias oemacs='open -a /Applications/Emacs.app'
+alias path='echo $PATH | c2n'
+alias pp='popd; ds'
+alias py="echo 'Using ipython instead, duh' ; ipython"
+alias s.a='source ~/.aliases'
+alias s.b='source ~/.bashrc'
+alias up='cd ..'
+alias up2='cd ../..'
+alias up3='cd ../../..'
+alias wh=which
+# z move?
+# zmv -W '*.lis' '*.txt'
+alias zmvw='zmv -W'
+alias ,=pd
+alias ,.=pp
+
+###############################################################################
