@@ -10,7 +10,7 @@ ln -si ~/dot_files/.zshrc ~/
 ln -si ~/dot_files/.aliases.zsh ~/
 </pre>
 
-then choose one of:
+I choose either my home aliases or my work aliases:
 
 <pre>
 ln -si ~/dot_files/.aliases_home.zsh ~/
