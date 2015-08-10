@@ -1,11 +1,12 @@
+# zsh specific aliases
+
+# all bash compatible should go in .aliases
 source ~/.aliases
 
 alias s.z='source ~/.zshrc'
 alias s.ze='source ~/.zshenv'
-# . regular file, o sorted, m mod time, 1 first
-alias lth='ls -lt | head; latest=`ls *(.om[1])`'	
-# . regular file, o sorted, m mod time, 1 first
-alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	
+alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
+alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# . regular file, o sorted, m mod time, 1 first
 alias wh=which
 # z move?
 # zmv -W '*.lis' '*.txt'
@@ -31,26 +32,6 @@ function p () {
 }
 
 # -----
-
-# old method - delete when git repo is working
-
-function push_dots () {
-
-    files=(~/.alias* ~/.bash*  ~/.config* ~/.emacs*  ~/.freemind  ~/.git*  ~/.ipython*  ~/.saves  ~/.zsh*  ~/.Xdefaults )
-    dest_dir=~/Dropbox/work_files/dot_files
-
-    echo "\n=== Copying Files ==="
-    for f in $files
-    do
-	print $f
-	cp -r $f $dest_dir
-    done
-    echo "\n=== DONE === $dest_dir"
-    ls -a ~/Dropbox/work_files/dot_files
-
-    unset files dest_dir
-}
-
 
 # $1 = type; 0 - both, 1 - tab, 2 - title
 # rest = text
@@ -116,18 +97,8 @@ alias -g XG='| xargs egrep'
 alias -g X='| xargs'
 
 ###############################################################################
-# for work, zsh only
 
+[ -f ~/.aliases_home.zsh ] && . ~/.aliases_home.zsh
 
-# function_exists() {
-#     declare -f -F $1 > /dev/null
-#     return $?
-# }
-# function_exists wood && unfunction wood #  || echo No such function
-# wood () { 
-#     cat > ~/woodhouse.txt ;
-#     echo '\n==========\n' ;
-#     cat ~/woodhouse.txt | perl -pe 's/Queue Statistics:/Queue Statistics:\n/;' | perl -pe 's/(\s)(\d+)(\s)(\w+)/\$1\$2\n\$3\$4/g;' ;
-# }
-
+[ -f ~/.aliases_work.zsh ] && . ~/.aliases_work.zsh
 
