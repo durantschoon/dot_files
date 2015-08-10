@@ -3,7 +3,7 @@ My dotfiles except for emacs
 
 ## Clone this to ~/dot_files
 
-Then run these in the shell (maybe make a shell script or alias)
+Then run these in the shell
 
 <pre>
 ln -si ~/dot_files/.zshrc ~/
