@@ -19,10 +19,10 @@ ln -si ~/dot_files/.aliases ~/
 
 At home
 <pre>
-touch ~/.HOME
+echo See ~/.aliases for the use of this file >> ~/.HOME
 </pre>
 
 At work
 <pre>
-touch ~/.WORK
+echo See ~/.aliases for the use of this file >> ~/.WORK
 </pre>
