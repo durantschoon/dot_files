@@ -19,6 +19,8 @@ ln -si ~/dot_files/.aliases ~/
 
 ## Create a file to decide to load home or work dot files
 
+(credit to Paul Merrill for the idea)
+
 At home
 <pre>
 echo See ~/.aliases for the use of this file >> ~/.HOME
