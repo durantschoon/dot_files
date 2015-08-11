@@ -1,10 +1,10 @@
 # NOTES:
 # 
 # if on home computer, 
-#   touch ~/.HOME
+#   echo See ~/.aliases for the use of this file >> ~/.HOME
 # 
 # if on work computer, 
-#   touch ~/.WORK
+#   echo See ~/.aliases for the use of this file >> ~/.WORK
 
 ###############################################################################
 # Bash Aliases
