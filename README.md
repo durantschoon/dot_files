@@ -3,8 +3,10 @@ My dotfiles except for ~/.emacs.d
 
 ## Clone this to ~/dot_files
 
+```sh
 cd
 git clone https://github.com/durantschoon/dot_files.git
+```
 
 ## Make links
 
