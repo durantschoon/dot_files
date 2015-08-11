@@ -1,21 +1,28 @@
 # dot_files
-My dotfiles except for emacs
+My dotfiles except for ~/.emacs.d
 
 ## Clone this to ~/dot_files
+
+cd
+git clone https://github.com/durantschoon/dot_files.git
+
+## Make links
 
 Then run these in the shell
 
 <pre>
 ln -si ~/dot_files/.zshrc ~/
-ln -si ~/dot_files/.aliases.zsh ~/
+ln -si ~/dot_files/.aliases ~/
 </pre>
 
-I choose either my home aliases or my work aliases:
+## Create a file to decide to load home or work dot files
 
+At home
 <pre>
-ln -si ~/dot_files/.aliases_home.zsh ~/
+touch ~/.HOME
 </pre>
 
+At work
 <pre>
-ln -si ~/dot_files/.aliases_work.zsh ~/
+touch ~/.WORK
 </pre>
