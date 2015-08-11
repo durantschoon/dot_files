@@ -59,7 +59,7 @@ fi
 # Aliases at home
 # -----------------------------------------------------------------------------
 
-if [ -e "~/.HOME" ]; then
+if [ -e ~/.HOME ]; then
 	alias proj='cd ~/Programming/PROJECTS'
 fi
 
@@ -67,7 +67,7 @@ fi
 # Aliases at work
 # -----------------------------------------------------------------------------
 
-if [ -e "~/.WORK" ]; then
+if [ -e ~/.WORK ]; then
 
 	alias downloads='cd ~/Downloads; lthd'
 	alias courses='cd ~/Documents/courses; lthd'
