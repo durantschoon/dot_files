@@ -100,8 +100,8 @@ if [ -e "~/.WORK" ]; then
 	alias python_dir='cd ~/Documents/python'
 	alias rainman_csv='cd ~/Downloads/rainman_csv_files'
 	alias hadoop_grading='cd ~/Downloads/final_projects/Hadoop_grading/final_project_grading_v2/testing_scripts'
-	alias exiti='cd ~//Downloads/final_projects/exit_interviews'
-	alias fp='cd ~//Downloads/final_projects'
+	alias exiti='cd ~/Downloads/final_projects/exit_interviews'
+	alias fp='cd ~/Downloads/final_projects'
 
 	alias eval_proj_dir='cd ~/Documents/courses/cm_github_repo/project_evaluation_client_side'
 
