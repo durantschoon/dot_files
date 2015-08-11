@@ -45,7 +45,7 @@ alias ,.=pp
 # OS Specific Aliases
 # -----------------------------------------------------------------------------
 
-if [ "$(uname)" == "Darwin" ]; then
+if [[ "$(uname)" == "Darwin" ]]; then
 
 	alias oemacs='open -a /Applications/Emacs.app'
 
