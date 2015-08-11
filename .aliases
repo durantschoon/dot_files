@@ -1,10 +1,12 @@
 # NOTES:
+#
+# Idea to check a file by Paul Merrill (July 10, 2015)
 # 
 # if on home computer, 
 #   echo See ~/.aliases for the use of this file >> ~/.HOME
 # 
 # if on work computer, 
-#   echo See ~/.aliases for the use of this file >> ~/.WORK
+#   echo See ~/.aliases for the use of this file >> ~/.WORK# 
 
 ###############################################################################
 # Bash Aliases
@@ -24,7 +26,6 @@ alias ipn='ipython notebook --pylab inline'
 alias ll='ls -l'
 alias m='less'
 alias md='mkdir -p'
-alias oemacs='open -a /Applications/Emacs.app'
 alias path='echo $PATH | c2n'
 alias pp='popd; ds'
 alias py="echo 'Using ipython instead, duh' ; ipython"
@@ -39,6 +40,20 @@ alias wh=which
 alias zmvw='zmv -W'
 alias ,=pd
 alias ,.=pp
+
+# -----------------------------------------------------------------------------
+# OS Specific Aliases
+# -----------------------------------------------------------------------------
+
+if [ "$(uname)" == "Darwin" ]; then
+
+	alias oemacs='open -a /Applications/Emacs.app'
+
+#elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+    # Do something under Linux platform
+#elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
+    # Do something under Windows NT platform
+fi
 
 # -----------------------------------------------------------------------------
 # Aliases at home
