@@ -45,7 +45,7 @@ alias ,.=pp
 # OS Specific Aliases
 # -----------------------------------------------------------------------------
 
-if [ "$(uname)" == "Darwin" ]; then
+if [[ "$(uname)" == "Darwin" ]]; then
 
 	alias oemacs='open -a /Applications/Emacs.app'
 
@@ -59,7 +59,7 @@ fi
 # Aliases at home
 # -----------------------------------------------------------------------------
 
-if [ -e "~/.HOME" ]; then
+if [ -e ~/.HOME ]; then
 	alias proj='cd ~/Programming/PROJECTS'
 fi
 
@@ -67,13 +67,17 @@ fi
 # Aliases at work
 # -----------------------------------------------------------------------------
 
-if [ -e "~/.WORK" ]; then
+if [ -e ~/.WORK ]; then
 
 	alias downloads='cd ~/Downloads; lthd'
 	alias courses='cd ~/Documents/courses; lthd'
 	alias org='cd ~/Documents/org; lthd'
 
 	alias python_dir='cd ~/Documents/python'
+
+	# Emacs Nanodegree -- switch between personal and ND emacs.d configs
+	alias emacsnd='rm ~/.emacs.d; ln -sf ~/.emacs.d-nd ~/.emacs.d'
+	alias emacsp='rm ~/.emacs.d; ln -sf ~/.emacs.d-personal ~/.emacs.d'
 
 # -----
 
