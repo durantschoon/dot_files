@@ -15,7 +15,7 @@ ln -si ~/dot_files/.zshrc ~/
 ln -si ~/dot_files/.aliases ~/
 </pre>
 
-## Create a file to decide to load home or work dot files
+## Create a file to decide to load home or work aliases
 
 At home
 <pre>
