@@ -65,6 +65,9 @@ export PATH=/usr/local/bin:${PATH:gs#/usr/local/bin:##}
 # for brew (mac)
 export PATH=/usr/local/sbin:${PATH:gs#/usr/local/sbin:##}
 
+# for ruby
+[[ -f ~/.rvm/scripts/rvm ]] && . ~/.rvm/scripts/rvm
+
 # penv
 export PYENV_ROOT="$HOME/.pyenv"
 export PATH="$PYENV_ROOT/bin:$PATH"
