@@ -13,7 +13,7 @@
 ###############################################################################
 
 alias a='alias'
-alias ag='alias | grep'
+alias agr='alias | grep'
 alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
 alias ds='dirs -v'
