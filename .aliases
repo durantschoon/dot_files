@@ -100,6 +100,7 @@ if [ -e ~/.WORK ]; then
 	alias oojs='cd ~/Documents/courses/object_oriented_javascript_ud015'
 	alias htcs='cd ~/Documents/courses/intro_to_html_and_css_ud304'
 	alias canvas='cd ~/Documents/courses/html5_canvas_ud292'
+	alias bro='cd ~/Documents/courses/browser_rendering_optimization_ud860'
 
 	alias python_dir='cd ~/Documents/python'
 	alias rainman_csv='cd ~/Downloads/rainman_csv_files'
