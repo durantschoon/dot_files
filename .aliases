@@ -110,6 +110,8 @@ if [ -e ~/.WORK ]; then
 
 	alias eval_proj_dir='cd ~/Documents/courses/cm_github_repo/project_evaluation_client_side'
 
+	alias emacsn='cd /Users/durant/Documents/Projects/emacsnd'
+
 fi
 
 ###############################################################################
