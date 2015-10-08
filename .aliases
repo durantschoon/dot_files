@@ -102,6 +102,7 @@ if [ -e ~/.WORK ]; then
 	alias canvas='cd ~/Documents/courses/html5_canvas_ud292'
 	alias bro='cd ~/Documents/courses/browser_rendering_optimization_ud860'
 
+	alias proj='cd ~/Documents/Projects'
 	alias python_dir='cd ~/Documents/python'
 	alias rainman_csv='cd ~/Downloads/rainman_csv_files'
 	alias hadoop_grading='cd ~/Downloads/final_projects/Hadoop_grading/final_project_grading_v2/testing_scripts'
