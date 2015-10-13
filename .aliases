@@ -101,7 +101,7 @@ if [ -e ~/.WORK ]; then
 	alias htcs='cd ~/Documents/courses/intro_to_html_and_css_ud304'
 	alias canvas='cd ~/Documents/courses/html5_canvas_ud292'
 	alias bro='cd ~/Documents/courses/browser_rendering_optimization_ud860'
-	alias jstest='cd ~/Documents/courses/javascript_design_patterns_ud989'
+	alias jstest='cd ~/Documents/courses/javascript_testing_ud549'
 
 	alias proj='cd ~/Documents/Projects'
 	alias python_dir='cd ~/Documents/python'
