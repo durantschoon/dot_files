@@ -65,6 +65,10 @@ export PATH=/usr/local/bin:${PATH:gs#/usr/local/bin:##}
 # for brew (mac)
 export PATH=/usr/local/sbin:${PATH:gs#/usr/local/sbin:##}
 
+# for npm (mac)
+export PATH=~/node_modules/.bin:${PATH:gs#~/node_modules/.bin:##}
+export PATH=~/.npm-packages/bin:${PATH:gs#~/.npm-packages/bin:##}
+
 # for ruby
 [[ -f ~/.rvm/scripts/rvm ]] && . ~/.rvm/scripts/rvm
 
