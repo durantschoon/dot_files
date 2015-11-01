@@ -78,6 +78,7 @@ if [ -e ~/.WORK ]; then
 	# Emacs Nanodegree -- switch between personal and ND emacs.d configs
 	alias emacsnd='rm ~/.emacs.d; ln -sf ~/.emacs.d-nd ~/.emacs.d'
 	alias emacsp='rm ~/.emacs.d; ln -sf ~/.emacs.d-personal ~/.emacs.d'
+	alias emacsc='rm ~/.emacs.d; ln -sf ~/.emacs.d-clean ~/.emacs.d'
 
 # -----
 
