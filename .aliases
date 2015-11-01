@@ -47,11 +47,11 @@ alias ,.=pp
 
 if [[ "$(uname)" == "Darwin" ]]; then
 
-	alias oemacs='open -a /Applications/Emacs.app'
+    alias oemacs='open -a /Applications/Emacs.app'
 
-#elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+    #elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
     # Do something under Linux platform
-#elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
+    #elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
     # Do something under Windows NT platform
 fi
 
@@ -60,7 +60,7 @@ fi
 # -----------------------------------------------------------------------------
 
 if [ -e ~/.HOME ]; then
-	alias proj='cd ~/Programming/PROJECTS'
+    alias proj='cd ~/Programming/PROJECTS'
 fi
 
 # -----------------------------------------------------------------------------
@@ -69,52 +69,52 @@ fi
 
 if [ -e ~/.WORK ]; then
 
-	alias downloads='cd ~/Downloads; lthd'
-	alias courses='cd ~/Documents/courses; lthd'
-	alias org='cd ~/Documents/org; lthd'
+    alias downloads='cd ~/Downloads; lthd'
+    alias courses='cd ~/Documents/courses; lthd'
+    alias org='cd ~/Documents/org; lthd'
 
-	alias python_dir='cd ~/Documents/python'
+    alias python_dir='cd ~/Documents/python'
 
-	# Emacs Nanodegree -- switch between personal and ND emacs.d configs
-	alias emacsnd='rm ~/.emacs.d; ln -sf ~/.emacs.d-nd ~/.emacs.d'
-	alias emacsp='rm ~/.emacs.d; ln -sf ~/.emacs.d-personal ~/.emacs.d'
-	alias emacsc='rm ~/.emacs.d; ln -sf ~/.emacs.d-clean ~/.emacs.d'
+    # Emacs Nanodegree -- switch between personal and ND emacs.d configs
+    alias emacsnd='rm ~/.emacs.d; ln -sf ~/.emacs.d-nd ~/.emacs.d'
+    alias emacsp='rm ~/.emacs.d; ln -sf ~/.emacs.d-personal ~/.emacs.d'
+    alias emacsc='rm ~/.emacs.d; ln -sf ~/.emacs.d-clean ~/.emacs.d'
 
-# -----
+    # -----
 
-	alias aos='cd ~/Documents/courses/advanced_operating_systems_cs6210'
-	alias cn='cd ~/Documents/courses/computer_networking_cs6250'
-	alias datasci='cd ~/Documents/courses/intro_to_data_science_ud359'
-	alias hadoop='cd ~/Documents/courses/intro_to_hadoop_and_mapreduce_ud617'
-	alias h5g='cd ~/Documents/courses/cs255_html5_game_development'
-	alias mongo='cd ~/Documents/courses/data_wrangling_with_mongodb_ud032'
-	alias networking='cd ~/Documents/courses/computer_networking_cs6250'
-	alias pfwp='cd ~/Documents/courses/programming_foundations_with_python_ud036'
-	alias sf='cd ~/Documents/courses/salesforce_ud162'
-	alias webdev='cd ~/Documents/courses/web_development_cs253'
-	alias docp='cd ~/Documents/courses/design_of_computer_programs_cs212'
-	alias js_basics='cd ~/Documents/courses/javascript_basics_ud804'
-	alias jsb=js_basics
-	alias webperf='cd ~/Documents/courses/website_performance_optimization_ud884'
-	alias wpo=webperf
-	alias git_ud775='cd ~/Documents/courses/how_to_use_git_and_github_ud775'
-	alias oojs='cd ~/Documents/courses/object_oriented_javascript_ud015'
-	alias htcs='cd ~/Documents/courses/intro_to_html_and_css_ud304'
-	alias canvas='cd ~/Documents/courses/html5_canvas_ud292'
-	alias bro='cd ~/Documents/courses/browser_rendering_optimization_ud860'
-	alias jstest='cd ~/Documents/courses/javascript_testing_ud549'
-	alias jpat='cd ~/Documents/courses/javascript_design_patterns_ud989'
+    alias aos='cd ~/Documents/courses/advanced_operating_systems_cs6210'
+    alias cn='cd ~/Documents/courses/computer_networking_cs6250'
+    alias datasci='cd ~/Documents/courses/intro_to_data_science_ud359'
+    alias hadoop='cd ~/Documents/courses/intro_to_hadoop_and_mapreduce_ud617'
+    alias h5g='cd ~/Documents/courses/cs255_html5_game_development'
+    alias mongo='cd ~/Documents/courses/data_wrangling_with_mongodb_ud032'
+    alias networking='cd ~/Documents/courses/computer_networking_cs6250'
+    alias pfwp='cd ~/Documents/courses/programming_foundations_with_python_ud036'
+    alias sf='cd ~/Documents/courses/salesforce_ud162'
+    alias webdev='cd ~/Documents/courses/web_development_cs253'
+    alias docp='cd ~/Documents/courses/design_of_computer_programs_cs212'
+    alias js_basics='cd ~/Documents/courses/javascript_basics_ud804'
+    alias jsb=js_basics
+    alias webperf='cd ~/Documents/courses/website_performance_optimization_ud884'
+    alias wpo=webperf
+    alias git_ud775='cd ~/Documents/courses/how_to_use_git_and_github_ud775'
+    alias oojs='cd ~/Documents/courses/object_oriented_javascript_ud015'
+    alias htcs='cd ~/Documents/courses/intro_to_html_and_css_ud304'
+    alias canvas='cd ~/Documents/courses/html5_canvas_ud292'
+    alias bro='cd ~/Documents/courses/browser_rendering_optimization_ud860'
+    alias jstest='cd ~/Documents/courses/javascript_testing_ud549'
+    alias jpat='cd ~/Documents/courses/javascript_design_patterns_ud989'
 
-	alias proj='cd ~/Documents/Projects'
-	alias python_dir='cd ~/Documents/python'
-	alias rainman_csv='cd ~/Downloads/rainman_csv_files'
-	alias hadoop_grading='cd ~/Downloads/final_projects/Hadoop_grading/final_project_grading_v2/testing_scripts'
-	alias exiti='cd ~/Downloads/final_projects/exit_interviews'
-	alias fp='cd ~/Downloads/final_projects'
+    alias proj='cd ~/Documents/Projects'
+    alias python_dir='cd ~/Documents/python'
+    alias rainman_csv='cd ~/Downloads/rainman_csv_files'
+    alias hadoop_grading='cd ~/Downloads/final_projects/Hadoop_grading/final_project_grading_v2/testing_scripts'
+    alias exiti='cd ~/Downloads/final_projects/exit_interviews'
+    alias fp='cd ~/Downloads/final_projects'
 
-	alias eval_proj_dir='cd ~/Documents/courses/cm_github_repo/project_evaluation_client_side'
+    alias eval_proj_dir='cd ~/Documents/courses/cm_github_repo/project_evaluation_client_side'
 
-	alias emacsn='cd /Users/durant/Documents/Projects/emacsnd'
+    alias emacsn='cd /Users/durant/Documents/Projects/emacsnd'
 
 fi
 
@@ -123,101 +123,101 @@ fi
 ###############################################################################
 
 if [ -n "$ZSH_VERSION" ]; then
-   # assume Zsh
+    # assume Zsh
 
-alias s.z='source ~/.zshrc'
-alias s.ze='source ~/.zshenv'
-alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
-alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# . regular file, o sorted, m mod time, 1 first
-# z move?
-# zmv -W '*.lis' '*.txt'
-alias zmvw='zmv -W'
+    alias s.z='source ~/.zshrc'
+    alias s.ze='source ~/.zshenv'
+    alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
+    alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# . regular file, o sorted, m mod time, 1 first
+    # z move?
+    # zmv -W '*.lis' '*.txt'
+    alias zmvw='zmv -W'
 
-# try these
-alias -g latestd='*(/om[1])' # newest directory
-alias -g latestf='*(.om[1])' # newest file
+    # try these
+    alias -g latestd='*(/om[1])' # newest directory
+    alias -g latestf='*(.om[1])' # newest file
 
-alias llrm='echo "Paste ls -lt output for files to delete and ^D when done"; /bin/rm -rf `awk '\''{print $9}'\''`'
+    alias llrm='echo "Paste ls -lt output for files to delete and ^D when done"; /bin/rm -rf `awk '\''{print $9}'\''`'
 
-# unalias rm
-rm () { mv $* ~/.Trash }
+    # unalias rm
+    rm () { mv $* ~/.Trash }
 
-# alias pd='pushd; ds'
-function pd () {
-	 pushd $1
-	 ds
-}
+    # alias pd='pushd; ds'
+    function pd () {
+	pushd $1
+	ds
+    }
 
-function p () {
-	 ls -d $PWD/$1
-}
+    function p () {
+	ls -d $PWD/$1
+    }
 
-# -----
+    # -----
 
-# $1 = type; 0 - both, 1 - tab, 2 - title
-# rest = text
-setTerminalText () {
-    # echo works in bash & zsh
-    local mode=$1 ; shift
-    echo -ne "\033]$mode;$@\007"
-}
-stt_both  () { setTerminalText 0 $@; }
-stt_tab   () { setTerminalText 1 $@; }
-stt_title () { setTerminalText 2 $@; }
+    # $1 = type; 0 - both, 1 - tab, 2 - title
+    # rest = text
+    setTerminalText () {
+	# echo works in bash & zsh
+	local mode=$1 ; shift
+	echo -ne "\033]$mode;$@\007"
+    }
+    stt_both  () { setTerminalText 0 $@; }
+    stt_tab   () { setTerminalText 1 $@; }
+    stt_title () { setTerminalText 2 $@; }
 
-# mac
+    # mac
 
-###############################################################################
-# global aliases
-# example: C
+    ###############################################################################
+    # global aliases
+    # example: C
 
-# from: http://grml.org/zsh/zsh-lovers.html
+    # from: http://grml.org/zsh/zsh-lovers.html
 
-# $latest alias -g C='| wc -l'
-# $ grep alias ~/.zsh/* C
-# 443
+    # $latest alias -g C='| wc -l'
+    # $ grep alias ~/.zsh/* C
+    # 443
 
-alias -g ...='../..'
-alias -g ....='../../..'
-alias -g .....='../../../..'
-alias -g CA="2>&1 | cat -A"
-alias -g C='| wc -l'
-alias -g D="DISPLAY=:0.0"
-alias -g DN=/dev/null
-alias -g ED="export DISPLAY=:0.0"
-alias -g EG='|& egrep'
-alias -g EH='|& head'
-alias -g EL='|& less'
-alias -g ELS='|& less -S'
-alias -g ETL='|& tail -20'
-alias -g ET='|& tail'
-alias -g F=' | fmt -'
-alias -g G='| egrep'
-alias -g H='| head'
-alias -g HL='|& head -20'
-alias -g Sk="*~(*.bz2|*.gz|*.tgz|*.zip|*.z)"
-alias -g LL="2>&1 | less"
-alias -g L="| less"
-alias -g LS='| less -S'
-alias -g MM='| most'
-alias -g M='| more'
-alias -g NE="2> /dev/null"
-alias -g NS='| sort -n'
-alias -g NUL="> /dev/null 2>&1"
-alias -g PIPE='|'
-alias -g R=' > /c/aaa/tee.txt '
-alias -g RNS='| sort -nr'
-alias -g S='| sort'
-alias -g TL='| tail -20'
-alias -g T='| tail'
-alias -g US='| sort -u'
-alias -g VM=/var/log/messages
-alias -g X0G='| xargs -0 egrep'
-alias -g X0='| xargs -0'
-alias -g XG='| xargs egrep'
-alias -g X='| xargs'
+    alias -g ...='../..'
+    alias -g ....='../../..'
+    alias -g .....='../../../..'
+    alias -g CA="2>&1 | cat -A"
+    alias -g C='| wc -l'
+    alias -g D="DISPLAY=:0.0"
+    alias -g DN=/dev/null
+    alias -g ED="export DISPLAY=:0.0"
+    alias -g EG='|& egrep'
+    alias -g EH='|& head'
+    alias -g EL='|& less'
+    alias -g ELS='|& less -S'
+    alias -g ETL='|& tail -20'
+    alias -g ET='|& tail'
+    alias -g F=' | fmt -'
+    alias -g G='| egrep'
+    alias -g H='| head'
+    alias -g HL='|& head -20'
+    alias -g Sk="*~(*.bz2|*.gz|*.tgz|*.zip|*.z)"
+    alias -g LL="2>&1 | less"
+    alias -g L="| less"
+    alias -g LS='| less -S'
+    alias -g MM='| most'
+    alias -g M='| more'
+    alias -g NE="2> /dev/null"
+    alias -g NS='| sort -n'
+    alias -g NUL="> /dev/null 2>&1"
+    alias -g PIPE='|'
+    alias -g R=' > /c/aaa/tee.txt '
+    alias -g RNS='| sort -nr'
+    alias -g S='| sort'
+    alias -g TL='| tail -20'
+    alias -g T='| tail'
+    alias -g US='| sort -u'
+    alias -g VM=/var/log/messages
+    alias -g X0G='| xargs -0 egrep'
+    alias -g X0='| xargs -0'
+    alias -g XG='| xargs egrep'
+    alias -g X='| xargs'
 
 elif [ -n "$BASH_VERSION" ]; then
-   # assume Bash
+    # assume Bash
 fi
 
