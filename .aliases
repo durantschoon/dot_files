@@ -76,9 +76,9 @@ if [ -e ~/.WORK ]; then
     alias python_dir='cd ~/Documents/python'
 
     # Emacs Nanodegree -- switch between personal and ND emacs.d configs
-    alias emacsnd='rm ~/.emacs.d; ln -sf ~/.emacs.d-nd ~/.emacs.d'
-    alias emacsp='rm ~/.emacs.d; ln -sf ~/.emacs.d-personal ~/.emacs.d'
-    alias emacsc='rm ~/.emacs.d; ln -sf ~/.emacs.d-clean ~/.emacs.d'
+    alias emacsnd='=rm ~/.emacs.d; ln -sf ~/.emacs.d-nd ~/.emacs.d'
+    alias emacsp='=rm ~/.emacs.d; ln -sf ~/.emacs.d-personal ~/.emacs.d'
+    alias emacsc='=rm ~/.emacs.d; ln -sf ~/.emacs.d-clean ~/.emacs.d'
 
     # -----
 
