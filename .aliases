@@ -18,6 +18,7 @@ alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
 alias ds='dirs -v'
 alias eg=egrep
+alias ssh_fingerprint='ssh-keygen -E md5 -lf'
 alias g=grep
 alias h=history
 alias hgr='history | grep'
