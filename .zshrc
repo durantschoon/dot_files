@@ -69,6 +69,13 @@ export PATH=/usr/local/sbin:${PATH:gs#/usr/local/sbin:##}
 export PATH=~/node_modules/.bin:${PATH:gs#~/node_modules/.bin:##}
 export PATH=~/.npm-packages/bin:${PATH:gs#~/.npm-packages/bin:##}
 
+
+if [ -e ~/.WORK ]; then
+    # for redshift maybe postgress too
+    # note this does prepend onto the env var (I didn't have one before) 
+    export DYLD_FALLBACK_LIBRARY_PATH=$(echo ~/.pyenv/versions/anaconda-*/lib(om[1]))
+fi
+
 # for ruby
 [[ -f ~/.rvm/scripts/rvm ]] && . ~/.rvm/scripts/rvm
 
