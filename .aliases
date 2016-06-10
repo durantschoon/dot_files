@@ -16,6 +16,7 @@ alias a='alias'
 alias agr='alias | grep'
 alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
+alias dm='docker-machine'
 alias ds='dirs -v'
 alias eg=egrep
 alias ssh_fingerprint='ssh-keygen -E md5 -lf'
