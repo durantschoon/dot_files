@@ -144,14 +144,19 @@ if [ -n "$ZSH_VERSION" ]; then
     # unalias rm
     rm () { mv $* ~/.Trash }
 
+    function mdc () {
+        mkdir -p $1
+        cd $1
+    }
+
     # alias pd='pushd; ds'
     function pd () {
-	pushd $1
-	ds
+	      pushd $1
+	      ds
     }
 
     function p () {
-	ls -d $PWD/$1
+	      ls -d $PWD/$1
     }
 
     # -----
@@ -159,9 +164,9 @@ if [ -n "$ZSH_VERSION" ]; then
     # $1 = type; 0 - both, 1 - tab, 2 - title
     # rest = text
     setTerminalText () {
-	# echo works in bash & zsh
-	local mode=$1 ; shift
-	echo -ne "\033]$mode;$@\007"
+	      # echo works in bash & zsh
+	      local mode=$1 ; shift
+	      echo -ne "\033]$mode;$@\007"
     }
     stt_both  () { setTerminalText 0 $@; }
     stt_tab   () { setTerminalText 1 $@; }
