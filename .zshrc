@@ -166,3 +166,6 @@ fpath=(~/.zsh $fpath)
 # path+=/usr/local/mysql/bin(N) wouldn't work.
 # durant: use
 # path+=(/usr/local/bin/mysql/bin(N-/))
+
+export NVM_DIR="/Users/durant/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
