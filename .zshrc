@@ -59,33 +59,9 @@ plugins=(git osx emacs)
 
 # User configuration
 
-# for git and other things
-export PATH=/usr/local/bin:${PATH:gs#/usr/local/bin:##}
-
-# for brew (mac)
-export PATH=/usr/local/sbin:${PATH:gs#/usr/local/sbin:##}
-
-# for npm (mac)
-export PATH=~/node_modules/.bin:${PATH:gs#~/node_modules/.bin:##}
-export PATH=~/.npm-packages/bin:${PATH:gs#~/.npm-packages/bin:##}
-
-
-if [ -e ~/.WORK ]; then
-    # for redshift maybe postgress too
-    # note this does prepend onto the env var (I didn't have one before) 
-    export DYLD_FALLBACK_LIBRARY_PATH=$(echo ~/.pyenv/versions/anaconda-*/lib(om[1]))
-fi
-
-# for ruby
-[[ -f ~/.rvm/scripts/rvm ]] && . ~/.rvm/scripts/rvm
-
-# penv
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-if which pyenv > /dev/null; then eval "$(pyenv init -)"; fi
-
-# export PATH=$HOME/bin:/usr/local/bin:$PATH
-# export MANPATH="/usr/local/man:$MANPATH"
+# Anything specific to an install on a particular machine should go in .zshenv
+# e.g. modifications to PATH should happen in ~/.zshenv
+# the rest can be set here
 
 source $ZSH/oh-my-zsh.sh
 
@@ -167,5 +143,3 @@ fpath=(~/.zsh $fpath)
 # durant: use
 # path+=(/usr/local/bin/mysql/bin(N-/))
 
-export NVM_DIR="/Users/durant/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
