@@ -160,6 +160,10 @@ if [ -n "$ZSH_VERSION" ]; then
 	      ls -d $PWD/$1
     }
 
+    function pdfsearch() {
+        pdfgrep -nir "$@" .
+    }
+
     # -----
 
     # $1 = type; 0 - both, 1 - tab, 2 - title
