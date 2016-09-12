@@ -33,6 +33,7 @@ alias pp='popd; ds'
 alias py="echo 'Using ipython instead, duh' ; ipython"
 alias s.a='source ~/.aliases'
 alias s.b='source ~/.bashrc'
+alias s2n='tr " " "\012"'
 alias up='cd ..'
 alias up2='cd ../..'
 alias up3='cd ../../..'
