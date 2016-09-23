@@ -1,5 +1,7 @@
 # `.zshrc' is sourced in interactive shells. It should contain commands to set up aliases, functions, options, key bindings, etc.
 
+# I tried to separate out path related things into .zshenv, but things (eg. pyenv) broke
+
 # Path to your oh-my-zsh installation.
 export ZSH=$HOME/.oh-my-zsh
 
@@ -142,3 +144,5 @@ if which pyenv > /dev/null; then eval "$(pyenv init -)"; fi
 
 export NVM_DIR="/Users/durant/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+
+export GOPATH=$HOME/work
