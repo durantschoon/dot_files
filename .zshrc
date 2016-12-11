@@ -137,12 +137,19 @@ fpath=(~/.zsh $fpath)
 ###############################################################################
 # these really belong in .zshenv, but things broke when I moved them there
 
+# python
+export LC_ALL=en_US.UTF-8
+export LANG=en_US.UTF-8
+
 # pyenv
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-if which pyenv > /dev/null; then eval "$(pyenv init -)"; fi
+export PYENV_ROOT="${HOME}/.pyenv"
+if [ -d "${PYENV_ROOT}" ]; then
+    export PATH=${PYENV_ROOT}/bin:$PATH
+    eval "$(pyenv init -)"
+fi
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
 
 export GOPATH=$HOME/work
+export PATH=$PATH:$GOPATH/bin
