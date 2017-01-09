@@ -90,6 +90,8 @@ if [ -e ~/.WORK ]; then
     alias python_dir='cd ~/Documents/python'
 
     alias tf='cd /Users/durant/Documents/Projects/tensorflow/tensorflow/examples/udacity'
+    alias tfr='docker run -p 8888:8888 --name tensorflow2-udacity -it durantschoon/tensorflow2'
+    alias tfs='docker start -ai tensorflow2-udacity'
 
     # Emacs Nanodegree -- switch between personal and ND emacs.d configs
     alias emacsnd='=rm ~/.emacs.d; ln -sf ~/.emacs.d-nd ~/.emacs.d'
