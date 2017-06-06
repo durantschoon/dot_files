@@ -6,7 +6,7 @@
 #   echo See ~/.aliases for the use of this file >> ~/.HOME
 # 
 # if on work computer, 
-#   echo See ~/.aliases for the use of this file >> ~/.WORK# 
+#   echo See ~/.aliases for the use of this file >> ~/.WORK
 
 ###############################################################################
 # Bash Aliases
@@ -21,6 +21,8 @@ alias ds='dirs -v'
 alias eg=egrep
 alias ssh_fingerprint='ssh-keygen -E md5 -lf'
 alias g=grep
+alias git_email='echo Your git email is `git config user.email`'
+alias git_id_help='git_email; echo Check your git_id aliases for more info.'
 alias h=history
 alias hgr='history | grep'
 alias ipy=ipython
@@ -56,6 +58,15 @@ if [[ "$(uname)" == "Darwin" ]]; then
     # Do something under Linux platform
     #elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
     # Do something under Windows NT platform
+fi
+
+# -----------------------------------------------------------------------------
+# Private aliases
+# -----------------------------------------------------------------------------
+
+if [ -e ~/.private_aliases ]; then
+    alias s.a='source ~/.aliases; source ~/.private_aliases'
+    source ~/.private_aliases
 fi
 
 # -----------------------------------------------------------------------------
