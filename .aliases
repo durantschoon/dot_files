@@ -125,6 +125,7 @@ if [ -e ~/.WORK ]; then
     alias jpat='cd ~/Documents/courses/javascript_design_patterns_ud989'
 
     alias proj='cd ~/Documents/Projects'
+    alias repos='cd ~/Documents/repos'
     alias python_dir='cd ~/Documents/python'
     alias rainman_csv='cd ~/Downloads/rainman_csv_files'
     alias hadoop_grading='cd ~/Downloads/final_projects/Hadoop_grading/final_project_grading_v2/testing_scripts'
