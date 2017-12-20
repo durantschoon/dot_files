@@ -46,7 +46,7 @@ RPROMPT="%{$fg[green]%}[%* on %D]%{$reset_color%}" # prompt for right side of sc
 # ENABLE_CORRECTION="true"
 
 # Uncomment the following line to display red dots whilst waiting for completion.
-# COMPLETION_WAITING_DOTS="true"
+COMPLETION_WAITING_DOTS="true"
 
 # Uncomment the following line if you want to disable marking untracked files
 # under VCS as dirty. This makes repository status check for large repositories
@@ -65,7 +65,7 @@ RPROMPT="%{$fg[green]%}[%* on %D]%{$reset_color%}" # prompt for right side of sc
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git osx emacs)
+plugins=(git osx emacs nvm)
 
 # User configuration
 
@@ -100,11 +100,6 @@ source $ZSH/oh-my-zsh.sh
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 source $HOME/.aliases
-
-# currently causes an error
-# if [ -f ~/.git-completion.zsh ]; then
-#     . ~/.git-completion.zsh
-# fi
 
 # obvious?
 setopt HIST_IGNORE_ALL_DUPS
@@ -153,6 +148,7 @@ export NVM_DIR="$HOME/.nvm"
 
 export GOPATH=$HOME/work
 export PATH=$PATH:$GOPATH/bin
+<<<<<<< HEAD
 
 # Add RVM to PATH for scripting. Make sure this is the last PATH variable change.
 # export PATH="$PATH:$HOME/.rvm/bin"
@@ -161,3 +157,11 @@ if [ -d "$HOME/.rvm/bin" ]; then
 fi
 
 export PATH="/usr/local/sbin:$PATH"
+||||||| merged common ancestors
+=======
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+
+# Add RVM to PATH for scripting. Make sure this is the last PATH variable change.
+export PATH="$PATH:$HOME/.rvm/bin"
+>>>>>>> trying completion dots
