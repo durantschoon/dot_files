@@ -75,6 +75,8 @@ fi
 
 if [ -e ~/.HOME ]; then
     alias proj='cd ~/Programming/PROJECTS'
+    alias dox='cd ~/Documents'
+    alias blog='cd ~/Documents/Blog'
 fi
 
 # -----------------------------------------------------------------------------
