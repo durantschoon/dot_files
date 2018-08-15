@@ -161,8 +161,11 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias llrm='echo "Paste ls -lt output for files to delete and ^D when done"; /bin/rm -rf `awk '\''{print $9}'\''`'
 
-    # unalias rm
-    rm () { mv $* ~/.Trash }
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # unalias rm
+        rm () { mv $* ~/.Trash }
+    fi
 
     function mdc () {
         mkdir -p $1
