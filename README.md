@@ -33,7 +33,7 @@ At work
 echo See ~/.aliases for the use of this file >> ~/.WORK
 ```
 
-## I also use ohmyzsh
+## I also use oh-my-zsh
 
 Which you can get from [here](https://github.com/robbyrussell/oh-my-zsh).
 
