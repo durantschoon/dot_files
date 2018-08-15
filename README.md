@@ -32,3 +32,11 @@ At work
 ```sh
 echo See ~/.aliases for the use of this file >> ~/.WORK
 ```
+
+## I also use ohmyzsh
+
+Which you can get from [here](https://github.com/robbyrussell/oh-my-zsh).
+
+But on Ubuntu, you should also check out [this](https://gist.github.com/tsabat/1498393).
+
+I use the agnoster theme in ohmyzsh which is best viewed with the meslo powerline fonts which you'll have to download for your system.
