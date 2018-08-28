@@ -132,6 +132,9 @@ fpath=(~/.zsh $fpath)
 ###############################################################################
 # these really belong in .zshenv, but things broke when I moved them there
 
+# unique paths
+typeset -U path
+
 # python
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
