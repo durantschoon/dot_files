@@ -19,7 +19,6 @@ alias cx='chmod +x'
 alias dm='docker-machine'
 alias ds='dirs -v'
 alias eg=egrep
-alias ssh_fingerprint='ssh-keygen -E md5 -lf'
 alias g=grep
 alias git_email='echo Your git email is `git config user.email`'
 alias git_id_help='git_email; echo Check your git_id aliases for more info.'
@@ -53,10 +52,13 @@ alias ,.=pp
 if [[ "$(uname)" == "Darwin" ]]; then
 
     alias oemacs='open -a /Applications/Emacs.app'
+    alias ssh_fingerprint='ssh-keygen -E md5 -lf'
 
-    #elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
-    #elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
+    alias ssh_fingerprint='ssh-keygen -E md5 -l'
+
+    #elif [[ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]]; then
     # Do something under Windows NT platform
 fi
 
