@@ -130,7 +130,8 @@ SAVEHIST=1000
 fpath=(~/.zsh $fpath)
 
 ###############################################################################
-# these really belong in .zshenv, but things broke when I moved them there
+# these might belong in .zshenv, but if they are conventions for both GNU/Linux
+# and OSX then why not keep them here and only use the paths if they exist
 
 # unique paths
 typeset -U path
