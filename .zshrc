@@ -187,3 +187,8 @@ fi
 if [ -d "/usr/local/sbin" ]; then
     path=(/usr/local/sbin "$path[@]")
 fi
+
+if [ -d "$HOME/Programming/go" ]; then
+    export GOPATH=$HOME/Programming/go
+fi
+
