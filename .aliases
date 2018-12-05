@@ -38,6 +38,7 @@ alias s2n='tr " " "\012"'
 alias up='cd ..'
 alias up2='cd ../..'
 alias up3='cd ../../..'
+alias up4='cd ../../../..'
 alias wh=which
 # z move?
 # zmv -W '*.lis' '*.txt'
