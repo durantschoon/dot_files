@@ -190,5 +190,8 @@ fi
 
 if [ -d "$HOME/Programming/go" ]; then
     export GOPATH=$HOME/Programming/go
+    if [ -d "$GOPATH/bin" ]; then
+        path=("$path[@]" $GOPATH/bin)
+    fi
 fi
 
