@@ -25,7 +25,7 @@ export ZSH=$HOME/.oh-my-zsh
 autoload -U colors && colors
 # # PS1="%{$fg[red]%}%n%{$reset_color%}@%{$fg[blue]%}%m %{$fg[yellow]%}%2~ %{$reset_color%}%% "
 # PS1="%{$fg[red]%}%n%{$reset_color%} %{$fg[yellow]%}%2~ %{$fg[blue]%}[%h] %{$reset_color%}%% "
-RPROMPT="%{$fg[green]%}[%* on %D]%{$reset_color%}" # prompt for right side of screen
+# RPROMPT="%{$fg[green]%}[%* on %D]%{$reset_color%}" # prompt for right side of screen
 
 # Uncomment the following line to use case-sensitive completion.
 # CASE_SENSITIVE="true"
@@ -182,6 +182,10 @@ fi
 # export PATH="$PATH:$HOME/.rvm/bin"
 if [ -d "$HOME/.rvm/bin" ]; then
     path=($HOME/.rvm/bin "$path[@]")
+fi
+
+if [ -d "/usr/local/opt/openssl/bin" ]; then
+    path=(/usr/local/opt/openssl/bin "$path[@]")
 fi
 
 if [ -d "/usr/local/sbin" ]; then
