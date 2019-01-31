@@ -1,3 +1,6 @@
+# for profiling: also zprof at end
+# zmodload zsh/zprof
+
 # `.zshrc' is sourced in interactive shells. It should contain commands to set up aliases, functions, options, key bindings, etc.
 
 # I tried to separate out path related things into .zshenv, but things (eg. pyenv) broke
@@ -150,7 +153,8 @@ fi
 if [ -d "$HOME/.nvm" ]; then
     export NVM_DIR="$HOME/.nvm"
     # This loads nvm
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+    # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # super sloooow? so fix it with --no-use
+    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use
     # This loads nvm bash_completion
     [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 
@@ -199,3 +203,4 @@ if [ -d "$HOME/Programming/go" ]; then
     fi
 fi
 
+# zprof
