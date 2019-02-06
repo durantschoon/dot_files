@@ -154,7 +154,11 @@ if [ -d "$HOME/.nvm" ]; then
     export NVM_DIR="$HOME/.nvm"
     # This loads nvm
     # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # super sloooow? so fix it with --no-use
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use
+    (
+        echo -n "Loading nvm in the background..." 
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use && \
+        echo "Finished!" &
+    )
     # This loads nvm bash_completion
     [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 
