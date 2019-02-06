@@ -211,7 +211,8 @@ fi
 # replace this (2x): compinit -d "${ZSH_COMPDUMP}"
 # with this: compinit -C -d "${ZSH_COMPDUMP}"
 # from discussion here: https://gist.github.com/ctechols/ca1035271ad134841284
+# I think I ought to run this once without -C so I'm adding it here
 # this runs compinit at most once a day instead of evertime zsh starts up
-find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && source $HOME/.zshrc
+find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && compinit -d "${ZSH_COMPDUMP}" && source $HOME/.zshrc
 
 # zprof
