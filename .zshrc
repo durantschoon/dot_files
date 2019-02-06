@@ -207,12 +207,15 @@ if [ -d "$HOME/Programming/go" ]; then
     fi
 fi
 
+# I chose not to modify ~/.oh-my-zsh/oh-my-zsh.sh because it causes
+# problems for upgrading.
+# Here are the changes I would have made:
 # see compinit in ~/.oh-my-zsh/oh-my-zsh.sh for this following line
 # replace this (2x): compinit -d "${ZSH_COMPDUMP}"
 # with this: compinit -C -d "${ZSH_COMPDUMP}"
 # from discussion here: https://gist.github.com/ctechols/ca1035271ad134841284
 # I think I ought to run this once without -C so I'm adding it here
 # this runs compinit at most once a day instead of evertime zsh starts up
-find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && compinit -d "${ZSH_COMPDUMP}" && source $HOME/.zshrc
+# find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && compinit -d "${ZSH_COMPDUMP}" && source $HOME/.zshrc
 
 # zprof
