@@ -207,4 +207,11 @@ if [ -d "$HOME/Programming/go" ]; then
     fi
 fi
 
+# see compinit in ~/.oh-my-zsh/oh-my-zsh.sh for this following line
+# replace this (2x): compinit -d "${ZSH_COMPDUMP}"
+# with this: compinit -C -d "${ZSH_COMPDUMP}"
+# from discussion here: https://gist.github.com/ctechols/ca1035271ad134841284
+# this runs compinit at most once a day instead of evertime zsh starts up
+find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && source $HOME/.zshrc
+
 # zprof
