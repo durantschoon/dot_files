@@ -71,7 +71,15 @@ COMPLETION_WAITING_DOTS="true"
 # Note: for grc to work, I had to manually copy
 # https://github.com/garabik/grc/blob/master/grc.zsh to
 # ~/.oh-my-zsh/plugins/grc/grc.plugin.zsh
-plugins=(git osx emacs nvm grc)
+# plugins=(git osx emacs nvm grc)
+plugins=(
+    git
+    osx
+    emacs
+    nvm
+    zsh-syntax-highlighting
+    zsh-autosuggestions
+)
 
 # User configuration
 
@@ -158,9 +166,7 @@ if [ -d "$HOME/.nvm" ]; then
     # This loads nvm
     # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # super sloooow? so fix it with --no-use
     (
-        echo -n "Loading nvm in the background..." 
         [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use && \
-        echo "Finished!" &
     )
     # This loads nvm bash_completion
     [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
@@ -186,7 +192,16 @@ if [ -d "$HOME/.nvm" ]; then
         fi
     }
     add-zsh-hook chpwd load-nvmrc
-    load-nvmrc
+    if [ -f ~/.WORK ]; then
+        nvm use v12.4.0 >/dev/null
+    else
+        load-nvmrc
+    fi
+fi
+
+# export PATH="/usr/local/opt/node@8/bin:$PATH"
+if [ -d "/usr/local/opt/node@8/bin" ]; then
+    path=(/usr/local/opt/node@8/bin "$path[@]")
 fi
 
 # Add RVM to PATH for scripting. Make sure this is the last PATH variable change.
@@ -222,3 +237,23 @@ fi
 # find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && compinit -d "${ZSH_COMPDUMP}" && source $HOME/.zshrc
 
 # zprof
+
+# Haskell on mac
+if [ -d "${HOME}/.local/bin" ]; then
+    path=("${HOME}/.local/bin" "$path[@]")
+fi
+
+if [[ -d ~/.cabal/bin && -d ~/.ghcup/bin ]]; then
+    path=(~/.cabal/bin ~/.ghcup/bin "$path[@]")
+fi
+
+if [ -d ~/Library/Haskell/bin ]; then
+    path=(~/Library/Haskell/bin "$path[@]")
+fi
+
+if [ -f /Users/durant.schoon/.ghcup/env ]; then . /Users/durant.schoon/.ghcup/env; fi
+
+[[ -f ~/.bash_profile ]] && . ~/.bash_profile
+
+# The next line sources any commands that are specific to my work environment
+if [ -f ~/.zshrc_work ]; then . ~/.zshrc_work; fi
