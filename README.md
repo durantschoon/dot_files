@@ -14,7 +14,7 @@ git clone https://github.com/durantschoon/dot_files.git
 
 Which you can get from [here](https://github.com/robbyrussell/oh-my-zsh). But on Ubuntu, you should also check out [this](https://gist.github.com/tsabat/1498393).
 
-I use the agnoster theme in oh-my-zsh which is best viewed with the [meslo powerline fonts](https://github.com/powerline/fonts) which you'll have to download for your system.
+I use the agnoster theme in oh-my-zsh which is best viewed with the [meslo powerline fonts](https://github.com/powerline/fonts) which you'll have to download for your system. Remember to set them in your terminal applications!
 
 ## Make links
 
