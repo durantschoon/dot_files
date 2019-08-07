@@ -166,7 +166,9 @@ if [ -d "$HOME/.nvm" ]; then
     # This loads nvm
     # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # super sloooow? so fix it with --no-use
     (
+        # echo -n "Loading nvm in the background..." 
         [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use && \
+        # echo "Finished!" &
     )
     # This loads nvm bash_completion
     [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
@@ -223,6 +225,10 @@ if [ -d "$HOME/Programming/go" ]; then
     if [ -d "$GOPATH/bin" ]; then
         path=("$path[@]" $GOPATH/bin)
     fi
+fi
+
+if [ -d "$HOME/.local/bin" ]; then
+    path=($HOME/.local/bin "$path[@]")
 fi
 
 # I chose not to modify ~/.oh-my-zsh/oh-my-zsh.sh because it causes
