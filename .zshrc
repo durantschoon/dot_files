@@ -143,9 +143,22 @@ SAVEHIST=1000
 
 fpath=(~/.zsh $fpath)
 
+precmd() {
+  # sets the tab title to current dir
+  echo -ne "\e]1;${PWD##*/}\a"
+}
+
 ###############################################################################
 # these might belong in .zshenv, but if they are conventions for both GNU/Linux
 # and OSX then why not keep them here and only use the paths if they exist
+#
+# Here are the differences according to: https://unix.stackexchange.com/questions/71253/what-should-shouldnt-go-in-zshenv-zshrc-zlogin-zprofile-zlogout
+#
+# .zshenv is always sourced (so include variables you need everywhere)
+# .zshrc is for interactive shell configuration.
+# .zlogin is sourced on the start of a login shell.
+# .zprofile is basically the same as .zlogin except that it's sourced directly before .zshrc
+# .zlogout is sometimes used to clear and reset the terminal.
 
 # unique paths
 typeset -U path
@@ -166,7 +179,7 @@ if [ -d "$HOME/.nvm" ]; then
     # This loads nvm
     # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # super sloooow? so fix it with --no-use
     (
-        # echo -n "Loading nvm in the background..." 
+        # echo -n "Loading nvm in the background..."
         [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use && \
         # echo "Finished!" &
     )
