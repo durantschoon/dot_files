@@ -94,7 +94,6 @@ if [ -e ~/.WORK ]; then
     alias dn='FILE=DURANT_NOTES_do_not_check_in.org; touch $FILE; echo $FILE exists'
     alias emacs='open /Applications/Emacs.app'
     alias lims='cd ~/src/LIMS-UI'
-    alias ltmig='echo migrations/versions/; ls -lt migrations/versions | head'
     alias alembic_conflicts="echo 'Heads:'; ./manage.py db heads; \
           pushd migrations/versions >! /dev/null; \
           echo 'Branch points:'; \
@@ -109,6 +108,16 @@ if [ -e ~/.WORK ]; then
         alias pyt='ee pytest --maxfail=1 --failed-first tests'
         alias pytl='ee pytest --last-failed --maxfail=1 tests'
         alias psq='ee psql -d sampledb'
+
+        latest_file_in_dir() {
+            # first argument should be the directory
+            # after running this the relative path of the latest file will be stored in $latest
+            echo $1
+            ls -lt $1 | head
+            latest=`ls -d $1/*(.om[1])` # . regular file, o sorted, m mod time, 1 first
+        }
+
+        alias ltmig='latest_file_in_dir migrations/versions'
     fi
 fi
 
@@ -124,7 +133,7 @@ if [ -n "$ZSH_VERSION" ]; then
     alias s.z='source ~/.zshrc'
     alias s.ze='source ~/.zshenv'
     alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
-    alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# . regular file, o sorted, m mod time, 1 first
+    alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# / directory, o sorted, m mod time, 1 first
     # z move?
     # zmv -W '*.lis' '*.txt'
     alias zmvw='zmv -W'
