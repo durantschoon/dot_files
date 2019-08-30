@@ -115,6 +115,7 @@ if [ -e ~/.WORK ]; then
             echo $1
             ls -lt $1 | head
             latest=`ls -d $1/*(.om[1])` # . regular file, o sorted, m mod time, 1 first
+            latestd=$1 # set the latest directory too
         }
 
         alias ltmig='latest_file_in_dir migrations/versions'
