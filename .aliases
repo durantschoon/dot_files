@@ -94,12 +94,13 @@ if [ -e ~/.WORK ]; then
     alias dn='FILE=DURANT_NOTES_do_not_check_in.org; touch $FILE; echo $FILE exists'
     alias emacs='open /Applications/Emacs.app'
     alias lims='cd ~/src/LIMS-UI'
+    alias lims-api='cd ~/src/LIMS-API; source venv/bin/activate'
     alias alembic_conflicts="echo 'Heads:'; ./manage.py db heads; \
           pushd migrations/versions >! /dev/null; \
           echo 'Branch points:'; \
           grep down_revision *(.) | cut -d':' -f2 | sort | uniq -c | awk '\$1 > 1' | sort -rn; \
           popd >! /dev/null"
-    alias sdb='cd ~/src/sample-db; . env/bin/activate'
+    alias sdb='cd ~/src/sample-db; source env/bin/activate'
 
     if [ -n "$ZSH_VERSION" ]; then
         # rely on ee defined only for zsh

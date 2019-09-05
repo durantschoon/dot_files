@@ -174,6 +174,7 @@ if [ -d "${HOME}/.pyenv" ]; then
     eval "$(pyenv init -)"
 fi
 
+# nvm
 if [ -d "$HOME/.nvm" ]; then
     export NVM_DIR="$HOME/.nvm"
     # This loads nvm
