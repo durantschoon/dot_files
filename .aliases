@@ -95,11 +95,13 @@ if [ -e ~/.WORK ]; then
     alias emacs='open /Applications/Emacs.app'
     alias lims='cd ~/src/LIMS-UI'
     alias lims-api='cd ~/src/LIMS-API; source venv/bin/activate'
+    # this might also do the same thing: ./manage.py db branches
     alias alembic_conflicts="echo 'Heads:'; ./manage.py db heads; \
           pushd migrations/versions >! /dev/null; \
           echo 'Branch points:'; \
           grep down_revision *(.) | cut -d':' -f2 | sort | uniq -c | awk '\$1 > 1' | sort -rn; \
           popd >! /dev/null"
+    alias rdu='cd ~/src/rd_utils; source venv/bin/activate'
     alias sdb='cd ~/src/sample-db; source env/bin/activate'
 
     if [ -n "$ZSH_VERSION" ]; then
