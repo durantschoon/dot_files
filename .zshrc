@@ -277,3 +277,10 @@ if [ -f /Users/durant.schoon/.ghcup/env ]; then . /Users/durant.schoon/.ghcup/en
 
 # The next line sources any commands that are specific to my work environment
 if [ -f ~/.zshrc_work ]; then . ~/.zshrc_work; fi
+
+##############
+# Do this last
+##############
+
+# make all elements of PATH unique
+typeset -aU path # -a for array; -U for unique
