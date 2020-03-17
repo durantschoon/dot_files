@@ -35,6 +35,7 @@ alias pp='popd; ds'
 alias port_scan='lsof -nP +c 15 | grep LISTEN' # mac only?
 alias py="echo 'Using ipython instead, duh' ; ipython"
 alias pylint="pylint --output-format=colorized"
+alias rg='rg --hidden'
 alias s.a='source ~/.aliases'
 alias s.b='source ~/.bashrc'
 alias s2n='tr " " "\012"'
