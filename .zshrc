@@ -179,7 +179,11 @@ fi
 # if we can find this script then we can use pyenv virtualenv commands like:
 # lsvirtualenv and workon
 if type "virtualenvwrapper.sh" > /dev/null; then
-  pyenv virtualenvwrapper
+    # pyenv virtualenvwrapper
+    export WORKON_HOME=$HOME/.virtualenvs
+    export PROJECT_HOME=$HOME/Devel
+    export VIRTUALENVWRAPPER_SCRIPT=/usr/local/bin/virtualenvwrapper.sh
+    source /usr/local/bin/virtualenvwrapper_lazy.sh
 fi
 
 # nvm old, see new below
