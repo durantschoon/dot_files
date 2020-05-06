@@ -167,6 +167,16 @@ typeset -U path
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
 
+# pyenv
+if [ -d "${HOME}/.pyenv" ]; then
+    export PYENV_ROOT="${HOME}/.pyenv"
+    path=(${PYENV_ROOT}/bin "$path[@]")
+    eval "$(pyenv init -)"
+    # despite the name, do not enable this
+    # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
+    pyenv virtualenvwrapper_lazy
+fi
+
 # nvm from Ben (seems to be about a second faster)
 if [ -d "$HOME/.nvm" ]; then
     export NVM_DIR="$HOME/.nvm";
@@ -200,10 +210,6 @@ fi
 # export PATH="$PATH:$HOME/.rvm/bin"
 if [ -d "$HOME/.rvm/bin" ]; then
     path=($HOME/.rvm/bin "$path[@]")
-fi
-
-if [ -d "/usr/local/opt/openssl/bin" ]; then
-    path=(/usr/local/opt/openssl/bin "$path[@]")
 fi
 
 if [ -d "/usr/local/sbin" ]; then
@@ -247,22 +253,32 @@ if [ -d ~/Library/Haskell/bin ]; then
     path=(~/Library/Haskell/bin "$path[@]")
 fi
 
-if [ -f /Users/durant.schoon/.ghcup/env ]; then . /Users/durant.schoon/.ghcup/env; fi
+[[ -f /Users/durant.schoon/.ghcup/env ]] && . /Users/durant.schoon/.ghcup/env
 
 [[ -f ~/.bash_profile ]] && . ~/.bash_profile
 
-# The next line sources any commands that are specific to my work environment
-if [ -f ~/.zshrc_work ]; then . ~/.zshrc_work; fi
-
 # Shouldn't be necessary, but
-if [ -f ~/.zshenv ]; then . ~/.zshenv; fi
+[[ -f ~/.zshenv ]] && . ~/.zshenv
 
 ##############
 # Do this last
 ##############
 
+# this causes an error now:
 # make all elements of PATH unique
-typeset -aU path # -a for array; -U for unique
+# typeset -aU PATH # -a for array; -U for unique
+
+# Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
+
+# consider:
+#  I recommend installing oh-my-sh and then placing various customizations (env vars, functions) to the .oh-my-sh/custom/ directory as separate .zsh files.
+
+# this doesn't work:
+# echo ${PATH//':/usr/local/bin'} | tr ":" "\n"
+
+# so do this
+PATH=$(echo $PATH | sed 's#:/usr/local/bin##') # remove
+export PATH='/usr/local/bin':$PATH # prepend
 
 # added by travis gem
 [ -f /Users/durant.schoon/.travis/travis.sh ] && source /Users/durant.schoon/.travis/travis.sh
