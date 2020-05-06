@@ -167,59 +167,6 @@ typeset -U path
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
 
-# pyenv
-if [ -d "${HOME}/.pyenv" ]; then
-    export PYENV_ROOT="${HOME}/.pyenv"
-    path=(${PYENV_ROOT}/bin "$path[@]")
-    eval "$(pyenv init -)"
-    # despite the name, do not enable this
-    # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
-fi
-
-# if we can find this script then we can use pyenv virtualenv commands like:
-# lsvirtualenv and workon
-if type "virtualenvwrapper.sh" > /dev/null; then
-  pyenv virtualenvwrapper
-fi
-
-# nvm old, see new below
-# if [ -d "$HOME/.nvm" ]; then
-#     export NVM_DIR="$HOME/.nvm"
-#     # This loads nvm
-#     # [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" # super sloooow? so fix it with --no-use
-#     (
-#         # echo -n "Loading nvm in the background..."
-#         [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" --no-use &
-#         # echo "Finished!" &
-#     )
-#     # This loads nvm bash_completion
-#     [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-#     # this loads allows you to call `nvm use` in a directory with a .nvmrc file
-#     # eg. can contain single string like "v4.9.1"
-#     autoload -U add-zsh-hook
-#     load-nvmrc() {
-#         local node_version="$(nvm version)"
-#         local nvmrc_path="$(nvm_find_nvmrc)"
-#         if [ -n "$nvmrc_path" ]; then
-#             local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
-#             if [ "$nvmrc_node_version" = "N/A" ]; then
-#                 nvm install
-#             elif [ "$nvmrc_node_version" != "$node_version" ]; then
-#                 nvm use
-#             fi
-#         elif [ "$node_version" != "$(nvm version default)" ]; then
-#             echo "Reverting to nvm default version"
-#             nvm use default
-#         fi
-#     }
-#     add-zsh-hook chpwd load-nvmrc
-#     if [ -f ~/.WORK ]; then
-#         nvm use v12.4.0 >/dev/null
-#     else
-#         load-nvmrc
-#     fi
-# fi
-
 # nvm from Ben (seems to be about a second faster)
 if [ -d "$HOME/.nvm" ]; then
     export NVM_DIR="$HOME/.nvm";
