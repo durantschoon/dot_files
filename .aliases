@@ -1,3 +1,5 @@
+# -*- mode: sh; -*-
+
 # NOTES:
 #
 # Idea to check a file by Paul Merrill (July 10, 2015)
@@ -98,10 +100,13 @@ if [ -e ~/.WORK ]; then
 
     alias chrome='open /Applications/Google\ Chrome.app --args --remote-debugging-port=9222'
     alias dn='FILE=DURANT_NOTES_do_not_check_in.org; touch $FILE; echo $FILE exists'
+    alias dps='docker ps'
+    alias docker_rm_dead='docker rm $(docker ps -q -f "status=exited"); docker rmi $(docker images -q -f "dangling=true")'
     alias emacs='open /Applications/Emacs.app'
-    alias kubedep='cd ~/src/kubernetes-deployment'
     alias switch_clusters_jupyter='gcloud container clusters get-credentials cr-west1 --project=freenome-computational --region=us-west1; kubectl get pods'
+    alias gandalf='cd ~/src/gandalf; workon gandalf'
     alias k=kubectl
+    alias kubed='cd ~/src/kubernetes-deployment; workon kubernetes-deployment'
     complete -F __start_kubectl k
     alias kr='rlwrap kubectl-repl'
     alias lims-ui='cd ~/src/LIMS-UI'
