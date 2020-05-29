@@ -73,6 +73,7 @@ COMPLETION_WAITING_DOTS="true"
 # ~/.oh-my-zsh/plugins/grc/grc.plugin.zsh
 # plugins=(git osx emacs nvm grc)
 plugins=(
+    autojump
     git
     osx
     emacs
@@ -275,10 +276,11 @@ fi
 
 # this doesn't work:
 # echo ${PATH//':/usr/local/bin'} | tr ":" "\n"
-
 # so do this
 PATH=$(echo $PATH | sed 's#:/usr/local/bin##') # remove
 export PATH='/usr/local/bin':$PATH # prepend
+
+[ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
 
 # added by travis gem
 [ -f /Users/durant.schoon/.travis/travis.sh ] && source /Users/durant.schoon/.travis/travis.sh
