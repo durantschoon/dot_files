@@ -15,7 +15,7 @@
 ###############################################################################
 
 alias a='alias'
-alias agr='alias | grep'
+alias ag='alias | grep'
 alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
 alias dm='docker-machine'
@@ -26,7 +26,7 @@ alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
 alias git_id_help='git_email; echo Check your git_id aliases for more info which are set in .private_aliases.'
 alias h=history
-alias hgr='history | grep'
+alias hg='history | grep'
 alias ipy=ipython
 alias ipn='ipython notebook'
 alias ll='ls -l'
