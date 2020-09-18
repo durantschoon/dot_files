@@ -76,24 +76,20 @@ fi
 # python
 ########
 
-export PYENV_ROOT=/usr/local/var/pyenv
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
 
 # pyenv
-if [ -d "${HOME}/.pyenv" ]; then
+if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
     export PYENV_ROOT="${HOME}/.pyenv"
     path=(${PYENV_ROOT}/bin "$path[@]")
     eval "$(pyenv init -)"
-
     # virtualenvwrapper
     if [ -f /usr/local/bin/virtualenvwrapper.sh ]; then
         # despite the name, do not enable this
         # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
-
         export WORKON_HOME=$HOME/.virtualenvs
         export PROJECT_HOME=$HOME/Devel
-        source /usr/local/bin/virtualenvwrapper_lazy.sh
+        source /usr/local/bin/virtualenvwrapper.sh
     fi
 fi
-
