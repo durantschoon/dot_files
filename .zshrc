@@ -1,7 +1,8 @@
 # for profiling: also zprof at end
 # zmodload zsh/zprof
 
-# `.zshrc' is sourced in interactive shells. It should contain commands to set up aliases, functions, options, key bindings, etc.
+# `.zshrc' is sourced in interactive shells. It should contain commands to set up 
+# aliases, functions, options, key bindings, etc.
 
 # I tried to separate out path related things into .zshenv, but things (eg. pyenv) broke
 
@@ -150,10 +151,9 @@ precmd() {
 }
 
 ###############################################################################
-# these might belong in .zshenv, but if they are conventions for both GNU/Linux
-# and OSX then why not keep them here and only use the paths if they exist
-#
-# Here are the differences according to: https://unix.stackexchange.com/questions/71253/what-should-shouldnt-go-in-zshenv-zshrc-zlogin-zprofile-zlogout
+# Here are the differences according to: https://bit.ly/2ZPj0XS
+# https://unix.stackexchange.com/questions/71253/
+# what-should-shouldnt-go-in-zshenv-zshrc-zlogin-zprofile-zlogout
 #
 # .zshenv is always sourced (so include variables you need everywhere)
 # .zshrc is for interactive shell configuration.
@@ -161,73 +161,15 @@ precmd() {
 # .zprofile is basically the same as .zlogin except that it's sourced directly before .zshrc
 # .zlogout is sometimes used to clear and reset the terminal.
 
-# unique paths
-typeset -U path
+# Consider:
+# I recommend installing oh-my-sh and then placing various customizations (env vars, functions) to the .oh-my-sh/custom/ directory as separate .zsh files.
 
-# python
-export LC_ALL=en_US.UTF-8
-export LANG=en_US.UTF-8
 
-# pyenv
-if [ -d "${HOME}/.pyenv" ]; then
-    export PYENV_ROOT="${HOME}/.pyenv"
-    path=(${PYENV_ROOT}/bin "$path[@]")
-    eval "$(pyenv init -)"
-    # despite the name, do not enable this
-    # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
-    pyenv virtualenvwrapper_lazy
-fi
+[[ -f ~/.HOME && -f ~/dot_files/.home.zshrc ]] && source ~/dot_files/.home.zshrc 
+[[ -f ~/.WORK && -f ~/dot_files/.work.zshrc ]] && source ~/dot_files/.work.zshrc 
 
-# nvm from Ben (seems to be about a second faster)
-if [ -d "$HOME/.nvm" ]; then
-    export NVM_DIR="$HOME/.nvm";
-    lazynvm() {
-      unset -f nvm node npm
-      export NVM_DIR=~/.nvm
-      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
-      # This loads nvm
-      [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  bash_completion
-    }
-    nvm() {
-      lazynvm
-      nvm $@
-    }
-    node() {
-      lazynvm
-      node $@
-    }
-    npm() {
-      lazynvm
-      npm $@
-    }
-fi
-
-# export PATH="/usr/local/opt/node@8/bin:$PATH"
-if [ -d "/usr/local/opt/node@8/bin" ]; then
-    path=(/usr/local/opt/node@8/bin "$path[@]")
-fi
-
-# Add RVM to PATH for scripting. Make sure this is the last PATH variable change.
-# export PATH="$PATH:$HOME/.rvm/bin"
-if [ -d "$HOME/.rvm/bin" ]; then
-    path=($HOME/.rvm/bin "$path[@]")
-fi
-
-if [ -d "/usr/local/sbin" ]; then
-    path=(/usr/local/sbin "$path[@]")
-fi
-
-if [ -d "$HOME/Programming/go" ]; then
-    export GOPATH=$HOME/Programming/go
-    if [ -d "$GOPATH/bin" ]; then
-        path=("$path[@]" $GOPATH/bin)
-    fi
-fi
-
-if [ -d "$HOME/.local/bin" ]; then
-    path=($HOME/.local/bin "$path[@]")
-fi
-
+# `compinit` is zsh's completion initialization
+# 
 # I chose not to modify ~/.oh-my-zsh/oh-my-zsh.sh because it causes
 # problems for upgrading.
 # Here are the changes I would have made:
@@ -239,48 +181,9 @@ fi
 # this runs compinit at most once a day instead of evertime zsh starts up
 # find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && compinit -d "${ZSH_COMPDUMP}" && source $HOME/.zshrc
 
+##############
+# Profiling
+##############
+
 # zprof
 
-# Haskell on mac
-if [ -d "${HOME}/.local/bin" ]; then
-    path=("${HOME}/.local/bin" "$path[@]")
-fi
-
-if [[ -d ~/.cabal/bin && -d ~/.ghcup/bin ]]; then
-    path=(~/.cabal/bin ~/.ghcup/bin "$path[@]")
-fi
-
-if [ -d ~/Library/Haskell/bin ]; then
-    path=(~/Library/Haskell/bin "$path[@]")
-fi
-
-[[ -f /Users/durant.schoon/.ghcup/env ]] && . /Users/durant.schoon/.ghcup/env
-
-[[ -f ~/.bash_profile ]] && . ~/.bash_profile
-
-# Shouldn't be necessary, but
-[[ -f ~/.zshenv ]] && . ~/.zshenv
-
-##############
-# Do this last
-##############
-
-# this causes an error now:
-# make all elements of PATH unique
-# typeset -aU PATH # -a for array; -U for unique
-
-# Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
-
-# consider:
-#  I recommend installing oh-my-sh and then placing various customizations (env vars, functions) to the .oh-my-sh/custom/ directory as separate .zsh files.
-
-# this doesn't work:
-# echo ${PATH//':/usr/local/bin'} | tr ":" "\n"
-# so do this
-PATH=$(echo $PATH | sed 's#:/usr/local/bin##') # remove
-export PATH='/usr/local/bin':$PATH # prepend
-
-[ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
-
-# added by travis gem
-[ -f /Users/durant.schoon/.travis/travis.sh ] && source /Users/durant.schoon/.travis/travis.sh
