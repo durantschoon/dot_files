@@ -21,8 +21,14 @@ I use the agnoster theme in oh-my-zsh which is best viewed with the [meslo power
 Then run these in the shell
 
 ```sh
+cd
 ln -si ~/dot_files/.zshrc ~/
 ln -si ~/dot_files/.aliases ~/
+
+ln -si ~/dot_files/.osx.zshenv .zshenv
+ln -si ~/dot_files/.shared.zshrc .shared.zshrc # read by .zshrc
+# ln -si ~/dot_files/.home.zshrc .home.zshrc # read by .zshrc
+# ln -si ~/dot_files/.work.zshrc .work.zshrc # read by .zshrc
 ```
 
 ## Create a file to decide to load home or work aliases
