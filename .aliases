@@ -90,83 +90,7 @@ if [ -e ~/.HOME ]; then
     alias blog='cd ~/Documents/Blog'
 fi
 
-# -----------------------------------------------------------------------------
-# Aliases at work
-# -----------------------------------------------------------------------------
-
-if [ -e ~/.WORK ]; then
-    autoload bashcompinit
-    bashcompinit
-
-    alias chrome='open /Applications/Google\ Chrome.app --args --remote-debugging-port=9222'
-    alias dn='FILE=DURANT_NOTES_do_not_check_in.org; touch $FILE; echo $FILE exists'
-    alias dps='docker ps'
-    alias docker_rm_dead='docker rm $(docker ps -q -f "status=exited"); docker rmi $(docker images -q -f "dangling=true")'
-    alias emacs='open /Applications/Emacs.app'
-    alias switch_clusters_jupyter='gcloud container clusters get-credentials cr-west1 --project=freenome-computational --region=us-west1; kubectl get pods'
-    alias gandalf='cd ~/src/gandalf; workon gandalf'
-    alias k=kubectl
-    alias kubed='cd ~/src/kubernetes-deployment; workon kubernetes-deployment'
-    complete -F __start_kubectl k
-    alias kr='rlwrap kubectl-repl'
-    alias lims-ui='cd ~/src/LIMS-UI'
-    alias lims-api='cd ~/src/LIMS-API; source venv/bin/activate'
-    # this might also do the same thing: ./manage.py db branches
-    alias alembic_conflicts="echo 'Heads:'; ./manage.py db heads; \
-          pushd migrations/versions >! /dev/null; \
-          echo 'Branch points:'; \
-          grep down_revision *(.) | cut -d':' -f2 | sort | uniq -c | awk '\$1 > 1' | sort -rn; \
-          popd >! /dev/null"
-    alias rdu='cd ~/src/rd_utils; source venv/bin/activate'
-    alias sdb='cd ~/src/sample-db; source env/bin/activate'
-
-    # Freenome
-    bikeshed() {
-        gcloud container clusters get-credentials bikeshed-west1 --project=freenome-bikeshed --region=us-west1
-    }
-    lims() {
-        ENV=$1
-        gcloud container clusters get-credentials lims-$ENV-central1 --project=freenome-services-$ENV --region=us-central1
-    }
-    balrog() {
-        ENV=$1
-        gcloud container clusters get-credentials balrog-$ENV-central1 --project=freenome-balrog-$ENV --region=us-central1
-    }
-    cr() {
-        gcloud container clusters get-credentials cr-west1 --project=freenome-computational --region=us-west1
-    }
-    argo() {
-        gcloud container clusters get-credentials argo --project=freenome-computational --region=us-west1
-    }
-    # slurm() {
-    #     gcloud --project=freenome-computational compute ssh --tunnel-through-iap --zone=us-west1-b fn-slurm-v4-login1 -- -R 53700:localhost:53700
-    # }
-    bignode() {
-        gcloud compute --project freenome-computational ssh --tunnel-through-iap --zone us-west1-a big-node -- -R 53700:localhost:53700
-    }
-
-    if [ -n "$ZSH_VERSION" ]; then
-        # rely on ee defined only for zsh
-        alias pipi='ee pip install -r requirements.txt \
-        --extra-index-url=https://${PACKAGECLOUD_TOKEN}:@packagecloud.io/freenome/python/pypi/simple'
-        alias pipit='ee pip install -r test-requirements.txt \
-        --extra-index-url=https://${PACKAGECLOUD_TOKEN}:@packagecloud.io/freenome/python/pypi/simple'
-        alias pyt='ee pytest --maxfail=1 --failed-first tests'
-        alias pytl='ee pytest --last-failed --maxfail=1 tests'
-        alias psq='ee psql -d sampledb'
-
-        latest_file_in_dir() {
-            # first argument should be the directory
-            # after running this the relative path of the latest file will be stored in $latest
-            echo $1
-            ls -lt $1 | head
-            latest=`ls -d $1/*(.om[1])` # . regular file, o sorted, m mod time, 1 first
-            latestd=$1 # set the latest directory too
-        }
-
-        alias ltmig='latest_file_in_dir migrations/versions'
-    fi
-fi
+[ -f ~/Dropbox/work/freenome/dot_aliases ] && source ~/Dropbox/work/freenome/dot_aliases
 
 ###############################################################################
 # Zsh Aliases
@@ -180,7 +104,7 @@ if [ -n "$ZSH_VERSION" ]; then
     alias s.z='source ~/.zshrc'
     alias s.ze='source ~/.zshenv'
     alias s.zp='source ~/.zprofile'
-    alias s.zall="s.z && echo '~/.zshrc'; s.ze && echo '~/.zshenv'; s.zp && echo '~/.zprofile'"
+    alias s.zall="s.ze && echo '~/.zshenv'; s.zp && echo '~/.zprofile'; s.z && echo '~/.zshrc'"
     alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
     alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# / directory, o sorted, m mod time, 1 first
     # z move?
