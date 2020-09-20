@@ -1,7 +1,7 @@
 # dot_files
 My dotfiles except for ~/.emacs.d
 
-I use [Zsh](http://www.zsh.org/). These dot files are for the common settings on different machines. Specific changes to the path, etc. should go in ~/.zshenv and would be expected to be different on different machines since environment variables for software on each machine can be different. 
+I use [Zsh](http://www.zsh.org/). These dot files are for the common settings on different machines. Specific changes to the path, etc. should go in ~/.zshenv and would be expected to be different on different machines since environment variables for software on each machine can be different.
 
 ## Clone this to ~/dot_files
 
@@ -26,6 +26,7 @@ ln -si ~/dot_files/.zshrc ~/
 ln -si ~/dot_files/.aliases ~/
 
 ln -si ~/dot_files/.osx.zshenv .zshenv
+# ln -si ~/dot_files/.zprofile .zprofile # reads .bash_profile if I have it
 ln -si ~/dot_files/.shared.zshrc .shared.zshrc # read by .zshrc
 ```
 
