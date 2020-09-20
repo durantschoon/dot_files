@@ -24,7 +24,19 @@ add_to_end_of_path () {
 # Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
 
 # for git and other things
-add_to_front_of_path /usr/local/bin 
+add_to_front_of_path /usr/local/bin
 
 # for brew (mac)
-add_to_front_of_path /usr/local/add_to_end_of_path
+add_to_front_of_path /usr/local/opt
+
+###############################################################################
+# Load once
+# Used to be in .bash_profile
+
+# Prep needed for gcloud (bash versions exists too)
+if [ -f ~/Downloads/google-cloud-sdk/path.zsh.inc ]; then
+    source ~/Downloads/google-cloud-sdk/path.zsh.inc 2>/dev/null # fail silently
+fi
+if [ -f ~/Downloads/google-cloud-sdk/completion.zsh.inc ]; then
+    source ~/Downloads/google-cloud-sdk/completion.zsh.inc 2>/dev/null # fail silently
+fi
