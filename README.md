@@ -25,9 +25,9 @@ cd
 ln -si ~/dot_files/.zshrc ~/
 ln -si ~/dot_files/.aliases ~/
 
-ln -si ~/dot_files/.osx.zshenv .zshenv
-# ln -si ~/dot_files/.zprofile .zprofile # reads .bash_profile if I have it
-ln -si ~/dot_files/.shared.zshrc .shared.zshrc # read by .zshrc
+ln -si ~/dot_files/.osx.zshenv ~/.zshenv
+# ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
+ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
 ```
 
 ## Create a file to decide to load home or work aliases
