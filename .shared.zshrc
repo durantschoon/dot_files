@@ -2,6 +2,11 @@
 
 # add_to_end_of_path is defined in .zshenv
 
+if ! typeset -f add_to_end_of_path > /dev/null; then
+    echo .zshenv does not define function add_to_end_of_path
+    exit 1
+fi
+
 ######
 # rust
 ######
@@ -84,12 +89,11 @@ if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
     export PYENV_ROOT="${HOME}/.pyenv"
     path=(${PYENV_ROOT}/bin "$path[@]")
     eval "$(pyenv init -)"
-    # virtualenvwrapper
-    if [ -f /usr/local/bin/virtualenvwrapper.sh ]; then
+    if [ -f /usr/local/bin/virtualenvwrapper_lazy.sh ]; then
         # despite the name, do not enable this
         # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
         export WORKON_HOME=$HOME/.virtualenvs
         export PROJECT_HOME=$HOME/Devel
-        source /usr/local/bin/virtualenvwrapper.sh
+        source /usr/local/bin/virtualenvwrapper_lazy.sh
     fi
 fi
