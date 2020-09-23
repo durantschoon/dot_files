@@ -161,11 +161,12 @@ precmd() {
 # .zprofile is basically the same as .zlogin except that it's sourced directly before .zshrc
 # .zlogout is sometimes used to clear and reset the terminal.
 
-# Consider:
-# I recommend installing oh-my-sh and then placing various customizations (env vars, functions) to the .oh-my-sh/custom/ directory as separate .zsh files.
+# Consider: I recommend installing oh-my-sh and then placing various
+# customizations (env vars, functions) to the .oh-my-sh/custom/ directory as
+# separate .zsh files.
 
 
-[ -f ~/dot_files/.shared.zshrc ] && source ~/dot_files/.shared.zshrc 
+[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc 
 
 [[ -f ~/.HOME && -f ~/dot_files/.home.zshrc ]] && source ~/dot_files/.home.zshrc 
 [[ -f ~/.WORK && -f ~/dot_files/.work.zshrc ]] && source ~/dot_files/.work.zshrc 
