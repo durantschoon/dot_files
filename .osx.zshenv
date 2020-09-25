@@ -33,7 +33,7 @@ add_to_front_of_path /usr/local/bin
 # for brew (mac)
 add_to_front_of_path /usr/local/opt
 
-# This seems to cause magit to open a separate windown
+# This seems to cause magit to open a separate window
 # for emacsclient (/Applications/Emacs.app/Contents/MacOS/bin/emacsclient
 #                  /Applications/EmacsClient.app)
 # do
