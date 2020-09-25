@@ -27,13 +27,21 @@ add_to_end_of_path () {
 # Decide if this next comment is good advice:
 # Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
 
-# for git and other things
+# for git and other thingsls
 add_to_front_of_path /usr/local/bin
 
 # for brew (mac)
 add_to_front_of_path /usr/local/opt
 
-export GIT_EDITOR='/Applications/Emacs.app/Contents/MacOS/bin/emacsclient --create-frame'
+
+for emacsclient (/Applications/Emacs.app/Contents/MacOS/bin/emacsclient
+                 /Applications/EmacsClient.app)
+do
+    if [[ ( -d $emacsclient || -f $emacsclient ) ]]; then
+        export GIT_EDITOR="$emacsclient --create-frame"
+        break
+    fi
+done
 
 ###############################################################################
 # Load once
