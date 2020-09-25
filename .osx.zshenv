@@ -46,3 +46,12 @@ fi
 if [ -f ~/Downloads/google-cloud-sdk/completion.zsh.inc ]; then
     source ~/Downloads/google-cloud-sdk/completion.zsh.inc 2>/dev/null # fail silently
 fi
+
+# openssl
+[ -d "/usr/local/opt/openssl@1.1/bin" ] && path=(/usr/local/opt/openssl@1.1/bin "$path[@]")
+
+# gettext
+[ -d "/usr/local/opt/gettext/bin" ] && path=(/usr/local/opt/gettext/bin "$path[@]")
+
+# vscode
+[ -d "/Applications/Visual Studio Code.app/Contents/Resources/app/bin" ] && path=("/Applications/Visual Studio Code.app/Contents/Resources/app/bin" "$path[@]")
