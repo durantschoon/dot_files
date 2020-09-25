@@ -20,6 +20,10 @@ add_to_end_of_path () {
     [ -d $1 ] && export path=("$path[@]" $1)
 }
 
+###############################################################################
+###############################################################################
+# Darwins specific past here
+
 # Decide if this next comment is good advice:
 # Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
 
@@ -28,6 +32,8 @@ add_to_front_of_path /usr/local/bin
 
 # for brew (mac)
 add_to_front_of_path /usr/local/opt
+
+export GIT_EDITOR='/Applications/Emacs.app/Contents/MacOS/bin/emacsclient --create-frame'
 
 ###############################################################################
 # Load once
