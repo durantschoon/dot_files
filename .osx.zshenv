@@ -33,15 +33,15 @@ add_to_front_of_path /usr/local/bin
 # for brew (mac)
 add_to_front_of_path /usr/local/opt
 
-
-for emacsclient (/Applications/Emacs.app/Contents/MacOS/bin/emacsclient
-                 /Applications/EmacsClient.app)
-do
-    if [[ ( -d $emacsclient || -f $emacsclient ) ]]; then
-        export GIT_EDITOR="$emacsclient --create-frame"
-        break
-    fi
-done
+# This seems to cause magit to open a separate windown
+# for emacsclient (/Applications/Emacs.app/Contents/MacOS/bin/emacsclient
+#                  /Applications/EmacsClient.app)
+# do
+#     if [[ ( -d $emacsclient || -f $emacsclient ) ]]; then
+#         export GIT_EDITOR="$emacsclient --create-frame"
+#         break
+#     fi
+# done
 
 ###############################################################################
 # Load once
