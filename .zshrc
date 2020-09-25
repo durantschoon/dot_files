@@ -166,13 +166,15 @@ precmd() {
 # separate .zsh files.
 
 
-[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc 
+# I'm using .zprofile at work to store secrets I do not want on github
 
-[[ -f ~/.HOME && -f ~/dot_files/.home.zshrc ]] && source ~/dot_files/.home.zshrc 
-[[ -f ~/.WORK && -f ~/dot_files/.work.zshrc ]] && source ~/dot_files/.work.zshrc 
+[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc
+
+[[ -f ~/.HOME && -f ~/dot_files/.home.zshrc ]] && source ~/dot_files/.home.zshrc
+[[ -f ~/.WORK && -f ~/dot_files/.work.zshrc ]] && source ~/dot_files/.work.zshrc
 
 # `compinit` is zsh's completion initialization
-# 
+#
 # I chose not to modify ~/.oh-my-zsh/oh-my-zsh.sh because it causes
 # problems for upgrading.
 # Here are the changes I would have made:
@@ -189,4 +191,3 @@ precmd() {
 ##############
 
 # zprof
-
