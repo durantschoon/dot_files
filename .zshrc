@@ -1,7 +1,7 @@
 # for profiling: also zprof at end
 # zmodload zsh/zprof
 
-# `.zshrc' is sourced in interactive shells. It should contain commands to set up 
+# `.zshrc' is sourced in interactive shells. It should contain commands to set up
 # aliases, functions, options, key bindings, etc.
 
 # I tried to separate out path related things into .zshenv, but things (eg. pyenv) broke
