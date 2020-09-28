@@ -89,7 +89,21 @@ plugins=(
 # e.g. modifications to PATH should happen in ~/.zshenv
 # the rest can be set here
 
+export DEFAULT_USER=$(whoami)
+
 source $ZSH/oh-my-zsh.sh
+
+# Redefine this from ~/.oh-my-zsh/themes/agnoster.zsh-theme
+# Insert the cluster name from my cluster aliases
+# Context: user@hostname (who am I and where am I)
+prompt_context() {
+    if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
+        prompt_segment black default "%(!.%{%F{yellow}%}.)%n@%m"
+    elif [[ -n "$CLUSTER_NAME" ]]; then
+        prompt_segment black default "%(!.%{%F{yellow}%}.)%n <$CLUSTER_NAME>"
+    fi
+}
+
 
 # You may need to manually set your language environment
 # export LANG=en_US.UTF-8
