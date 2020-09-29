@@ -101,6 +101,8 @@ prompt_context() {
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n@%m"
     elif [[ -n "$CLUSTER_NAME" ]]; then
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n <$CLUSTER_NAME>"
+    else
+        prompt_segment black default "%(!.%{%F{yellow}%}.)%n"
     fi
 }
 
