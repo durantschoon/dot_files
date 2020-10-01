@@ -20,6 +20,26 @@ add_to_end_of_path () {
     [ -d $1 ] && export path=("$path[@]" $1)
 }
 
+# to add cluster name to path, it's set across shells so use a file
+
+clear_cluster_name() {
+    echo '' >! $HOME/.CLUSTER_NAME
+}
+
+clear_cluster_name # invoke
+
+set_cluster_name() {
+    if [[ -f $HOME/.CLUSTER_NAME ]]; then
+        echo $1 >! $HOME/.CLUSTER_NAME
+    fi
+}
+
+get_cluster_name() {
+    if [[ -f $HOME/.CLUSTER_NAME ]]; then
+        cat $HOME/.CLUSTER_NAME
+    fi
+}
+
 ###############################################################################
 ###############################################################################
 # Darwins specific past here
