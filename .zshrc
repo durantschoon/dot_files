@@ -96,7 +96,7 @@ source $ZSH/oh-my-zsh.sh
 # Redefine this from ~/.oh-my-zsh/themes/agnoster.zsh-theme
 # Insert the cluster name from my cluster aliases
 if ! typeset -f get_cluster_name > /dev/null; then
-    echo get_cluster_name not defined in .zshenv
+    echo get_cluster_name not defined '(look in .zshenv)'
 fi
 prompt_context() {
     if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
