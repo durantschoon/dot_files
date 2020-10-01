@@ -95,10 +95,12 @@ source $ZSH/oh-my-zsh.sh
 
 # Redefine this from ~/.oh-my-zsh/themes/agnoster.zsh-theme
 # Insert the cluster name from my cluster aliases
-# relies on function definition in .zshenv
-# Context: user@hostname (who am I and where am I)
+if ! typeset -f get_cluster_name > /dev/null; then
+    echo get_cluster_name not defined in .zshenv
+fi
 prompt_context() {
     if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
+        # Context: user@hostname (who am I and where am I)
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n@%m"
     elif [[ -f "$HOME/.CLUSTER_NAME" ]]; then
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n <$(get_cluster_name)>"
