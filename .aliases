@@ -101,6 +101,8 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias ctags='=ctags -eR'
 
+    alias funcs='print -l ${(ok)functions}' # list all functions
+
     alias s.z='source ~/.zshrc'
     alias s.ze='source ~/.zshenv'
     alias s.zp='source ~/.zprofile'
