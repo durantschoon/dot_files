@@ -105,7 +105,7 @@ prompt_context() {
     else
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n"
     fi
-    if [[ -f "$HOME/.CLUSTER_NAME" ]]; then
+    if [[ -f "$HOME/.CLUSTER_NAME" && -n "$(get_cluster_name)" ]]; then
         thistle3=183
         prompt_segment $thistle3 black "$(get_cluster_name)"
     fi
