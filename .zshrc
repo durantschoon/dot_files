@@ -102,10 +102,12 @@ prompt_context() {
     if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
         # Context: user@hostname (who am I and where am I)
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n@%m"
-    elif [[ -f "$HOME/.CLUSTER_NAME" ]]; then
-        prompt_segment black default "%(!.%{%F{yellow}%}.)%n <$(get_cluster_name)>"
     else
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n"
+    fi
+    if [[ -f "$HOME/.CLUSTER_NAME" ]]; then
+        thistle3=183
+        prompt_segment $thistle3 black "$(get_cluster_name)"
     fi
 }
 
