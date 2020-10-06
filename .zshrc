@@ -106,7 +106,7 @@ prompt_context() {
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n"
     fi
     if [[ -f "$HOME/.CLUSTER_NAME" && -n "$(get_cluster_name)" ]]; then
-        thistle3=183
+        thistle3=183 # visual list of colors https://jonasjacek.github.io/colors/
         prompt_segment $thistle3 black "$(get_cluster_name)"
     fi
 }
