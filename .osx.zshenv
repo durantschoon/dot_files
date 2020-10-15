@@ -22,12 +22,6 @@ add_to_end_of_path () {
 
 # to add cluster name to path, it's set across shells so use a file
 
-clear_cluster_name() {
-    echo '' >! $HOME/.CLUSTER_NAME
-}
-
-clear_cluster_name # invoke
-
 set_cluster_name() {
     if [[ -f $HOME/.CLUSTER_NAME ]]; then
         echo $1 >! $HOME/.CLUSTER_NAME
