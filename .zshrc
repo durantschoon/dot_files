@@ -4,8 +4,6 @@
 # `.zshrc' is sourced in interactive shells. It should contain commands to set up
 # aliases, functions, options, key bindings, etc.
 
-# I tried to separate out path related things into .zshenv, but things (eg. pyenv) broke
-
 # Path to your oh-my-zsh installation.
 export ZSH=$HOME/.oh-my-zsh
 
