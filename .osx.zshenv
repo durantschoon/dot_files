@@ -41,7 +41,7 @@ get_cluster_name() {
 # Decide if this next comment is good advice:
 # Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
 
-# for git and other thingsls
+# for git and other things
 add_to_front_of_path /usr/local/bin
 
 # for brew (mac)
