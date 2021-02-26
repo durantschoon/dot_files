@@ -20,17 +20,17 @@ add_to_end_of_path () {
     [ -d $1 ] && export path=("$path[@]" $1)
 }
 
-# to add cluster name to path, it's set across shells so use a file
+# to add kubectl context name to path, it's set across shells so use a file
 
-set_cluster_name() {
-    if [[ -f $HOME/.CLUSTER_NAME ]]; then
-        echo $1 >! $HOME/.CLUSTER_NAME
+set_context_name() {
+    if [[ -f $HOME/.CONTEXT_NAME ]]; then
+        echo $1 >! $HOME/.CONTEXT_NAME
     fi
 }
 
-get_cluster_name() {
-    if [[ -f $HOME/.CLUSTER_NAME ]]; then
-        cat $HOME/.CLUSTER_NAME
+get_context_name() {
+    if [[ -f $HOME/.CONTEXT_NAME ]]; then
+        cat $HOME/.CONTEXT_NAME
     fi
 }
 
@@ -41,7 +41,7 @@ get_cluster_name() {
 # Decide if this next comment is good advice:
 # Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
 
-# for git and other thingsls
+# for git and other things
 add_to_front_of_path /usr/local/bin
 
 # for brew (mac)
