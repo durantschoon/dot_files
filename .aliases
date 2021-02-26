@@ -90,7 +90,7 @@ if [ -e ~/.HOME ]; then
     alias blog='cd ~/Documents/Blog'
 fi
 
-[ -f ~/Dropbox/work/freenome/dot_aliases ] && source ~/Dropbox/work/freenome/dot_aliases
+[ -f ~/dot_aliases/dot_aliases ] && source ~/dot_aliases/dot_aliases # bitbucket
 
 ###############################################################################
 # Zsh Aliases
