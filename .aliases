@@ -34,7 +34,7 @@ alias m='less'
 alias md='mkdir -p'
 alias path='echo $PATH | c2n'
 alias pp='popd; ds'
-alias port_scan='lsof -nP +c 15 | grep LISTEN' # mac only?
+alias port_scan='lsof -nP +c 15 | { head -1; grep LISTEN; } ' # mac only?
 alias py="echo 'Using ipython instead, duh' ; ipython"
 alias pylint="pylint --output-format=colorized"
 alias rg='rg --hidden'
