@@ -93,8 +93,8 @@ source $ZSH/oh-my-zsh.sh
 
 # Redefine this from ~/.oh-my-zsh/themes/agnoster.zsh-theme
 # Insert the cluster name from my cluster aliases
-if ! typeset -f get_cluster_name > /dev/null; then
-    echo get_cluster_name not defined '(look in .zshenv)'
+if ! typeset -f get_context_name > /dev/null; then
+    echo get_context_name not defined '(look in .zshenv)'
 fi
 prompt_context() {
     if [[ "$USER" != "$DEFAULT_USER" || -n "$SSH_CLIENT" ]]; then
@@ -103,9 +103,9 @@ prompt_context() {
     else
         prompt_segment black default "%(!.%{%F{yellow}%}.)%n"
     fi
-    if [[ -f "$HOME/.CLUSTER_NAME" && -n "$(get_cluster_name)" ]]; then
+    if [[ -f "$HOME/.CONTEXT_NAME" && -n "$(get_context_name)" ]]; then
         thistle3=183 # visual list of colors https://jonasjacek.github.io/colors/
-        prompt_segment $thistle3 black "$(get_cluster_name)"
+        prompt_segment $thistle3 black "$(get_context_name)"
     fi
 }
 
