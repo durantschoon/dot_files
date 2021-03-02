@@ -90,6 +90,10 @@ if [ -e ~/.HOME ]; then
     alias blog='cd ~/Documents/Blog'
 fi
 
+# -----------------------------------------------------------------------------
+# Aliases for work (private repo to protect employer)
+# -----------------------------------------------------------------------------
+
 [ -f ~/dot_aliases/dot_aliases ] && source ~/dot_aliases/dot_aliases # bitbucket
 
 ###############################################################################
