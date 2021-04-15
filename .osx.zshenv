@@ -77,3 +77,6 @@ fi
 
 # vscode
 [ -d "/Applications/Visual Studio Code.app/Contents/Resources/app/bin" ] && path=("/Applications/Visual Studio Code.app/Contents/Resources/app/bin" "$path[@]")
+
+# krew
+[ -d "${KREW_ROOT:-$HOME/.krew}/bin" ] && path=(${KREW_ROOT:-$HOME/.krew}/bin "$path[@]")
