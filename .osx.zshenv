@@ -62,11 +62,18 @@ add_to_front_of_path /usr/local/opt
 # Used to be in .bash_profile
 
 # Prep needed for gcloud (bash versions exists too)
-if [ -f ~/Downloads/google-cloud-sdk/path.zsh.inc ]; then
-    source ~/Downloads/google-cloud-sdk/path.zsh.inc 2>/dev/null # fail silently
+# installation:
+# gcloud components update
+# gcloud components install kubectl
+# gcloud components list
+if [ -f /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc ]; then
+    source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc
+    # source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc 2>/dev/null # fail silently
 fi
-if [ -f ~/Downloads/google-cloud-sdk/completion.zsh.inc ]; then
-    source ~/Downloads/google-cloud-sdk/completion.zsh.inc 2>/dev/null # fail silently
+
+if [ -f /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc ]; then
+    source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc
+    # source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc 2>/dev/null # fail silently
 fi
 
 # openssl
@@ -80,3 +87,5 @@ fi
 
 # krew
 [ -d "${KREW_ROOT:-$HOME/.krew}/bin" ] && path=(${KREW_ROOT:-$HOME/.krew}/bin "$path[@]")
+
+# gcloud
