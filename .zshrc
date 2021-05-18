@@ -77,6 +77,7 @@ plugins=(
     osx
     emacs
     nvm
+    poetry
     zsh-syntax-highlighting
     zsh-autosuggestions
 )
@@ -161,8 +162,9 @@ SAVEHIST=1000
 # zstyle ':completion:*:*:git:*' script ~/.git-completion.zsh
 
 # look for file in ~/.zsh/_git
+# ~/.zfunc added for poetry
 
-fpath=(~/.zsh $fpath)
+fpath=(~/.zsh ~/.zfunc $fpath)
 
 precmd() {
   # sets the tab title to current dir
