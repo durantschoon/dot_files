@@ -88,4 +88,6 @@ fi
 # krew
 [ -d "${KREW_ROOT:-$HOME/.krew}/bin" ] && path=(${KREW_ROOT:-$HOME/.krew}/bin "$path[@]")
 
-# gcloud
+# poetry
+
+[ -d "$HOME/.poetry/bin" ] && path=("$HOME/.poetry/bin" "$path[@]")
