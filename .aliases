@@ -39,7 +39,6 @@ alias pp='popd; ds'
 alias port_scan='lsof -nP +c 15 | { head -1; grep LISTEN; } ' # mac only?
 alias py="echo 'Using ipython instead, duh' ; ipython"
 alias pylint="pylint --output-format=colorized"
-alias rg='rg --hidden'
 alias s.a='source ~/.aliases'
 alias s.b='source ~/.bashrc'
 alias s2n='tr " " "\012"'
@@ -132,6 +131,12 @@ if [ -n "$ZSH_VERSION" ]; then
         # unalias rm
         rm () { mv $* ~/.Trash }
     fi
+
+    function rg() {
+        [[ -d .git/ ]] && echo 'skipping .git/ dir ...';
+        =rg --hidden $1 -g '!.git/*' $*
+    }
+    function rg_with_git() { =rg --hidden $* }
 
     function psg () {
         ps -ef | grep "$@" | grep -v grep
