@@ -20,7 +20,7 @@ add_to_end_of_path () {
     [ -d $1 ] && export path=("$path[@]" $1)
 }
 
-# to add kubectl context name to path, it's set across shells so use a file
+# to add kubectl context name to prompt, it's set across shells so use a file
 
 set_context_name() {
     if [[ -f $HOME/.CONTEXT_NAME ]]; then
