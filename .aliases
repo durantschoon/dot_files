@@ -132,11 +132,11 @@ if [ -n "$ZSH_VERSION" ]; then
         rm () { mv $* ~/.Trash }
     fi
 
-    function rg() {
+    function rg () {
         [[ -d .git/ ]] && echo 'skipping .git/ dir ...';
         =rg --hidden $1 -g '!.git/*' $*
     }
-    function rg_with_git() { =rg --hidden $* }
+    function rg_with_git () { =rg --hidden $* }
 
     function psg () {
         ps -ef | grep "$@" | grep -v grep
