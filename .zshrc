@@ -93,7 +93,7 @@ export DEFAULT_USER=$(whoami)
 source $ZSH/oh-my-zsh.sh
 
 # Redefine this from ~/.oh-my-zsh/themes/agnoster.zsh-theme
-# Insert the cluster name from my cluster aliases
+# Insert the k8s context name from my k8s context aliases
 if ! typeset -f get_context_name > /dev/null; then
     echo get_context_name not defined '(look in .zshenv)'
 fi
