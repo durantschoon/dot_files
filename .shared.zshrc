@@ -12,6 +12,7 @@ fi
 ######
 
 add_to_end_of_path $HOME/.cargo/bin
+[ -f "$HOME/.cargo/env"] && . "$HOME/.cargo/env"
 
 ################
 # aws? / haskell
@@ -102,3 +103,10 @@ if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
         source /usr/local/bin/virtualenvwrapper.sh
     fi
 fi
+
+######
+# misc
+######
+
+# zsh cd command that learns
+[ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
