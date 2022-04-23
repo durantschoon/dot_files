@@ -12,10 +12,13 @@ I use [Zsh](http://www.zsh.org/). These dot files are for the common settings on
 sudo apt-get update && sudo apt-get dist-upgrade -y
 sudo apt-get install build-essential curl file git
 # zsh & oh-my-zsh
-sudo apt install zsh
-sudo apt install git-core curl fonts-powerline
+sudo apt install zsh -y
+sudo apt install git-core curl fonts-powerline -y
 sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+chsh -s `which zsh`
 ```
+
+for reference: [zsh on ubuntu](https://gist.github.com/tsabat/1498393)
 ## Clone this to ~/dot_files
 
 ```sh
@@ -25,7 +28,7 @@ git clone https://github.com/durantschoon/dot_files.git
 
 ## I also use oh-my-zsh
 
-Which you can get from [here](https://github.com/robbyrussell/oh-my-zsh). But on Ubuntu, you should also check out [this](https://gist.github.com/tsabat/1498393).
+Which you can get from [here](https://github.com/robbyrussell/oh-my-zsh).
 
 I use the agnoster theme in oh-my-zsh which is best viewed with the [meslo powerline fonts](https://github.com/powerline/fonts) which you'll have to download for your system. Remember to set them in your terminal applications!
 
