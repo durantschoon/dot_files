@@ -3,6 +3,19 @@ My dotfiles except for ~/.emacs.d
 
 I use [Zsh](http://www.zsh.org/). These dot files are for the common settings on different machines. Specific changes to the path, etc. should go in ~/.zshenv and would be expected to be different on different machines since environment variables for software on each machine can be different.
 
+## Bootstrap Git and Zsh to use the rest of these
+
+### Ubuntu
+
+```sh
+# git
+sudo apt-get update && sudo apt-get dist-upgrade -y
+sudo apt-get install build-essential curl file git
+# zsh & oh-my-zsh
+sudo apt install zsh
+sudo apt install git-core curl fonts-powerline
+sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+```
 ## Clone this to ~/dot_files
 
 ```sh
