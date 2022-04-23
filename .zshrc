@@ -70,11 +70,10 @@ COMPLETION_WAITING_DOTS="true"
 # Note: for grc to work, I had to manually copy
 # https://github.com/garabik/grc/blob/master/grc.zsh to
 # ~/.oh-my-zsh/plugins/grc/grc.plugin.zsh
-# plugins=(git osx emacs nvm grc)
 plugins=(
     autojump
     git
-    osx
+    macos
     emacs
     nvm
     poetry
