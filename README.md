@@ -10,10 +10,9 @@ I use [Zsh](http://www.zsh.org/). These dot files are for the common settings on
 ```sh
 # git
 sudo apt-get update && sudo apt-get dist-upgrade -y
-sudo apt-get install build-essential curl file git
+sudo apt-get install build-essential curl file git fonts-powerline -y
 # zsh & oh-my-zsh
 sudo apt install zsh -y
-sudo apt install git-core curl fonts-powerline -y
 sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
 chsh -s `which zsh`
 ```
@@ -27,6 +26,8 @@ git clone https://github.com/durantschoon/dot_files.git
 ```
 
 ## I also use oh-my-zsh
+
+Note: this section will be replaced with bootstrap examples for MacOS and Windows that can be run in a terminal, hopefully.
 
 Which you can get from [here](https://github.com/robbyrussell/oh-my-zsh).
 
