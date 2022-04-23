@@ -12,7 +12,7 @@ fi
 ######
 
 add_to_end_of_path $HOME/.cargo/bin
-[ -f "$HOME/.cargo/env"] && . "$HOME/.cargo/env"
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
 ################
 # aws? / haskell
