@@ -167,7 +167,7 @@ if [ -n "$ZSH_VERSION" ]; then
 
     function switch_spacemacs() {
         local EMACS_D_LINK=$HOME/.emacs.d
-        local EMACS_ORIG_D=$HOME/.emacs.d_NOT_SPACEMACS
+        local EMACS_ORIG_D=$HOME/.emacs.d_ORIG_EMACS
         local SPACEMACS_D=$HOME/.emacs.d_SPACEMACS
         if [[ -d $EMACS_ORIG_D && -d $SPACEMACS_D && -h $EMACS_D_LINK ]]; then
             if [[ "$(readlink $EMACS_D_LINK)" == "$EMACS_ORIG_D" ]]; then
