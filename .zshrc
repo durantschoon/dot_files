@@ -109,7 +109,6 @@ prompt_context() {
     fi
 }
 
-
 # You may need to manually set your language environment
 # export LANG=en_US.UTF-8
 
@@ -185,7 +184,6 @@ precmd() {
 # customizations (env vars, functions) to the .oh-my-sh/custom/ directory as
 # separate .zsh files.
 
-
 # I'm using .zprofile at work to store secrets I do not want on github
 
 [ -f ~/.shared.zshrc ] && source ~/.shared.zshrc
@@ -205,6 +203,8 @@ precmd() {
 # I think I ought to run this once without -C so I'm adding it here
 # this runs compinit at most once a day instead of evertime zsh starts up
 # find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && compinit -d "${ZSH_COMPDUMP}" && source $HOME/.zshrc
+
+# Don't put anything below this line except for profiling
 
 ##############
 # Profiling

@@ -49,7 +49,6 @@ add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/
 # nvm / node
 ############
 
-# nvm from Ben (seems to be about a second faster)
 if [ -d "$HOME/.nvm" ]; then
     export NVM_DIR="$HOME/.nvm";
     lazynvm() {
@@ -69,6 +68,8 @@ if [ -d "$HOME/.nvm" ]; then
     }
     npm() {
         lazynvm
+        # Try setting NODE_PATH here
+        export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
         npm $@
     }
 fi
