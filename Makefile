@@ -34,8 +34,8 @@ else
     endif
 endif
 
-# families of os'es will run the same commands
-# this value will not be blank if the os is in the family
+# families of OS'es will run the same commands
+# this value will be blank if the detected OS isn't in the list
 unix_family := $(filter $(os),$(OS_LINUX) $(OS_MAC))
 
 .PHONY: set_up_links
@@ -47,6 +47,7 @@ current_dir := $(shell pwd)
 set_up_links: 
 	@echo "OS detected as $(os) $(arch)\n"
 ifneq ("$(unix_family)","")
+	# we're in Unix land
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
 	@echo You should be in the $(dot_file_root_dir) directory to run this command
 	exit 1
@@ -69,7 +70,8 @@ endif
 ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	@echo ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
-	./unix_work_or_home.sh  
+	./unix_work_or_home.sh  # TODO make a general version that works on windows too
+	./install_emacs.sh
 
 	# TODO : ask to install emacs with spacemacs dot files	
 
