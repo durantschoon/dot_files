@@ -24,12 +24,12 @@ while [[ $# -gt 0 ]]; do
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
         ln -si /usr/local/opt/$EMACS_WITH_VERSION/Emacs.app /Applications/
-        [[ ! -d ~/.spacemacs.d ]] && git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d     
+        [[ ! -d ~/.spacemacs.d ]] && git clone $MY_DOT_SPACEMACS_REPO ~/
         brew services start $EMACS_SERVICE
       shift;;
     --linux)
         ee sudo apt install emacs -y
-        [ ! -d ~/.spacemacs.d ] && ee git clone $DOT_SPACEMACS_REPO ~/ 
+        [ ! -d ~/.spacemacs.d ] && ee git clone $MY_DOT_SPACEMACS_REPO ~/ 
       shift;;
     --windows)
         echo Nothing set up for Windows yet
