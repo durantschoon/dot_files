@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
       shift;;
     --linux)
         sudo apt install emacs -y
-       [ ! -d ~/.spacemacs.d ] && git clone $DOT_SPACEMACS_REPO ~/.spacemacs.d
+        [ ! -d ~/.spacemacs.d ] && git clone $DOT_SPACEMACS_REPO ~/.spacemacs.d
       shift;;
     --windows)
         echo Nothing set up for Windows yet
