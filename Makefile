@@ -71,7 +71,7 @@ ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	@echo ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
 	./unix_work_or_home.sh  # TODO make a general version that works on windows too
-	./install_emacs.sh --$(os)
+	./install_emacs.sh "--$(os)"
 
 	# TODO : ask to install emacs with spacemacs dot files	
 
