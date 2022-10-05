@@ -9,7 +9,7 @@ os := $(OS_UNKNOWN)
 ARCH_X86 := x86
 ARCH_AMD64 := amd64
 ARCH_ARM := arm
-ARCH_UNKNOWN := "nknown
+ARCH_UNKNOWN := unknown
 arch := $(ARCH_UNKNOWN)
 
 ifeq ($(OS),Windows_NT)
