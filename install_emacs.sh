@@ -8,6 +8,8 @@ MY_DOT_SPACEMACS_REPO="https://github.com/durantschoon/.spacemacs.d.git"
 
 [[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--linux|--windows]" && exit 1
 
+ee() { echo "$@"; eval "$@"; echo "\n\n\n==========\n\n\n"; } 
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
@@ -26,8 +28,8 @@ while [[ $# -gt 0 ]]; do
         brew services start $EMACS_SERVICE
       shift;;
     --linux)
-        sudo apt install emacs -y
-        [ ! -d ~/.spacemacs.d ] && git clone $DOT_SPACEMACS_REPO ~/.spacemacs.d
+        ee sudo apt install emacs -y
+        [ ! -d ~/.spacemacs.d ] && ee git clone $DOT_SPACEMACS_REPO ~/ 
       shift;;
     --windows)
         echo Nothing set up for Windows yet
