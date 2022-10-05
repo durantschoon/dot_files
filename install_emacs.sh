@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
         ln -si /usr/local/opt/$EMACS_WITH_VERSION/Emacs.app /Applications/
         [[ ! -d ~/.spacemacs.d ]] && git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d     
         brew services start $EMACS_SERVICE
-      shift;;ls
+      shift;;
     --linux)
         echo Test this
         echo sudo apt install emacs -y
