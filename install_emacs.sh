@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
         ln -si /usr/local/opt/$EMACS_WITH_VERSION/Emacs.app /Applications/
-        [[ ! -d ~/.spacemacs.d ]] git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d     
+        [[ ! -d ~/.spacemacs.d ]] && git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d     
         brew services start $EMACS_SERVICE
       shift;;ls
     --linux)
