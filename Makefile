@@ -1,15 +1,15 @@
 # Detect OS (modified from example https://stackoverflow.com/a/12099167)
 
-OS_WINDOWS := "windows"
-OS_MAC := "mac"
-OS_LINUX := "linux"
-OS_UNKNOWN := "unknown"
+OS_WINDOWS := windows
+OS_MAC := mac
+OS_LINUX := linux
+OS_UNKNOWN := unknown
 os := $(OS_UNKNOWN)
 
-ARCH_X86 := "x86"
-ARCH_AMD64 := "amd64"
-ARCH_ARM := "arm"
-ARCH_UNKNOWN := "unknown"
+ARCH_X86 := x86
+ARCH_AMD64 := amd64
+ARCH_ARM := arm
+ARCH_UNKNOWN := "nknown
 arch := $(ARCH_UNKNOWN)
 
 ifeq ($(OS),Windows_NT)
@@ -71,7 +71,7 @@ ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	@echo ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
 	./unix_work_or_home.sh  # TODO make a general version that works on windows too
-	./install_emacs.sh "--$(os)"
+	./install_emacs.sh --$(os)
 
 	# TODO : ask to install emacs with spacemacs dot files	
 
