@@ -8,7 +8,7 @@ MY_DOT_SPACEMACS_REPO="https://github.com/durantschoon/.spacemacs.d.git"
 
 [[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--linux|--windows]" && exit 1
 
-ee() { echo "$@"; eval "$@"; echo "\n\n\n==========\n\n\n"; } 
+ee() { echo "$@"; eval "$@"; echo -e "\n\n\n==========\n\n\n"; } 
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -24,12 +24,12 @@ while [[ $# -gt 0 ]]; do
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
         ln -si /usr/local/opt/$EMACS_WITH_VERSION/Emacs.app /Applications/
-        [[ ! -d ~/.spacemacs.d ]] && git clone $MY_DOT_SPACEMACS_REPO ~/
+        [[ ! -d ~/.spacemacs.d ]] && mkdir ~/.spacemacs.d && ee git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d
         brew services start $EMACS_SERVICE
       shift;;
     --linux)
         ee sudo apt install emacs -y
-        [ ! -d ~/.spacemacs.d ] && ee git clone $MY_DOT_SPACEMACS_REPO ~/ 
+        [ ! -d ~/.spacemacs.d ] && mkdir ~/.spacemacs.d && ee git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d
       shift;;
     --windows)
         echo Nothing set up for Windows yet
