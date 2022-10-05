@@ -10,7 +10,7 @@ These dot files are for the common settings on three operating systems: mac, lin
 ### Ubuntu
 
 ```sh
-sudo apt-get install git -y
+sudo apt-get install git make -y
 cd
 git clone git@github.com:durantschoon/dot_files.git
 cd dot_files
