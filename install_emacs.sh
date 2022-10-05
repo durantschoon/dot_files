@@ -26,9 +26,8 @@ while [[ $# -gt 0 ]]; do
         brew services start $EMACS_SERVICE
       shift;;
     --linux)
-        echo Test this
-        echo sudo apt install emacs -y
-        echo '[ ! -d ~/.spacemacs.d ] git clone $DOT_SPACEMACS_REPO ~/.spacemacs.d '
+        sudo apt install emacs -y
+       [ ! -d ~/.spacemacs.d ] && git clone $DOT_SPACEMACS_REPO ~/.spacemacs.d
       shift;;
     --windows)
         echo Nothing set up for Windows yet
