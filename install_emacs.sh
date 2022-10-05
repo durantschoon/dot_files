@@ -30,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --linux)
         ee sudo apt install emacs -y
         [ ! -d ~/.spacemacs.d ] && mkdir ~/.spacemacs.d && ee git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d
+        ln -si ~/.spacemacs.d ~/.emacs.d
       shift;;
     --windows)
         echo Nothing set up for Windows yet
