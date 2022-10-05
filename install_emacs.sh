@@ -28,7 +28,12 @@ while [[ $# -gt 0 ]]; do
         brew services start $EMACS_SERVICE
       shift;;
     --linux)
-        ee sudo apt install emacs -y
+        # this is an older emacs: ee sudo apt install emacs -y
+        # emacs 28
+        # ee sudo add-apt-repository ppa:kelleyk/emacs
+        # ee sudo apt update && sudo apt upgrade
+        # also emacs 28 ... runs from /snap/bin/emacs tho
+        ee sudo snap install emacs --classic
         [ ! -d ~/.spacemacs.d ] && mkdir ~/.spacemacs.d && ee git clone $MY_DOT_SPACEMACS_REPO ~/.spacemacs.d
         ln -si ~/.spacemacs.d ~/.emacs.d
       shift;;
