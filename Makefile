@@ -46,7 +46,7 @@ current_dir := $(shell pwd)
 
 set_up_links: 
 	@echo "OS detected as $(os) $(arch)\n"
-ifneq ("$(unix_family)","")
+ifneq (,"$(unix_family)")
 	# we're in Unix land
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
 	@echo You should be in the $(dot_file_root_dir) directory to run this command
@@ -78,7 +78,7 @@ endif
 	# DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
-ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
+ifneq (,$(wildcard "~/dot_files/.$(os).zshenv"))
 	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
 	# TODO make a general version of ./unix_work_or_home.sh that works on windows too
