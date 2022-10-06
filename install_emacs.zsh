@@ -28,6 +28,9 @@ unix_family_setup() {
     ee git clone https://github.com/syl20bnr/spacemacs $HOME/.emacs.d
     # Get my customized spacemacs dotfiles
     [[ ! -d $SPACEMACSDIR ]] && mkdir $SPACEMACSDIR && ee git clone $MY_DOT_SPACEMACS_REPO $SPACEMACSDIR
+    pushd $SPACEMACSDIR
+    git checkout develop
+    popd
 
     # the following will only run if using my set up for my switch_spacemacs alias exists
     if [[ -d $HOME/.emacs.d_ORIG_EMACS ]]; then
