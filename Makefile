@@ -70,8 +70,7 @@ endif
 ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
-	source ~/.aliases
-	s.zall # sources all my zsh dot fiels, do this before calling the following scripts
+	/bin/zsh # run this to source zsh dotfiles which set ENV variables
 	./unix_work_or_home.sh  # TODO make a general version that works on windows too
 	./install_emacs.sh --$(os)
 
