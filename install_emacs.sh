@@ -42,7 +42,6 @@ while [[ $# -gt 0 ]]; do
     --mac)
         # Assumes you already have brew and git
         EMACS_WITH_VERSION='emacs-plus@28'
-        EMACS_INSTALL_FLAGS="--with-xwidgets --with-emacs-card-blue-deep-icon"
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
         # uninstall old
         brew list emacs-plus 2> /dev/null && brew uninstall emacs-plus
@@ -55,7 +54,7 @@ while [[ $# -gt 0 ]]; do
         
         # install new
         brew tap d12frosted/emacs-plus
-        brew install $EMACS_WITH_VERSION $EMACS_INSTALL_FLAGS
+        brew install $EMACS_WITH_VERSION --with-xwidgets --with-emacs-card-blue-deep-icon
         brew link --overwrite emacs
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
