@@ -71,7 +71,9 @@ endif
 	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
 	chsh -s `which zsh`
 
-	mv ~/.zshrc ~/.zshrc.bak # this is created by oh-my-zsh, so we don't care about clobbering it on rewrite
+ifneq (,$(wildcard "~/.zshrc"))
+	mv ~/.zshrc ~/.zshrc.bak # maybe created by oh-my-zsh and we don't care about clobbering it on rewrite
+endif
 	ln -si ~/dot_files/.zshrc ~/
 	ln -si ~/dot_files/.aliases ~/
 
