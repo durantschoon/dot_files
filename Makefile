@@ -95,6 +95,5 @@ else
 	@echo "OS not recognized"
 	exit 1
 endif
-endif
 
 ./install_emacs.sh --$(os)
