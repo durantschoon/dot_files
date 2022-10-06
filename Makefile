@@ -60,6 +60,7 @@ ifeq ("$(os)","$(OS_LINUX)")
 	
 	# install zsh
 	sudo apt install zsh -y
+endif
 	
 	# This powerline install should work on mac and linux
 	git clone https://github.com/powerline/fonts.git --depth=1
