@@ -64,9 +64,7 @@ endif
 	
 	# This powerline install should work on mac and linux
 	git clone https://github.com/powerline/fonts.git --depth=1
-	cd fonts
-	./install.sh
-	cd ..
+	./fonts/install.sh
 	rm -rf fonts
 	
 	# install oh-my-zsh
