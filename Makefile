@@ -96,4 +96,5 @@ else
 	exit 1
 endif
 
-./install_emacs.sh --$(os)
+	# End of setup_links
+	./install_emacs.sh --$(os)
