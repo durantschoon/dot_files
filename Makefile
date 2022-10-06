@@ -56,7 +56,11 @@ ifeq ("$(os)","$(OS_LINUX)")
 	# ubuntu
 	# you already installed git to get this far
 	sudo apt-get update && sudo apt-get dist-upgrade -y
-	sudo apt-get install build-essential curl file fonts-powerline -y
+	sudo apt-get install build-essential curl file -y
+	# Powerline for linux
+	sudo apt install powerline source /usr/share/powerline/bindings/bash/powerline.sh
+	git clone https://github.com/powerline/fonts.git && cd fonts && sh ./install.sh
+	cd .. && rm -rf fonts
 	# install zsh
 	sudo apt install zsh -y
 else ifeq ("$(os)","$(OS_MAC)")
