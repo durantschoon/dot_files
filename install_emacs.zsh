@@ -66,10 +66,6 @@ while [[ $# -gt 0 ]]; do
     --linux)
         # this is an older emacs: ee sudo apt install emacs -y
         # emacs 28
-        # ee sudo add-apt-repository ppa:kelleyk/emacs
-        # ee sudo apt update && sudo apt upgrade
-        # also emacs 28 ... runs from /snap/bin/emacs tho
-        # so far this works with the official dotfiles, but not mine: HOME=~/spacemacs /snap/bin/emacs
         ee sudo snap install emacs --classic
 	# install fonts
 	tempfontdownload=~/Downloads/EmacsFontsTemp.$$
