@@ -57,20 +57,17 @@ ifeq ("$(os)","$(OS_LINUX)")
 	# you already installed git to get this far
 	sudo apt-get update && sudo apt-get dist-upgrade -y
 	sudo apt-get install build-essential curl file -y
-	# Powerline for linux
-	sudo apt install powerline source /usr/share/powerline/bindings/bash/powerline.sh
-	git clone https://github.com/powerline/fonts.git && cd fonts && sh ./install.sh
-	cd .. && rm -rf fonts
+	
 	# install zsh
 	sudo apt install zsh -y
-else ifeq ("$(os)","$(OS_MAC)")
-	# Powerline for mac
+	
+	# This powerline install should work on mac and linux
 	git clone https://github.com/powerline/fonts.git --depth=1
 	cd fonts
 	./install.sh
 	cd ..
 	rm -rf fonts
-endif	
+	
 	# install oh-my-zsh
 	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
 	chsh -s `which zsh`
