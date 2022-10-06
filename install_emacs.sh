@@ -4,7 +4,7 @@
 # ---------------------------------------------
 # 1) some version of emacs is installed
 # 2) https://github.com/syl20bnr/spacemacs is cloned into ~/.emacs.d (previous one is backed up first)
-# 3) https://github.com/durantschoon/.spacemacs.d.git is cloned becoming ~/.spacemacs.d
+# 3) https://github.com/durantschoon/.spacemacs.d is cloned into ~/.spacemacs.d
 # 4) .shared.zshrc already should set `export SPACEMACSDIR=$HOME/.spacemacs.d`
 #    which is a variable recognized by the spacemacs code
 
