@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
         # Assumes you already have brew and git
-        EMACS_WITH_VERSION="emacs-plus@28"
+        EMACS_WITH_VERSION='emacs-plus@28'
         EMACS_INSTALL_FLAGS="--with-xwidgets --with-emacs-card-blue-deep-icon"
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
         # uninstall old
@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
         brew install svn # for ripgrep
         brew install ripgrep
         # install new
-        brew install $EMACS_WITH_VERSION $EMACS_INSTALL_FLAGS
+        brew install "$EMACS_WITH_VERSION" "$EMACS_INSTALL_FLAGS"
         brew link --overwrite emacs
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
