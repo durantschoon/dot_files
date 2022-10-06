@@ -59,6 +59,13 @@ ifeq ("$(os)","$(OS_LINUX)")
 	sudo apt-get install build-essential curl file fonts-powerline -y
 	# install zsh
 	sudo apt install zsh -y
+else ifeq ("$(os)","$(OS_MAC)")
+	# Powerline for mac
+	git clone https://github.com/powerline/fonts.git --depth=1
+	cd fonts
+	./install.sh
+	cd ..
+	rm -rf fonts
 endif	
 	# install oh-my-zsh
 	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
