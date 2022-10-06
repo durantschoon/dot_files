@@ -73,6 +73,8 @@ endif
 ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
+	source ~/.aliases
+	s.zall # defined in ~/.aliases, source all zsh dot files
 	./unix_work_or_home.sh  # TODO make a general version that works on windows too
 	./install_emacs.sh --$(os)
 
