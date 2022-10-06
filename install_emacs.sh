@@ -11,6 +11,8 @@
 # this script is intended to be called by another script which has determined the operating system
 [[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--linux|--windows]" && exit 1
 
+echo "Preparing to install spacemacs..."
+
 EMACS_WITH_VERSION=""
 EMACS_INSTALL_FLAGS=""
 MY_DOT_SPACEMACS_REPO="https://github.com/durantschoon/.spacemacs.d.git"
