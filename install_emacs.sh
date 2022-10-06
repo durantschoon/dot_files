@@ -1,4 +1,4 @@
-#! /usr/bin/env bash
+#! /usr/bin/env zsh
 
 # How setting up spacemancs is supposed to work
 # ---------------------------------------------
