@@ -105,6 +105,12 @@ if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
     fi
 fi
 
+###########
+# Spacemacs
+###########
+
+export SPACEMACSDIR=$HOME/.spacemacs.d
+
 ######
 # misc
 ######
