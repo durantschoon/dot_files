@@ -49,9 +49,9 @@ while [[ $# -gt 0 ]]; do
         # ensure we have fonts
         brew tap homebrew/cask-fonts
         brew install --cask font-source-code-pro
-        # ensure we have ripgrep for grepping
+        # these are required later on, so install them first
         brew install ripgrep
-        
+        brew install autojump        
         # install new
         brew tap d12frosted/emacs-plus
         brew install $EMACS_WITH_VERSION --with-xwidgets --with-emacs-card-blue-deep-icon
