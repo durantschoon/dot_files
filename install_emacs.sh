@@ -77,7 +77,8 @@ while [[ $# -gt 0 ]]; do
 	pushd $tempfontdownload
 	wget https://github.com/adobe-fonts/source-code-pro/archive/2.030R-ro/1.050R-it.zip
 	unzip 1.050R-it.zip
-	fontpath="${XDG_DATA_HOME:-$HOME/.local/share}"/fonts
+	fontpath="${XDG_DATA_HOME:-$HOME/.local/share}"/fonts # local user only
+	# fontpath=/usr/local/share/fonts/ # system-wide would require sudo cp
 	mkdir -p $fontpath
 	cp source-code-pro-*-it/OTF/*.otf $fontpath
 	fc-cache -f -v
