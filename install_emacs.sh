@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
         EMACS_INSTALL_FLAGS="--with-xwidgets --with-emacs-card-blue-deep-icon"
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
         # uninstall old
-        brew uninstall emacs-plus
+        brew list emacs-plus && brew uninstall emacs-plus
         # ensure we have fonts
         brew tap homebrew/cask-fonts
         brew install --cask font-source-code-pro
