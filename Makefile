@@ -98,4 +98,4 @@ else
 endif
 
 	# End of setup_links
-	zsh -c ./install_emacs.zsh --$(os)
+	zsh -c "./install_emacs.zsh --$(os)"
