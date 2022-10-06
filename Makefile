@@ -57,10 +57,8 @@ ifeq ("$(os)","$(OS_LINUX)")
 	# you already installed git to get this far
 	sudo apt-get update && sudo apt-get dist-upgrade -y
 	sudo apt-get install build-essential curl file fonts-powerline -y
-	# install zsh and oh-my-zsh
+	# install zsh
 	sudo apt install zsh -y
-	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
-	chsh -s `which zsh`
 endif	
 	ln -si ~/dot_files/.zshrc ~/
 	ln -si ~/dot_files/.aliases ~/
@@ -70,7 +68,9 @@ endif
 ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
-	/bin/zsh # run this to source zsh dotfiles which set ENV variables
+	# install oh-my-zsh
+	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+	chsh -s `which zsh`
 	./unix_work_or_home.sh  # TODO make a general version that works on windows too
 	./install_emacs.sh --$(os)
 
