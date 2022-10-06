@@ -50,6 +50,7 @@ while [[ $# -gt 0 ]]; do
         brew tap homebrew/cask-fonts
         brew install --cask font-source-code-pro
         # ensure we have ripgrep for grepping
+        brew install svn # for ripgrep
         brew install ripgrep
         # install new
         brew install $EMACS_WITH_VERSION $EMACS_INSTALL_FLAGS
