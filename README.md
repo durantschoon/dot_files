@@ -30,6 +30,9 @@ git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
 make
 ```
+
+Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm and under Profiles > (Default) > Text, flick on "Use built-in Powerline glyphs."
+
 ### Windows
 
 TODO
