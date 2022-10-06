@@ -46,11 +46,11 @@ while [[ $# -gt 0 ]]; do
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
         # uninstall old
         brew list emacs-plus && brew uninstall emacs-plus
+        brew install svn # for something below
         # ensure we have fonts
         brew tap homebrew/cask-fonts
         brew install --cask font-source-code-pro
         # ensure we have ripgrep for grepping
-        brew install svn # for ripgrep
         brew install ripgrep
         # install new
         brew install "$EMACS_WITH_VERSION" "$EMACS_INSTALL_FLAGS"
