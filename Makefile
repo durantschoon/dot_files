@@ -80,7 +80,7 @@ endif
 	# DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
-	[ -f "~/dot_files/.$(os).zshenv" ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
+	[ -f $(wildcard "~/dot_files/.$(os).zshenv") ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 
 	# TODO make a general version of ./unix_work_or_home.sh that works on windows too
 	./unix_work_or_home.sh
