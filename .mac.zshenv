@@ -56,3 +56,6 @@ fi
 # poetry
 
 [ -d "$HOME/.poetry/bin" ] && path=("$HOME/.poetry/bin" "$path[@]")
+
+# DO LAST end with success, uncomment the redirect if you want to see output
+echo finished sourcing $0 at $(date) > /dev/null
