@@ -40,6 +40,7 @@ unix_family_setup() {
 while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
+        shift
         # Assumes you already have brew and git
         EMACS_WITH_VERSION='emacs-plus@28'
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
@@ -62,8 +63,9 @@ while [[ $# -gt 0 ]]; do
         brew services start $EMACS_SERVICE
         # finish setup
         unix_family_setup()
-      shift;;
+      ;;
     --linux)
+        shift
         # this is an older emacs: ee sudo apt install emacs -y
         # emacs 28
         # ee sudo add-apt-repository ppa:kelleyk/emacs
@@ -73,9 +75,10 @@ while [[ $# -gt 0 ]]; do
         ee sudo snap install emacs --classic
         # finish setup
         unix_family_setup()
-      shift;;
+      ;;
     --windows)
+        shift
         echo Nothing set up for Windows yet
-      shift;;
+      ;;
   esac
 done
