@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
         # ensure we have ripgrep for grepping
         brew install ripgrep
         # install new
-        brew install "$EMACS_WITH_VERSION" "$EMACS_INSTALL_FLAGS"
+        brew install $EMACS_WITH_VERSION $EMACS_INSTALL_FLAGS
         brew link --overwrite emacs
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
