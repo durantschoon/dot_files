@@ -68,8 +68,10 @@ endif
 	rm -rf fonts
 
 # install oh-my-zsh
-	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
-	chsh -s `which zsh`
+	curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -o install-oh-my-zsh.sh
+	sh install-oh-my-zsh.sh
+	rm install-oh-my-zsh.sh
+	chsh -s $(shell which zsh)
 
 ifneq (,$(wildcard "~/.zshrc"))
 	mv ~/.zshrc ~/.zshrc.bak # maybe created by oh-my-zsh and we don't care about clobbering it on rewrite
