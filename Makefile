@@ -74,12 +74,8 @@ ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
 	# TODO make a general version of ./unix_work_or_home.sh that works on windows too
-	# s.zall is defined in ~/.aliases, source all zsh dot files
-	zsh -c "\
-	  source ~/.aliases; \
-	  s.zall; \
-	  ./unix_work_or_home.sh; \
-	  ./install_emacs.sh --$(os)"
+	./unix_work_or_home.sh
+	./install_emacs.sh --$(os)
 
 else ifeq ($(os),$(OS_WINDOWS))
 	# TODO: where is my home directory on windows? /C or /H?
