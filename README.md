@@ -1,9 +1,11 @@
 # dot_files
-My dotfiles except for ~/.emacs.d (but now UNDER_CONSTRUCTION the makefile in this repo is transitioning to becoming the single-stop-shop for setting up my dotfiles. It will ask to install emacs with my [spacemacs dotfiles](https://github.com/durantschoon/.spacemacs.d) -- also on my mind is that I should look up [other people's solutions](https://dotfiles.github.io/utilities/) and ditch all this at some point, but with so many choices, how am I to choose, ha ha.)
+My dotfiles except for ~/.emacs.d (but now the makefile in this repo has become the single-stop-shop for setting up my dotfiles including asking to install emacs with my [spacemacs dotfiles](https://github.com/durantschoon/.spacemacs.d)).
+
+*Also on my mind is that maybe I should look up [other people's solutions](https://dotfiles.github.io/utilities/) and ditch all this at some point, but with so many choices and the further I get to making this how I want it, seems like I could end up sticking with this.*
 
 I use [Zsh](http://www.zsh.org/) with [oh-my-zsh](https://github.com/robbyrussell/oh-my-zsh). I use the [agnoster theme](https://github.com/agnoster/agnoster-zsh-theme) which is best viewed with the [meslo powerline fonts](https://github.com/powerline/fonts) which should be installed by the cross-system [Makefile](./Makefile) in this repo.
 
-These dot files are for the common settings on three operating systems: mac, linux (ubuntu), and windows. Specific changes to the path, etc. should go in ~/.zshenv and would be expected to be different on different machines since environment variables for software on each machine can be different. Someday I might get around to creating all three files: `.(mac|linux|windows).zshenv`
+These dot files are for the common settings on three operating systems: mac, linux (ubuntu), and windows. Specific changes to the path, etc. should go in ~/.zshenv and would be expected to be different on different machines since environment variables for software on each machine can be different. The Windows set up is not really set up, yet. Last time I was on my Windows machine I was playing with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install)) and I think I had emacs on both or something weird like that and I should figure out what I did and what I want to do in this repo. 
 
 ## Bootstraps by Operating system
 
