@@ -39,7 +39,6 @@ unix_family_setup() {
 while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
-        shift
         # Assumes you already have brew and git
         EMACS_WITH_VERSION='emacs-plus@28'
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
@@ -61,10 +60,10 @@ while [[ $# -gt 0 ]]; do
         ln -si /usr/local/opt/$EMACS_WITH_VERSION/Emacs.app /Applications/
         brew services start $EMACS_SERVICE
         # finish setup
-        unix_family_setup()
-      ;;
+        unix_family_setup
+	    shift;;
+    
     --linux)
-        shift
         # this is an older emacs: ee sudo apt install emacs -y
         # emacs 28
         # ee sudo add-apt-repository ppa:kelleyk/emacs
@@ -73,11 +72,10 @@ while [[ $# -gt 0 ]]; do
         # so far this works with the official dotfiles, but not mine: HOME=~/spacemacs /snap/bin/emacs
         ee sudo snap install emacs --classic
         # finish setup
-        unix_family_setup()
-      ;;
+        unix_family_setup
+        shift;;
     --windows)
-        shift
         echo Nothing set up for Windows yet
-      ;;
+        shift;;
   esac
 done
