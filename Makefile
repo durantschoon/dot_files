@@ -55,20 +55,20 @@ endif
 ifeq ("$(os)","$(OS_LINUX)")
 	# ubuntu
 	# you already installed git to get this far
-	@echo sudo apt-get update && sudo apt-get dist-upgrade -y
-	@echo sudo apt-get install build-essential curl file fonts-powerline -y
+	sudo apt-get update && sudo apt-get dist-upgrade -y
+	sudo apt-get install build-essential curl file fonts-powerline -y
 	# install zsh and oh-my-zsh
-	@echo sudo apt install zsh -y
-	@echo sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
-	@echo chsh -s `which zsh`
+	sudo apt install zsh -y
+	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+	chsh -s `which zsh`
 endif	
-	@echo ln -si ~/dot_files/.zshrc ~/
-	@echo ln -si ~/dot_files/.aliases ~/
+	ln -si ~/dot_files/.zshrc ~/
+	ln -si ~/dot_files/.aliases ~/
 
 	# DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
-	@echo ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
+	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
 ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
-	@echo ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
+	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
 	./unix_work_or_home.sh  # TODO make a general version that works on windows too
 	./install_emacs.sh --$(os)
