@@ -83,7 +83,6 @@ ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 endif
 	# TODO make a general version of ./unix_work_or_home.sh that works on windows too
 	./unix_work_or_home.sh
-	./install_emacs.sh --$(os)
 
 else ifeq ($(os),$(OS_WINDOWS))
 	# TODO: where is my home directory on windows? /C or /H?
@@ -97,3 +96,4 @@ else
 	exit 1
 endif
 
+./install_emacs.sh --$(os)
