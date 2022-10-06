@@ -57,17 +57,17 @@ ifeq ("$(os)","$(OS_LINUX)")
 	# you already installed git to get this far
 	sudo apt-get update && sudo apt-get dist-upgrade -y
 	sudo apt-get install build-essential curl file -y
-	
-	# install zsh
+
+# install zsh
 	sudo apt install zsh -y
 endif
-	
-	# This powerline install should work on mac and linux
+
+# This powerline install should work on mac and linux
 	git clone https://github.com/powerline/fonts.git --depth=1
 	./fonts/install.sh
 	rm -rf fonts
-	
-	# install oh-my-zsh
+
+# install oh-my-zsh
 	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
 	chsh -s `which zsh`
 
@@ -99,4 +99,4 @@ else
 endif
 
 	# End of setup_links
-	./install_emacs.sh --$(os)
+	./install_emacs.zsh --$(os)
