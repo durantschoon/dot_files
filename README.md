@@ -7,6 +7,8 @@ I use [Zsh](http://www.zsh.org/) with [oh-my-zsh](https://github.com/robbyrussel
 
 These dot files are for the common settings on three operating systems: mac, linux (ubuntu), and windows. Specific changes to the path, etc. should go in ~/.zshenv and would be expected to be different on different machines since environment variables for software on each machine can be different. The Windows set up is not really set up, yet. Last time I was on my Windows machine I was playing with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install)) and I think I had emacs on both or something weird like that and I should figure out what I did and what I want to do in this repo. 
 
+Note to self: The name `.shared.zshrc` is an old name which meant shared between work and home (both mac). TODO: rename and refactor this so it makes sense on the 3 operating systems.
+
 ## Bootstraps by Operating system
 
 ### Ubuntu
