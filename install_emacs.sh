@@ -14,7 +14,6 @@
 echo "Preparing to install spacemacs..."
 
 EMACS_WITH_VERSION=""
-EMACS_INSTALL_FLAGS=""
 MY_DOT_SPACEMACS_REPO="https://github.com/durantschoon/.spacemacs.d.git"
 
 # could either do this or source .shared.zsharc. Sourcing might be safer to set it one place only
