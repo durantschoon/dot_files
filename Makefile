@@ -69,6 +69,7 @@ endif
 	ln -si ~/dot_files/.aliases ~/
 
 	# DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
+	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
 ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
