@@ -60,6 +60,11 @@ ifeq ("$(os)","$(OS_LINUX)")
 	# install zsh
 	sudo apt install zsh -y
 endif	
+	# install oh-my-zsh
+	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
+	chsh -s `which zsh`
+	
+	mv ~/.zshrc ~/.zshrc.bak # this is created by oh-my-zsh, so we don't care about clobbering it on rewrite
 	ln -si ~/dot_files/.zshrc ~/
 	ln -si ~/dot_files/.aliases ~/
 
@@ -68,9 +73,6 @@ endif
 ifneq (,$(wildcard "~/dot_files/.$(os).zshenv)")
 	ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 endif
-	# install oh-my-zsh
-	sh -c "$(curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh)"
-	chsh -s `which zsh`
 	./unix_work_or_home.sh  # TODO make a general version that works on windows too
 	./install_emacs.sh --$(os)
 
