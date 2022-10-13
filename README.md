@@ -39,5 +39,5 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 ### Windows
 
-In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... will make some tiny adjustments...
+*In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... but I'm still debugging this...*
 
