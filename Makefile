@@ -70,7 +70,7 @@ endif
 # install oh-my-zsh
 ifneq (,$(wildcard "~/.oh-my-zsh"))
 	epoch := $(shell date +%s)
-	ee mv ~/..oh-my-zsh ~/..oh-my-zsh.bak.$(epoch)
+	ee mv ~/.oh-my-zsh ~/.oh-my-zsh.bak.$(epoch)
 endif
 	curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -o install-oh-my-zsh.sh
 	sh install-oh-my-zsh.sh
