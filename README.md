@@ -5,7 +5,7 @@ My dotfiles except for ~/.emacs.d (but now the makefile in this repo has become 
 
 I use [Zsh](http://www.zsh.org/) with [oh-my-zsh](https://github.com/robbyrussell/oh-my-zsh). I use the [agnoster theme](https://github.com/agnoster/agnoster-zsh-theme) which is best viewed with the [meslo powerline fonts](https://github.com/powerline/fonts) which should be installed by the cross-system [Makefile](./Makefile) in this repo.
 
-These dot files are for the common settings on three operating systems: mac, linux (ubuntu), and windows. Specific changes to the path, etc. should go in the OS specific version of ~/.zshenv (remember: .zshenv is sourced every time and .zshrc is for interactive shells). The Windows set up is not really set up, yet. Last time I was on my Windows machine I was playing with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install)) and I think I had emacs on both or something weird like that and I should figure out what I did and what I want to do in this repo. 
+These dot files are for the common settings on three operating systems: mac, linux (ubuntu), and windows. Specific changes to the path, etc. should go in the OS specific version of ~/.zshenv (remember: .zshenv is sourced every time and .zshrc is for interactive shells). The Windows set up is not really set up, yet. Last time I was on my Windows machine I was playing with and I think I had emacs on both or something weird like that and I should figure out what I did and what I want to do in this repo. 
 
 Note to self: The name `.shared.zshrc` is an old name which meant shared between work and home (both mac). TODO: rename and refactor this so it makes sense on the 3 operating systems.
 
@@ -39,5 +39,5 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 ### Windows
 
-TODO
+In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... will make some tiny adjustments...
 
