@@ -58,7 +58,7 @@ ifeq ("$(os)","$(OS_LINUX)")
 	sudo apt-get update && sudo apt-get dist-upgrade -y
 	sudo apt-get install build-essential curl file -y
 
-# install zsh
+	# install zsh
 	sudo apt install zsh -y
 endif
 ifeq ("$(os)","$(OS_MAC)")
