@@ -61,7 +61,10 @@ ifeq ("$(os)","$(OS_LINUX)")
 # install zsh
 	sudo apt install zsh -y
 endif
-
+ifeq ("$(os)","$(OS_MAC)")
+	# for the fonts
+	brew install svn
+endif
 # This powerline install should work on mac and linux
 	git clone https://github.com/powerline/fonts.git --depth=1
 	./fonts/install.sh
