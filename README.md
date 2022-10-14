@@ -25,7 +25,7 @@ for reference: [zsh on ubuntu](https://gist.github.com/tsabat/1498393)
 
 ### Mac
 
-*from memory, test this*
+Forgot how to get `brew` on the mac? Go [here](https://brew.sh/) and run the one-liner. 
 
 ```sh
 brew install git
