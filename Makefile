@@ -94,12 +94,9 @@ endif
 	./unix_work_or_home.sh
 
 else ifeq ($(os),$(OS_WINDOWS))
-	# TODO: where is my home directory on windows? /C or /H?
 	# TODO: check current dir here too
-	@echo mklink /H %USERPROFILE%\.zshrc %USERPROFILE%\dot_files\.zshrc
-	@echo mklink /H %USERPROFILE%\.aliases %USERPROFILE%\dot_files\.aliases
-	# DISABLED @echo mklink /H %USERPROFILE%\.zprofile %USERPROFILE%\dot_files\.zprofile
-	@echo mklink /H %USERPROFILE%\.shared.zshrc %USERPROFILE%\dot_files\.shared.zshrc
+	# MS also has a junction link type
+	# possibly try powershell here
 else
 	@echo "OS not recognized"
 	exit 1
