@@ -1,3 +1,5 @@
+# -*- mode: shell-script -*-
+
 # Add in reverse order, most important at end will be at the front of $path
 
 # add_to_end_of_path is defined in .zshenv
@@ -52,8 +54,6 @@ if [ -d "$HOME/.nvm" ]; then
     }
     npm() {
         lazynvm
-        # Try setting NODE_PATH here
-        export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
         npm $@
     }
 fi

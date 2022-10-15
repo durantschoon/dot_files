@@ -38,15 +38,14 @@ done
 
 add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/bin'
 
-######
-# Node
-######
+##########
+# NVM/Node
+##########
 
-# this is pinned to node@8 ... can I future proof this?
+export NVM_DIR=~/.nvm
+source $(brew --prefix nvm)/nvm.sh
 
-if [ -d "/usr/local/opt/node@8/bin" ]; then
-    path=(/usr/local/opt/node@8/bin "$path[@]")
-fi
+export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
 
 # Prep needed for gcloud (bash versions exists too)
 # installation:
