@@ -14,16 +14,6 @@ fi
 add_to_end_of_path $HOME/.cargo/bin
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
-################
-# aws? / haskell
-################
-
-for dir (~/.local/bin ~/.cabal/bin ~/.ghcup/bin ~/Library/Haskell/bin); do
-    add_to_end_of_path $dir
-done
-
-[[ -f /Users/durant.schoon/.ghcup/env ]] && . /Users/durant.schoon/.ghcup/env
-
 ############
 # rvm / ruby
 ############
@@ -38,12 +28,6 @@ if [ -d "$HOME/Programming/go" ]; then
     export GOPATH=$HOME/Programming/go
     add_to_end_of_path $GOPATH/bin
 fi
-
-#########
-# VS Code
-#########
-
-add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/bin'
 
 ############
 # nvm / node
@@ -72,11 +56,6 @@ if [ -d "$HOME/.nvm" ]; then
         export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
         npm $@
     }
-fi
-
-# export PATH="/usr/local/opt/node@8/bin:$PATH"
-if [ -d "/usr/local/opt/node@8/bin" ]; then
-    path=(/usr/local/opt/node@8/bin "$path[@]")
 fi
 
 ########
