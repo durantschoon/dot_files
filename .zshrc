@@ -13,11 +13,13 @@ export ZSH=$HOME/.oh-my-zsh
 # time that oh-my-zsh is loaded.
 # ZSH_THEME="random"
 
+# TEST
 # Only set theme if it's not yet set, so I can do:
 # xterm -e "export ZSH_THEME='clean';/bin/zsh" &
 # until I can get meslo to work in xterm
-
-[ ! -n "${ZSH_THEME+x}" ] && ZSH_THEME="agnoster"
+# [ ! -n "${ZSH_THEME+x}" ] && ZSH_THEME="agnoster"
+# END TEST
+ZSH_THEME="agnoster"
 
 # ZSH_THEME="xiong-chiamiov-plus"
 # ZSH_THEME="bira"
