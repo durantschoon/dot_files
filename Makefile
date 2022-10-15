@@ -70,13 +70,8 @@ endif
 	./fonts/install.sh
 	rm -rf fonts
 
-# install oh-my-zsh
-ifneq (,$(wildcard "~/.oh-my-zsh"))
-	mv ~/.oh-my-zsh ~/.oh-my-zsh.bak.$(shell date +%s)
-endif
-	curl -fsSL https://raw.github.com/robbyrussell/oh-my-zsh/master/tools/install.sh -o install-oh-my-zsh.sh
-	sh install-oh-my-zsh.sh
-	rm install-oh-my-zsh.sh
+	echo skipping oh-my-zsh install as a test
+	sh -c ./install_oh_my_zsh_with_backup.sh
 	chsh -s $(shell which zsh)
 
 ifneq (,$(wildcard "~/.zshrc"))
