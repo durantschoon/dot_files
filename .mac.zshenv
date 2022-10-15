@@ -22,9 +22,31 @@ add_to_front_of_path /usr/local/opt
 #     fi
 # done
 
-###############################################################################
-# Load once
-# Used to be in .bash_profile
+################
+# aws? / haskell
+################
+
+for dir (~/.local/bin ~/.cabal/bin ~/.ghcup/bin ~/Library/Haskell/bin); do
+    add_to_end_of_path $dir
+done
+
+[[ -f /Users/durant.schoon/.ghcup/env ]] && . /Users/durant.schoon/.ghcup/env
+
+#########
+# VS Code
+#########
+
+add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/bin'
+
+######
+# Node
+######
+
+# this is pinned to node@8 ... can I future proof this?
+
+if [ -d "/usr/local/opt/node@8/bin" ]; then
+    path=(/usr/local/opt/node@8/bin "$path[@]")
+fi
 
 # Prep needed for gcloud (bash versions exists too)
 # installation:
