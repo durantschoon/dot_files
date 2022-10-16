@@ -1,3 +1,5 @@
+# -*- mode: shell-script -*-
+
 # for profiling: also zprof at end
 # zmodload zsh/zprof
 
