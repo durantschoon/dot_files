@@ -49,9 +49,6 @@ alias up3='cd ../../..'
 alias up4='cd ../../../..'
 alias wh=which
 alias wo=workon
-# z move?
-# zmv -W '*.lis' '*.txt'
-alias zmvw='zmv -W'
 alias ,=pd
 alias ,.=pp
 
