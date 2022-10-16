@@ -70,8 +70,7 @@ endif
 	./fonts/install.sh
 	rm -rf fonts
 
-	echo skipping oh-my-zsh install as a test
-	sh -c ./install_oh_my_zsh_with_backup.sh
+	./install_oh_my_zsh_with_backup.sh
 	chsh -s $(shell which zsh)
 
 ifneq (,$(wildcard "~/.zshrc"))
