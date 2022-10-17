@@ -41,6 +41,7 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 Remember to set fonts in terminal programs for your agnoster glyphs:
 * ConEmu > (hamburger menu in top right) > Settings > General > Fonts > Main Console Font : set to one fo the meslos, like **Meslo LG S DZ for Powerline**
+* VS Code terminal: `"terminal.integrated.fontFamily": "Meslo LG M DZ for Powerline"`
 
 *In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... but I'm still debugging this...*
 
