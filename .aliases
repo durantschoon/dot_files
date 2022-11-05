@@ -122,11 +122,8 @@ if [ -n "$ZSH_VERSION" ]; then
     alias llrm='echo "Paste ls -lt output for files to delete and ^D when done"; /bin/rm -rf `awk '\''{print $9}'\''`'
 
     ee () { echo $* ; $* }
-
-    if [[ "$(uname)" == "Darwin" ]]; then
-        # unalias rm
-        rm () { mv $* ~/.Trash }
-    fi
+    
+    rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || builtin rm $* }
 
     function rg () {
         [[ -d .git/ ]] && echo 'skipping .git/ dir ...';
