@@ -242,6 +242,6 @@ if [ -n "$ZSH_VERSION" ]; then
     alias -g XG='| xargs egrep'
     alias -g X='| xargs'
 
-elif [ -n "$BASH_VERSION" ]; then
+# elif [ -n "$BASH_VERSION" ]; then
     # assume Bash
 fi
