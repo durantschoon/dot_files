@@ -1,4 +1,4 @@
-# -*- mode: shell-script -*-
+# -*- mode: shell-script; -*-
 
 [[ -f ~/.shared.zshenv ]] && source ~/.shared.zshenv
 
@@ -75,6 +75,10 @@ fi
 
 # krew
 [ -d "${KREW_ROOT:-$HOME/.krew}/bin" ] && path=(${KREW_ROOT:-$HOME/.krew}/bin "$path[@]")
+
+# python's virtualenvwrapper
+
+[ -f /usr/local/bin/virtualenvwrapper.sh ] && source /usr/local/bin/virtualenvwrapper.sh
 
 # poetry
 

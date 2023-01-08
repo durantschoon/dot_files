@@ -1,4 +1,4 @@
-# -*- mode: shell-script -*-
+# -*- mode: shell-script; -*-
 
 # Add in reverse order, most important at end will be at the front of $path
 
