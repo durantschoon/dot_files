@@ -14,6 +14,26 @@ add_to_front_of_path /usr/local/bin
 # for brew (mac)
 add_to_front_of_path /usr/local/opt
 
+# This is code that was added to my ~/.bash_profile, probably from scripts
+# In general move anything in that file here and delete that file
+
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+if command -v pyenv 1>/dev/null 2>&1; then
+    eval "$(pyenv init -)"
+fi
+
+export VIRTUALENVWRAPPER_SCRIPT=/usr/local/bin/virtualenvwrapper.sh
+if [[ -f $VIRTUALENVWRAPPER_SCRIPT ]]; then
+    export PYENV_VIRTUALENVWRAPPER_PREFER_PYVENV="true"
+    export WORKON_HOME=$HOME/.virtualenvs
+    # pyenv virtualenvwrapper_lazy # works at work
+    source /usr/local/bin/virtualenvwrapper_lazy.sh
+else
+    unset VIRTUALENVWRAPPER_SCRIPT
+fi
+. "$HOME/.cargo/env"
+
 # This seems to cause magit to open a separate window
 # for emacsclient (/Applications/Emacs.app/Contents/MacOS/bin/emacsclient
 #                  /Applications/EmacsClient.app)
