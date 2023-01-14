@@ -96,3 +96,9 @@ export SPACEMACSDIR=$HOME/.spacemacs.d
 
 # zsh cd command that learns
 [ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
+
+# Angular tests
+if type "ng" > /dev/null; then
+   # Load Angular CLI autocompletion.
+   source <(ng completion script)  
+fi
