@@ -220,7 +220,3 @@ precmd() {
 # end on a agood note, i.e. do something successful as the last step
 
 [[ -n $status ]]
-
-
-# Load Angular CLI autocompletion.
-source <(ng completion script)
