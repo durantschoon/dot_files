@@ -71,7 +71,10 @@ endif
 	rm -rf fonts
 
 	./install_oh_my_zsh_with_backup.sh
+	
+ifneq(,$(shell which zsh))
 	chsh -s $(shell which zsh)
+endif
 
 ifneq (,$(wildcard "~/.zshrc"))
 	mv ~/.zshrc ~/.zshrc.bak # maybe created by oh-my-zsh and we don't care about clobbering it on rewrite
