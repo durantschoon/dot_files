@@ -104,5 +104,9 @@ fi
 
 [ -d "$HOME/.poetry/bin" ] && path=("$HOME/.poetry/bin" "$path[@]")
 
+# postgres 15
+add_to_front_of_path '/usr/local/opt/postgresql@15/bin'
+
+###############################################################################
 # DO LAST end with success, uncomment the redirect if you want to see output
 echo finished sourcing $0 at $(date) > /dev/null
