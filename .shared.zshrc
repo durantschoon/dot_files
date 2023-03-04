@@ -84,6 +84,21 @@ if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
     fi
 fi
 
+# ensure poetry completions
+if [[ ! -d ~/.zfunc ]]; then
+    mkdir -p ~/.zfunc
+    if [[ ! -d ~/.zfunc/_poetry ]]; then
+        poetry completions zsh > ~/.zfunc/_poetry
+        # ~/.zfunc added in .zshrc already
+        autoload -Uz compinit && compinit
+    fi
+    if [[ ! -d $ZSH_CUSTOM/plugins/poetry ]]; then
+        echo poetry plugin has not been added to Oh My Zsh plugins
+        echo run 'poetry completions zsh > $ZSH_CUSTOM/plugins/poetry/_poetry'
+        echo and ensure that poetry is added to plugins in ~/.zshrc
+    fi
+fi
+
 ###########
 # Spacemacs
 ###########
