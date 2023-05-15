@@ -49,9 +49,13 @@ set_up_links:
 ifneq (,"$(unix_family)")
 	# we're in Unix land
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
-	@echo You should be in the $(dot_file_root_dir) directory to run this command
+	@echo You should be in the ~/dot_files directory to run this command
 	exit 1
 endif	
+ifeq ($(shell echo $USER),root)
+	@echo Since the user is root we will assume we are in WSL
+	apt install autojump
+endif
 ifeq ("$(os)","$(OS_LINUX)")
 	# ubuntu
 	# you already installed git to get this far
@@ -71,7 +75,7 @@ endif
 	rm -rf fonts
 
 	./install_oh_my_zsh_with_backup.sh
-	
+
 ifneq(,$(shell which zsh))
 	chsh -s $(shell which zsh)
 endif
