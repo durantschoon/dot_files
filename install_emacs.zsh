@@ -67,24 +67,38 @@ while [[ $# -gt 0 ]]; do
 	    shift;;
 
     --linux)
-        # this is an older emacs: ee sudo apt install emacs -y
-        # emacs 28
-        ee sudo snap install emacs --classic
-        # install fonts
-        tempfontdownload=~/Downloads/EmacsFontsTemp.$$
-        mkdir -p $tempfontdownload
-        pushd $tempfontdownload
-        wget https://github.com/adobe-fonts/source-code-pro/archive/2.030R-ro/1.050R-it.zip
-        unzip 1.050R-it.zip
-        fontpath="${XDG_DATA_HOME:-$HOME/.local/share}"/fonts # local user only
-        # fontpath=/usr/local/share/fonts/ # system-wide would require sudo cp
-        mkdir -p $fontpath
-        cp source-code-pro-*-it/OTF/*.otf $fontpath
-        fc-cache -f -v
-        popd
-        /bin/rm -rf $tempfontdownload
-        # finish setup
-        unix_family_setup
+        if $USER == root
+        then
+            echo OK we are assuming we are in WSL if the user is root ...
+            ee cd
+            ee git clone git://git.sv.gnu.org/emacs.git
+            ee sudo apt install -y autoconf build-essential libgtk-3-dev libgnutls28-dev libtiff5-dev libgif-dev libjpeg-dev libpng-dev libxpm-dev libncurses-dev texinfo
+            ee cd emacs
+            ee ./autogen.sh
+            ee ./configure --with-pgtk
+            ee make -j8
+            ee sudo make install
+        else
+            # this is an older emacs: ee sudo apt install emacs -y
+            # emacs 28
+            ee sudo snap install emacs --classic
+            # install fonts
+            tempfontdownload=~/Downloads/EmacsFontsTemp.$$
+            mkdir -p $tempfontdownload
+            pushd $tempfontdownload
+            wget https://github.com/adobe-fonts/source-code-pro/archive/2.030R-ro/1.050R-it.zip
+            unzip 1.050R-it.zip
+            fontpath="${XDG_DATA_HOME:-$HOME/.local/share}"/fonts # local user only
+            # fontpath=/usr/local/share/fonts/ # system-wide would require sudo cp
+            mkdir -p $fontpath
+            cp source-code-pro-*-it/OTF/*.otf $fontpath
+            fc-cache -f -v
+            popd
+            /bin/rm -rf $tempfontdownload
+            # finish setup
+            unix_family_setup
+        fi
+
         shift;;
 
     --windows)
