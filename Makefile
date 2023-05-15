@@ -49,7 +49,7 @@ set_up_links:
 ifneq (,"$(unix_family)")
 	# we're in Unix land
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
-	@echo You should be in the $(dot_file_root_dir) directory to run this command
+	@echo The file '~/dot_files' does not exist. You should 'cd ~' before cloning this repo and then cd into the repo directory.
 	exit 1
 endif	
 ifeq ("$(os)","$(OS_LINUX)")
@@ -68,11 +68,11 @@ endif
 # This powerline install should work on mac and linux
 	git clone https://github.com/powerline/fonts.git --depth=1
 	./fonts/install.sh
-	rm -rf fonts
+  rm -rf fontso
 
 	./install_oh_my_zsh_with_backup.sh
-	
-ifneq(,$(shell which zsh))
+
+ifneq (,$(shell which zsh))
 	chsh -s $(shell which zsh)
 endif
 
