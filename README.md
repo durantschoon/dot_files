@@ -39,6 +39,8 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 ### Windows
 
+It's important to be in your home directory so run `cd` before cloning this directory. This seems to put me in `/root`. Then `cd dot_files`.
+
 Remember to set fonts in terminal programs for your agnoster glyphs:
 * ConEmu > (hamburger menu in top right) > Settings > General > Fonts > Main Console Font : set to one fo the meslos, like **Meslo LG S DZ for Powerline**
 * VS Code terminal: `"terminal.integrated.fontFamily": "Meslo LG M DZ for Powerline"`
