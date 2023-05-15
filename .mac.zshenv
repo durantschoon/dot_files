@@ -13,6 +13,7 @@ add_to_front_of_path /usr/local/bin
 
 # for brew (mac)
 add_to_front_of_path /usr/local/opt
+add_to_front_of_path /usr/local/sbin
 
 # This is code that was added to my ~/.bash_profile, probably from scripts
 # In general move anything in that file here and delete that file
