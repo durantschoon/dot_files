@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
         brew install --cask font-source-code-pro
         # these are required later on, so install them first
         brew install ripgrep
-        brew install autojump        
+        brew install autojump
         # install new
         brew tap d12frosted/emacs-plus
         brew install $EMACS_WITH_VERSION --with-xwidgets --with-emacs-card-blue-deep-icon
@@ -65,7 +65,7 @@ while [[ $# -gt 0 ]]; do
         # finish setup
         unix_family_setup
 	    shift;;
-    
+
     --linux)
         # this is an older emacs: ee sudo apt install emacs -y
         # emacs 28
@@ -86,7 +86,7 @@ while [[ $# -gt 0 ]]; do
         # finish setup
         unix_family_setup
         shift;;
-        
+
     --windows)
         echo Nothing set up for Windows yet
         shift;;
