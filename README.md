@@ -43,8 +43,11 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 2. Do not rely on setxkbmap in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
 
+3. Install [choco](https://chocolatey.org/install#individual)
+
  ```sh
 cd
+choco install make # maybe this was still in powershell as admin
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
 make
