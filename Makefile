@@ -12,8 +12,13 @@ ARCH_ARM := arm
 ARCH_UNKNOWN := unknown
 arch := $(ARCH_UNKNOWN)
 
+PWD_CMD := pwd
+WHICH_CMD := which
+
 ifeq ($(OS),Windows_NT)
 	os := $(OS_WINDOWS)
+	PWD_CMD := cd
+	WHICH_CMD := where
 else
     UNAME_S := $(shell uname -s)
     ifeq ($(UNAME_S),Linux)
@@ -42,12 +47,13 @@ unix_family := $(filter $(os),$(OS_LINUX) $(OS_MAC))
 
 # We're going to insist we're in this directory so we can run commands from here
 dot_file_root_dir := $(wildcard ~/dot_files)
-current_dir := $(shell pwd)
+current_dir := $(shell $(PWD_CMD))
 
 set_up_links: 
-	@echo "OS detected as $(os) $(arch)\n"
-ifneq (,"$(unix_family)")
-	# we're in Unix land
+	@echo "OS detected as $(os) $(arch)"
+	@echo "------------------------------"
+ifneq ("","$(unix_family)")
+# we're in Unix land
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
 ifeq (,$(dot_file_root_dir))
 	@echo dot_file_root_dir did not resolve. You are probably in WSL linux. Ok carry on...
@@ -56,6 +62,7 @@ else
 	@echo You should be in the ~/dot_files directory to run this command
 	exit 1
 endif	
+endif
 ifeq ($(shell echo $USER),root)
 	@echo Since the user is root we will assume we are in WSL
 	apt install autojump
@@ -80,8 +87,8 @@ endif
 
 	./install_oh_my_zsh_with_backup.sh
 
-ifneq (,$(shell which zsh))
-	chsh -s $(shell which zsh)
+ifneq (,$(shell $(WHICH_CMD) zsh))
+	chsh -s $(shell $(WHICH_CMD) zsh)
 endif
 
 ifneq (,$(wildcard "~/.zshrc"))
@@ -99,13 +106,16 @@ endif
 	./unix_work_or_home.sh
 
 else ifeq ($(os),$(OS_WINDOWS))
-	# TODO: check current dir here too
-	# MS also has a junction link type
-	# possibly try powershell here
+# TODO: check current dir here too
+# MS also has a junction link type
+# possibly try powershell here
+	@echo "Nothing set up for Windows, yet. Use WSL (Windows Subsystem for Linux) instead."
 else
 	@echo "OS not recognized"
-	exit 1
 endif
 
-	# End of setup_links
+ifneq ("","$(unix_family)")
+# Unix again
+# End of setup_links
 	zsh -c "./install_emacs.zsh --$(os)"
+endif
