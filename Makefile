@@ -66,6 +66,16 @@ endif
 ifeq ($(shell echo $USER),root)
 	@echo Since the user is root we will assume we are in WSL
 	apt install autojump
+
+# this will fix error
+# bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+	echo "LC_ALL=en_US.UTF-8" >> /etc/environment
+	echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+	echo "LANG=en_US.UTF-8" > /etc/locale.conf
+	locale-gen en_US.UTF-8
+
+	./install_fonts_wsl.sh
+
 endif
 ifeq ("$(os)","$(OS_LINUX)")
 	# ubuntu
