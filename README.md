@@ -39,15 +39,14 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 ### Windows
 
+#### WSL
+
 1. It's important to be in your home directory so run `cd` before cloning this directory. By default in WSL I end up in a user data directory when I first log in.
 
 2. Do not rely on setxkbmap in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
 
-3. Install [choco](https://chocolatey.org/install#individual)
-
  ```sh
 cd
-choco install make # maybe this was still in powershell as admin
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
 make
@@ -59,3 +58,16 @@ Remember to set fonts in terminal programs for your agnoster glyphs:
 
 *In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... but I'm still debugging this...*
 
+#### Powershell
+
+ 1. Install [choco](https://chocolatey.org/install#individual)
+
+Something like this, maybe the choco command has to be run as admin
+
+ ```sh
+cd
+choco install make
+git clone https://github.com/durantschoon/dot_files.git
+cd dot_files
+make
+```
