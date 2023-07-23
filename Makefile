@@ -49,8 +49,12 @@ set_up_links:
 ifneq (,"$(unix_family)")
 	# we're in Unix land
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
+ifeq (,$(dot_file_root_dir))
+	@echo dot_file_root_dir did not resolve. You are probably in WSL linux. Ok carry on...
+else
 	@echo You should be in the $(dot_file_root_dir) directory to run this command
 	exit 1
+endif
 endif	
 ifeq ("$(os)","$(OS_LINUX)")
 	# ubuntu
@@ -72,7 +76,7 @@ endif
 
 	./install_oh_my_zsh_with_backup.sh
 	
-ifneq(,$(shell which zsh))
+ifneq (,$(shell which zsh))
 	chsh -s $(shell which zsh)
 endif
 
