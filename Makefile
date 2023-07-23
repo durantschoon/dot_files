@@ -50,8 +50,8 @@ dot_file_root_dir := $(wildcard ~/dot_files)
 current_dir := $(shell $(PWD_CMD))
 
 set_up_links: 
-	@echo "OS detected as $(os) $(arch)"
-	@echo "------------------------------"
+	@echo OS detected as $(os) $(arch)
+	@echo ------------------------------
 ifneq ("","$(unix_family)")
 # we're in Unix land
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
@@ -109,9 +109,9 @@ else ifeq ($(os),$(OS_WINDOWS))
 # TODO: check current dir here too
 # MS also has a junction link type
 # possibly try powershell here
-	@echo "Nothing set up for Windows, yet. Use WSL (Windows Subsystem for Linux) instead."
+	@echo Nothing set up for Windows, yet. Use WSL (Windows Subsystem for Linux) instead.
 else
-	@echo "OS not recognized"
+	@echo OS not recognized
 endif
 
 ifneq ("","$(unix_family)")
