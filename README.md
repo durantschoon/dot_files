@@ -39,6 +39,17 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 ### Windows
 
+1. It's important to be in your home directory so run `cd` before cloning this directory. By default in WSL I end up in a user data directory when I first log in.
+
+2. Do not rely on setxkbmap in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
+
+ ```sh
+cd
+git clone https://github.com/durantschoon/dot_files.git
+cd dot_files
+make
+```
+
 Remember to set fonts in terminal programs for your agnoster glyphs:
 * ConEmu > (hamburger menu in top right) > Settings > General > Fonts > Main Console Font : set to one fo the meslos, like **Meslo LG S DZ for Powerline**
 * VS Code terminal: `"terminal.integrated.fontFamily": "Meslo LG M DZ for Powerline"`

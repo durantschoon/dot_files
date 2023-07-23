@@ -53,9 +53,13 @@ ifeq (,$(dot_file_root_dir))
 	@echo dot_file_root_dir did not resolve. You are probably in WSL linux. Ok carry on...
 else
 	@echo You should be in the $(dot_file_root_dir) directory to run this command
+	@echo You should be in the ~/dot_files directory to run this command
 	exit 1
-endif
 endif	
+ifeq ($(shell echo $USER),root)
+	@echo Since the user is root we will assume we are in WSL
+	apt install autojump
+endif
 ifeq ("$(os)","$(OS_LINUX)")
 	# ubuntu
 	# you already installed git to get this far
@@ -75,7 +79,7 @@ endif
 	rm -rf fonts
 
 	./install_oh_my_zsh_with_backup.sh
-	
+
 ifneq (,$(shell which zsh))
 	chsh -s $(shell which zsh)
 endif
