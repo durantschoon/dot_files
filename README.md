@@ -43,7 +43,7 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 1. It's important to be in your home directory so run `cd` before cloning this directory. By default in WSL I end up in a user data directory when I first log in.
 
-2. Do not rely on setxkbmap in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
+2. Do not rely on `setxkbmap` in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
 
  ```sh
 cd
