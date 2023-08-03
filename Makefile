@@ -93,7 +93,7 @@ endif
 # This powerline install should work on mac and linux
 	git clone https://github.com/powerline/fonts.git --depth=1
 	./fonts/install.sh
-  rm -rf fontso
+	rm -rf fonts
 
 	./install_oh_my_zsh_with_backup.sh
 
