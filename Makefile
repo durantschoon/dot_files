@@ -112,7 +112,6 @@ endif
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
 	[ -f $(wildcard "~/dot_files/.$(os).zshenv") ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 
-	# TODO make a general version of ./unix_work_or_home.sh that works on windows too
 	./unix_work_or_home.sh
 
 else ifeq ($(os),$(OS_WINDOWS))
@@ -126,6 +125,5 @@ endif
 
 ifneq ("","$(unix_family)")
 # Unix again
-# End of setup_links
 	zsh -c "./install_emacs.zsh --$(os)"
 endif
