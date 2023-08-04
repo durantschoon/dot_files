@@ -59,7 +59,7 @@ alias ,.=pp
 if [[ "$(uname)" == "Darwin" ]]; then
 
     alias oemacs='open -a /Applications/Emacs.app'
-    alias ssh_fingerprint='ssh-keygen -E md5 -lf'
+    alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
 
     # conda and pypy
     # conda create -c conda-forge -n my-pypy-env pypy python=3.9
