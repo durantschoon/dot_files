@@ -125,8 +125,14 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias llrm='echo "Paste ls -lt output for files to delete and ^D when done"; /bin/rm -rf `awk '\''{print $9}'\''`'
 
+    # here's a funky way to tell if I'm on windows
+    if  [[ $(whoami) == root ]]; then
+        alias llhome='ll -L | egrep -v '\''(NTUSER|ntuser)'\'
+        alias cdhome='cd ~/wsl_user; ll -L | egrep -v '\''(NTUSER|ntuser)'\' # ~/wsl_user is a link to my user dir
+    fi
+
     ee () { echo $* ; $* }
-    
+
     rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || builtin rm $* }
 
     function rg () {
