@@ -31,32 +31,36 @@ if [ -d "$HOME/Programming/go" ]; then
     add_to_end_of_path $GOPATH/bin
 fi
 
-############
-# nvm / node
-############
+#####################
+# nvm / node --> bun
+#
+# Use bun for npm
+# `bun repl` for node
+#
+#####################
 
-if [ -d "$HOME/.nvm" ]; then
-    export NVM_DIR="$HOME/.nvm";
-    lazynvm() {
-        unset -f nvm node npm
-        export NVM_DIR=~/.nvm
-        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
-        # This loads nvm
-        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  bash_completion
-    }
-    nvm() {
-        lazynvm
-        nvm $@
-    }
-    node() {
-        lazynvm
-        node $@
-    }
-    npm() {
-        lazynvm
-        npm $@
-    }
-fi
+# if [ -d "$HOME/.nvm" ]; then
+#     export NVM_DIR="$HOME/.nvm";
+#     lazynvm() {
+#         unset -f nvm node npm
+#         export NVM_DIR=~/.nvm
+#         [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+#         # This loads nvm
+#         [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  bash_completion
+#     }
+#     nvm() {
+#         lazynvm
+#         nvm $@
+#     }
+#     node() {
+#         lazynvm
+#         node $@
+#     }
+#     npm() {
+#         lazynvm
+#         npm $@
+#     }
+# fi
 
 ########
 # python
