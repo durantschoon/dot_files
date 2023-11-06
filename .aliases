@@ -136,6 +136,8 @@ if [ -n "$ZSH_VERSION" ]; then
 
     rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || builtin rm $* }
 
+    function killport(){ lsof -nti:$1 | xargs kill -9 } # killport 3000
+
     function rg () {
         [[ -d .git/ ]] && echo 'skipping .git/ dir ...';
         =rg --hidden $1 -g '!.git/*' $*
