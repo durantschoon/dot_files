@@ -68,7 +68,7 @@ add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/
 export NVM_DIR=~/.nvm
 source $(brew --prefix nvm)/nvm.sh
 
-export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
+# export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
 
 # Prep needed for gcloud (bash versions exists too)
 # installation:
