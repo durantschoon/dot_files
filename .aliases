@@ -61,10 +61,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
     alias oemacs='open -a /Applications/Emacs.app'
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
 
-    # conda and pypy
-    # conda create -c conda-forge -n my-pypy-env pypy python=3.9
-    alias pypy='conda activate my-pypy-env'
-
 elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
     alias ssh_fingerprint='ssh-keygen -E md5 -l'
