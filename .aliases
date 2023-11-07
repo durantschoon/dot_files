@@ -130,7 +130,9 @@ if [ -n "$ZSH_VERSION" ]; then
 
     ee () { echo $* ; $* }
 
+    # remove milliseconds
     epoch_date () { date -r $(echo $1 | cut -c1-10); } # epoch_date 1679656475630
+    epoch_date2 () { date -r $(echo $1 | cut -c1-10) +'%Y-%m-%d %H:%M:%S'; } 
 
     rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || builtin rm $* }
 
