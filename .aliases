@@ -130,6 +130,8 @@ if [ -n "$ZSH_VERSION" ]; then
 
     ee () { echo $* ; $* }
 
+    epoch_date () { date -r $(echo $1 | cut -c1-10); } # epoch_date 1679656475630
+
     rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || builtin rm $* }
 
     function killport(){ lsof -nti:$1 | xargs kill -9 } # killport 3000
