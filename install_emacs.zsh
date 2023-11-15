@@ -43,7 +43,8 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
         # Assumes you already have brew and git
-        EMACS_WITH_VERSION='emacs-plus@28'
+        EMACS_WITH_VERSION='emacs-plus@29'
+        EMACS_ICON='--with-retro-sink-icon'
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
         # uninstall old
         brew list emacs-plus 2> /dev/null && brew uninstall emacs-plus
@@ -56,7 +57,7 @@ while [[ $# -gt 0 ]]; do
         brew install autojump
         # install new
         brew tap d12frosted/emacs-plus
-        brew install $EMACS_WITH_VERSION --with-xwidgets --with-emacs-card-blue-deep-icon
+        brew install $EMACS_WITH_VERSION --with-xwidgets $EMACS_ICON
         brew link --overwrite emacs
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
