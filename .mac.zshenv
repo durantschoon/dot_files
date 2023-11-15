@@ -33,7 +33,8 @@ if [[ -f $VIRTUALENVWRAPPER_SCRIPT ]]; then
 else
     unset VIRTUALENVWRAPPER_SCRIPT
 fi
-. "$HOME/.cargo/env"
+
+[[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
 
 # This seems to cause magit to open a separate window
 # for emacsclient (/Applications/Emacs.app/Contents/MacOS/bin/emacsclient
@@ -66,7 +67,7 @@ add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/
 ##########
 
 export NVM_DIR=~/.nvm
-source $(brew --prefix nvm)/nvm.sh
+[[ -f $NVM_DIR ]] && source $(brew --prefix nvm)/nvm.sh
 
 # export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
 
