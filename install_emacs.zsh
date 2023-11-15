@@ -55,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         # these are required later on, so install them first
         brew install ripgrep
         brew install autojump
+        brew install ispell
         # install new
         brew tap d12frosted/emacs-plus
         brew install $EMACS_WITH_VERSION --with-xwidgets $EMACS_ICON
