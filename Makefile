@@ -15,6 +15,8 @@ arch := $(ARCH_UNKNOWN)
 PWD_CMD := pwd
 WHICH_CMD := which
 
+POWERLINE_FONT := 'Meslo LG'
+
 ifeq ($(OS),Windows_NT)
 	os := $(OS_WINDOWS)
 	PWD_CMD := cd
@@ -87,29 +89,37 @@ ifeq ("$(os)","$(OS_LINUX)")
 	sudo apt install zsh -y
 endif
 ifeq ("$(os)","$(OS_MAC)")
-	# for the fonts
-	brew install svn
+	@# install svn if needed for the fonts
+	@brew list svn > /dev/null || brew install svn
 endif
 # This powerline install should work on mac and linux
-	git clone https://github.com/powerline/fonts.git --depth=1
-	./fonts/install.sh
-	rm -rf fonts
+
+	@fc-list : file family | grep "/Library" | grep $(POWERLINE_FONT) > /dev/null && { \
+		echo Found $(POWERLINE_FONT), not installing "\n"; \
+	}
+	@fc-list : file family | grep "/Library" | grep $(POWERLINE_FONT) > /dev/null || { \
+		echo Installing $(POWERLINE_FONT); \
+		git clone https://github.com/powerline/fonts.git --depth=1; \
+		./fonts/install.sh; \
+		rm -rf fonts; \
+		echo; \
+	}
 
 	./install_oh_my_zsh_with_backup.sh
 
 ifneq (,$(shell $(WHICH_CMD) zsh))
-	chsh -s $(shell $(WHICH_CMD) zsh)
+	@chsh -s $(shell $(WHICH_CMD) zsh) || { echo tried to change shell to $(shell $(WHICH_CMD) zsh), but it failed; }
 endif
 
 ifneq (,$(wildcard "~/.zshrc"))
 	mv ~/.zshrc ~/.zshrc.bak # maybe created by oh-my-zsh and we don't care about clobbering it on rewrite
 endif
-	ln -si ~/dot_files/.zshrc ~/
-	ln -si ~/dot_files/.aliases ~/
+	ln -si ~/dot_files/.zshrc ~ || echo
+	ln -si ~/dot_files/.aliases ~ || echo
 
 	# DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
-	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv # read by .zshenv
-	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc # read by .zshrc
+	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
+	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
 	[ -f $(wildcard "~/dot_files/.$(os).zshenv") ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 
 	./unix_work_or_home.sh
