@@ -60,6 +60,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     alias oemacs='open -a /Applications/Emacs.app'
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
+    alias backup='~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; sudo /usr/bin/time -h -p ./2TB_BACKUP.command'
 
 elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
