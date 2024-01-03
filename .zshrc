@@ -208,6 +208,14 @@ precmd() {
 # this runs compinit at most once a day instead of evertime zsh starts up
 # find $HOME -maxdepth 1 -iname '.zcompdump*' -mtime 1 -delete | grep -q "." && compinit -d "${ZSH_COMPDUMP}" && source $HOME/.zshrc
 
+# Regarding "zsh compinit: insecure directories and files, run compaudit for list."
+# On OSX 10.11+
+# written based on something that worked:
+# linked_base=/usr/local/share/zsh/site-functions
+# linked_file=$linked_base/../../../Cellar/git/2.42.1/share/zsh/site-functions/_gitb
+# sudo chmod -R 755 /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
+# sudo chown -R root:staff /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
+
 # Don't put anything below this line except for profiling
 
 ##############
