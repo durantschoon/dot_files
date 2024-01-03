@@ -67,7 +67,8 @@ add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/
 ##########
 
 export NVM_DIR=~/.nvm
-[[ -f $NVM_DIR ]] && source $(brew --prefix nvm)/nvm.sh
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
 # export NODE_PATH=`npm root -g`:/usr/local/lib/node_modules
 
