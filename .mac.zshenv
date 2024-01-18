@@ -1,5 +1,12 @@
 # -*- mode: shell-script; -*-
 
+# Do this first (~/.zshrc invokes ~/.zshenv which should be a link to this file
+# on macos).
+# On macos I sometimes share a computer with another admin and then I need this
+# because zsh doesn't like folders owned by root with group staff (I'm staff also)
+# see https://stackoverflow.com/questions/13762280/zsh-compinit-insecure-directories
+[[ `uname` == "Darwin" ]] && export ZSH_DISABLE_COMPFIX=true
+
 [[ -f ~/.shared.zshenv ]] && source ~/.shared.zshenv
 
 ###############################################################################

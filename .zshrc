@@ -6,6 +6,16 @@
 # `.zshrc' is sourced in interactive shells. It should contain commands to set up
 # aliases, functions, options, key bindings, etc.
 
+# completion
+
+autoload -Uz compinit
+
+for dump in ~/.zcompdump(N.mh+24); do
+    compinit
+done
+
+compinit -C
+
 # Path to your oh-my-zsh installation.
 export ZSH=$HOME/.oh-my-zsh
 
