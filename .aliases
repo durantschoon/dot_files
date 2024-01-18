@@ -60,7 +60,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     alias oemacs='open -a /Applications/Emacs.app'
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
-    alias backup='~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; sudo /usr/bin/time -h -p ./2TB_BACKUP.command'
+    # get gtime with `brew install gnu-time`
+    alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
+        sudo /usr/local/bin/gtime --format="%C ran for %E (%e seconds)" -p ./2TB_BACKUP.command \
+        echo "if compaudit errors, run yes | sudo /usr/..."'
 
 elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
