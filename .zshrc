@@ -10,11 +10,14 @@
 
 autoload -Uz compinit
 
-for dump in ~/.zcompdump(N.mh+24); do
-    compinit
-done
-
-compinit -C
+if [[  -s ~/.zcompdump(N.mh+24) ]]; then
+    for dump in ~/.zcompdump; do
+        compinit
+    done
+    zcompile ~/.zcompdump
+else
+    compinit -C
+fi
 
 # Path to your oh-my-zsh installation.
 export ZSH=$HOME/.oh-my-zsh
@@ -238,3 +241,5 @@ precmd() {
 # end on a agood note, i.e. do something successful as the last step
 
 [[ -n $status ]]
+
+PATH=~/.console-ninja/.bin:$PATH
