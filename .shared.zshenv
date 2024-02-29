@@ -35,3 +35,8 @@ get_context_name() {
         cat $HOME/.CONTEXT_NAME
     fi
 }
+
+# Specific Paths that might be the same on all machines
+
+# VS Code related
+add_to_front_of_path "~/.console-ninja/.bin"
