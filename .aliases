@@ -72,6 +72,8 @@ elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
 #elif [[ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]]; then
     # Do something under Windows NT platform
 
+    alias cmake='/mnt/c/Program\ Files/CMake/bin/cmake.exe'
+
     # here's a funky way to tell if I'm on windows WSL
     if  [[ $(whoami) == root ]]; then
         alias llhome='ll -L | egrep -v '\''(NTUSER|ntuser)'\'
