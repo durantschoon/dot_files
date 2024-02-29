@@ -133,7 +133,7 @@ unset __conda_setup
 # <<< conda initialize <<<
 
 # bun completions
-[ -s "/Users/durant/.bun/_bun" ] && source "/Users/durant/.bun/_bun"
+[ -s "~/.bun/_bun" ] && source "~/.bun/_bun"
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
