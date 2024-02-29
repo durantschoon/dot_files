@@ -9,4 +9,6 @@
 # swap ctrl and capslock
 (( $+commands[setxkbmap] )) && setxkbmap -layout us -option ctrl:swapcaps
 
-[[ -f /usr/share/powerline/bindings/bash/powerline.sh ]] && source /usr/share/powerline/bindings/bash/powerline.sh
+[[ -s /usr/share/powerline/bindings/bash/powerline.sh ]] && source /usr/share/powerline/bindings/bash/powerline.sh
+
+[[ -s "$HOME/.cargo/env" ]] && . $HOME/.cargo/env
