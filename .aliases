@@ -146,7 +146,8 @@ if [ -n "$ZSH_VERSION" ]; then
 
     function rg () {
         [[ -d .git/ ]] && echo 'skipping .git/ dir ...';
-        =rg --hidden $1 -g '!.git/*' $*
+        local arg=$1; shift
+        =rg --hidden $arg -g '!.git/*' $@
     }
     function rg_with_git () { =rg --hidden $* }
 
