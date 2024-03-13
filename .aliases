@@ -120,7 +120,9 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias s.z='source ~/.zshrc'
     alias s.ze='source ~/.zshenv'
+    alias s.zh='source ~/dot_files/.home.zshrc'
     alias s.zp='source ~/.zprofile'
+    alias s.zw='source ~/dot_files/.work.zshrc'
     alias s.zall="s.ze && echo '~/.zshenv'; [ -f ~/.zprofile ] && s.zp && echo '~/.zprofile'; s.z && echo '~/.zshrc'"
     alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
     alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# / directory, o sorted, m mod time, 1 first
