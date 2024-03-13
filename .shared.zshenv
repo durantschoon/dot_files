@@ -40,3 +40,4 @@ get_context_name() {
 
 # VS Code related
 add_to_front_of_path "~/.console-ninja/.bin"
+
