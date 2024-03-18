@@ -50,7 +50,7 @@ Because the Makefile is set up to run with a different home dir (for example und
 
  ```sh
 sudo apt-get update
-sudo apt-get install git make autojump fontconfig -y
+sudo apt-get install git make -y
 cd
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
