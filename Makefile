@@ -87,7 +87,7 @@ endif
 endif
 ifeq ($(flavor), $(FLAVOR_WSL))
 	@echo We are in WSL ... NOTE MUST run make as sudo ... run `make wsl` to remind yourself how
-	apt install autojump
+	apt install autojump fontconfig
 
 # this will fix error
 # bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
