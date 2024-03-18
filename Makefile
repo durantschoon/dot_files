@@ -153,5 +153,10 @@ endif
 
 ifneq ("","$(unix_family)")
 # Unix again
-	zsh -c "./install_emacs.zsh --$(os)"
+ifeq ("$flavor",$(FLAVOR_WSL))
+	emacs_flag := wsl
+else
+	emacs_flag := "$(os)"
+endif
+	zsh -c "./install_emacs.zsh --$(emacs_flag)"
 endif
