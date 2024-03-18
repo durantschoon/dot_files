@@ -48,7 +48,7 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
  ```sh
 sudo apt-get update
-sudo apt-get install git make autojump -y
+sudo apt-get install git make autojump fontconfig -y
 cd
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
