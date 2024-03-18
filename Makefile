@@ -52,7 +52,7 @@ unix_family := $(filter $(os),$(OS_LINUX) $(OS_MAC))
 
 ifneq ($(grep Microsoft /proc/version), "")
 	flavor := $(FLAVOR_WSL)
-	wsl_home := REDEFINE_HOME_HERE_MAYBE
+	wsl_home := $(HOME) # or REDEFINE_HOME_HERE_MAYBE
 	HOME = $(wsl_home)
 endif
 
