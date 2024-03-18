@@ -46,13 +46,15 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 2. Do not rely on `setxkbmap` in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
 
+Because the Makefile is set up to run with a different home dir (for example under another user's home dir), edit the Makefile, changing: `REDEFINE_HOME_HERE_MAYBE` to what you want.
+
  ```sh
 sudo apt-get update
 sudo apt-get install git make autojump fontconfig -y
 cd
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
-make
+HOME=UPDATE_IF_YOURE_CHANGING_THIS sudo make all
 ```
 
 Remember to set fonts in terminal programs for your agnoster glyphs:
