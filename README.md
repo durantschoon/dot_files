@@ -14,7 +14,8 @@ Note to self: The name `.shared.zshrc` is an old name which meant shared between
 ### Ubuntu
 
 ```sh
-sudo apt-get install git make -y
+sudo apt-get update
+sudo apt-get install git make autojump -y
 cd
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
@@ -46,6 +47,8 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 2. Do not rely on `setxkbmap` in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
 
  ```sh
+sudo apt-get update
+sudo apt-get install git make autojump -y
 cd
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
