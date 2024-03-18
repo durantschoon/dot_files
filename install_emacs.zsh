@@ -9,7 +9,7 @@
 #    which is a variable recognized by the spacemacs code
 
 # this script is intended to be called by another script which has determined the operating system
-[[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--linux|--windows]" && exit 1
+[[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--wsl|--linux|--windows]" && exit 1
 
 echo "Preparing to install spacemacs..."
 
