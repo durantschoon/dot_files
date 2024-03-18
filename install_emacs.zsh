@@ -39,6 +39,24 @@ unix_family_setup() {
     fi
 }
 
+linux_post_emacs_install() {
+    # install fonts
+    tempfontdownload=~/Downloads/EmacsFontsTemp.$$
+    mkdir -p $tempfontdownload
+    pushd $tempfontdownload
+    wget https://github.com/adobe-fonts/source-code-pro/archive/2.030R-ro/1.050R-it.zip
+    unzip 1.050R-it.zip
+    fontpath="${XDG_DATA_HOME:-$HOME/.local/share}"/fonts # local user only
+    # fontpath=/usr/local/share/fonts/ # system-wide would require sudo cp
+    mkdir -p $fontpath
+    cp source-code-pro-*-it/OTF/*.otf $fontpath
+    fc-cache -f -v
+    popd
+    /bin/rm -rf $tempfontdownload
+    # finish setup
+    unix_family_setup
+}
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
@@ -78,27 +96,13 @@ while [[ $# -gt 0 ]]; do
         ee ./configure --with-pgtk
         ee make -j8
         ee sudo make install
+        linux_post_emacs_install
         shift;;
 
     --linux)
         # this is an older emacs: ee sudo apt install emacs -y
-        # emacs 28
         ee sudo snap install emacs --classic
-        # install fonts
-        tempfontdownload=~/Downloads/EmacsFontsTemp.$$
-        mkdir -p $tempfontdownload
-        pushd $tempfontdownload
-        wget https://github.com/adobe-fonts/source-code-pro/archive/2.030R-ro/1.050R-it.zip
-        unzip 1.050R-it.zip
-        fontpath="${XDG_DATA_HOME:-$HOME/.local/share}"/fonts # local user only
-        # fontpath=/usr/local/share/fonts/ # system-wide would require sudo cp
-        mkdir -p $fontpath
-        cp source-code-pro-*-it/OTF/*.otf $fontpath
-        fc-cache -f -v
-        popd
-        /bin/rm -rf $tempfontdownload
-        # finish setup
-        unix_family_setup
+        linux_post_emacs_install
         shift;;
 
     --windows)
