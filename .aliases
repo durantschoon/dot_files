@@ -42,6 +42,7 @@ alias pylint="pylint --output-format=colorized"
 alias s.a='source ~/.aliases'
 alias s.b='source ~/.bashrc'
 alias s2n='tr " " "\012"'
+alias sg='set | grep'
 alias spew='wget -qO-' # URL to spew the contents to stdout
 alias up='cd ..'
 alias up2='cd ../..'
