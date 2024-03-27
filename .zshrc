@@ -229,6 +229,9 @@ precmd() {
 # sudo chmod -R 755 /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
 # sudo chown -R root:staff /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
 
+# this keeps getting added automatically, so just put it here
+PATH=~/.console-ninja/.bin:$PATH
+
 # Don't put anything below this line except for profiling
 
 ##############
@@ -237,6 +240,6 @@ precmd() {
 
 # zprof
 
-
 # end on a agood note, i.e. do something successful as the last step
 [[ -n $status ]]
+
