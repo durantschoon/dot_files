@@ -22,6 +22,12 @@ add_to_front_of_path /usr/local/bin
 add_to_front_of_path /usr/local/opt
 add_to_front_of_path /usr/local/sbin
 
+# mysql
+add_to_front_of_path /usr/local/opt/mysql-client/bin
+export LDFLAGS="-L/usr/local/opt/mysql-client/lib"
+export CPPFLAGS="-I/usr/local/opt/mysql-client/include"
+export PKG_CONFIG_PATH="/usr/local/opt/mysql-client/lib/pkgconfig"
+
 # This is code that was added to my ~/.bash_profile, probably from scripts
 # In general move anything in that file here and delete that file
 
