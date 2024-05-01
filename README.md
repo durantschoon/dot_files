@@ -11,6 +11,14 @@ Note to self: The name `.shared.zshrc` is an old name which meant shared between
 
 ## Bootstraps by Operating system
 
+### All OSes
+
+After you install, remember to run `M-x all-the-icons-install-fonts`
+
+If you're not root, you might need to run emacs like this to write to the fonts directory `sudo emacs --init-directory ~/.emacs.d &`
+
+_Note to self_: Next time I should try this on the command line and add it to the scripts if it works: `sudo emacs --init-directory ~/.emacs.d --batch` with a (temp) file that just runs `(all-the-icons-install-fonts)`
+
 ### Ubuntu
 
 ```sh
