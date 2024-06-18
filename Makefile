@@ -50,9 +50,9 @@ endif
 # this value will be blank if the detected OS isn't in the list
 unix_family := $(filter $(os),$(OS_LINUX) $(OS_MAC))
 
-ifneq ($(grep Microsoft /proc/version), "")
+ifneq ($(grep -i Microsoft /proc/version), "")
 	flavor := $(FLAVOR_WSL)
-	wsl_home := $(HOME) # or REDEFINE_HOME_HERE_MAYBE
+	wsl_home := /home/tallyfor/home_durant
 	HOME = $(wsl_home)
 endif
 
