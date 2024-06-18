@@ -154,9 +154,9 @@ endif
 ifneq ("","$(unix_family)")
 # Unix again
 ifeq ("$flavor",$(FLAVOR_WSL))
-	emacs_flag := wsl
+	$(eval emacs_flag := wsl) # eval ensures that emacs_flag is set properly within the recipe scope
 else
-	emacs_flag := "$(os)"
+	$(eval emacs_flag := "$(os)")
 endif
 	zsh -c "./install_emacs.zsh --$(emacs_flag)"
 endif
