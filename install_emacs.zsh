@@ -17,7 +17,7 @@ EMACS_WITH_VERSION=""
 MY_DOT_SPACEMACS_REPO="https://github.com/durantschoon/.spacemacs.d.git"
 
 # could either do this or source .shared.zshrc. Sourcing might be safer to set it one place only
-# [ -z ${SPACEMACSDIR+x} ] && export SPACEMACSDIR=$HOME/.spacemacs.d
+[ -z ${SPACEMACSDIR+x} ] && export SPACEMACSDIR=$HOME/.spacemacs.d
 source ~/.shared.zshrc 
 
 ee() { echo -e "$@\n"; eval "$@"; echo -e "\n\n==========\n\n"; }
