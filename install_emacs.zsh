@@ -100,6 +100,9 @@ while [[ $# -gt 0 ]]; do
         ee make -j8
         ee sudo make install
         linux_post_emacs_install
+    	# since install happens as root, do a little clean up here
+    	mkdir $HOME/.emacs.d/.cache
+	chown -R $USER $HOME/.emacs.d
         shift;;
 
     --linux)
