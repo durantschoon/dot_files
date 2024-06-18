@@ -29,6 +29,7 @@ unix_family_setup() {
     # Get my customized spacemacs dotfiles
     [[ ! -d $SPACEMACSDIR ]] && mkdir $SPACEMACSDIR && ee git clone $MY_DOT_SPACEMACS_REPO $SPACEMACSDIR
     pushd $SPACEMACSDIR
+    git config --global --add safe.directory $SPACEMACSDIR
     git checkout develop
     popd
 
