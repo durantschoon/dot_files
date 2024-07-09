@@ -68,6 +68,7 @@ HOME=UPDATE_IF_YOURE_CHANGING_THIS sudo make all
 Remember to set fonts in terminal programs for your agnoster glyphs:
 * ConEmu > (hamburger menu in top right) > Settings > General > Fonts > Main Console Font : set to one fo the meslos, like **Meslo LG S DZ for Powerline**
 * VS Code terminal: `"terminal.integrated.fontFamily": "Meslo LG M DZ for Powerline"`
+* _At this time_ there are missing gtk cursor's in WSL. Emacs will complain unless you run: `sudo apt install adwaita-icon-theme-full`
 
 *In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... but I'm still debugging this...*
 
