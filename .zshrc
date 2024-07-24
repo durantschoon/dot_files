@@ -242,4 +242,3 @@ PATH=~/.console-ninja/.bin:$PATH
 
 # end on a agood note, i.e. do something successful as the last step
 [[ -n $status ]]
-
