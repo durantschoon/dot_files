@@ -80,8 +80,11 @@ add_to_end_of_path '/Applications/Visual Studio Code.app/Contents/Resources/app/
 ##########
 
 export NVM_DIR=~/.nvm
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# seems like I need to run `nvm alias default <MY-NEW-NODE-VERSION>` to change the default
+# not just `nvm use`
 
 export NODE_PATH=$(npm root -g)
 add_to_end_of_path $NODE_PATH
@@ -127,21 +130,6 @@ fi
 # postgres 15
 add_to_front_of_path '/usr/local/opt/postgresql@15/bin'
 
-# >>> conda initialize >>>
-# !! Contents within this block are managed by 'conda init' !!
-__conda_setup="$('/Users/durantschoon/anaconda3/bin/conda' 'shell.zsh' 'hook' 2> /dev/null)"
-if [ $? -eq 0 ]; then
-    eval "$__conda_setup"
-else
-    if [ -f "/Users/durantschoon/anaconda3/etc/profile.d/conda.sh" ]; then
-        . "/Users/durantschoon/anaconda3/etc/profile.d/conda.sh"
-    else
-        export PATH="/Users/durantschoon/anaconda3/bin:$PATH"
-    fi
-fi
-unset __conda_setup
-# <<< conda initialize <<<
-
 # bun completions
 [ -s "~/.bun/_bun" ] && source "~/.bun/_bun"
 
@@ -149,6 +137,10 @@ unset __conda_setup
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
+# sdkman (pyenv for java)
+#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
+export SDKMAN_DIR="$HOME/.sdkman"
+[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
 
 ###############################################################################
 # DO LAST end with success, uncomment the redirect if you want to see output
