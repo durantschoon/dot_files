@@ -54,6 +54,17 @@ alias ,=pd
 alias ,.=pp
 
 # -----------------------------------------------------------------------------
+# Docker Aliases
+# -----------------------------------------------------------------------------
+
+# MacOS prerequisites
+#  brew install xquartz
+#  open -a XQuartz
+# in xterm
+#  xhost +127.0.0.1
+#  docker run -it --rm bigdeddu/nyxt:2.2.4
+
+# -----------------------------------------------------------------------------
 # OS Specific Aliases
 # -----------------------------------------------------------------------------
 
@@ -176,6 +187,30 @@ if [ -n "$ZSH_VERSION" ]; then
     function pdfsearch() {
         pdfgrep -nir "$@" .
     }
+
+    get_pids_from_port() {
+        if [[ -z $1 ]]; then
+            echo "Usage: get_pids_from_port <port_number>"
+            return 1
+        fi
+        
+        local port=$1
+        local pids=$(lsof -t -i :$port)
+        
+        if [[ -z $pids ]]; then
+            echo "No processes found using port $port."
+            return 1
+        fi
+        
+        echo $pids
+    }
+
+    # Example usage:
+    # pids=$(get_pids_from_port 8000)
+    # echo $pids
+    # kill -9 $pids
+    # or
+    # kill -9 $(get_pids_from_port 8000)
 
     # -----
 
