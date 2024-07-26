@@ -212,6 +212,13 @@ if [ -n "$ZSH_VERSION" ]; then
     # or
     # kill -9 $(get_pids_from_port 8000)
 
+    # Example Usage: grep_git_branches clojure-term-colors
+    grep_git_branches() {
+        for branch in $(git branch | awk '{print $1}'); do # this $1 is escaped for awk
+            echo "Branch: $branch\n" $(git grep $1 $(git rev-parse $branch)) "\n" # this $1 is the first argument
+        done
+    }
+
     # -----
 
     # spacemacs
