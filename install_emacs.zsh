@@ -69,7 +69,6 @@ while [[ $# -gt 0 ]]; do
         brew list emacs-plus 2> /dev/null && brew uninstall emacs-plus
         brew install svn # for something below
         # ensure we have fonts
-        brew tap homebrew/cask-fonts
         brew install --cask font-source-code-pro
         # these are required later on, so install them first
         brew install ripgrep
