@@ -162,9 +162,33 @@ if [ -n "$ZSH_VERSION" ]; then
 
     [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
 
+    alias heroku_logs='heroku logs --force-colors --tail --app'
+    alias heroku_logs24='heroku_logs tallyfor-backend-prod-inst24'
+    alias heroku_config24='heroku config --app tallyfor-backend-prod-inst24'
+
+    # _heroku_logs_completions() {
+    #     local -a apps
+    #     # apps=("${(f)$(heroku apps | awk '/^[^=]/ {print $1}')}")
+
+
+    #     apps=(\"app1\" \"app2\" \"app3\")
+
+
+    #     echo "Apps found: ${apps[@]}"  # Debugging: List all apps found
+    #     compadd "$@" -- $apps
+    # }
+    # compdef _heroku_logs_completions heroku_logs
+
+    # export XDG_CACHE_HOME="$HOME/.cache"
+    # [[ ! -d "$XDG_CACHE_HOME/zsh" ]] && mkdir -p "$XDG_CACHE_HOME/zsh"
+    # [[ ! -f "$XDG_CACHE_HOME/zsh/.zcompcache" ]] && touch "$XDG_CACHE_HOME/zsh/.zcompcache"
+
+    # zstyle ':completion:*' cache-path "$XDG_CACHE_HOME/zsh/.zcompcache"
+    # zstyle ':completion:*' use-cache on
+
     # remove milliseconds
     epoch_date () { date -r $(echo $1 | cut -c1-10); } # epoch_date 1679656475630
-    epoch_date2 () { date -r $(echo $1 | cut -c1-10) +'%Y-%m-%d %H:%M:%S'; } 
+    epoch_date2 () { date -r $(echo $1 | cut -c1-10) +'%Y-%m-%d %H:%M:%S'; }
 
     rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || =rm $* } # builtin rm
 
