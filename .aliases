@@ -72,6 +72,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     alias oemacs='open -a /Applications/Emacs.app'
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
+    alias gitk=git-gui # brew install git-gui
     # get gtime with `brew install gnu-time`
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
         sudo /usr/local/bin/gtime --format="%C ran for %E (%e seconds)" -p ./2TB_BACKUP.command \
@@ -117,7 +118,7 @@ fi
 # Aliases for work (private repo to protect employer)
 # -----------------------------------------------------------------------------
 
-[ -f ~/dot_aliases/dot_aliases ] && source ~/dot_aliases/dot_aliases # bitbucket
+[[ -f ~/dot_aliases/dot_aliases ]] && source ~/dot_aliases/dot_aliases # bitbucket
 
 ###############################################################################
 # Zsh Aliases
