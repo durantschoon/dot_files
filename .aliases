@@ -160,6 +160,8 @@ if [ -n "$ZSH_VERSION" ]; then
 
     ee () { echo $* ; $* }
 
+    [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
+
     # remove milliseconds
     epoch_date () { date -r $(echo $1 | cut -c1-10); } # epoch_date 1679656475630
     epoch_date2 () { date -r $(echo $1 | cut -c1-10) +'%Y-%m-%d %H:%M:%S'; } 
