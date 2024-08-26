@@ -143,6 +143,15 @@ if [ -n "$ZSH_VERSION" ]; then
     # zmv -W '*.lis' '*.txt'
     alias zmvw='zmv -W'
 
+    # alias branches="glo | grep -E '\[[a-zA-Z0-9-]+\]'"
+
+    # print the branches which are recognized by "git branchstack"
+    branches () {
+        glo | \
+        perl -ne 's/\([^)]*\)//g; s/  +/ /g; print' | \
+        perl -ne '@fields = split; if ($fields[1] =~ /\[[a-zA-Z0-9-]+\]/) { print }'
+    }
+
     # try these
     alias -g latestd='*(/om[1])' # newest directory
     alias -g latestf='*(.om[1])' # newest file
