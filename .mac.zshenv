@@ -37,12 +37,21 @@ if command -v pyenv 1>/dev/null 2>&1; then
     eval "$(pyenv init -)"
 fi
 
-export VIRTUALENVWRAPPER_SCRIPT=/usr/local/bin/virtualenvwrapper.sh
+# brew install virtualenv virtualenvwrapper
+# pip3 install virtualenv virtualenvwrapper
 if [[ -f $VIRTUALENVWRAPPER_SCRIPT ]]; then
     export PYENV_VIRTUALENVWRAPPER_PREFER_PYVENV="true"
     export WORKON_HOME=$HOME/.virtualenvs
+    export VIRTUALENVWRAPPER_PYTHON=python3 # this for me is aliased to the shim
+    export VIRTUALENVWRAPPER_VIRTUALENV=/usr/local/bin/virtualenv
     # pyenv virtualenvwrapper_lazy # works at work
     source /usr/local/bin/virtualenvwrapper_lazy.sh
+    # mkproject
+    export PROJECT_HOME=$HOME/Repos/ds
+    # eg. mkproject -t github -t django django_react_fullstack -f
+    # -f since directory already exists
+    # need this first?
+    # chmod +x $HOME/.virtualenvs/premkproject
 else
     unset VIRTUALENVWRAPPER_SCRIPT
 fi
