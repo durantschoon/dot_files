@@ -212,12 +212,12 @@ if [ -n "$ZSH_VERSION" ]; then
 
     # alias pd='pushd; ds'
     function pd () {
-	      pushd $1
-	      ds
+        pushd $1
+        ds
     }
 
     function p () {
-	      ls -d $PWD/$1
+        ls -d $PWD/$1
     }
 
     function pdfsearch() {
@@ -229,15 +229,15 @@ if [ -n "$ZSH_VERSION" ]; then
             echo "Usage: get_pids_from_port <port_number>"
             return 1
         fi
-        
+
         local port=$1
         local pids=$(lsof -t -i :$port)
-        
+
         if [[ -z $pids ]]; then
             echo "No processes found using port $port."
             return 1
         fi
-        
+
         echo $pids
     }
 
@@ -283,9 +283,9 @@ if [ -n "$ZSH_VERSION" ]; then
     # $1 = type; 0 - both, 1 - tab, 2 - title
     # rest = text
     setTerminalText () {
-	      # echo works in bash & zsh
-	      local mode=$1 ; shift
-	      echo -ne "\033]$mode;$@\007"
+        # echo works in bash & zsh
+        local mode=$1 ; shift
+        echo -ne "\033]$mode;$@\007"
     }
     stt_both  () { setTerminalText 0 $@; }
     stt_tab   () { setTerminalText 1 $@; }
