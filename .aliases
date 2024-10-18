@@ -19,7 +19,7 @@ alias ag='alias | grep'
 alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
 alias dm='docker-machine'
-alias ds='dirs -v'
+alias ds='echo -e "\e[3mExample: use -2 to switch to the directory 2 down\e[0m"; dirs -v'
 alias eg=egrep
 alias g=grep
 alias gv='grep -v'
@@ -35,7 +35,7 @@ alias md='mkdir -p'
 alias ms='make shell'
 alias mt='make test'
 alias nrun='npm run'
-alias nr=nrun
+alias nrt='echo npm run test; npm run test'
 alias path='echo $PATH | c2n'
 alias pp='popd; ds'
 alias port_scan='lsof -nP +c 15 | { head -1; grep LISTEN; } ' # mac only?
@@ -161,6 +161,8 @@ if [ -n "$ZSH_VERSION" ]; then
     alias llrm='echo "Paste ls -lt output for files to delete and ^D when done"; /bin/rm -rf `awk '\''{print $9}'\''`'
 
     ee () { echo $* ; $* }
+
+    # nr () { echo "npm run $*" ; npm run $* }
 
     [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
 

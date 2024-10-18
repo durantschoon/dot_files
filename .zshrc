@@ -192,9 +192,10 @@ precmd() {
 # what-should-shouldnt-go-in-zshenv-zshrc-zlogin-zprofile-zlogout
 #
 # .zshenv is always sourced (so include variables you need everywhere)
-# .zshrc is for interactive shell configuration.
 # .zlogin is sourced on the start of a login shell.
 # .zprofile is basically the same as .zlogin except that it's sourced directly before .zshrc
+# Distinction: a terminal emulator in a graphical environment, can be an interactive shell but not a login shell.
+# .zshrc is for interactive shell configuration. 
 # .zlogout is sometimes used to clear and reset the terminal.
 
 # Consider: I recommend installing oh-my-sh and then placing various
@@ -242,3 +243,4 @@ PATH=~/.console-ninja/.bin:$PATH
 
 # end on a agood note, i.e. do something successful as the last step
 [[ -n $status ]]
+
