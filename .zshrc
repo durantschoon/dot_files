@@ -233,6 +233,8 @@ precmd() {
 # this keeps getting added automatically, so just put it here
 PATH=~/.console-ninja/.bin:$PATH
 
+[[ -s "$HOME/.avn/bin/avn.sh" ]] && source "$HOME/.avn/bin/avn.sh" # load avn
+
 # Don't put anything below this line except for profiling
 
 ##############
