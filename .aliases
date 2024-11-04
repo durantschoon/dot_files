@@ -144,6 +144,10 @@ if [ -n "$ZSH_VERSION" ]; then
     # z move?
     # zmv -W '*.lis' '*.txt'
     alias zmvw='zmv -W'
+    alias ztheme='(){ export ZSH_THEME="$@" && source $ZSH/oh-my-zsh.sh }' 
+    # better for light modes
+    # ztheme sobole
+    # ztheme xiong-chiamiov
 
     # alias branches="glo | grep -E '\[[a-zA-Z0-9-]+\]'"
 
