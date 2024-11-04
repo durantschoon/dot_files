@@ -34,7 +34,11 @@ export ZSH=$HOME/.oh-my-zsh
 # until I can get meslo to work in xterm
 # [ ! -n "${ZSH_THEME+x}" ] && ZSH_THEME="agnoster"
 # END TEST
-ZSH_THEME="agnoster"
+if [[ -n "$INSIDE_EMACS" ]]; then
+    ZSH_THEME="xiong-chiamiov-plus" # light mode
+else
+    ZSH_THEME="agnoster" # dark mode
+fi
 
 # ZSH_THEME="xiong-chiamiov-plus"
 # ZSH_THEME="bira"
