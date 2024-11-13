@@ -18,9 +18,12 @@
 # for git and other things
 add_to_front_of_path /usr/local/bin
 
-# for brew (mac)
-add_to_front_of_path /usr/local/opt
-add_to_front_of_path /usr/local/sbin
+# for brew (Apple Silicon Mac)
+eval "$(/opt/homebrew/bin/brew shellenv)"
+
+# for brew (Intel Mac)
+# add_to_front_of_path /usr/local/opt
+# add_to_front_of_path /usr/local/sbin
 
 # mysql
 add_to_front_of_path /usr/local/opt/mysql-client/bin
