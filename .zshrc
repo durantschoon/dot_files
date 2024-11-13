@@ -6,9 +6,14 @@
 # `.zshrc' is sourced in interactive shells. It should contain commands to set up
 # aliases, functions, options, key bindings, etc.
 
+typeset -U
+
 # completion
 
 autoload -Uz compinit
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    FPATH=$(brew --prefix)/share/zsh-completions:$FPATH
+fi
 
 if [[  -s ~/.zcompdump(N.mh+24) ]]; then
     for dump in ~/.zcompdump; do
@@ -28,12 +33,6 @@ export ZSH=$HOME/.oh-my-zsh
 # time that oh-my-zsh is loaded.
 # ZSH_THEME="random"
 
-# TEST
-# Only set theme if it's not yet set, so I can do:
-# xterm -e "export ZSH_THEME='clean';/bin/zsh" &
-# until I can get meslo to work in xterm
-# [ ! -n "${ZSH_THEME+x}" ] && ZSH_THEME="agnoster"
-# END TEST
 if [[ -n "$INSIDE_EMACS" ]]; then
     ZSH_THEME="xiong-chiamiov-plus" # light mode
 else
@@ -249,4 +248,3 @@ PATH=~/.console-ninja/.bin:$PATH
 
 # end on a agood note, i.e. do something successful as the last step
 [[ -n $status ]]
-
