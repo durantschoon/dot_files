@@ -69,7 +69,15 @@ fi
 export LC_ALL=en_US.UTF-8
 export LANG=en_US.UTF-8
 
-# updated for WSL, should work on macos, but verify
+# VEW = Virtual Env Wrapper
+WSL_VEW_PYTHON=$HOME/.pyenv/versions/3.12.7/bin/python3
+
+# MacOS
+# brew install virtualenv virtualenvwrapper
+# pip3 install virtualenv virtualenvwrapper
+MAC_VENV=/usr/local/bin/virtualenv
+# I think I need this, but haven't tested w/o it
+MAC_VEW_SCRIPT=/usr/local/bin/virtualenvwrapper.sh
 
 # pyenv
 if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
@@ -81,8 +89,20 @@ if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
         # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
         export WORKON_HOME=$HOME/.virtualenvs
         export PROJECT_HOME=$HOME/src
-        export VIRTUALENVWRAPPER_SCRIPT=virtualenvwrapper.sh
-        virtualenvwrapper.sh
+        if [[ -f $WSL_VEW_PYTHON ]]; then
+            export VIRTUALENVWRAPPER_PYTHON=$WSL_VEW_PYTHON
+        else
+            export VIRTUALENVWRAPPER_PYTHON=python3
+        fi
+        if [[ -f $MAC_VENV ]]; then
+            export VIRTUALENVWRAPPER_VIRTUALENV=$MAC_VENV
+        fi
+        if [[ -f $MAC_VEW_SCRIPT ]]; then
+            export VIRTUALENVWRAPPER_SCRIPT=$MAC_VEW_SCRIPT
+        else
+            export VIRTUALENVWRAPPER_SCRIPT=virtualenvwrapper.sh
+        fi
+        $VIRTUALENVWRAPPER_SCRIPT
     fi
 fi
 
