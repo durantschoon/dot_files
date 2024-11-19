@@ -42,7 +42,7 @@ fi
 
 # brew install virtualenv virtualenvwrapper
 # pip3 install virtualenv virtualenvwrapper
-if [[ -f $VIRTUALENVWRAPPER_SCRIPT ]]; then
+if [[ -f $VIRTUALENVWRAPPER_SCRIPT && ! -v PYENV_ROOT ]]; then
     export PYENV_VIRTUALENVWRAPPER_PREFER_PYVENV="true"
     export WORKON_HOME=$HOME/.virtualenvs
     export VIRTUALENVWRAPPER_PYTHON=python3 # this for me is aliased to the shim
@@ -55,8 +55,6 @@ if [[ -f $VIRTUALENVWRAPPER_SCRIPT ]]; then
     # -f since directory already exists
     # need this first?
     # chmod +x $HOME/.virtualenvs/premkproject
-else
-    unset VIRTUALENVWRAPPER_SCRIPT
 fi
 
 [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"

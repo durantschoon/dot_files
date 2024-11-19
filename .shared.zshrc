@@ -77,11 +77,11 @@ if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
     path=(${PYENV_ROOT}/bin "$path[@]")
     eval "$(pyenv init -)"
     if $(command -v virtualenvwrapper.sh); then
-        # despite the name, do not run this
+        # despite the name, do not set this
         # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
         export WORKON_HOME=$HOME/.virtualenvs
         export PROJECT_HOME=$HOME/src
-        # export VIRTUALENVWRAPPER_SCRIPT=virtualenvwrapper.sh
+        export VIRTUALENVWRAPPER_SCRIPT=virtualenvwrapper.sh
         virtualenvwrapper.sh
     fi
 fi
