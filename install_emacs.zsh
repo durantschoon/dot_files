@@ -17,11 +17,12 @@ EMACS_WITH_VERSION=""
 MY_DOT_SPACEMACS_REPO="https://github.com/durantschoon/.spacemacs.d.git"
 
 # could either do this or source .shared.zshrc. Sourcing might be safer to set it one place only
-[ -z ${SPACEMACSDIR+x} ] && export SPACEMACSDIR=$HOME/.spacemacs.d
+# [ -z ${SPACEMACSDIR+x} ] && export SPACEMACSDIR=$HOME/.spacemacs.d
 source ~/.shared.zshrc 
 
 ee() { echo -e "$@\n"; eval "$@"; echo -e "\n\n==========\n\n"; }
 
+# mac & linux
 unix_family_setup() {
     # Get the main spacemacs
     [ -d $HOME/.emacs.d ] && ee mv $HOME/.emacs.d $HOME/.emacs.d.bak.$$
@@ -29,6 +30,7 @@ unix_family_setup() {
     pushd $HOME/.emacs.d
     git checkout develop
     popd
+    git clone https://gitlab.com/protesilaos/modus-themes.git $HOME/.emacs.d/modus-themes
     # Get my customized spacemacs dotfiles
     [[ ! -d $SPACEMACSDIR ]] && mkdir $SPACEMACSDIR && ee git clone $MY_DOT_SPACEMACS_REPO $SPACEMACSDIR
     git config --global --add safe.directory $SPACEMACSDIR
@@ -97,9 +99,9 @@ while [[ $# -gt 0 ]]; do
         ee make -j8
         ee sudo make install
         linux_post_emacs_install
-    	# since install happens as root, do a little clean up here
-    	mkdir $HOME/.emacs.d/.cache
-	chown -R $USER $HOME/.emacs.d
+        # since install happens as root, do a little clean up here
+        mkdir $HOME/.emacs.d/.cache
+        chown -R $USER $HOME/.emacs.d
         shift;;
 
     --linux)
