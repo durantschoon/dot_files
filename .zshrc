@@ -93,6 +93,7 @@ COMPLETION_WAITING_DOTS="true"
 plugins=(
     autojump
     git
+    virtualenv
     macos
     emacs
     nvm
