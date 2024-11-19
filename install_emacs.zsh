@@ -26,12 +26,12 @@ unix_family_setup() {
     # Get the main spacemacs
     [ -d $HOME/.emacs.d ] && ee mv $HOME/.emacs.d $HOME/.emacs.d.bak.$$
     ee git clone https://github.com/syl20bnr/spacemacs $HOME/.emacs.d
-    # Get my customized spacemacs dotfiles
-    [[ ! -d $SPACEMACSDIR ]] && mkdir $SPACEMACSDIR && ee git clone $MY_DOT_SPACEMACS_REPO $SPACEMACSDIR
-    pushd $SPACEMACSDIR
-    git config --global --add safe.directory $SPACEMACSDIR
+    pushd $HOME/.emacs.d
     git checkout develop
     popd
+    # Get my customized spacemacs dotfiles
+    [[ ! -d $SPACEMACSDIR ]] && mkdir $SPACEMACSDIR && ee git clone $MY_DOT_SPACEMACS_REPO $SPACEMACSDIR
+    git config --global --add safe.directory $SPACEMACSDIR
 
     # the following will only run if using my set up for my switch_spacemacs alias exists
     if [[ -d $HOME/.emacs.d_ORIG_EMACS ]]; then
@@ -84,7 +84,7 @@ while [[ $# -gt 0 ]]; do
         brew services start $EMACS_SERVICE
         # finish setup
         unix_family_setup
-	    shift;;
+	shift;;
 
     --wsl)
         echo Hello Windows Subsystem for Linux
