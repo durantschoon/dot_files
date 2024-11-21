@@ -80,6 +80,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
         sudo /usr/local/bin/gtime --format="%C ran for %E (%e seconds)" -p ./2TB_BACKUP.command \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
 
+    # espanso, mimic linux location, so we can access $XDG_CONFIG_HOME/espanso
+    # X Desktop Group
+    export XDG_CONFIG_HOME=$HOME/Library/Application\ Support/
+
 elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
     alias ssh_fingerprint='ssh-keygen -E md5 -l'
