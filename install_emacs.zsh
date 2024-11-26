@@ -82,7 +82,7 @@ while [[ $# -gt 0 ]]; do
         brew link --overwrite emacs
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
-        osascript -e 'tell application "Finder" to make alias file to posix file "/opt/homebrew/opt/emacs-plus@30/Emacs.app" at posix file "/Applications" with properties {name:"Emacs.app"}'
+        osascript -e 'tell application "Finder" to make alias file to posix file "/opt/homebrew/opt/'$EMACS_WITH_VERSION'/Emacs.app" at posix file "/Applications" with properties {name:"Emacs.app"}'
         brew services start $EMACS_SERVICE
         # finish setup
         unix_family_setup
