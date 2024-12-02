@@ -42,6 +42,12 @@ get_context_name() {
 add_to_front_of_path "~/.console-ninja/.bin"
 add_to_front_of_path "~/.local/bin"
 
+# codeium windsurf
+add_to_front_of_path "$HOME/.codeium/windsurf/bin"
+
+# pnpm
+export PNPM_HOME="$HOME/Library/pnpm"
+add_to_front_of_path "$PNPM_HOME"
 
 # command-line fuzzy finder ... should get this on all systems
 [ -f /usr/local/bin/fzf ] && eval "$(/usr/local/bin/fzf --zsh)"
