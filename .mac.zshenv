@@ -21,6 +21,9 @@ add_to_front_of_path /usr/local/bin
 # for brew (Apple Silicon Mac)
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
+# for GNU ls for emacs
+add_to_front_of_path /usr/local/opt/coreutils/libexec/gnubin
+
 # for brew (Intel Mac)
 # add_to_front_of_path /usr/local/opt
 # add_to_front_of_path /usr/local/sbin
