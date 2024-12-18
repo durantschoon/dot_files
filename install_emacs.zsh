@@ -77,6 +77,7 @@ while [[ $# -gt 0 ]]; do
         brew install autojump
         brew install ispell
         brew install coreutils # needed for gnu style ls command
+        brew install universal-ctags
         # install new
         brew tap d12frosted/emacs-plus
         brew install $EMACS_WITH_VERSION --with-xwidgets $EMACS_ICON
