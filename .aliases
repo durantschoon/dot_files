@@ -88,7 +88,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
     # this is because I use pyenv instead of homebrew
     # install this way (over homebrew if necessary)
     # python3.13 -m pip install --force-reinstall ipython
-    alias ipython='python3.13 -m IPython'
 
 elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
