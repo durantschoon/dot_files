@@ -25,6 +25,7 @@ alias g=grep
 alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
 alias git_id_help='git_email; echo Check your git_id aliases for more info which are set in .private_aliases.'
+alias git_personal_ignore='$EDITOR .git/info/exclude'
 alias h=history
 alias hg='history | grep'
 alias ipy=ipython
@@ -74,6 +75,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     alias oemacs='open -a /Applications/Emacs.app'
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
+    alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
     alias gitk=git-gui # brew install git-gui
     # get gtime with `brew install gnu-time`
 
@@ -84,10 +86,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
     # espanso, mimic linux location, so we can access $XDG_CONFIG_HOME/espanso
     # X Desktop Group
     export XDG_CONFIG_HOME=$HOME/Library/Application\ Support/
-
-    # this is because I use pyenv instead of homebrew
-    # install this way (over homebrew if necessary)
-    # python3.13 -m pip install --force-reinstall ipython
 
 elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
