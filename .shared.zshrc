@@ -37,6 +37,9 @@ fi
 # Use bun for npm
 # `bun repl` for node
 #
+# bun completions, source if exists
+[ -s "/Users/durant/.bun/_bun" ] && source "/Users/durant/.bun/_bun"
+#
 #####################
 
 # if [ -d "$HOME/.nvm" ]; then
@@ -88,7 +91,7 @@ if [[ -d "${HOME}/.pyenv" && ! -v PYENV_ROOT ]]; then
         # despite the name, do not set this
         # export PYENV_VIRTUALENV_DISABLE_PROMPT=0
         export WORKON_HOME=$HOME/.virtualenvs
-        export PROJECT_HOME=$HOME/src
+        export PROJECT_HOME=$HOME/Repos
         if [[ -f $WSL_VEW_PYTHON ]]; then
             export VIRTUALENVWRAPPER_PYTHON=$WSL_VEW_PYTHON
         else
