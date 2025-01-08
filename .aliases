@@ -313,38 +313,37 @@ if [ -n "$ZSH_VERSION" ]; then
         echo "Mapped virtual environment '$venv_name' to project directory '$project_dir'."
     }
 
-    # Activate a virtual environment
-
-    # TODO ignore comment line in ~/.venv_map
-
+    # Function to activate a virtual environment and change to its project directory
     uv_workon() {
         if [ -z "$1" ]; then
             echo "Please provide a virtual environment name."
             return 1
         fi
 
-        VENV_NAME="$1"
-        VENV_DIR="$HOME/.virtualenvs/$VENV_NAME"
+        local venv_name="$1"
+        local venv_dir="$HOME/.virtualenvs/$venv_name"
 
-        if [ ! -d "$VENV_DIR" ]; then
-            echo "Virtual environment '$VENV_NAME' does not exist."
+        if [ ! -d "$venv_dir" ]; then
+            echo "Virtual environment '$venv_name' does not exist."
             return 1
         fi
 
-        PROJECT_DIR=$(awk -v venv="$VENV_NAME" '$1 == venv {print $2}' ~/.venv_map)
+        # Read the .venv_map file, ignoring comment lines, and find the project directory
+        local project_dir
+        project_dir=$(grep -v "^[[:space:]]*#" "$HOME/.venv_map" | awk -v venv="$venv_name" '$1 == venv {print $2}')
 
-        if [ -n "$PROJECT_DIR" ]; then
-            if [ -d "$PROJECT_DIR" ]; then
-                cd "$PROJECT_DIR" || return
-                echo "Changed directory to $PROJECT_DIR"
+        if [ -n "$project_dir" ]; then
+            if [ -d "$project_dir" ]; then
+                cd "$project_dir" || return
+                echo "Changed directory to $project_dir"
             else
-                echo "Project directory '$PROJECT_DIR' does not exist."
+                echo "Project directory '$project_dir' does not exist."
                 return 1
             fi
         fi
 
-        source "$VENV_DIR/bin/activate"
-        echo "Activated virtual environment '$VENV_NAME'"
+        source "$venv_dir/bin/activate"
+        echo "Activated virtual environment '$venv_name'"
     }
 
     # Deactivate the current virtual environment
