@@ -270,7 +270,102 @@ if [ -n "$ZSH_VERSION" ]; then
         done
     }
 
-    # -----
+    # ----------------------------------------------------------------------
+    # PYTHON
+    # aliases to transition from virtualenvwrapper to uv
+
+    # Create a new virtual environment
+    # mkvirtualenv 3.9 myenv
+    uv_mkvirtualenv() {
+        echo "Executing: uv venv --python=python$1 $2"
+        uv venv --python=python$1 $2
+    }
+
+    # Set up for mapping venv names to directories
+    # Check if ~/.venv_map exists; create if it doesn't
+    if [ ! -f "$HOME/.venv_map" ]; then
+        touch "$HOME/.venv_map"
+        echo "# Virtual Environment to Project Directory Mapping" > "$HOME/.venv_map"
+        echo "Created ~/.venv_map file."
+    fi
+
+    # Function to set virtual environment to project directory mapping
+    uv_set_venv() {
+        if [ $# -ne 2 ]; then
+            echo "Usage: uv_set_venv <virtualenv_name> <project_directory>"
+            return 1
+        fi
+
+        local venv_name="$1"
+        local project_dir="$2"
+
+        # Check if the project directory exists
+        if [ ! -d "$project_dir" ]; then
+            echo "Error: Directory '$project_dir' does not exist."
+            return 1
+        fi
+
+        # Remove existing entry for the virtual environment, if any
+        grep -v "^$venv_name " "$HOME/.venv_map" > "$HOME/.venv_map.tmp" && mv "$HOME/.venv_map.tmp" "$HOME/.venv_map"
+
+        # Add the new mapping
+        echo "$venv_name $project_dir" >> "$HOME/.venv_map"
+        echo "Mapped virtual environment '$venv_name' to project directory '$project_dir'."
+    }
+
+    # Activate a virtual environment
+
+    # TODO ignore comment line in ~/.venv_map
+
+    uv_workon() {
+        if [ -z "$1" ]; then
+            echo "Please provide a virtual environment name."
+            return 1
+        fi
+
+        VENV_NAME="$1"
+        VENV_DIR="$HOME/.virtualenvs/$VENV_NAME"
+
+        if [ ! -d "$VENV_DIR" ]; then
+            echo "Virtual environment '$VENV_NAME' does not exist."
+            return 1
+        fi
+
+        PROJECT_DIR=$(awk -v venv="$VENV_NAME" '$1 == venv {print $2}' ~/.venv_map)
+
+        if [ -n "$PROJECT_DIR" ]; then
+            if [ -d "$PROJECT_DIR" ]; then
+                cd "$PROJECT_DIR" || return
+                echo "Changed directory to $PROJECT_DIR"
+            else
+                echo "Project directory '$PROJECT_DIR' does not exist."
+                return 1
+            fi
+        fi
+
+        source "$VENV_DIR/bin/activate"
+        echo "Activated virtual environment '$VENV_NAME'"
+    }
+
+    # Deactivate the current virtual environment
+    uv_deactivate() {
+        echo "Executing: deactivate"
+        deactivate
+    }
+
+    # List all virtual environments
+    uv_lsvirtualenv() {
+        echo "Executing: uv venv list"
+        uv venv list
+    }
+
+    # Remove a virtual environment
+    uv_rmvirtualenv() {
+        echo "Executing: uv venv remove $1"
+        uv venv remove "$1"
+    }
+
+    # ----------------------------------------------------------------------
 
     # spacemacs
 
