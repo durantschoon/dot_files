@@ -239,6 +239,17 @@ PATH=~/.console-ninja/.bin:$PATH
 
 [[ -s "$HOME/.avn/bin/avn.sh" ]] && source "$HOME/.avn/bin/avn.sh" # load avn
 
+# `ignorespace` is a cool setting that allows you to run a command you don't want to
+# be saved to history. Just start your command with whitespace.
+export HISTCONTROL=ignorespace:ignoredups
+
+# GPG stuff, works on mac anyway
+export GPG_TTY=$(tty)
+
+
+
+
+################################################################################
 # Don't put anything below this line except for profiling
 
 ##############
