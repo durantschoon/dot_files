@@ -121,6 +121,7 @@ if [ -e ~/.HOME ]; then
     alias proj='cd ~/Programming/PROJECTS'
     alias dox='cd ~/Documents'
     alias blog='cd ~/Documents/Blog'
+    alias clerk="cd ~/Repos/others/clerk-demo && clj -M:nextjournal/clerk nextjournal.clerk/serve! --watch-paths notebooks --port 7777 --browse"
 fi
 
 # -----------------------------------------------------------------------------
@@ -133,12 +134,27 @@ fi
 # Zsh Aliases
 ###############################################################################
 
+
+
+
 if [ -n "$ZSH_VERSION" ]; then
     # assume Zsh
 
     alias ctags='=ctags -eR'
 
     alias funcs='print -l ${(ok)functions}' # list all functions
+
+    [ -f /usr/local/bin/pup ] && unalias pup
+
+    # supposedly works on mac and linux
+    alias ollama_update="ollama list | awk -F: 'NR>1 && !/reviewer/ {system(\"ollama pull \"\$1)}'"
+
+    if command -v pup > /dev/null; then
+        alias ollama_library_list='(\
+              echo "Listing all available models from https://ollama.com/library\n"; \
+              curl -s "https://ollama.com/library" | pup "#repo ul li a div:nth-child(1) h2 div span text{}" | sort) | \
+              more'
+    fi
 
     alias s.z='source ~/.zshrc'
     alias s.ze='source ~/.zshenv'
@@ -151,7 +167,7 @@ if [ -n "$ZSH_VERSION" ]; then
     # z move?
     # zmv -W '*.lis' '*.txt'
     alias zmvw='zmv -W'
-    alias ztheme='(){ export ZSH_THEME="$@" && source $ZSH/oh-my-zsh.sh }' 
+    alias ztheme='(){ export ZSH_THEME="$@" && source $ZSH/oh-my-zsh.sh }'
     # better for light modes
     # ztheme sobole
     # ztheme xiong-chiamiov
@@ -274,6 +290,8 @@ if [ -n "$ZSH_VERSION" ]; then
     # PYTHON
     # aliases to transition from virtualenvwrapper to uv
 
+    # TODO test this and post publicly as a gist
+
     # Create a new virtual environment
     # mkvirtualenv 3.9 myenv
     uv_mkvirtualenv() {
@@ -290,9 +308,9 @@ if [ -n "$ZSH_VERSION" ]; then
     fi
 
     # Function to set virtual environment to project directory mapping
-    uv_set_venv() {
+    uv_set_venv_dir() {
         if [ $# -ne 2 ]; then
-            echo "Usage: uv_set_venv <virtualenv_name> <project_directory>"
+            echo "Usage: uv_set_venv_dir <virtualenv_name> <project_directory>"
             return 1
         fi
 
