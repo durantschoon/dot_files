@@ -134,9 +134,6 @@ fi
 # Zsh Aliases
 ###############################################################################
 
-
-
-
 if [ -n "$ZSH_VERSION" ]; then
     # assume Zsh
 
@@ -144,7 +141,9 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias funcs='print -l ${(ok)functions}' # list all functions
 
-    [ -f /usr/local/bin/pup ] && unalias pup
+    if [[ -f /usr/local/bin/pup ]] && command -v pup >/dev/null && alias pup >/dev/null 2>&1; then
+        unalias pup
+    fi
 
     # supposedly works on mac and linux
     alias ollama_update="ollama list | awk -F: 'NR>1 && !/reviewer/ {system(\"ollama pull \"\$1)}'"
@@ -173,6 +172,15 @@ if [ -n "$ZSH_VERSION" ]; then
     # ztheme xiong-chiamiov
 
     # alias branches="glo | grep -E '\[[a-zA-Z0-9-]+\]'"
+
+    if [ -f /usr/local/bin/clojars-lookup ]; then
+        function clojars-lookup-lein() {
+            clojars-lookup "$@" -lein
+        }
+        function clojars-lookup-deps() {
+            clojars-lookup "$@" -deps
+        }
+    fi
 
     # print the branches which are recognized by "git branchstack"
     branches () {
