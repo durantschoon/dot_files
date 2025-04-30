@@ -296,6 +296,15 @@ if [ -n "$ZSH_VERSION" ]; then
 
     # ----------------------------------------------------------------------
     # PYTHON
+    MVP="$HOME/.ipython/profile_default/startup/money_value.py"
+    if [ -f $MVP]; then
+        alias f2m="$MVP f2m "'$*'
+        alias m2f="$MVP m2f "'$*'
+        alias half="$MVP half "'$*'
+    else
+        unalias MVP
+    fi
+
     # aliases to transition from virtualenvwrapper to uv
 
     # TODO test this and post publicly as a gist
