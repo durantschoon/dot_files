@@ -57,6 +57,12 @@ fi
 #     fi
 # done
 
+#####################################
+# macOS fix for vterm shells in emacs
+#####################################
+# Ensure TMPDIR is safe
+export TMPDIR="/tmp"
+
 ################
 # aws? / haskell
 ################
