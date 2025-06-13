@@ -185,10 +185,16 @@ SAVEHIST=1000
 
 fpath=(~/.zsh ~/.zfunc $fpath)
 
-precmd() {
-  # sets the tab title to current dir
-  echo -ne "\e]1;${PWD##*/}\a"
-}
+if [[ -n "$INSIDE_EMACS" ]]; then
+    # Disable ANSI title escape sequence in Emacs shell
+    unset precmd
+else
+    precmd() {
+        # sets the tab title to current dir
+        echo -ne "\e]1;${PWD##*/}\a"
+    }
+fi
+
 
 ###############################################################################
 # Here are the differences according to: https://bit.ly/2ZPj0XS
@@ -245,8 +251,6 @@ export HISTCONTROL=ignorespace:ignoredups
 
 # GPG stuff, works on mac anyway
 export GPG_TTY=$(tty)
-
-
 
 
 ################################################################################
