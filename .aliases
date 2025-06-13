@@ -173,6 +173,16 @@ if [ -n "$ZSH_VERSION" ]; then
 
     # alias branches="glo | grep -E '\[[a-zA-Z0-9-]+\]'"
 
+    spacemacs_force_clean () {
+        read -q "?Do you want to continue removing all .elc files and elpa? (y/n) " || return
+        pushd ~/.spacemacs.d
+        echo "\nremoving all spacemacs .elc files..."
+        find . -name "*.elc" -delete
+        echo "removing elpa..."
+        =rm -rf ~/.emacs.d/elpa
+        popd
+    }
+
     if [ -f /usr/local/bin/clojars-lookup ]; then
         function clojars-lookup-lein() {
             clojars-lookup "$@" -lein
@@ -302,6 +312,7 @@ if [ -n "$ZSH_VERSION" ]; then
         function f2m () { "$MVP" f2m "$@" | pbcopy }
         function m2f () { "$MVP" m2f "$@" | pbcopy }
         function half () { "$MVP" half "$@" | pbcopy }
+        # e.g. half \$3,604.67 && echo `pbpaste`
     else
         unset -f f2m m2f half 2>/dev/null
         unset MVP
