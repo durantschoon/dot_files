@@ -18,11 +18,14 @@
 # for git and other things
 add_to_front_of_path /usr/local/bin
 
-# for brew (Apple Silicon Mac)
-eval "$(/opt/homebrew/bin/brew shellenv)"
-
-# for GNU ls for emacs
+# For GNU ls for emacs
 add_to_front_of_path /usr/local/opt/coreutils/libexec/gnubin
+add_to_front_of_path /opt/homebrew/opt/gcc/bin
+export CC=gcc-15
+export CXX=g++-15
+export LIBRARY_PATH="/opt/homebrew/opt/gcc/lib/gcc/15"
+export CPATH="/opt/homebrew/opt/gcc/include"
+
 
 # for brew (Intel Mac)
 # add_to_front_of_path /usr/local/opt
