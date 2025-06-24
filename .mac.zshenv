@@ -37,12 +37,6 @@ export PKG_CONFIG_PATH="/usr/local/opt/mysql-client/lib/pkgconfig"
 # This is code that was added to my ~/.bash_profile, probably from scripts
 # In general move anything in that file here and delete that file
 
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-if command -v pyenv 1>/dev/null 2>&1; then
-    eval "$(pyenv init -)"
-fi
-
 # virtualenvwrapper has moved to .shared.zshrc
 
 [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"

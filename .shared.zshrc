@@ -75,54 +75,62 @@ export LANG=en_US.UTF-8
 # === VirtualEnvWrapper (VEW) Setup ===
 
 # Paths
-WSL_VEW_PYTHON="$HOME/.pyenv/versions/3.12.7/bin/python3"
-MAC_VENV="/usr/local/bin/virtualenv"
-MAC_VEW_SCRIPT="/usr/local/bin/virtualenvwrapper.sh"
+if [[ $- == *i* ]]; then
+    # Only do this for interactive shells
 
-# pyenv detection
-if [[ -d "$HOME/.pyenv" ]]; then
-  if [[ -z "$PYENV_ROOT" ]]; then
-    export PYENV_ROOT="$HOME/.pyenv"
-    path=("${PYENV_ROOT}/bin" "${path[@]}")
-    eval "$(pyenv init -)"
-  fi
+    WSL_VEW_PYTHON="$HOME/.pyenv/versions/3.12.7/bin/python3"
+    MAC_VENV="/usr/local/bin/virtualenv"
+    MAC_VEW_SCRIPT="/usr/local/bin/virtualenvwrapper.sh"
 
-  # Only run VEW setup if not already set
-  if command -v virtualenvwrapper.sh >/dev/null && [[ -z "$WORKON_HOME" ]]; then
-    echo "Initializing virtualenvwrapper"
+    # pyenv detection
+    if [[ -d "$HOME/.pyenv" ]]; then
+        if [[ -z "$PYENV_ROOT" ]]; then
+            export PYENV_ROOT="$HOME/.pyenv"
+            path=("${PYENV_ROOT}/bin" "${path[@]}")
+            eval "$(pyenv init -)" # only in interactive shells
+        fi
 
-    export WORKON_HOME="$HOME/.virtualenvs"
-    export PROJECT_HOME="$HOME/Repos"
+        # Only run VEW setup if not already set
+        if command -v virtualenvwrapper.sh >/dev/null && [[ -z "$WORKON_HOME" ]]; then
+            echo "Initializing virtualenvwrapper"
 
-    if [[ -f "$WSL_VEW_PYTHON" ]]; then
-      export VIRTUALENVWRAPPER_PYTHON="$WSL_VEW_PYTHON"
-    else
-      export VIRTUALENVWRAPPER_PYTHON="python3"
+            export WORKON_HOME="$HOME/.virtualenvs"
+            export PROJECT_HOME="$HOME/Repos"
+
+            if [[ -f "$WSL_VEW_PYTHON" ]]; then
+                export VIRTUALENVWRAPPER_PYTHON="$WSL_VEW_PYTHON"
+            else
+                export VIRTUALENVWRAPPER_PYTHON="python3"
+            fi
+
+            if [[ -f "$MAC_VENV" ]]; then
+                export VIRTUALENVWRAPPER_VIRTUALENV="$MAC_VENV"
+            fi
+
+            if [[ -f "$MAC_VEW_SCRIPT" ]]; then
+                export VIRTUALENVWRAPPER_SCRIPT="$MAC_VEW_SCRIPT"
+            else
+                export VIRTUALENVWRAPPER_SCRIPT="$(command -v virtualenvwrapper.sh)"
+            fi
+
+            # Safely source virtualenvwrapper to avoid mktemp issues
+            source_virtualenvwrapper_safe() {
+                (
+                    function mktemp() {
+                        echo "/tmp/virtualenvwrapper-hook-$$"
+                    }
+                    source "$VIRTUALENVWRAPPER_SCRIPT"
+                )
+            }
+
+            source_virtualenvwrapper_safe
+        fi
     fi
 
-    if [[ -f "$MAC_VENV" ]]; then
-      export VIRTUALENVWRAPPER_VIRTUALENV="$MAC_VENV"
-    fi
 
-    if [[ -f "$MAC_VEW_SCRIPT" ]]; then
-      export VIRTUALENVWRAPPER_SCRIPT="$MAC_VEW_SCRIPT"
-    else
-      export VIRTUALENVWRAPPER_SCRIPT="$(command -v virtualenvwrapper.sh)"
-    fi
-
-    # Safely source virtualenvwrapper to avoid mktemp issues
-    source_virtualenvwrapper_safe() {
-      (
-        function mktemp() {
-          echo "/tmp/virtualenvwrapper-hook-$$"
-        }
-        source "$VIRTUALENVWRAPPER_SCRIPT"
-      )
-    }
-
-    source_virtualenvwrapper_safe
-  fi
 fi
+
+
 
 # Ensure poetry completions
 if [[ ! -d ~/.zfunc ]]; then
