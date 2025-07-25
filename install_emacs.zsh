@@ -64,8 +64,8 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
         # Assumes you already have brew and git
-        EMACS_WITH_VERSION='emacs-plus@30'
-        EMACS_ICON='--with-retro-sink-icon'
+        EMACS_WITH_VERSION='emacs-plus@31'
+        EMACS_ICON='--with-spacemacs-icon'
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
         # uninstall old
         brew list emacs-plus 2> /dev/null && brew uninstall emacs-plus
