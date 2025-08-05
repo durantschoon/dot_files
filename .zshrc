@@ -27,22 +27,6 @@ fi
 # Path to your oh-my-zsh installation.
 export ZSH=$HOME/.oh-my-zsh
 
-# Set name of the theme to load.
-# Look in ~/.oh-my-zsh/themes/
-# Optionally, if you set this to "random", it'll load a random theme each
-# time that oh-my-zsh is loaded.
-# ZSH_THEME="random"
-
-if [[ -n "$INSIDE_EMACS" ]]; then
-    ZSH_THEME="xiong-chiamiov-plus" # light mode
-else
-    ZSH_THEME="agnoster" # dark mode
-fi
-
-# ZSH_THEME="xiong-chiamiov-plus"
-# ZSH_THEME="bira"
-# ZSH_THEME="smt"
-
 # old way I set my prompt
 autoload -U colors && colors
 # # PS1="%{$fg[red]%}%n%{$reset_color%}@%{$fg[blue]%}%m %{$fg[yellow]%}%2~ %{$reset_color%}%% "
@@ -98,6 +82,7 @@ plugins=(
     emacs
     nvm
     poetry
+    virtualenv
     zsh-syntax-highlighting
     zsh-autosuggestions
 )
@@ -111,6 +96,31 @@ plugins=(
 export DEFAULT_USER=$(whoami)
 
 source $ZSH/oh-my-zsh.sh
+
+# (durant) Moving this after the `source` to affect the prompt
+# Set name of the theme to load.
+# Look in ~/.oh-my-zsh/themes/
+# Optionally, if you set this to "random", it'll load a random theme each
+# time that oh-my-zsh is loaded.
+# ZSH_THEME="random"
+
+if [[ -n "$INSIDE_EMACS" ]]; then
+    ZSH_THEME="xiong-chiamiov-plus" # light mode
+    function venv_prompt_info() {
+        if [[ -n "$VIRTUAL_ENV" ]]; then
+            # Cyan venv name, then restore blue for git info
+            echo "%{%F{cyan}%}(%B$(basename "$VIRTUAL_ENV")%b)%{%F{blue}%} "
+        fi
+    }
+    # Insert venv before git info without breaking color
+    PROMPT=$(echo "$PROMPT" | sed 's|<$(git_prompt_info)|$(venv_prompt_info)<$(git_prompt_info)|')
+else
+    ZSH_THEME="agnoster" # dark mode
+fi
+
+# ZSH_THEME="xiong-chiamiov-plus"
+# ZSH_THEME="bira"
+# ZSH_THEME="smt"
 
 # Redefine this from ~/.oh-my-zsh/themes/agnoster.zsh-theme
 # Insert the k8s context name from my k8s context aliases
