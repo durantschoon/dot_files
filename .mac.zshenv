@@ -143,6 +143,13 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 export SDKMAN_DIR="$HOME/.sdkman"
 [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
 
+# GUILE (might be temporary after moving guix to a different machine)
+# export GUILE_LOAD_PATH="/opt/homebrew/share/guile/site/3.0"
+# export GUILE_LOAD_COMPILED_PATH="/opt/homebrew/lib/guile/3.0/site-ccache"
+# export GUILE_SYSTEM_EXTENSIONS_PATH="/opt/homebrew/lib/guile/3.0/extensions"
+
+# . /var/guix/profiles/per-user/$USER/guix-profile/etc/profile
+
 ###############################################################################
 # DO LAST end with success, uncomment the redirect if you want to see output
 echo finished sourcing $0 at $(date) > /dev/null

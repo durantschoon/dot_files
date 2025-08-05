@@ -68,6 +68,16 @@ alias ,.=pp
 #  docker run -it --rm bigdeddu/nyxt:2.2.4
 
 # -----------------------------------------------------------------------------
+# Guix Aliases
+# -----------------------------------------------------------------------------
+# alias guix="ssh -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001 'guix'"
+# alias guix-env='f(){ ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001 \
+#   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
+# alias guix-app='f(){ ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001 \
+#   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
+# alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
+
+# -----------------------------------------------------------------------------
 # OS Specific Aliases
 # -----------------------------------------------------------------------------
 
