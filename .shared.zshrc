@@ -83,12 +83,11 @@ if [[ $- == *i* ]]; then
     MAC_VEW_SCRIPT="/usr/local/bin/virtualenvwrapper.sh"
 
     # pyenv detection
-    if [[ -d "$HOME/.pyenv" ]]; then
+    if command -v pyenv >/dev/null 2>&1; then
         if [[ -z "$PYENV_ROOT" ]]; then
             export PYENV_ROOT="$HOME/.pyenv"
-            path=("${PYENV_ROOT}/bin" "${path[@]}")
-            eval "$(pyenv init -)" # only in interactive shells
         fi
+        eval "$(pyenv init -)" # only in interactive shells
 
         # Only run VEW setup if not already set
         if command -v virtualenvwrapper.sh >/dev/null && [[ -z "$WORKON_HOME" ]]; then
