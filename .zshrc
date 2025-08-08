@@ -12,7 +12,7 @@ typeset -U >& /dev/null
 
 autoload -Uz compinit
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    FPATH=$(brew --prefix)/share/zsh-completions:$FPATH
+    FPATH="/opt/homebrew/share/zsh-completions:$FPATH"
 fi
 
 if [[  -s ~/.zcompdump(N.mh+24) ]]; then
@@ -82,9 +82,6 @@ plugins=(
     emacs
     nvm
     poetry
-    virtualenv
-    zsh-syntax-highlighting
-    zsh-autosuggestions
 )
 
 # User configuration
