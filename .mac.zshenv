@@ -87,7 +87,7 @@ export NVM_DIR=~/.nvm
 # seems like I need to run `nvm alias default <MY-NEW-NODE-VERSION>` to change the default
 # not just `nvm use`
 
-export NODE_PATH=$(npm root -g)
+export NODE_PATH="/opt/homebrew/lib/node_modules"
 add_to_end_of_path $NODE_PATH
 
 # extend NODE_PATH with modules that don't need to be on PATH
