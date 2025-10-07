@@ -82,6 +82,7 @@ plugins=(
     emacs
     nvm
     poetry
+    zsh-autosuggestions
 )
 
 # User configuration
