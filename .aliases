@@ -83,6 +83,7 @@ alias ,.=pp
 
 if [[ "$(uname)" == "Darwin" ]]; then
 
+    alias claude="~/.claude/local/claude"
     alias oemacs='open -a /Applications/Emacs.app'
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
     alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
