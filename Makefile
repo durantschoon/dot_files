@@ -57,6 +57,21 @@ ifneq ($(MICROSOFT_CHECK),)
 	HOME = $(wsl_home)
 endif
 
+# Detect package manager
+PACKAGE_MANAGER := unknown
+ifneq ($(shell which guix 2>/dev/null),)
+	PACKAGE_MANAGER := guix
+endif
+ifneq ($(shell which apt-get 2>/dev/null),)
+	PACKAGE_MANAGER := apt
+endif
+ifneq ($(shell which yum 2>/dev/null),)
+	PACKAGE_MANAGER := yum
+endif
+ifneq ($(shell which pacman 2>/dev/null),)
+	PACKAGE_MANAGER := pacman
+endif
+
 .PHONY: set_up_links wsl help
 
 help:
@@ -70,6 +85,7 @@ help:
 	@echo ""
 	@echo "Platform-specific notes:"
 	@echo "  - Detected OS: $(os) $(arch)"
+	@echo "  - Package manager: $(PACKAGE_MANAGER)"
 	@echo "  - For WSL: Run as 'HOME=/home/durant sudo make all'"
 	@echo ""
 
@@ -115,12 +131,25 @@ ifeq ($(flavor), $(FLAVOR_WSL))
 endif
 ifeq ("$(os)","$(OS_LINUX)")
 # you already installed git to get this far
+ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt-get update && sudo apt-get dist-upgrade -y
 	sudo apt-get install build-essential curl file -y
-
-# install zsh
-
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
+else ifeq ($(PACKAGE_MANAGER),guix)
+	@echo "Detected Guix package manager - skipping apt-get commands"
+	@echo "Please install packages using: guix install <package-name>"
+	@echo "For zsh: guix install zsh"
+else ifeq ($(PACKAGE_MANAGER),yum)
+	sudo yum update -y
+	sudo yum groupinstall -y "Development Tools"
+	sudo yum install -y curl file zsh
+else ifeq ($(PACKAGE_MANAGER),pacman)
+	sudo pacman -Syu --noconfirm
+	sudo pacman -S --noconfirm base-devel curl file zsh
+else
+	@echo "Unknown package manager: $(PACKAGE_MANAGER)"
+	@echo "Please install build tools, curl, file, and zsh manually"
+endif
 endif
 ifeq ("$(os)","$(OS_MAC)")
 	@# install svn if needed for the fonts
