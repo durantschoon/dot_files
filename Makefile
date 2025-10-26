@@ -157,6 +157,7 @@ ifeq ("$(os)","$(OS_MAC)")
 endif
 # This powerline install should work on mac and linux
 ifneq ($(flavor), $(FLAVOR_WSL))
+ifneq ($(shell which fc-list 2>/dev/null),)
 	@fc-list : file family | grep "/Library" | grep $(POWERLINE_FONT) > /dev/null && { \
 		echo Found $(POWERLINE_FONT), not installing "\n"; \
 	}
@@ -167,8 +168,12 @@ ifneq ($(flavor), $(FLAVOR_WSL))
 		rm -rf fonts; \
 		echo; \
 	}
-	./install_oh_my_zsh_with_backup.sh || echo seems like you might have the latest version of zsh already
+else
+	@echo "fc-list not available - skipping font installation"
+	@echo "To install fonts manually, run: guix install fontconfig"
 endif
+endif
+	./install_oh_my_zsh_with_backup.sh || echo seems like you might have the latest version of zsh already
 ifneq (,$(shell $(WHICH_CMD) zsh))
 	@chsh -s $(shell $(WHICH_CMD) zsh) || echo tried to change shell to $(shell $(WHICH_CMD) zsh), but it failed;
 endif
