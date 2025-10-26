@@ -52,11 +52,25 @@ unix_family := $(filter $(os),$(OS_LINUX) $(OS_MAC))
 
 ifneq ($(grep -i Microsoft /proc/version), "")
 	flavor := $(FLAVOR_WSL)
-	wsl_home := /home/tallyfor/home_durant
+	wsl_home := /home/durant
 	HOME = $(wsl_home)
 endif
 
-.PHONY: set_up_links wsl
+.PHONY: set_up_links wsl help
+
+help:
+	@echo "Available targets:"
+	@echo ""
+	@echo "  make all           - Set up dotfiles (default target)"
+	@echo "  make set_up_links  - Create symlinks for dotfiles"
+	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
+	@echo "  make wsl           - Show WSL setup instructions"
+	@echo "  make help          - Show this help message"
+	@echo ""
+	@echo "Platform-specific notes:"
+	@echo "  - Detected OS: $(os) $(arch)"
+	@echo "  - For WSL: Run as 'HOME=/home/durant sudo make all'"
+	@echo ""
 
 wsl: 
 	@echo Need a reminder?
