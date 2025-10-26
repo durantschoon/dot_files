@@ -136,9 +136,8 @@ ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt-get install build-essential curl file -y
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
 else ifeq ($(PACKAGE_MANAGER),guix)
-	@echo "Detected Guix package manager - skipping apt-get commands"
-	@echo "Please install packages using: guix install <package-name>"
-	@echo "For zsh: guix install zsh"
+	@echo "Detected Guix package manager - installing required packages"
+	guix install zsh fontconfig curl file gcc-toolchain --no-substitutes || echo "Some packages may already be installed"
 else ifeq ($(PACKAGE_MANAGER),yum)
 	sudo yum update -y
 	sudo yum groupinstall -y "Development Tools"
