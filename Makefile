@@ -160,3 +160,152 @@ else
 endif
 	zsh -c "./install_emacs.zsh --$(emacs_flag)"
 endif
+
+.PHONY: guix-config
+guix-config:
+	@echo "====================================================================="
+	@echo "Creating Guix Home configuration structure in ~/guix-config"
+	@echo "====================================================================="
+	@if [ -d ~/guix-config ]; then \
+		echo "Directory ~/guix-config already exists."; \
+		if [ -f ~/guix-config/channels.scm ]; then \
+			echo "Found existing channels.scm - will preserve it."; \
+		fi; \
+		read -p "Continue and populate directory? [y/N] " -n 1 -r; \
+		echo; \
+		if [[ ! $$REPLY =~ ^[Yy]$$ ]]; then \
+			echo "Aborted."; \
+			exit 1; \
+		fi; \
+	else \
+		echo "Creating new ~/guix-config directory..."; \
+		mkdir -p ~/guix-config; \
+	fi
+	@echo ""
+	@echo "Creating directory structure..."
+	mkdir -p ~/guix-config/home/langs
+	mkdir -p ~/guix-config/manifests
+	mkdir -p ~/guix-config/templates
+	@echo ""
+	@if [ ! -f ~/guix-config/channels.scm ]; then \
+		echo "Creating channels.scm with current Guix commit..."; \
+		echo "(list (channel" > ~/guix-config/channels.scm; \
+		echo "        (name 'guix)" >> ~/guix-config/channels.scm; \
+		echo "        (url \"https://git.savannah.gnu.org/git/guix.git\")" >> ~/guix-config/channels.scm; \
+		echo "        (branch \"master\")" >> ~/guix-config/channels.scm; \
+		echo "        (introduction" >> ~/guix-config/channels.scm; \
+		echo "          (make-channel-introduction" >> ~/guix-config/channels.scm; \
+		echo "            \"9edb3f66fd807b096b48283debdcddccfea34bad\"" >> ~/guix-config/channels.scm; \
+		echo "            (openpgp-fingerprint" >> ~/guix-config/channels.scm; \
+		echo "              \"BBB0 2DDF 2CEA F6A8 0D1D  E643 A2A0 6DF2 A33A 54FA\")))))" >> ~/guix-config/channels.scm; \
+	else \
+		echo "Preserving existing channels.scm"; \
+	fi
+	@echo ""
+	@echo "Creating home/base.scm (minimal configuration)..."
+	@echo "(use-modules (gnu home)" > ~/guix-config/home/base.scm
+	@echo "             (gnu packages)" >> ~/guix-config/home/base.scm
+	@echo "             (gnu services)" >> ~/guix-config/home/base.scm
+	@echo "             (gnu home services shells)" >> ~/guix-config/home/base.scm
+	@echo "             (guix gexp))" >> ~/guix-config/home/base.scm
+	@echo "" >> ~/guix-config/home/base.scm
+	@echo "(home-environment" >> ~/guix-config/home/base.scm
+	@echo "  (packages (specifications->manifest" >> ~/guix-config/home/base.scm
+	@echo "    '(\"zsh\"" >> ~/guix-config/home/base.scm
+	@echo "      \"git\"" >> ~/guix-config/home/base.scm
+	@echo "      \"ripgrep\"" >> ~/guix-config/home/base.scm
+	@echo "      \"bat\"" >> ~/guix-config/home/base.scm
+	@echo "      \"starship\")))" >> ~/guix-config/home/base.scm
+	@echo "  (services" >> ~/guix-config/home/base.scm
+	@echo "    (list" >> ~/guix-config/home/base.scm
+	@echo "     (service home-zsh-service-type" >> ~/guix-config/home/base.scm
+	@echo "              (home-zsh-configuration" >> ~/guix-config/home/base.scm
+	@echo "               (zshrc '(\"eval \\\"\$$(starship init zsh)\\\"\"" >> ~/guix-config/home/base.scm
+	@echo "                       \"alias ll='ls -lah'\")))))))" >> ~/guix-config/home/base.scm
+	@echo ""
+	@echo "Creating home/devtools.scm..."
+	@echo "(use-modules (gnu packages))" > ~/guix-config/home/devtools.scm
+	@echo "" >> ~/guix-config/home/devtools.scm
+	@echo "(specifications->manifest" >> ~/guix-config/home/devtools.scm
+	@echo "  '(\"eza\"" >> ~/guix-config/home/devtools.scm
+	@echo "    \"fd\"" >> ~/guix-config/home/devtools.scm
+	@echo "    \"zoxide\"" >> ~/guix-config/home/devtools.scm
+	@echo "    \"fzf\"" >> ~/guix-config/home/devtools.scm
+	@echo "    \"delta\"" >> ~/guix-config/home/devtools.scm
+	@echo "    \"direnv\"))" >> ~/guix-config/home/devtools.scm
+	@echo ""
+	@echo "Creating templates/python.envrc..."
+	@echo "# Auto-activate Guix shell + UV venv" > ~/guix-config/templates/python.envrc
+	@echo "use guix python python-pip" >> ~/guix-config/templates/python.envrc
+	@echo "layout uv" >> ~/guix-config/templates/python.envrc
+	@echo ""
+	@echo "Creating templates/haskell.envrc..."
+	@echo "# Auto-activate Guix shell for Haskell" > ~/guix-config/templates/haskell.envrc
+	@echo "use guix ghc ghc-cabal-install" >> ~/guix-config/templates/haskell.envrc
+	@echo ""
+	@echo "Creating Makefile in ~/guix-config..."
+	@echo ".PHONY: setup update rollback clean" > ~/guix-config/Makefile
+	@echo "" >> ~/guix-config/Makefile
+	@echo "setup:" >> ~/guix-config/Makefile
+	@echo "	guix pull --channels=channels.scm" >> ~/guix-config/Makefile
+	@echo "	guix home reconfigure home/base.scm" >> ~/guix-config/Makefile
+	@echo "" >> ~/guix-config/Makefile
+	@echo "update:" >> ~/guix-config/Makefile
+	@echo "	guix pull" >> ~/guix-config/Makefile
+	@echo "	guix describe --format=channels > channels.scm" >> ~/guix-config/Makefile
+	@echo "" >> ~/guix-config/Makefile
+	@echo "rollback:" >> ~/guix-config/Makefile
+	@echo "	guix home roll-back" >> ~/guix-config/Makefile
+	@echo "" >> ~/guix-config/Makefile
+	@echo "clean:" >> ~/guix-config/Makefile
+	@echo "	guix home delete-generations 30d" >> ~/guix-config/Makefile
+	@echo "	guix gc" >> ~/guix-config/Makefile
+	@echo ""
+	@echo "Creating .gitignore in ~/guix-config..."
+	@echo "# Generated by Guix Home" > ~/guix-config/.gitignore
+	@echo ".guix-profile" >> ~/guix-config/.gitignore
+	@echo ".guix-home" >> ~/guix-config/.gitignore
+	@echo "" >> ~/guix-config/.gitignore
+	@echo "# Per-project Guix profiles" >> ~/guix-config/.gitignore
+	@echo ".guix-profile/" >> ~/guix-config/.gitignore
+	@echo "manifest-derived.scm" >> ~/guix-config/.gitignore
+	@echo ""
+	@echo "Creating README.md in ~/guix-config..."
+	@echo "# Guix Home Configuration" > ~/guix-config/README.md
+	@echo "" >> ~/guix-config/README.md
+	@echo "Declarative home environment configuration using GNU Guix." >> ~/guix-config/README.md
+	@echo "" >> ~/guix-config/README.md
+	@echo "## Quick Start" >> ~/guix-config/README.md
+	@echo "" >> ~/guix-config/README.md
+	@echo "\`\`\`bash" >> ~/guix-config/README.md
+	@echo "# Initial setup" >> ~/guix-config/README.md
+	@echo "make setup" >> ~/guix-config/README.md
+	@echo "" >> ~/guix-config/README.md
+	@echo "# Update channels and lock" >> ~/guix-config/README.md
+	@echo "make update" >> ~/guix-config/README.md
+	@echo "" >> ~/guix-config/README.md
+	@echo "# Rollback to previous generation" >> ~/guix-config/README.md
+	@echo "make rollback" >> ~/guix-config/README.md
+	@echo "\`\`\`" >> ~/guix-config/README.md
+	@echo "" >> ~/guix-config/README.md
+	@echo "## Directory Structure" >> ~/guix-config/README.md
+	@echo "" >> ~/guix-config/README.md
+	@echo "- \`channels.scm\` - Pinned Guix channel revisions" >> ~/guix-config/README.md
+	@echo "- \`home/\` - Home environment configurations" >> ~/guix-config/README.md
+	@echo "- \`manifests/\` - Per-project package manifests" >> ~/guix-config/README.md
+	@echo "- \`templates/\` - Direnv and project templates" >> ~/guix-config/README.md
+	@echo ""
+	@echo "====================================================================="
+	@echo "Done! Created guix-config structure at ~/guix-config"
+	@echo "====================================================================="
+	@echo ""
+	@echo "Directory structure:"
+	@tree -L 2 ~/guix-config 2>/dev/null || find ~/guix-config -type f | sort
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. cd ~/guix-config"
+	@echo "  2. Review the generated files"
+	@echo "  3. Customize home/base.scm for your needs"
+	@echo "  4. git add -A && git commit -m 'Initial Guix Home config'"
+	@echo "  5. git push"
+	@echo ""
