@@ -1,4 +1,5 @@
 # dot_files
+
 My dotfiles except for ~/.emacs.d (but now the makefile in this repo has become the single-stop-shop for setting up my dotfiles including asking to install emacs with my [spacemacs dotfiles](https://github.com/durantschoon/.spacemacs.d)).
 
 *Also on my mind is that maybe I should look up [other people's solutions](https://dotfiles.github.io/utilities/) and ditch all this at some point, but with so many choices and the further I get to making this how I want it, seems like I could end up sticking with this.*
@@ -17,7 +18,7 @@ After you install, remember to run `M-x all-the-icons-install-fonts`
 
 If you're not root, you might need to run emacs like this to write to the fonts directory `sudo emacs --init-directory ~/.emacs.d &`
 
-_Note to self_: Next time I should try this on the command line and add it to the scripts if it works: `sudo emacs --init-directory ~/.emacs.d --batch` with a (temp) file that just runs `(all-the-icons-install-fonts)`
+*Note to self*: Next time I should try this on the command line and add it to the scripts if it works: `sudo emacs --init-directory ~/.emacs.d --batch` with a (temp) file that just runs `(all-the-icons-install-fonts)`
 
 ### Ubuntu
 
@@ -34,7 +35,7 @@ for reference: [zsh on ubuntu](https://gist.github.com/tsabat/1498393)
 
 ### Mac
 
-Forgot how to get `brew` on the mac? Go [here](https://brew.sh/) and run the one-liner. 
+Forgot how to get `brew` on the mac? Go to [brew.sh](https://brew.sh/) and run the one-liner.
 
 ```sh
 brew install git
@@ -52,7 +53,7 @@ Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm
 
 1. It's important to be in your home directory so run `cd` before cloning this directory. By default in WSL I end up in a user data directory when I first log in.
 
-2. Do not rely on `setxkbmap` in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from https://github.com/microsoft/PowerToys
+2. Do not rely on `setxkbmap` in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from <https://github.com/microsoft/PowerToys>
 
 Because the Makefile is set up to run with a different home dir (for example under another user's home dir), edit the Makefile, changing: `REDEFINE_HOME_HERE_MAYBE` to what you want.
 
@@ -66,9 +67,10 @@ HOME=UPDATE_IF_YOURE_CHANGING_THIS sudo make all
 ```
 
 Remember to set fonts in terminal programs for your agnoster glyphs:
+
 * ConEmu > (hamburger menu in top right) > Settings > General > Fonts > Main Console Font : set to one fo the meslos, like **Meslo LG S DZ for Powerline**
 * VS Code terminal: `"terminal.integrated.fontFamily": "Meslo LG M DZ for Powerline"`
-* _At this time_ there are missing gtk cursor's in WSL. Emacs will complain unless you run: `sudo apt install adwaita-icon-theme-full`
+* *At this time* there are missing gtk cursor's in WSL. Emacs will complain unless you run: `sudo apt install adwaita-icon-theme-full`
 
 *In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... but I'm still debugging this...*
 
