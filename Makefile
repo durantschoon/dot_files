@@ -137,8 +137,10 @@ ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
-	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain, starship..."
-	guix install zsh fontconfig curl file gcc-toolchain starship --no-substitutes || echo "Some packages may already be installed"
+	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
+	guix install zsh fontconfig curl file gcc-toolchain --no-substitutes || echo "Some packages may already be installed"
+	@echo "Installing starship prompt..."
+	curl -sS https://starship.rs/install.sh | sh || echo "Starship installation failed"
 	@echo "Verifying zsh installation..."
 	@which zsh || echo "WARNING: zsh installation may have failed"
 else ifeq ($(PACKAGE_MANAGER),yum)
