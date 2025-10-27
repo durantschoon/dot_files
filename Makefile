@@ -140,7 +140,8 @@ else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
 	guix install zsh fontconfig curl file gcc-toolchain || echo "Some packages may already be installed"
 	@echo "Installing starship prompt..."
-	curl -sS https://starship.rs/install.sh | sh || echo "Starship installation failed"
+	@echo "Using curl from Guix profile..."
+	@HOME/.guix-profile/bin/curl -sS https://starship.rs/install.sh | sh || echo "Starship installation failed"
 	@echo "Verifying zsh installation..."
 	@which zsh || echo "WARNING: zsh installation may have failed"
 else ifeq ($(PACKAGE_MANAGER),yum)
