@@ -138,7 +138,7 @@ ifeq ($(PACKAGE_MANAGER),apt)
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
 	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
-	guix install zsh fontconfig curl file gcc-toolchain --no-substitutes || echo "Some packages may already be installed"
+	guix install zsh fontconfig curl file gcc-toolchain || echo "Some packages may already be installed"
 	@echo "Installing starship prompt..."
 	curl -sS https://starship.rs/install.sh | sh || echo "Starship installation failed"
 	@echo "Verifying zsh installation..."
