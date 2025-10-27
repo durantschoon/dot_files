@@ -72,7 +72,7 @@ ifneq ($(shell which pacman 2>/dev/null),)
 	PACKAGE_MANAGER := pacman
 endif
 
-.PHONY: set_up_links wsl help
+.PHONY: set_up_links wsl help guix-root-install
 
 help:
 	@echo "Available targets:"
@@ -80,6 +80,7 @@ help:
 	@echo "  make all           - Set up dotfiles (default target)"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
+	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
 	@echo "  make wsl           - Show WSL setup instructions"
 	@echo "  make help          - Show this help message"
 	@echo ""
@@ -95,6 +96,16 @@ wsl:
 	@echo HOME=$(wsl_home) sudo make all
 	@echo exiting...
 	@exit 0
+
+guix-root-install:
+	@echo "Installing Guix packages as root..."
+	@echo "This target installs packages that may require root privileges"
+	@echo "Run this first, then run 'make all' as your regular user"
+ifeq ($(PACKAGE_MANAGER),guix)
+	sudo guix install zsh fontconfig curl file gcc-toolchain
+else
+	@echo "This target is only for Guix systems"
+endif
 
 all: set_up_links
 
@@ -140,7 +151,8 @@ else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
 	@echo "Checking if packages are already available..."
 	@which zsh && which curl && which file && echo "Core packages already available" || { \
-		echo "Installing missing packages..."; \
+		echo "Installing missing packages (may need root privileges)..."; \
+		echo "If this fails, try running as root first: sudo guix install zsh fontconfig curl file gcc-toolchain"; \
 		guix install zsh fontconfig curl file gcc-toolchain || echo "Package installation failed - continuing anyway"; \
 	}
 	@echo "Installing starship prompt..."
