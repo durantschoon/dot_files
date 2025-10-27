@@ -102,7 +102,13 @@ guix-root-install:
 	@echo "This target installs packages that may require root privileges"
 	@echo "Run this first, then run 'make all' as your regular user"
 ifeq ($(PACKAGE_MANAGER),guix)
-	sudo guix install zsh fontconfig curl file gcc-toolchain
+	@echo "Checking what packages are already available..."
+	@which zsh && echo "zsh: available" || echo "zsh: not found"
+	@which curl && echo "curl: available" || echo "curl: not found"
+	@which file && echo "file: available" || echo "file: not found"
+	@echo "Attempting package installation..."
+	sudo guix install zsh fontconfig curl file gcc-toolchain || echo "Package installation failed - container may not support package installation"
+	@echo "If installation failed, packages may already be available or container may not support package installation"
 else
 	@echo "This target is only for Guix systems"
 endif
@@ -149,10 +155,14 @@ ifeq ($(PACKAGE_MANAGER),apt)
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
 	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
-	@echo "Checking if packages are already available..."
-	@which zsh && which curl && which file && echo "Core packages already available" || { \
-		echo "Installing missing packages (may need root privileges)..."; \
-		echo "If this fails, try running as root first: sudo guix install zsh fontconfig curl file gcc-toolchain"; \
+	@echo "Checking what packages are already available..."
+	@which zsh && echo "✓ zsh: available" || echo "✗ zsh: not found"
+	@which curl && echo "✓ curl: available" || echo "✗ curl: not found"
+	@which file && echo "✓ file: available" || echo "✗ file: not found"
+	@echo "Attempting to install missing packages..."
+	@which zsh && which curl && which file && echo "All core packages available - skipping installation" || { \
+		echo "Some packages missing - attempting installation..."; \
+		echo "If this fails, try: sudo make guix-root-install"; \
 		guix install zsh fontconfig curl file gcc-toolchain || echo "Package installation failed - continuing anyway"; \
 	}
 	@echo "Installing starship prompt..."
