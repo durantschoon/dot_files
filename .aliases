@@ -77,6 +77,8 @@ alias ,.=pp
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
+alias guix-dev='docker exec -it guix-dev su - durant'
+
 # -----------------------------------------------------------------------------
 # OS Specific Aliases
 # -----------------------------------------------------------------------------

@@ -1,0 +1,61 @@
+# -*- mode: shell-script -*-
+
+# Enable completion system
+autoload -Uz compinit
+compinit
+
+# History configuration
+HISTSIZE=1000
+SAVEHIST=1000
+HISTFILE=~/.history
+setopt HIST_IGNORE_ALL_DUPS
+setopt SHARE_HISTORY
+
+# Directory navigation
+setopt AUTO_PUSHD
+
+# Key bindings for history search
+bindkey "^R" history-incremental-pattern-search-backward
+bindkey "^S" history-incremental-pattern-search-forward
+
+# Completion configuration
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+
+# Load aliases
+source $HOME/.aliases
+
+# Load shared configuration
+[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc
+
+# Environment-specific configuration
+[[ -f ~/.HOME && -f ~/dot_files/.home.zshrc ]] && source ~/dot_files/.home.zshrc
+[[ -f ~/.WORK && -f ~/dot_files/.work.zshrc ]] && source ~/dot_files/.work.zshrc
+
+# Initialize starship prompt
+if command -v starship >/dev/null 2>&1; then
+    eval "$(starship init zsh)"
+else
+    echo "Starship not found. Install with: guix install starship"
+    # Fallback prompt
+    PROMPT='%n@%m %2~ %# '
+fi
+
+# GPG configuration
+export GPG_TTY=$(tty)
+
+# Console ninja (if available)
+PATH=~/.console-ninja/.bin:$PATH
+
+# AVN (if available)
+[[ -s "$HOME/.avn/bin/avn.sh" ]] && source "$HOME/.avn/bin/avn.sh"
+
+# Function path for custom completions
+fpath=(~/.zsh ~/.zfunc $fpath)
+
+# Tab title (if not in Emacs)
+if [[ -z "$INSIDE_EMACS" ]]; then
+    precmd() {
+        echo -ne "\e]1;${PWD##*/}\a"
+    }
+fi
