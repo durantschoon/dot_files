@@ -14,6 +14,46 @@ make setup
 
 ---
 
+## Current Progress: Docker Container Setup (December 2024)
+
+### What We've Accomplished
+
+✅ **Fixed WSL detection logic** - Makefile now properly detects Linux Docker containers vs WSL  
+✅ **Added Guix package manager detection** - Automatically detects Guix and uses appropriate commands  
+✅ **Implemented starship prompt** - Replaced oh-my-zsh with faster starship prompt  
+✅ **Created two-step installation workflow** - `sudo make guix-root-install` then `make all`  
+✅ **Added comprehensive error handling** - Graceful handling of container limitations  
+✅ **Updated documentation** - README.md now reflects current setup  
+
+### Current Status: Working on Container Limitations
+
+**Issue**: `cnelson31/guix` Docker container has "Operation not permitted" errors when trying to install packages via `guix install`.
+
+**Workarounds implemented**:
+- Package availability checking before installation attempts
+- Graceful fallback when package installation fails
+- Clear error messages and guidance
+- Two-step root/user workflow
+
+**Next steps**:
+- Test if basic dotfiles work without curl/starship
+- Investigate container permissions or alternative containers
+- Consider using pre-built containers with packages already installed
+
+### What Works Without curl
+
+The core dotfiles functionality works without curl:
+- ✅ **Aliases** (`.aliases` file)
+- ✅ **Basic zsh configuration** (`.zshrc.starship` with fallback prompt)
+- ✅ **Symlinks** (dotfiles → home directory)
+- ✅ **Shared configurations** (`.shared.zshrc`, `.shared.zshenv`)
+
+**Optional features that need curl**:
+- ⚠️ **Starship prompt** (can fallback to basic prompt)
+- ⚠️ **Font installation** (can skip, use system fonts)
+
+---
+
 ## Phase 1: Research & Foundations
 
 ### Goals
