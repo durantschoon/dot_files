@@ -137,7 +137,10 @@ ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
-	guix install zsh fontconfig curl file gcc-toolchain --no-substitutes || echo "Some packages may already be installed"
+	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain, starship..."
+	guix install zsh fontconfig curl file gcc-toolchain starship --no-substitutes || echo "Some packages may already be installed"
+	@echo "Verifying zsh installation..."
+	@which zsh || echo "WARNING: zsh installation may have failed"
 else ifeq ($(PACKAGE_MANAGER),yum)
 	sudo yum update -y
 	sudo yum groupinstall -y "Development Tools"
@@ -172,7 +175,7 @@ else
 	@echo "To install fonts manually, run: guix install fontconfig"
 endif
 endif
-	./install_oh_my_zsh_with_backup.sh || echo seems like you might have the latest version of zsh already
+	@echo "Skipping oh-my-zsh installation - using starship instead"
 ifneq (,$(shell $(WHICH_CMD) zsh))
 	@chsh -s $(shell $(WHICH_CMD) zsh) || echo tried to change shell to $(shell $(WHICH_CMD) zsh), but it failed;
 endif
@@ -180,7 +183,7 @@ endif
 ifneq (,$(wildcard "~/.zshrc"))
 	mv ~/.zshrc ~/.zshrc.bak # maybe created by oh-my-zsh and we don't care about clobbering it on rewrite
 endif
-	ln -si ~/dot_files/.zshrc ~ || echo
+	ln -si ~/dot_files/.zshrc.starship ~/.zshrc || echo
 	ln -si ~/dot_files/.aliases ~ || echo
 
 # DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
