@@ -4,7 +4,7 @@ My dotfiles except for ~/.emacs.d (but now the makefile in this repo has become 
 
 *Also on my mind is that maybe I should look up [other people's solutions](https://dotfiles.github.io/utilities/) and ditch all this at some point, but with so many choices and the further I get to making this how I want it, seems like I could end up sticking with this.*
 
-I use [Zsh](http://www.zsh.org/) with [oh-my-zsh](https://github.com/robbyrussell/oh-my-zsh). I use the [agnoster theme](https://github.com/agnoster/agnoster-zsh-theme) which is best viewed with the [meslo powerline fonts](https://github.com/powerline/fonts) which should be installed by the cross-system [Makefile](./Makefile) in this repo.
+I use [Zsh](http://www.zsh.org/) with [starship prompt](https://starship.rs/) for a fast, customizable shell experience. The [Makefile](./Makefile) automatically detects your system and installs the appropriate packages and configuration.
 
 These dot files are for the common settings on three operating systems: mac, linux (ubuntu), and windows. Specific changes to the path, etc. should go in the OS specific version of ~/.zshenv (remember: .zshenv is sourced every time and .zshrc is for interactive shells). The Windows set up is not really set up, yet. Since ubuntu now runs on Windows, I've been using that and have installed a few things by hand still without yet adding those things to the automation in this repo.
 
@@ -28,10 +28,27 @@ sudo apt-get install git make autojump -y
 cd
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
-make
+make all
 ```
 
 for reference: [zsh on ubuntu](https://gist.github.com/tsabat/1498393)
+
+### Guix System
+
+For Guix System or Guix containers (like `cnelson31/guix`):
+
+```sh
+# Step 1: Install packages as root (if needed)
+sudo make guix-root-install
+
+# Step 2: Set up dotfiles as user
+cd
+git clone https://github.com/durantschoon/dot_files.git
+cd dot_files
+make all
+```
+
+The Makefile automatically detects Guix and installs packages via `guix install`, then sets up starship prompt and your dotfiles configuration.
 
 ### Mac
 
@@ -42,7 +59,7 @@ brew install git
 cd
 git clone https://github.com/durantschoon/dot_files.git
 cd dot_files
-make
+make all
 ```
 
 Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm and under Profiles > (Default) > Text, flick on "Use built-in Powerline glyphs."
