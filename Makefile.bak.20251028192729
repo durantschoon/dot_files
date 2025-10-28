@@ -389,37 +389,3 @@ guix-config:
 	@echo "  4. git add -A && git commit -m 'Initial Guix Home config'"
 	@echo "  5. git push"
 	@echo ""
-
-# Guix Home bootstrap targets (non-invasive)
-.PHONY: setup update install-manifest home-check
-
-setup:
-	@echo "==> guix pull (pinned if channels.scm exists)"
-	@if [ -f channels.scm ]; then \
-	  guix pull --channels=channels.scm || guix pull ; \
-	else \
-	  guix pull ; \
-	fi
-	@echo "==> guix home reconfigure home/base.scm"
-	@guix home reconfigure home/base.scm
-	@echo "==> done (Guix Home applied)"
-
-update:
-	@echo "==> guix pull"
-	@guix pull
-	@echo "==> pin channels.scm"
-	@guix describe --format=channels > channels.scm
-	@echo "==> guix home reconfigure"
-	@guix home reconfigure home/base.scm
-
-install-manifest:
-	@echo "==> guix package -m manifests/base.scm"
-	@guix package -m manifests/base.scm
-
-home-check:
-	@echo "==> arch & guix"
-	@uname -m && guix --version
-	@echo "==> weather for base manifest (bordeaux often best for aarch64)"
-	@guix weather -m manifests/base.scm --substitute-urls="https://ci.guix.gnu.org https://bordeaux.guix.gnu.org" || true
-
-# End Guix Home bootstrap targets
