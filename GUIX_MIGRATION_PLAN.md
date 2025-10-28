@@ -30,12 +30,14 @@ make setup
 **Issue**: `cnelson31/guix` Docker container has "Operation not permitted" errors when trying to install packages via `guix install`.
 
 **Workarounds implemented**:
+
 - Package availability checking before installation attempts
 - Graceful fallback when package installation fails
 - Clear error messages and guidance
 - Two-step root/user workflow
 
 **Next steps**:
+
 - Test if basic dotfiles work without curl/starship
 - Investigate container permissions or alternative containers
 - Consider using pre-built containers with packages already installed
@@ -43,12 +45,14 @@ make setup
 ### What Works Without curl
 
 The core dotfiles functionality works without curl:
+
 - ✅ **Aliases** (`.aliases` file)
 - ✅ **Basic zsh configuration** (`.zshrc.starship` with fallback prompt)
 - ✅ **Symlinks** (dotfiles → home directory)
 - ✅ **Shared configurations** (`.shared.zshrc`, `.shared.zshenv`)
 
 **Optional features that need curl**:
+
 - ⚠️ **Starship prompt** (can fallback to basic prompt)
 - ⚠️ **Font installation** (can skip, use system fonts)
 
