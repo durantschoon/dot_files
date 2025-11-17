@@ -220,7 +220,12 @@ endif
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
 	[ -f $(wildcard "~/dot_files/.$(os).zshenv") ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
 
-	./unix_work_or_home.sh
+	@if [ -t 0 ]; then \
+		./unix_work_or_home.sh; \
+	else \
+		echo "Non-interactive mode: defaulting to HOME setup"; \
+		touch ~/.HOME && echo "See ~/.aliases for the use of this file" >> ~/.HOME && echo "You are now set up for HOME"; \
+	fi
 
 else ifeq ($(os),$(OS_WINDOWS))
 # TODO: check current dir here too
@@ -238,16 +243,62 @@ ifeq ("$flavor",$(FLAVOR_WSL))
 else
 	$(eval emacs_flag := "$(os)")
 endif
-	@if command -v zsh >/dev/null 2>&1 || [ -f ~/.guix-profile/bin/zsh ] || [ -f ~/.config/guix/current/bin/zsh ]; then \
-		if command -v zsh >/dev/null 2>&1; then \
-			ZSH_CMD=zsh; \
-		elif [ -f ~/.guix-profile/bin/zsh ]; then \
-			ZSH_CMD=~/.guix-profile/bin/zsh; \
-		else \
-			ZSH_CMD=~/.config/guix/current/bin/zsh; \
+	@ZSH_CMD=""; \
+	ZSH_DIR=""; \
+	EXTRA_PATHS=""; \
+	if command -v zsh >/dev/null 2>&1; then \
+		ZSH_CMD=zsh; \
+	elif [ -f ~/.guix-profile/bin/zsh ]; then \
+		ZSH_CMD=~/.guix-profile/bin/zsh; \
+		ZSH_DIR=~/.guix-profile/bin; \
+	elif [ -f ~/.config/guix/current/bin/zsh ]; then \
+		ZSH_CMD=~/.config/guix/current/bin/zsh; \
+		ZSH_DIR=~/.config/guix/current/bin; \
+	else \
+		for zsh_path in /gnu/store/*zsh*/bin/zsh /gnu/store/*/bin/zsh; do \
+			if [ -f "$$zsh_path" ] && [ -x "$$zsh_path" ]; then \
+				ZSH_CMD="$$zsh_path"; \
+				ZSH_DIR=$$(dirname "$$zsh_path"); \
+				break; \
+			fi; \
+		done; \
+	fi; \
+	if [ -n "$$ZSH_CMD" ] && [ -f "$$ZSH_CMD" ]; then \
+		echo "Installing Emacs with zsh (found at: $$ZSH_CMD)..."; \
+		GUIX_BIN=""; \
+		if command -v guix >/dev/null 2>&1; then \
+			GUIX_BIN=guix; \
+		elif [ -f /gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin/guix ]; then \
+			GUIX_BIN=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin/guix; \
 		fi; \
-		echo "Installing Emacs with zsh..."; \
-		$$ZSH_CMD -c "./install_emacs.zsh --$(emacs_flag)"; \
+		for tool in git fc-cache rm wget; do \
+			tool_found=0; \
+			for tool_path in /gnu/store/*$$tool*/bin/$$tool /gnu/store/*/bin/$$tool; do \
+				if [ -f "$$tool_path" ] && [ -x "$$tool_path" ]; then \
+					tool_dir=$$(dirname "$$tool_path"); \
+					EXTRA_PATHS="$$EXTRA_PATHS:$$tool_dir"; \
+					tool_found=1; \
+					break; \
+				fi; \
+			done; \
+			if [ $$tool_found -eq 0 ] && [ -n "$$GUIX_BIN" ] && [ "$$tool" = "git" ]; then \
+				echo "git not found in store, attempting to build..."; \
+				git_build_output=$$($$GUIX_BIN build git 2>&1); \
+				for git_path in $$git_build_output; do \
+					if [ -d "$$git_path" ] && [ -f "$$git_path/bin/git" ] && echo "$$git_path" | grep -q "^/gnu/store.*git"; then \
+						EXTRA_PATHS="$$EXTRA_PATHS:$$git_path/bin"; \
+						echo "✓ git found at $$git_path/bin"; \
+						break; \
+					fi; \
+				done; \
+			fi; \
+		done; \
+		if [ -n "$$ZSH_DIR" ]; then \
+			FINAL_PATH="$$ZSH_DIR$$EXTRA_PATHS:$$PATH"; \
+		else \
+			FINAL_PATH="$$EXTRA_PATHS:$$PATH"; \
+		fi; \
+		PATH="$$FINAL_PATH" $$ZSH_CMD ./install_emacs.zsh --$(emacs_flag); \
 	else \
 		echo "⚠️  zsh not available - skipping Emacs installation"; \
 		echo "   The install_emacs.zsh script requires zsh."; \
