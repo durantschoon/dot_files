@@ -475,6 +475,29 @@ if [ -n "$ZSH_VERSION" ]; then
     alias -g .....='../../../..'
     alias -g CA="2>&1 | cat -A"
     alias -g C='| wc -l'
+    
+    # Log to ~/logs directory (creates directory if needed)
+    # Usage: command LOG filename
+    # Example: ls -la LOG mylog.txt
+    # Example: make build LOG build.log
+    LOG() {
+        local logfile="$1"
+        mkdir -p ~/logs
+        tee ~/logs/"$logfile"
+    }
+    
+    # Log with timestamped filename (creates directory if needed)
+    # Usage: command LOGT
+    # Example: make build LOGT
+    # Creates: ~/logs/command-20241216-143022.log
+    alias -g LOGT='| (mkdir -p ~/logs; tee ~/logs/command-$(date +%Y%m%d-%H%M%S).log)'
+    
+    # Log with prompt for filename (creates directory if needed)
+    # Usage: command LOGP
+    # Example: make build LOGP
+    # Prompts: "Log filename: " then logs to that file
+    alias -g LOGP='| (read "logfile?Log filename: "; mkdir -p ~/logs; tee ~/logs/$logfile)'
+    
     alias -g D="DISPLAY=:0.0"
     alias -g DN=/dev/null
     alias -g ED="export DISPLAY=:0.0"
