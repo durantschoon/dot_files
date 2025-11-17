@@ -273,7 +273,13 @@ endif
 		fi; \
 		for tool in git fc-cache rm wget; do \
 			tool_found=0; \
-			for tool_path in /gnu/store/*$$tool*/bin/$$tool /gnu/store/*/bin/$$tool; do \
+			tool_search_paths=""; \
+			if [ "$$tool" = "rm" ]; then \
+				tool_search_paths="/gnu/store/*coreutils*/bin/rm /gnu/store/*rm*/bin/rm /gnu/store/*/bin/rm"; \
+			else \
+				tool_search_paths="/gnu/store/*$$tool*/bin/$$tool /gnu/store/*/bin/$$tool"; \
+			fi; \
+			for tool_path in $$tool_search_paths; do \
 				if [ -f "$$tool_path" ] && [ -x "$$tool_path" ]; then \
 					tool_dir=$$(dirname "$$tool_path"); \
 					EXTRA_PATHS="$$EXTRA_PATHS:$$tool_dir"; \
@@ -285,10 +291,15 @@ endif
 				echo "git not found in store, attempting to build..."; \
 				git_build_output=$$($$GUIX_BIN build git 2>&1); \
 				for git_path in $$git_build_output; do \
-					if [ -d "$$git_path" ] && [ -f "$$git_path/bin/git" ] && echo "$$git_path" | grep -q "^/gnu/store.*git"; then \
-						EXTRA_PATHS="$$EXTRA_PATHS:$$git_path/bin"; \
-						echo "✓ git found at $$git_path/bin"; \
-						break; \
+					if [ -d "$$git_path" ] && [ -f "$$git_path/bin/git" ]; then \
+						case "$$git_path" in \
+							*credential*|*send-email*|*subtree*|*svn*|*gui*) \
+								continue ;; \
+							*) \
+								EXTRA_PATHS="$$EXTRA_PATHS:$$git_path/bin"; \
+								echo "✓ git found at $$git_path/bin"; \
+								break 2 ;; \
+						esac; \
 					fi; \
 				done; \
 			fi; \
@@ -298,7 +309,7 @@ endif
 		else \
 			FINAL_PATH="$$EXTRA_PATHS:$$PATH"; \
 		fi; \
-		PATH="$$FINAL_PATH" $$ZSH_CMD ./install_emacs.zsh --$(emacs_flag); \
+		PATH="$$FINAL_PATH" GIT_SSL_NO_VERIFY=1 $$ZSH_CMD ./install_emacs.zsh --$(emacs_flag); \
 	else \
 		echo "⚠️  zsh not available - skipping Emacs installation"; \
 		echo "   The install_emacs.zsh script requires zsh."; \

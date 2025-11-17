@@ -77,7 +77,9 @@ alias ,.=pp
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
-alias guix-dev='docker exec -it guix-dev su - durant'
+# Enter Guix Docker container with proper environment (uses zsh if available)
+alias guix-shell='docker exec -it guix-dev sh -c "export PATH=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin:/gnu/store/a183bj2y5nj1wdarqrsyab38ynlaaj8r-zsh-5.8.1/bin:\$PATH && cd /root && exec zsh -l" 2>/dev/null || docker exec -it guix-dev sh -c "export PATH=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin:\$PATH && cd /root && exec bash -l"'
+alias guix-dev='guix-shell'  # Alias for backward compatibility
 
 # -----------------------------------------------------------------------------
 # OS Specific Aliases

@@ -55,7 +55,7 @@ linux_post_emacs_install() {
     cp source-code-pro-*-it/OTF/*.otf $fontpath
     fc-cache -f -v
     popd
-    /bin/rm -rf $tempfontdownload
+    rm -rf $tempfontdownload
     # finish setup
     unix_family_setup
 }
