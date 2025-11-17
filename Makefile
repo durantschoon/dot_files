@@ -238,7 +238,22 @@ ifeq ("$flavor",$(FLAVOR_WSL))
 else
 	$(eval emacs_flag := "$(os)")
 endif
-	zsh -c "./install_emacs.zsh --$(emacs_flag)"
+	@if command -v zsh >/dev/null 2>&1 || [ -f ~/.guix-profile/bin/zsh ] || [ -f ~/.config/guix/current/bin/zsh ]; then \
+		if command -v zsh >/dev/null 2>&1; then \
+			ZSH_CMD=zsh; \
+		elif [ -f ~/.guix-profile/bin/zsh ]; then \
+			ZSH_CMD=~/.guix-profile/bin/zsh; \
+		else \
+			ZSH_CMD=~/.config/guix/current/bin/zsh; \
+		fi; \
+		echo "Installing Emacs with zsh..."; \
+		$$ZSH_CMD -c "./install_emacs.zsh --$(emacs_flag)"; \
+	else \
+		echo "⚠️  zsh not available - skipping Emacs installation"; \
+		echo "   The install_emacs.zsh script requires zsh."; \
+		echo "   Install zsh first (e.g., via Guix: guix install zsh), then run: make all"; \
+		echo "   Or install Emacs manually if needed."; \
+	fi
 endif
 
 .PHONY: guix-config
