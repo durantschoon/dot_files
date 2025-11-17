@@ -270,7 +270,6 @@ if [ -n "$ZSH_VERSION" ]; then
         cd $1
     }
 
-    # alias pd='pushd; ds'
     function pd () {
         pushd $1
         ds
