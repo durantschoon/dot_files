@@ -42,7 +42,7 @@ git remote add origin <your-repo-url>  # Optional: if you want a separate repo
 
 ### Step 2: Transfer to Laptop
 
-**Option A: Clone from Git (if you pushed to a repo)**
+#### Option A: Clone from Git (if you pushed to a repo)
 
 ```bash
 # On your Guix System laptop
@@ -51,14 +51,14 @@ git clone <your-repo-url> guix-config
 cd guix-config
 ```
 
-**Option B: Copy via SSH**
+#### Option B: Copy via SSH
 
 ```bash
 # From your Mac
 scp -r ~/guix-config user@laptop-ip:~/
 ```
 
-**Option C: Copy via USB/external drive**
+#### Option C: Copy via USB/external drive
 
 ```bash
 # Copy the entire directory to external drive, then copy to laptop
@@ -83,6 +83,7 @@ guix home reconfigure home/base.scm
 ```
 
 This will:
+
 - Install all packages specified in `home/base.scm`
 - Set up your shell configuration
 - Create symlinks for dotfiles managed by Guix Home
@@ -115,7 +116,7 @@ If you prefer not to use git:
 cp -r ~/guix-config ~/guix-config-backup
 ```
 
-### Step 2: Transfer to Laptop
+### Step 2: Transfer Files to Laptop
 
 Use any method (SSH, USB, network share):
 
@@ -288,4 +289,3 @@ guix home roll-back
 guix home describe
 guix home list-generations
 ```
-
