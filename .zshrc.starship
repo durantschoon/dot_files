@@ -1,5 +1,9 @@
 # -*- mode: shell-script -*-
 
+# Set umask for better file permissions (group-writable)
+# This helps when working as root in Docker containers with mounted volumes
+umask 002
+
 # Enable completion system
 autoload -Uz compinit
 compinit
