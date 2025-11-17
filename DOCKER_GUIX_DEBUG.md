@@ -15,6 +15,7 @@ cd ~/dot_files
 ```
 
 Then enter the container:
+
 ```bash
 docker exec -it guix-dev /root/setup-env.sh
 ```
@@ -48,10 +49,12 @@ If you need to restart the container with your dotfiles mounted:
 docker stop guix-dev
 docker rm guix-dev
 
-# Start new container with mounts
+# Start new container with mounts (including persistent Guix store)
 docker run -d --name guix-dev \
   -v /Users/durant/dot_files:/root/dot_files \
   -v /Users/durant/guix-config:/root/guix-config \
+  -v guix-store:/gnu/store \
+  -v guix-var:/var/guix \
   cnelson31/guix
 
 # Run setup script
@@ -62,16 +65,19 @@ cd ~/dot_files
 ## Once Inside Container
 
 1. **Navigate to dotfiles:**
+
    ```bash
    cd /root/dot_files
    ```
 
 2. **Set up traditional dotfiles:**
+
    ```bash
    make all
    ```
 
 3. **Or create Guix Home config:**
+
    ```bash
    make guix-config
    cd /root/guix-config
@@ -85,11 +91,13 @@ cd ~/dot_files
 Some containers have permission restrictions. Workarounds:
 
 1. **Install to user profile (not system):**
+
    ```bash
    guix install coreutils bash git -p ~/.guix-profile
    ```
 
 2. **Use pre-built profiles:**
+
    ```bash
    guix package --manifest=/root/guix-config/manifests/base.scm
    ```
@@ -111,4 +119,3 @@ sh -c 'ls -d /gnu/store/*/bin 2>/dev/null | while read d; do [ -f "$d/guix" ] &&
 - ✅ Volume mounted: `/Users/durant/guix-config` → `/root/guix-config`
 - ⚠️  Guix not in PATH (needs setup)
 - ⚠️  Basic tools not installed (needs `guix install`)
-
