@@ -1,90 +1,68 @@
 # dot_files
 
-My dotfiles except for ~/.emacs.d (but now the makefile in this repo has become the single-stop-shop for setting up my dotfiles including asking to install emacs with my [spacemacs dotfiles](https://github.com/durantschoon/.spacemacs.d)).
+My dotfiles repository, currently migrating to a declarative [Guix Home](https://guix.gnu.org/manual/devel/en/html_node/Home-Configuration.html) setup. The Makefile automatically detects your system and installs the appropriate packages and configuration.
 
-*Also on my mind is that maybe I should look up [other people's solutions](https://dotfiles.github.io/utilities/) and ditch all this at some point, but with so many choices and the further I get to making this how I want it, seems like I could end up sticking with this.*
+I use [Zsh](http://www.zsh.org/) with [starship prompt](https://starship.rs/) for a fast, customizable shell experience. This repository also manages Emacs installation with my [spacemacs dotfiles](https://github.com/durantschoon/.spacemacs.d).
 
 ## 🚧 Migration to Guix Home (In Progress)
 
-**This branch (`convert-to-guix`) is actively migrating from traditional dotfiles to a declarative [Guix Home](https://guix.gnu.org/manual/devel/en/html_node/Home-Configuration.html) setup.** See [GUIX_MIGRATION_PLAN.md](./GUIX_MIGRATION_PLAN.md) for the full migration roadmap.
+**This branch (`convert-to-guix`) is actively migrating from traditional dotfiles to a declarative Guix Home setup.** See [GUIX_MIGRATION_PLAN.md](./GUIX_MIGRATION_PLAN.md) for the full migration roadmap.
 
 ### Current Status
 
 - ✅ **Hybrid approach**: Traditional dotfiles still work while Guix infrastructure is being set up
 - ✅ **Guix detection**: Makefile automatically detects Guix and uses appropriate package commands
 - ✅ **Guix Home scaffolding**: Run `make guix-config` to create the Guix Home configuration structure
-- ⚠️ **Container limitations**: Docker containers may have permission issues with `guix install` (workarounds in place)
+- ✅ **Container support**: Works in Docker containers with graceful fallbacks for permission limitations
 
-### Quick Start (Guix)
+## Quick Start
+
+### On macOS
 
 ```bash
+# Install Homebrew if needed (https://brew.sh/)
+brew install git make
+
 # Clone this branch
 git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix ~/dot_files
 cd ~/dot_files
 
-# Option 1: Traditional dotfiles (works everywhere)
+# Set up traditional dotfiles
 make all
-
-# Option 2: Create Guix Home config structure
-make guix-config
-cd ~/guix-config
-make setup  # After reviewing and customizing the generated configs
 ```
 
-I use [Zsh](http://www.zsh.org/) with [starship prompt](https://starship.rs/) for a fast, customizable shell experience. The [Makefile](./Makefile) automatically detects your system and installs the appropriate packages and configuration.
+**Note for iTerm users**: Edit preferences in iTerm and under Profiles > (Default) > Text, enable "Use built-in Powerline glyphs."
 
-These dot files are for the common settings on three operating systems: mac, linux (ubuntu), and windows. Specific changes to the path, etc. should go in the OS specific version of ~/.zshenv (remember: .zshenv is sourced every time and .zshrc is for interactive shells). The Windows set up is not really set up, yet. Since ubuntu now runs on Windows, I've been using that and have installed a few things by hand still without yet adding those things to the automation in this repo.
+### On Guix System / Linux
 
-Note to self: The name `.shared.zshrc` is an old name which meant shared between work and home (both mac). TODO: rename and refactor this so it makes sense on the 3 operating systems.
-
-## Bootstraps by Operating system
-
-### All OSes
-
-After you install, remember to run `M-x all-the-icons-install-fonts`
-
-If you're not root, you might need to run emacs like this to write to the fonts directory `sudo emacs --init-directory ~/.emacs.d &`
-
-*Note to self*: Next time I should try this on the command line and add it to the scripts if it works: `sudo emacs --init-directory ~/.emacs.d --batch` with a (temp) file that just runs `(all-the-icons-install-fonts)`
-
-### Ubuntu
-
-```sh
+```bash
+# Install prerequisites
 sudo apt-get update
-sudo apt-get install git make autojump -y
-cd
-git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix
-cd dot_files
+sudo apt-get install git make -y  # For Ubuntu/Debian
+# OR use your distribution's package manager
+
+# Clone this branch
+git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix ~/dot_files
+cd ~/dot_files
+
+# Set up dotfiles
 make all
 ```
 
-for reference: [zsh on ubuntu](https://gist.github.com/tsabat/1498393)
+### Using Guix Home (Declarative Configuration)
 
-### Guix System / Guix Containers
+To create and use a declarative Guix Home configuration:
 
-For Guix System or Guix containers (like `cnelson31/guix` or Docker with Guix):
-
-```sh
-# Step 1: Install packages as root (if needed)
-sudo make guix-root-install
-
-# Step 2: Set up dotfiles as user
-cd
-git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix
-cd dot_files
-make all
-```
-
-The Makefile automatically detects Guix and installs packages via `guix install`, then sets up starship prompt and your dotfiles configuration.
-
-**Note**: Some Docker containers (e.g., `cnelson31/guix`) may have "Operation not permitted" errors when installing packages. The Makefile includes graceful fallbacks - core dotfiles will work even if package installation fails.
-
-#### Creating Guix Home Configuration
-
-To generate the Guix Home configuration structure:
-
-```sh
+```bash
+# Generate Guix Home configuration structure
 make guix-config
+
+# Review and customize the generated configs
+cd ~/guix-config
+cat home/base.scm
+
+# Apply the configuration
+make setup
 ```
 
 This creates `~/guix-config/` with:
@@ -95,64 +73,131 @@ This creates `~/guix-config/` with:
 - `templates/` - Direnv `.envrc` templates
 - `Makefile` - Guix Home management commands
 
-After reviewing and customizing, activate with:
+## Transferring to a New System
 
-```sh
-cd ~/guix-config
-make setup
-```
+### From macOS to Guix System Laptop
 
-### Mac
+See [DEPLOY_TO_GUIX_SYSTEM.md](./DEPLOY_TO_GUIX_SYSTEM.md) for detailed instructions on transferring your configuration to a Guix System laptop.
 
-Forgot how to get `brew` on the mac? Go to [brew.sh](https://brew.sh/) and run the one-liner.
+**Quick summary:**
 
-```sh
-brew install git
-cd
-git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix
-cd dot_files
+1. **Commit your configs** (on Mac):
+
+   ```bash
+   cd ~/guix-config
+   git add .
+   git commit -m "My Guix Home config"
+   git push  # If using a remote repo
+   ```
+
+2. **On new system**:
+
+   ```bash
+   # Clone dotfiles
+   git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix ~/dot_files
+   cd ~/dot_files
+   make all
+   
+   # If using Guix Home, clone guix-config and apply
+   git clone <your-repo-url> ~/guix-config  # Or copy via SSH/USB
+   cd ~/guix-config
+   guix pull --channels=channels.scm
+   guix home reconfigure home/base.scm
+   ```
+
+### Docker Container Development
+
+For testing in Docker containers (like `cnelson31/guix`):
+
+```bash
+# Start container with mounts
+docker run -d --name guix-dev \
+  -v /Users/durant/dot_files:/root/dot_files \
+  -v /Users/durant/guix-config:/root/guix-config \
+  cnelson31/guix
+
+# Enter container
+docker exec -it guix-dev sh -c 'export PATH=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin:$PATH && bash'
+
+# Inside container
+cd /root/dot_files
 make all
 ```
 
-Also note, until I have dotfiles for iTerm, be sure to edit preferences in iTerm and under Profiles > (Default) > Text, flick on "Use built-in Powerline glyphs."
+**Note**: Docker containers may have "Operation not permitted" errors when installing packages. The Makefile includes graceful fallbacks - core dotfiles will work even if package installation fails. See [DOCKER_GUIX_DEBUG.md](./DOCKER_GUIX_DEBUG.md) for troubleshooting.
 
-### Windows
+## What Gets Installed
 
-#### WSL
+### Traditional Dotfiles (via `make all`)
 
-1. It's important to be in your home directory so run `cd` before cloning this directory. By default in WSL I end up in a user data directory when I first log in.
+- Shell configuration (`.zshrc.starship`, `.aliases`)
+- Shared configurations (`.shared.zshrc`, `.shared.zshenv`)
+- OS-specific configurations (`.linux.zshenv`, `.mac.zshenv`)
+- Emacs with Spacemacs (if zsh is available)
 
-2. Do not rely on `setxkbmap` in ubuntu under WSL to alter the keyboard mapping. Set that up manually by downloading the .exe from <https://github.com/microsoft/PowerToys>
+### Guix Home (via `make guix-config` + `make setup`)
 
-Because the Makefile is set up to run with a different home dir (for example under another user's home dir), edit the Makefile, changing: `REDEFINE_HOME_HERE_MAYBE` to what you want.
+- Packages: zsh, git, ripgrep, bat, starship, and more
+- Shell service configuration
+- Environment variables
+- File symlinks
 
- ```sh
-sudo apt-get update
-sudo apt-get install git make -y
-cd
-git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix
-cd dot_files
-HOME=UPDATE_IF_YOURE_CHANGING_THIS sudo make all
+## Updating Your Configuration
+
+### Traditional Dotfiles
+
+```bash
+cd ~/dot_files
+git pull
+make all
 ```
 
-Remember to set fonts in terminal programs for your agnoster glyphs:
+### Guix Home
 
-- ConEmu > (hamburger menu in top right) > Settings > General > Fonts > Main Console Font : set to one fo the meslos, like **Meslo LG S DZ for Powerline**
-- VS Code terminal: `"terminal.integrated.fontFamily": "Meslo LG M DZ for Powerline"`
-- *At this time* there are missing gtk cursor's in WSL. Emacs will complain unless you run: `sudo apt install adwaita-icon-theme-full`
-
-*In current tests, seems to be working mostly as is with Windows Subsystem for Linux ([WSL](https://learn.microsoft.com/en-us/windows/wsl/install))... but I'm still debugging this...*
-
-#### Powershell
-
- 1. Install [choco](https://chocolatey.org/install#individual)
-
-Something like this, maybe the choco command has to be run as admin
-
- ```sh
-cd
-choco install make
-git clone https://github.com/durantschoon/dot_files.git -b convert-to-guix
-cd dot_files
-make
+```bash
+cd ~/guix-config
+git pull
+guix pull --channels=channels.scm
+guix home reconfigure home/base.scm
 ```
+
+## Troubleshooting
+
+### Emacs Installation Skipped
+
+If you see "zsh not available - skipping Emacs installation":
+
+- On Guix System: zsh will be installed via Guix Home
+- In Docker: The Makefile will search for zsh in the Guix store automatically
+- You can install Emacs manually if needed
+
+### Package Installation Fails in Docker
+
+This is expected in some containers. Your dotfiles will still work with fallback configurations. See [DOCKER_GUIX_DEBUG.md](./DOCKER_GUIX_DEBUG.md) for workarounds.
+
+### Rollback Guix Home Changes
+
+```bash
+guix home roll-back
+guix home list-generations  # See history
+guix home switch-generation <number>  # Switch to specific generation
+```
+
+## Additional Documentation
+
+- [GUIX_MIGRATION_PLAN.md](./GUIX_MIGRATION_PLAN.md) - Full migration roadmap
+- [DEPLOY_TO_GUIX_SYSTEM.md](./DEPLOY_TO_GUIX_SYSTEM.md) - Deploying to Guix System
+- [DOCKER_GUIX_DEBUG.md](./DOCKER_GUIX_DEBUG.md) - Docker container debugging
+- [QUICK_START_DOCKER.md](./QUICK_START_DOCKER.md) - Quick Docker reference
+
+## Platform Support
+
+Supported platforms:
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| **macOS** | ✅ Supported | Uses Homebrew for package management |
+| **Guix System** | ✅ Supported | Full Guix Home support |
+| **Linux (Ubuntu/Debian)** | ✅ Supported | Uses apt-get, can use Guix Home |
+| **Docker/Containers** | ⚠️ Limited | Package installation may fail, but dotfiles work |
+| **WSL** | ⚠️ Partial | See WSL-specific notes in migration plan |
