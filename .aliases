@@ -265,7 +265,7 @@ if [ -n "$ZSH_VERSION" ]; then
     function rg_with_git () { =rg --hidden $* }
 
     function psg () {
-        ps -ef | grep "$@" | grep -v grep
+        ps -ef | (head -n 1; tail -n +2 | grep "$@" | grep -v grep)
     }
 
     function mdc () {
