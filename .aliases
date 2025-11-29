@@ -93,6 +93,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
     alias gitk=git-gui # brew install git-gui
     # get gtime with `brew install gnu-time`
+    alias ip_addr='ipconfig getifaddr en0 || ipconfig getifaddr en1'
 
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
         sudo /usr/local/bin/gtime --format="%C ran for %E (%e seconds)" -p ./2TB_BACKUP.command \
@@ -226,7 +227,7 @@ if [ -n "$ZSH_VERSION" ]; then
 
     [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
 
-    alias heroku_logs='heroku logs --force-colors --tail --app
+    alias heroku_logs='heroku logs --force-colors --tail --app'
 
     # _heroku_logs_completions() {
     #     local -a apps
