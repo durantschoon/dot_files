@@ -20,6 +20,10 @@ alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
 alias dm='docker-machine'
 alias ds='echo -e "\e[3mExample: use -2 to switch to the directory 2 down\e[0m"; dirs -v'
+alias dush="\
+ echo '== Gigs =='; du -sh * | egrep '\dG' | sort -rn; \
+ echo '\n== Megs =='; du -sh * | egrep '\dM' | sort -rn; \
+ echo '\n== Kilos =='; du -sh * | egrep '\dK' | sort -rn"
 alias eg=egrep
 alias g=grep
 alias gv='grep -v'
