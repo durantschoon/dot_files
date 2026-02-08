@@ -11,7 +11,7 @@
 #   echo See ~/.aliases for the use of this file >> ~/.WORK
 
 ###############################################################################
-# Bash Aliases
+# (Cross Platform) Bash Aliases
 ###############################################################################
 
 alias a='alias'
@@ -25,6 +25,8 @@ alias dush="\
  echo '\n== Megs =='; du -sh * | egrep '\dM' | sort -rn; \
  echo '\n== Kilos =='; du -sh * | egrep '\dK' | sort -rn"
 alias eg=egrep
+alias espanso_edit="espanso stop; sleep 0.5s; open ~/.espanso_config_link/match/base.yml"
+alias espanso_start='espanso start'
 alias g=grep
 alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
