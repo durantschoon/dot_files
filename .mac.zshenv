@@ -26,6 +26,8 @@ export CXX=g++-15
 export LIBRARY_PATH="/opt/homebrew/opt/gcc/lib/gcc/15"
 export CPATH="/opt/homebrew/opt/gcc/include"
 
+# Suggested by Antigravity
+add_to_front_of_path /Users/durant/.antigravity/antigravity/bin
 
 # for brew (Intel Mac)
 # add_to_front_of_path /usr/local/opt
