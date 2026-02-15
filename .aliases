@@ -567,3 +567,84 @@ if [ -n "$ZSH_VERSION" ]; then
 # elif [ -n "$BASH_VERSION" ]; then
     # assume Bash
 fi
+
+# -----------------------------------------------------------------------------
+# Git Aliases (Oh-My-Zsh style)
+# -----------------------------------------------------------------------------
+
+# Helper functions for branch detection
+git_current_branch() {
+  git branch --show-current
+}
+
+git_main_branch() {
+  command git rev-parse --git-dir &>/dev/null || return
+  local ref
+  for ref in refs/{heads,remotes/{origin,upstream}}/{main,master,trunk}; do
+    if git show-ref -q "$ref"; then
+      echo "${ref:t}"
+      return
+    fi
+  done
+  echo main
+}
+
+alias g='git'
+alias ga='git add'
+alias gaa='git add --all'
+alias gapa='git add --patch'
+alias gau='git add --update'
+alias gav='git add --verbose'
+alias gb='git branch'
+alias gba='git branch -a'
+alias gbd='git branch -d'
+alias gbD='git branch -D'
+alias gbl='git blame -b -w'
+alias gbnm='git branch --no-merged'
+alias gbr='git branch --remote'
+alias gcb='git checkout -b'
+alias gcd='git checkout $(git_main_branch)'
+alias gcm='git checkout $(git_main_branch)'
+alias gc='git commit -v'
+alias gc!='git commit -v --amend'
+alias gcn!='git commit -v --no-edit --amend'
+alias gca='git commit -v -a'
+alias gca!='git commit -v -a --amend'
+alias gcan!='git commit -v -a --no-edit --amend'
+alias gcans!='git commit -v -a -s --no-edit --amend'
+alias gcam='git commit -a -m'
+alias gcmsg='git commit -m'
+alias gcs='git commit -S'
+alias gco='git checkout'
+alias gcor='git checkout --recurse-submodules'
+alias gcl='git clone --recurse-submodules'
+alias gclean='git clean -id'
+alias gd='git diff'
+alias gdca='git diff --cached'
+alias gds='git diff --staged'
+alias gdt='git diff-tree --no-commit-id --name-only -r'
+alias gf='git fetch'
+alias gfa='git fetch --all --prune'
+alias gfo='git fetch origin'
+alias gl='git pull'
+alias gp='git push'
+alias gpf!='git push --force'
+alias grb='git rebase'
+alias grbi='git rebase -i'
+alias grhh='git reset --hard'
+alias grs='git restore'
+alias grst='git restore --staged'
+alias gsta='git stash push'
+alias gstp='git stash pop'
+alias gstl='git stash list'
+alias gstd='git stash drop'
+alias gsts='git stash show --patch'
+alias gst='git status'
+alias gss='git status -s'
+alias gsb='git status --short -b'
+alias glum='git pull upstream $(git_main_branch)'
+alias gpristine='git reset --hard && git clean -dffx'
+alias ggpull='git pull origin $(git_current_branch)'
+alias ggpush='git push origin $(git_current_branch)'
+alias gpsup='git push --set-upstream origin $(git_current_branch)'
+
