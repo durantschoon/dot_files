@@ -224,7 +224,7 @@ if [ -n "$ZSH_VERSION" ]; then
 
     [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
 
-    alias heroku_logs='heroku logs --force-colors --tail --app
+    alias heroku_logs='heroku logs --force-colors --tail --app'
 
     # _heroku_logs_completions() {
     #     local -a apps
