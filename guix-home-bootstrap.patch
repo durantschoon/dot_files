@@ -1,0 +1,145 @@
+*** Begin Patch
+*** Add File: channels.scm
++(list
++ (channel
++  (name 'guix)
++  (url "https://git.savannah.gnu.org/git/guix.git")
++  (branch "master")
++  (introduction
++   (make-channel-introduction
++    "9edb3f66fd807b096b48283debdcddccfea34bad"
++    (openpgp-fingerprint
++     "BBB0 2DDF 2CEA F6A8 0D1D  E643 A2A0 6DF2 A33A 54FA")))))
++
+*** End Patch
+*** Begin Patch
+*** Add File: manifests/base.scm
++(specifications->manifest
++ '(
++   ;; core
++   "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain"
++   "ripgrep" "fd" "fzf" "eza"
++
++   ;; editor stack for Spacemacs (holy-mode)
++   "emacs" "aspell" "aspell-dict-en"
++ ))
++
+*** End Patch
+*** Begin Patch
+*** Add File: home/base.scm
++(use-modules (gnu home)
++             (gnu home services)
++             (gnu home services shells)
++             (gnu home services shepherd)
++             (guix gexp))
++
++;; Guix Home configuration that:
++;; - installs zsh, starship, emacs, common CLI tools
++;; - starts an Emacs user daemon (for emacsclient)
++;; - links your dotfiles from the repo into $HOME
++;; - sets EDITOR/VISUAL to emacsclient
++
++(home-environment
++  (packages
++   (specifications->packages
++    '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs")))
++
++  (services
++   (list
++    ;; Spawns user-scoped emacs daemon at login so `emacsclient` is instant
++    (service home-shepherd-service-type
++      (home-shepherd-configuration
++       (services (list
++                  (shepherd-service
++                   (provision '(emacs))
++                   (documentation "Emacs user daemon.")
++                   (start #~(make-forkexec-constructor
++                             (list #$(file-append (specification->package "emacs") "/bin/emacs")
++                                   "--fg-daemon")))
++                   (stop  #~(make-kill-destructor))
++                   (auto-start? #t))))))
++
++    ;; Zsh config + Starship prompt + editor aliases
++    (service home-zsh-service-type
++      (home-zsh-configuration
++       (zshrc
++        '(
++          "export EDITOR='emacsclient -c -a \"\"'"
++          "export VISUAL=\"$EDITOR\""
++          "eval \"$(starship init zsh)\""
++          "alias e='emacsclient -c -a \"\"'"
++          "alias ec='emacsclient -t -a \"\"'"
++          "alias ll='ls -lah'"
++          "source ~/.shared.zshenv"
++          "source ~/.shared.zshrc"
++        ))))
++
++    ;; Link dotfiles from repo into $HOME (non-recursive; add more as needed)
++    (simple-service 'durant-dotfiles home-files-service-type
++      `(
++        ;; Zsh/starship
++        ("zshrc"          ,(local-file ".zshrc.starship"))
++        ("shared.zshenv"  ,(local-file ".shared.zshenv"))
++        ("shared.zshrc"   ,(local-file ".shared.zshrc"))
++        ("aliases"        ,(local-file ".aliases"))
++        ("zprofile"       ,(local-file ".zprofile"))
++        ;; Optional OS-specific files you already keep:
++        ,@(if (file-exists? ".linux.zshenv") `(("linux.zshenv" ,(local-file ".linux.zshenv"))) '())
++        ,@(if (file-exists? ".mac.zshenv")   `(("mac.zshenv"   ,(local-file ".mac.zshenv")))   '())
++        ,@(if (file-exists? ".work.zshrc")   `(("work.zshrc"   ,(local-file ".work.zshrc")))   '())
++       )))))
++
+*** End Patch
+*** Begin Patch
+*** Update File: Makefile
+@@
+ # Detect OS (modified from example https://stackoverflow.com/a/12099167)
+
+ OS_WINDOWS := windows
+ OS_MAC := mac
+ OS_LINUX := linux
+ OS_UNKNOWN := unknown
+@@
+ 	@echo "  4. git add -A && git commit -m 'Initial Guix Home config'"
+ 	@echo "  5. git push"
+ 	@echo ""
+
++## ---------------------------------------------------------------------
++## Guix Home bootstrap targets (non-invasive; safe to append)
++## ---------------------------------------------------------------------
++.PHONY: setup update install-manifest home-check
++
++# One-liner bootstrap through pinned channels if present
++setup:
++	@echo "==> guix pull (prefer pinned channels if channels.scm exists)"
++	@if [ -f channels.scm ]; then \
++	  guix pull --channels=channels.scm || guix pull ; \
++	else \
++	  guix pull ; \
++	fi
++	@echo "==> guix home reconfigure home/base.scm"
++	@guix home reconfigure home/base.scm
++	@echo "==> done (Guix Home applied)"
++
++# Update channels, re-pin, and reconfigure
++update:
++	@echo "==> guix pull"
++	@guix pull
++	@echo "==> pin channels.scm"
++	@guix describe --format=channels > channels.scm
++	@echo "==> guix home reconfigure"
++	@guix home reconfigure home/base.scm
++
++# Install base packages via manifest (fallback for hosts where you don't want Home yet)
++install-manifest:
++	@echo "==> guix package -m manifests/base.scm"
++	@guix package -m manifests/base.scm
++
++# Quick health check for substitutes and pin use
++home-check:
++	@echo "==> arch & guix"
++	@uname -m && guix --version
++	@echo "==> weather for base manifest (bordeaux has better aarch64 coverage)"
++	@guix weather -m manifests/base.scm --substitute-urls="https://ci.guix.gnu.org https://bordeaux.guix.gnu.org" || true
++
+*** End Patch
