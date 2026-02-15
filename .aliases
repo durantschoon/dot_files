@@ -648,3 +648,8 @@ alias ggpull='git pull origin $(git_current_branch)'
 alias ggpush='git push origin $(git_current_branch)'
 alias gpsup='git push --set-upstream origin $(git_current_branch)'
 
+alias glog='git log --oneline --decorate --graph'
+alias gloga='git log --oneline --decorate --graph --all'
+alias glg='git log --stat'
+alias glgp='git log --stat -p'
+alias glo='git log --oneline --decorate'
