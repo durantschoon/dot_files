@@ -8,7 +8,7 @@
 (home-environment
   (packages
    (specifications->packages
-    '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "font-adobe-source-code-pro" "nss-certs")))
+    '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs")))
   (services
    (list
     ;; Emacs daemon for fast emacsclient
