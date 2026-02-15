@@ -4,10 +4,6 @@ My dotfiles repository, currently migrating to a declarative [Guix Home](https:/
 
 I use [Zsh](http://www.zsh.org/) with [starship prompt](https://starship.rs/) for a fast, customizable shell experience. The [Makefile](./Makefile) automatically detects your system and installs the appropriate packages and configuration.
 
-**This branch (`convert-to-guix`) is actively migrating from traditional dotfiles to a declarative Guix Home setup.** See [GUIX_MIGRATION_PLAN.md](./GUIX_MIGRATION_PLAN.md) for the full migration roadmap.
-
-
-
 ## Installation
 
 ### 1. Install Guix (Linux / WSL)
