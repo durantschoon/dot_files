@@ -11,7 +11,7 @@
 #   echo See ~/.aliases for the use of this file >> ~/.WORK
 
 ###############################################################################
-# Bash Aliases
+# (Cross Platform) Bash Aliases
 ###############################################################################
 
 alias a='alias'
@@ -20,7 +20,13 @@ alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
 alias dm='docker-machine'
 alias ds='echo -e "\e[3mExample: use -2 to switch to the directory 2 down\e[0m"; dirs -v'
+alias dush="\
+ echo '== Gigs =='; du -sh * | egrep '\dG' | sort -rn; \
+ echo '\n== Megs =='; du -sh * | egrep '\dM' | sort -rn; \
+ echo '\n== Kilos =='; du -sh * | egrep '\dK' | sort -rn"
 alias eg=egrep
+alias espanso_edit="espanso stop; sleep 0.5s; open ~/.espanso_config_link/match/base.yml"
+alias espanso_start='espanso start'
 alias g=grep
 alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
@@ -77,7 +83,14 @@ alias ,.=pp
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
-alias guix-dev='docker exec -it guix-dev su - durant'
+# Enter Guix Docker container with environments
+alias guix-shell-zsh='\
+docker exec -it guix-dev sh -c "export PATH=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin:/gnu/store/a183bj2y5nj1wdarqrsyab38ynlaaj8r-zsh-5.8.1/bin:\$PATH && \
+cd /root && exec zsh -l" 2>/dev/null'
+
+alias guix-shell-bash='\
+docker exec -it guix-dev sh -c "export PATH=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin:\$PATH && \
+cd /root && exec bash -l"'
 
 # -----------------------------------------------------------------------------
 # OS Specific Aliases
@@ -91,10 +104,24 @@ if [[ "$(uname)" == "Darwin" ]]; then
     alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
     alias gitk=git-gui # brew install git-gui
     # get gtime with `brew install gnu-time`
+    alias ip_addr='ipconfig getifaddr en0 || ipconfig getifaddr en1'
 
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
         sudo /usr/local/bin/gtime --format="%C ran for %E (%e seconds)" -p ./2TB_BACKUP.command \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
+
+    # Guix in Docker w/Colima
+    alias colima_service_start='brew services start colima; echo "Next do\n\ncolima_restart"'
+    alias colima_restart='echo "After this, run this in another shell\n\n docker_guix_restart \n\n"; \
+          colima stop; colima start --arch x86_64 --vm-type vz --vz-rosetta --cpu 4 --memory 8 --disk 50'
+    alias docker_guix_restart='docker stop guix-dev && docker rm guix-dev; \
+    # Start with persistent Guix store \
+    docker run -d --name guix-dev \
+           -v /Users/durant/dot_files:/root/dot_files \
+           -v /Users/durant/guix-config:/root/guix-config \
+           -v guix-store:/gnu/store \
+           -v guix-var:/var/guix \
+           cnelson31/guix'
 
     # espanso, mimic linux location, so we can access $XDG_CONFIG_HOME/espanso
     # X Desktop Group
@@ -262,7 +289,7 @@ if [ -n "$ZSH_VERSION" ]; then
     function rg_with_git () { =rg --hidden $* }
 
     function psg () {
-        ps -ef | grep "$@" | grep -v grep
+        ps -ef | (head -n 1; tail -n +2 | grep "$@" | grep -v grep)
     }
 
     function mdc () {
@@ -270,7 +297,6 @@ if [ -n "$ZSH_VERSION" ]; then
         cd $1
     }
 
-    # alias pd='pushd; ds'
     function pd () {
         pushd $1
         ds
@@ -476,6 +502,29 @@ if [ -n "$ZSH_VERSION" ]; then
     alias -g .....='../../../..'
     alias -g CA="2>&1 | cat -A"
     alias -g C='| wc -l'
+    
+    # Log to ~/logs directory (creates directory if needed)
+    # Usage: command LOG filename
+    # Example: ls -la LOG mylog.txt
+    # Example: make build LOG build.log
+    LOG() {
+        local logfile="$1"
+        mkdir -p ~/logs
+        tee ~/logs/"$logfile"
+    }
+    
+    # Log with timestamped filename (creates directory if needed)
+    # Usage: command LOGT
+    # Example: make build LOGT
+    # Creates: ~/logs/command-20241216-143022.log
+    alias -g LOGT='| (mkdir -p ~/logs; tee ~/logs/command-$(date +%Y%m%d-%H%M%S).log)'
+    
+    # Log with prompt for filename (creates directory if needed)
+    # Usage: command LOGP
+    # Example: make build LOGP
+    # Prompts: "Log filename: " then logs to that file
+    alias -g LOGP='| (read "logfile?Log filename: "; mkdir -p ~/logs; tee ~/logs/$logfile)'
+    
     alias -g D="DISPLAY=:0.0"
     alias -g DN=/dev/null
     alias -g ED="export DISPLAY=:0.0"
