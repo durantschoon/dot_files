@@ -43,7 +43,7 @@
 
     ;; Link .aliases to home directory
     (service home-files-service-type
-             (list `(".aliases" ,(local-file "../.aliases"))))
+             (list `(".aliases" ,(local-file "../.aliases" "aliases"))))
 
     ;; Zsh + Starship + editor aliases
     (service home-zsh-service-type
