@@ -77,6 +77,8 @@ alias ,.=pp
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
+alias guix-dev='docker exec -it guix-dev su - durant'
+
 # -----------------------------------------------------------------------------
 # OS Specific Aliases
 # -----------------------------------------------------------------------------
@@ -223,8 +225,6 @@ if [ -n "$ZSH_VERSION" ]; then
     [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
 
     alias heroku_logs='heroku logs --force-colors --tail --app'
-    alias heroku_logs24='heroku_logs tallyfor-backend-prod-inst24'
-    alias heroku_config24='heroku config --app tallyfor-backend-prod-inst24'
 
     # _heroku_logs_completions() {
     #     local -a apps
