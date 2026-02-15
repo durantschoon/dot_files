@@ -41,6 +41,10 @@
                             (format #t "Cloning local Spacemacs config to ~a...~%" spacemacs-d)
                             (system* git "-c" (string-append "http.sslCAInfo=" certs) "clone" "https://github.com/durantschoon/.spacemacs.d" spacemacs-d)))))
 
+    ;; Link .aliases to home directory
+    (service home-files-service-type
+             (list `(".aliases" ,(local-file "../.aliases"))))
+
     ;; Zsh + Starship + editor aliases
     (service home-zsh-service-type
       (home-zsh-configuration
@@ -55,10 +59,10 @@
            "alias e='emacsclient -c -a \"\"'\n"
            "alias ec='emacsclient -t -a \"\"'\n"
            "alias ll=\"ls -lah\"\n"
+           "[[ -f ~/.aliases ]] && source ~/.aliases\n"
           ))
          (local-file "../.zshrc.starship" "zshrc.starship")
          (local-file "../.shared.zshrc" "shared.zshrc")
-         (local-file "../.aliases" "aliases")
          ;; (local-file "../.work.zshrc" "work.zshrc") ;; Uncomment if needed
         ))
        (zshenv
