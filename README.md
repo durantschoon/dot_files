@@ -19,15 +19,17 @@ The recommended way to manage this configuration is with GNU Guix. This works na
 - **Important**: You must execute the install script as root.
 
 **Install Guix:**
-You can use the provided installer script or the official one:
+The recommended installation method is using the official binary installation script:
 
 ```sh
-# Run the installer (requires root/sudo)
+# Download and run the official installer (requires root/sudo)
+cd /tmp
+wget https://git.savannah.gnu.org/cgit/guix.git/plain/etc/guix-install.sh
 chmod +x guix-install.sh
 sudo ./guix-install.sh
 ```
 
-*(Or download the latest from [guix.gnu.org](https://guix.gnu.org/manual/en/html_node/Binary-Installation.html))*
+*(For more details, see the [official binary installation guide](https://guix.gnu.org/manual/en/html_node/Binary-Installation.html))*
 
 **Apply Configuration:**
 Once Guix is installed:
