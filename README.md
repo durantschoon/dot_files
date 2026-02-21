@@ -40,7 +40,13 @@ make setup
 
 ### 2. MacOS
 
-#### Option A: Native Setup (Without Guix)
+#### Option A: Guix on MacOS (Virtual Machine) -- the shiny, new way
+Guix requires the Linux kernel. To use the full Guix Home experience on macOS, use a lightweight VM:
+
+1. Install a VM provider. I am using [OrbStack](https://orbstack.dev/)
+2. Full [instructions as gist](https://gist.github.com/durantschoon/65abcd122e7928fd62841ac95569445b)
+
+#### Option B: Native Setup (Without Guix)
 If you want to use these dotfiles natively on macOS without Guix:
 
 1. Install basic dependencies:
@@ -54,13 +60,6 @@ If you want to use these dotfiles natively on macOS without Guix:
    cd ~/dot_files
    make all
    ```
-
-#### Option B: Guix on MacOS (Virtual Machine)
-Guix requires the Linux kernel. To use the full Guix Home experience on macOS, use a lightweight VM:
-
-1. Install a VM provider like [OrbStack](https://orbstack.dev/) or [Lima](https://github.com/lima-vm/lima).
-2. Create a Linux instance (e.g., Ubuntu).
-3. Follow the **Linux / WSL** instructions above inside the VM.
 
 ### 3. Windows (WSL)
 
