@@ -44,7 +44,7 @@ make setup
 Guix requires the Linux kernel. To use the full Guix Home experience on macOS, use a lightweight VM:
 
 1. Install a VM provider. I am using [OrbStack](https://orbstack.dev/)
-2. Full [instructions as gist](https://gist.github.com/durantschoon/65abcd122e7928fd62841ac95569445b)
+2. [Full instructions as a gist](https://gist.github.com/durantschoon/65abcd122e7928fd62841ac95569445b)
 
 #### Option B: Native Setup (Without Guix)
 If you want to use these dotfiles natively on macOS without Guix:
