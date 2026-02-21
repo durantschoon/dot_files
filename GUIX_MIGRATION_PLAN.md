@@ -16,7 +16,7 @@ make setup
 
 ## Current Progress: Docker Container Setup (December 2024)
 
-### What We've Accomplished
+### Completed
 
 ✅ **Fixed WSL detection logic** - Makefile now properly detects Linux Docker containers vs WSL  
 ✅ **Added Guix package manager detection** - Automatically detects Guix and uses appropriate commands  
@@ -25,7 +25,7 @@ make setup
 ✅ **Added comprehensive error handling** - Graceful handling of container limitations  
 ✅ **Updated documentation** - README.md now reflects current setup  
 
-### Current Status: Working on Container Limitations
+### Current Status: Working on Container Limitations on MacOS
 
 **Issue**: `cnelson31/guix` Docker container has "Operation not permitted" errors when trying to install packages via `guix install`.
 
