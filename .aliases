@@ -110,19 +110,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
         sudo /usr/local/bin/gtime --format="%C ran for %E (%e seconds)" -p ./2TB_BACKUP.command \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
 
-    # Guix in Docker w/Colima
-    alias colima_service_start='brew services start colima; echo "Next do\n\ncolima_restart"'
-    alias colima_restart='echo "After this, run this in another shell\n\n docker_guix_restart \n\n"; \
-          colima stop; colima start --arch x86_64 --vm-type vz --vz-rosetta --cpu 4 --memory 8 --disk 50'
-    alias docker_guix_restart='docker stop guix-dev && docker rm guix-dev; \
-    # Start with persistent Guix store \
-    docker run -d --name guix-dev \
-           -v /Users/durant/dot_files:/root/dot_files \
-           -v /Users/durant/guix-config:/root/guix-config \
-           -v guix-store:/gnu/store \
-           -v guix-var:/var/guix \
-           cnelson31/guix'
-
     # espanso, mimic linux location, so we can access $XDG_CONFIG_HOME/espanso
     # X Desktop Group
     export XDG_CONFIG_HOME=$HOME/Library/Application\ Support/
