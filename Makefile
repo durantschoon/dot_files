@@ -79,6 +79,7 @@ help:
 	@echo ""
 	@echo "  make all           - Set up dotfiles (default target)"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
+	@echo "  make apply         - Apply Guix Home configuration (reconfigure)"
 	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
 	@echo "  make wsl           - Show WSL setup instructions"
@@ -401,9 +402,9 @@ guix-config:
 	@echo "use guix ghc ghc-cabal-install" >> ~/guix-config/templates/haskell.envrc
 	@echo ""
 	@echo "Creating Makefile in ~/guix-config..."
-	@echo ".PHONY: setup update rollback clean" > ~/guix-config/Makefile
+	@echo ".PHONY: apply update rollback clean" > ~/guix-config/Makefile
 	@echo "" >> ~/guix-config/Makefile
-	@echo "setup:" >> ~/guix-config/Makefile
+	@echo "apply:" >> ~/guix-config/Makefile
 	@echo "	guix pull --channels=channels.scm" >> ~/guix-config/Makefile
 	@echo "	guix home reconfigure home/base.scm" >> ~/guix-config/Makefile
 	@echo "" >> ~/guix-config/Makefile
@@ -435,8 +436,8 @@ guix-config:
 	@echo "## Quick Start" >> ~/guix-config/README.md
 	@echo "" >> ~/guix-config/README.md
 	@echo "\`\`\`bash" >> ~/guix-config/README.md
-	@echo "# Initial setup" >> ~/guix-config/README.md
-	@echo "make setup" >> ~/guix-config/README.md
+	@echo "# Initial apply" >> ~/guix-config/README.md
+	@echo "make apply" >> ~/guix-config/README.md
 	@echo "" >> ~/guix-config/README.md
 	@echo "# Update channels and lock" >> ~/guix-config/README.md
 	@echo "make update" >> ~/guix-config/README.md
@@ -468,9 +469,9 @@ guix-config:
 	@echo ""
 
 # Guix Home bootstrap targets (non-invasive)
-.PHONY: setup update install-manifest home-check
+.PHONY: apply update install-manifest home-check
 
-setup:
+apply:
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
 	  guix pull --channels=channels.scm || guix pull ; \
