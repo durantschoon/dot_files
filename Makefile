@@ -481,6 +481,24 @@ apply:
 	@echo "==> guix home reconfigure home/base.scm"
 	@guix home reconfigure home/base.scm
 	@echo "==> done (Guix Home applied)"
+	@if [ ! -f /etc/keyd/default.conf ]; then \
+		echo ""; \
+		echo "--- NEXT STEP: KEYBINDINGS ---"; \
+		echo "To finish system-wide Emacs keybindings setup, run:"; \
+		echo "  sudo make setup-keyd"; \
+		echo "------------------------------"; \
+	fi
+
+.PHONY: setup-keyd
+setup-keyd:
+	@echo "Automating system-level links for keyd..."
+	mkdir -p /etc/keyd
+	ln -sf $(HOME)/.guix-home/profile/bin/keyd /usr/local/bin/keyd
+	ln -sf $(shell pwd)/keyd.conf /etc/keyd/default.conf
+	ln -sf $(shell pwd)/keyd.service /etc/systemd/system/keyd.service
+	systemctl daemon-reload
+	systemctl enable --now keyd
+	@echo "Done! Emacs keys and Caps/Ctrl swap are now live."
 
 update:
 	@echo "==> guix pull"
