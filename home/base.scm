@@ -8,7 +8,7 @@
 (home-environment
   (packages
    (specifications->packages
-    '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs")))
+    '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs")))
   (services
    (list
     ;; Emacs daemon for fast emacsclient
@@ -23,6 +23,20 @@
                                    "--fg-daemon")))
                    (stop  #~(make-kill-destructor))
                    (auto-start? #t))))))
+
+    ;; System-wide Emacs keybindings (activation)
+    (simple-service 'emacs-keybindings-activation
+                    home-activation-service-type
+                    #~(begin
+                        (use-modules (ice-9 format))
+                        ;; Set GTK key theme to Emacs
+                        (system* "gsettings" "set" "org.gnome.desktop.interface" "gtk-key-theme" "Emacs")
+                        
+                        ;; Check for keyd system-wide config
+                        (unless (file-exists? "/etc/keyd/default.conf")
+                          (format #t "--- KEYD SETUP REQUIRED ---~%")
+                          (format #t "To enable system-wide Emacs keys, run:~%")
+                          (format #t "  sudo make setup-keyd~%~%")))))
 
     ;; Ensure Spacemacs and config are present
     (simple-service 'spacemacs-activation

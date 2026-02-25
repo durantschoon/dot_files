@@ -1,0 +1,10 @@
+[Unit]
+Description=keyd remapper daemon
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/keyd
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
