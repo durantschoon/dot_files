@@ -81,7 +81,7 @@ cd ~/dot_files
    ```bash
    make guix-config
    cd /root/guix-config
-   make setup
+   make apply
    ```
 
 ## Troubleshooting

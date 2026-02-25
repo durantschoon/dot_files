@@ -35,7 +35,7 @@ Once Guix is installed:
 guix pull
 
 # 2. Apply Home Configuration
-make setup
+make apply
 ```
 
 ### 2. MacOS
@@ -65,5 +65,5 @@ If you want to use these dotfiles natively on macOS without Guix:
 
 See the **Guix (Linux / WSL)** section above.
 - **Tip**: Do not rely on `setxkbmap` in WSL; use PowerToys on Windows for key remapping.
-- **Tip**: Ensure you define `HOME` correctly if using `sudo make` manually, but `make setup` (via Guix) handles this automatically for the current user.
+- **Tip**: Ensure you define `HOME` correctly if using `sudo make` manually, but `make apply` (via Guix) handles this automatically for the current user.
 

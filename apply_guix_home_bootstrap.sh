@@ -106,9 +106,9 @@ if ! grep -q '^# Guix Home bootstrap targets' Makefile; then
   cat >> Makefile <<'EOF'
 
 # Guix Home bootstrap targets (non-invasive)
-.PHONY: setup update install-manifest home-check
+.PHONY: apply update install-manifest home-check
 
-setup:
+apply:
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
 	  guix pull --channels=channels.scm || guix pull ; \
@@ -150,5 +150,5 @@ Then apply:
   guix pull
   guix describe --format=channels > channels.scm
   make home-check
-  make setup
+  make apply
 "
