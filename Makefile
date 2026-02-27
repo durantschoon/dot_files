@@ -481,12 +481,12 @@ guix-config:
 apply:
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  guix pull --channels=channels.scm || guix pull ; \
+	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
 	else \
 	  guix pull ; \
 	fi
 	@echo "==> guix home reconfigure home/base.scm"
-	@guix home reconfigure home/base.scm
+	@guix home reconfigure --allow-downgrades home/base.scm
 	@echo "==> done (Guix Home applied)"
 	@if [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \
@@ -499,14 +499,14 @@ apply:
 apply-wayland:
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  guix pull --channels=channels.scm || guix pull ; \
+	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
 	else \
 	  guix pull ; \
 	fi
 	@echo "==> git submodule update --init (espanso/private)"
 	@git submodule update --init espanso/private 2>/dev/null || true
 	@echo "==> guix home reconfigure home/wayland.scm"
-	@guix home reconfigure home/wayland.scm
+	@guix home reconfigure --allow-downgrades home/wayland.scm
 	@echo "==> done (Guix Home Wayland applied)"
 	@if [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \

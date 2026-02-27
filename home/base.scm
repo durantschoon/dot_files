@@ -36,7 +36,7 @@
                         (unless (file-exists? "/etc/keyd/default.conf")
                           (format #t "--- KEYD SETUP REQUIRED ---~%")
                           (format #t "To enable system-wide Emacs keys, run:~%")
-                          (format #t "  sudo make setup-keyd~%~%")))))
+                          (format #t "  sudo make setup-keyd~%~%"))))
 
     ;; Ensure Spacemacs and config are present
     (simple-service 'spacemacs-activation
