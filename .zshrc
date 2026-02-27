@@ -260,6 +260,9 @@ export HISTCONTROL=ignorespace:ignoredups
 # GPG stuff, works on mac anyway
 export GPG_TTY=$(tty)
 
+function chpwd() {
+    printf "\033]2;%s\007" "${PWD##*/}"
+}
 
 ################################################################################
 # Don't put anything below this line except for profiling
