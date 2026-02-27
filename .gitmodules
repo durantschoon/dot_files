@@ -1,0 +1,3 @@
+[submodule "espanso/private"]
+	path = espanso/private
+	url = git@github.com:durantschoon/espanso-private.git

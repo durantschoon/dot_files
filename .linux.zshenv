@@ -2,6 +2,9 @@
 
 [[ -f ~/.shared.zshenv ]] && source ~/.shared.zshenv
 
+# Wayland-only: espanso-wayland, wl-copy/wl-paste, etc.
+[[ "$XDG_SESSION_TYPE" == "wayland" ]] && [[ -f ~/.wayland.zshenv ]] && source ~/.wayland.zshenv
+
 ###############################################################################
 # Linux specific past here, even WSL (windows) if we check for existence of 
 #   some programs first

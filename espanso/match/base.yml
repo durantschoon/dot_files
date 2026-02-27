@@ -1,0 +1,270 @@
+# espanso match file
+
+# For a complete introduction, visit the official docs at: https://espanso.org/docs/
+
+# You can use this file to define the base matches (aka snippets)
+# that will be available in every application when using espanso.
+
+# Matches are substitution rules: when you type the "trigger" string
+# it gets replaced by the "replace" string.
+matches:
+  # Simple text replacement
+  - trigger: "espansoxx"
+    replace: "Hi there!"
+
+  # NOTE: espanso uses YAML to define matches, so pay attention to the indentation!
+
+  # But matches can also be dynamic:
+
+  # Print the current date
+  - trigger: "datexx"
+    replace: "{{mydate}}"
+    vars:
+      - name: mydate
+        type: date
+        params:
+          format: "%B %d, %Y"
+
+  - trigger: "date2xx"
+    replace: "{{mydate}}"
+    vars:
+      - name: mydate
+        type: date
+        params:
+          format: "%m/%d/%Y"
+
+  # Print the output of a shell command
+  - trigger: "shellxx"
+    replace: "{{output}}"
+    vars:
+      - name: output
+        type: shell
+        params:
+          cmd: "echo 'Hello from your shell'"
+
+  # And much more! For more information, visit the docs: https://espanso.org/docs/
+
+  - trigger: "mxx"
+    replace: "Monday"
+  - trigger: "txx"
+    replace: "Tuesday"
+  - trigger: "wxx"
+    replace: "Wednesday"
+  - trigger: "rxx"
+    replace: "Thursday"
+  - trigger: "fxx"
+    replace: "Friday"
+  - trigger: "sxx"
+    replace: "Saturday"
+  - trigger: "uxx"
+    replace: "Sunday"
+
+  # Months - but only if the the trigger is shorter than the month name
+  - trigger: "Jxx"
+    replace: "January"
+  - trigger: "Fxx"
+    replace: "February"
+  - trigger: "Mxx"
+    replace: "March"
+  - trigger: "Axx"
+    replace: "April"
+  - trigger: "Auxx"
+    replace: "August"
+  - trigger: "Sxx"
+    replace: "September"
+  - trigger: "Oxx"
+    replace: "October"
+  - trigger: "Nxx"
+    replace: "November"
+  - trigger: "Dxx"
+    replace: "December"
+
+  - trigger: ttime
+    replace: '%1I:%M %p'
+  - trigger: ddate
+    replace: '%B %e, %Y'
+  - trigger: jsxx
+    replace: '```js
+
+
+      ```'
+  - trigger: wdxx
+    replace: Please write my name "Durant" on my order. Thank you!
+  - trigger: tbxx
+    replace: <a href="" target="_blank"></a>
+  - trigger: namexx
+    replace: durantschoon
+  - trigger: "namexx"
+    replace: durantschoon
+  - trigger: npxx
+    replace: No problem!
+  - trigger: ywxx
+    replace: You're welcome!
+  # - trigger: mtgctx
+  #   replace: 'Could the meeting owner provide an agenda, and more context about this
+  #     meeting? Specifically: What outcome would make this meeting a success, and how
+  #     are participants expected to contribute to that outcome? I just want to make
+  #     sure I can contribute before I accept this invitation.'
+  - trigger: 2jsxx
+    replace: "// -*- mode: js2; js2-basic-offset: 2; -*-\n\n"
+  - trigger: webixx
+    replace: "<!-- mode: web; web-mode-markup-indent-offset: 2; -->"
+  # - trigger: 1pmNxx
+  #   replace: 'I put %filltext:name=NumberLunches:default=2:width=2% lunches in the
+  #     fridge today if anyone is looking for them. Please write SAVE on them if you
+  #     want them. Otherwise it''s open season (after 5PM?) and someone should take
+  #     them. '
+  # - trigger: 1pm1xx
+  #   replace: 'I put one lunch in the fridge today if you''re looking for it. Please
+  #     write SAVE on it if you want it. Otherwise it''s open season (after 5PM?) and
+  #     someone should take it. '
+  # - trigger: vrdrivexx
+  #   replace: "Hey %filltext:name=Student%! Do you think you\u2019d be able to upload\
+  #     \ your project to a google drive or dropbox folder and send me the link? Or\
+  #     \ you could zip it up and send it to me here in slack.\n\nCurrently, for our\
+  #     \ project submissions, it\u2019s best to submit a README.md or README.txt file\
+  #     \ containing the link to this external resource. If you do it this way (or send\
+  #     \ me a zip in slack), just write that up in the notes for your project submission.\n\
+  #     \nWe have a pinned item in #vrnd-beta-testers with this info: \n\nFor anyone\
+  #     \ submitting a project, we found the magic that allows you to send us an \u201C\
+  #     empty\u201D submission. If you send us a markdown file, like one named \u201C\
+  #     README.md\u201D, that will work (you can even put the link to your file in that\
+  #     \ markdown file, but don\u2019t need to). I updated the submission instructions\
+  #     \ for the first project.\n"
+  - trigger: dbxx
+    replace: a Google Drive or DropBox folder
+  - trigger: i18n
+    replace: internationalization
+  # - trigger: 1v1m
+  #   replace: "Hi {STUDENT},\n\nWere you able to get help with your project submission?\
+  #     \ Unfortunately the reviewers are not able to help you resolve these problems,\
+  #     \ but we do have people who can! You can get live help with a 1-on-1 appointment\
+  #     \ (once a week for half an hour if you need it). A mentor can look at your project\
+  #     \ with you and help you take your next steps so you can submit a complete project.\
+  #     \ I will include a screenshot of where you can make this appointment from the\
+  #     \ classroom. The direct link to make an appointment is: https://calendly.com/vrnd-1-1\n\
+  #     \nPlease let me know if I can help you set up that appointment. \n\nBest,\n\
+  #     Durant\n"
+  - trigger: chxx
+    replace: "\u2705 "
+  - trigger: xxx
+    replace: "\u274C "
+  - trigger: dsxx
+    replace: durantschoon
+  - trigger: thxx
+    replace: Thanks!
+  - trigger: bdxx
+    replace: 'Best,
+
+      Durant'
+  - trigger: tsxx
+    replace: typescript
+  - trigger: thdxx
+    replace: 'Thanks,
+
+      Durant'
+  - trigger: dxx
+    replace: durant
+  - trigger: iirc
+    replace: "if I recall correctly"
+  - trigger: uexx
+    replace: "Unreal Engine 5"
+  - trigger: laxx
+    replace: "\u2190"
+  - trigger: raxx
+    replace: "\u2192"
+  - trigger: coffee
+    replace: "\u2615"
+  - trigger: cbc
+    replace: "Correctness-by-Construction"
+  - trigger: shxx
+    replace: STOPPED_HERE
+  - trigger: d.sxx
+    replace: durant.schoon
+  - trigger: starxx
+    replace: "\u2B50"
+  - trigger: heartxx
+    replace: "\u2764\uFE0F"
+  - trigger: tyxx
+    replace: "Thank you!"
+  - trigger: nrnxxn
+    replace: 'No response necessary: '
+  - trigger: rpxx
+    replace: "Raspberry \U0001D6D1"
+  - trigger: hrpxx
+    replace: "#raspberry_\U0001D6D1"
+  - trigger: tpxx
+    replace: "Turing \U0001D6D1"
+  - trigger: degxx
+    replace: "\xB0"
+  - trigger: rfwxx
+    replace: robotframework
+  - trigger: _xx
+    replace: _ _ _ _
+  - trigger: dddxx
+    replace: '"""DDD"""'
+  - trigger: fnsxx
+    replace: "## For Next Summary\nPre-Morning:\_\nMorning:\_\nNoon:\_\nAfternoon:\_\
+      \nEvening:\_\n"
+  - trigger: sbsxx
+    replace: side-by-side
+  - trigger: ikea
+    replace: IKEA
+  - trigger: ppxx
+    replace: "from pprint import pprint as pp"
+  - trigger: '!xx'
+    replace: "\u2014force"
+  - trigger: pyexitxx
+    replace: import sys; sys.exit()
+  - trigger: cbbxx
+    replace: could be better
+  - trigger: clxx
+    replace: "\u23F0"
+  - trigger: gptxx
+    replace: ChatGPT
+  - trigger: gptcxx
+    replace: ChatGPTConversations.mm
+  - trigger: ?xx
+    replace: "\u2753"
+  - trigger: pooxx
+    replace: "\U0001F4A9"
+  - trigger: nuxx
+    replace: NOT-USED-
+  - trigger: tdwxx
+    replace: tiddlywiki
+  - trigger: Tdwxx
+    replace: Tiddlywiki
+  - trigger: xfrxx
+    replace: transfer
+  - trigger: xfrsxx
+    replace: transfers
+  - trigger: mcxx
+    # more context
+    replace: "Ignorable for most situations, but here's more context:"
+  - trigger: "wkxx"
+    replace: Give me my weekly update for the week beginning Sunday, {{most_recent_sunday}}.
+    vars:
+    # uses GNU date syntax
+    - name: most_recent_sunday
+      type: shell
+      params:
+        cmd: |
+          # Get the day of week (0=Sunday, 1=Monday, etc.)
+          day_of_week=$(date +%w)
+          # Calculate days to subtract to get to most recent Sunday
+          days_to_subtract=$day_of_week
+          # Get the date of most recent Sunday using GNU date syntax
+          date --date="${days_to_subtract} days ago" +"%B %d, %Y"
+  - trigger: "tdxx"
+    replace: Give me the daily update for {{mydate}}.
+    vars:
+    - name: mydate
+      type: date
+      params:
+        format: "%B %d, %Y"
+  - trigger: "degxx"
+    replace: "°"
+  - trigger: "pkxx"
+    replace: "Personal Knowledge"
+  - trigger: "pkmxx"
+    replace: "Personal Knowledge Management"

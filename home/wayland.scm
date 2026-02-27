@@ -1,3 +1,6 @@
+;; Wayland-specific Guix Home config: extends base with espanso-wayland etc.
+;; Deploy with: guix home reconfigure home/wayland.scm
+
 (use-modules (gnu home)
              (gnu home services)
              (gnu home services shells)
@@ -5,10 +8,17 @@
              (gnu packages)
              (guix gexp))
 
+(define %base-packages
+  '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "keyd"
+    "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"))
+
+(define %wayland-packages
+  '("espanso-wayland"))
+
 (home-environment
   (packages
    (specifications->packages
-    '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs")))
+    (append %base-packages %wayland-packages)))
   (services
    (list
     ;; Emacs daemon for fast emacsclient
@@ -55,10 +65,17 @@
                             (format #t "Cloning local Spacemacs config to ~a...~%" spacemacs-d)
                             (system* git "-c" (string-append "http.sslCAInfo=" certs) "clone" "https://github.com/durantschoon/.spacemacs.d" spacemacs-d)))))
 
-    ;; Link .aliases and .wayland.zshenv to home directory
+    ;; Link .aliases, .wayland.zshenv, and espanso config to home directory
+    ;; private.yml from submodule espanso/private (only when submodule is initialized)
     (service home-files-service-type
-             (list `(".aliases" ,(local-file "../.aliases" "aliases"))
-                   `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))))
+             (append
+              (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                    `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))
+                    `(".config/espanso/config/default.yml" ,(local-file "../espanso/config/default.yml" "espanso-default.yml"))
+                    `(".config/espanso/match/base.yml" ,(local-file "../espanso/match/base.yml" "espanso-base.yml")))
+              (if (file-exists? "espanso/private/private.yml")
+                  (list `(".config/espanso/match/private.yml" ,(local-file "../espanso/private/private.yml" "espanso-private.yml")))
+                  '()))))
 
     ;; Zsh + Starship + editor aliases
     (service home-zsh-service-type

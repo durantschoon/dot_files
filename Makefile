@@ -80,6 +80,10 @@ help:
 	@echo "  make all           - Set up dotfiles (default target)"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make apply         - Apply Guix Home configuration (reconfigure)"
+	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
+	@echo "  make submodule-update - Init and update submodules (espanso/private)"
+	@echo "  make submodule-pull  - Pull latest in each submodule"
+	@echo "  make submodule-push  - Push changes from each submodule"
 	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
 	@echo "  make wsl           - Show WSL setup instructions"
@@ -220,6 +224,9 @@ endif
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
 	[ -f $(wildcard "~/dot_files/.$(os).zshenv") ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
+ifeq ("$(os)","$(OS_LINUX)")
+	ln -si ~/dot_files/.wayland.zshenv ~/.wayland.zshenv || echo
+endif
 
 	@if [ -t 0 ]; then \
 		./unix_work_or_home.sh; \
@@ -319,7 +326,7 @@ endif
 	fi
 endif
 
-.PHONY: guix-config
+.PHONY: guix-config apply-wayland submodule-update submodule-pull submodule-push
 guix-config:
 	@echo "====================================================================="
 	@echo "Creating Guix Home configuration structure in ~/guix-config"
@@ -488,6 +495,38 @@ apply:
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
+
+apply-wayland:
+	@echo "==> guix pull (pinned if channels.scm exists)"
+	@if [ -f channels.scm ]; then \
+	  guix pull --channels=channels.scm || guix pull ; \
+	else \
+	  guix pull ; \
+	fi
+	@echo "==> git submodule update --init (espanso/private)"
+	@git submodule update --init espanso/private 2>/dev/null || true
+	@echo "==> guix home reconfigure home/wayland.scm"
+	@guix home reconfigure home/wayland.scm
+	@echo "==> done (Guix Home Wayland applied)"
+	@if [ ! -f /etc/keyd/default.conf ]; then \
+		echo ""; \
+		echo "--- NEXT STEP: KEYBINDINGS ---"; \
+		echo "To finish system-wide Emacs keybindings setup, run:"; \
+		echo "  sudo make setup-keyd"; \
+		echo "------------------------------"; \
+	fi
+
+submodule-update:
+	@echo "==> git submodule update --init --recursive"
+	@git submodule update --init --recursive
+
+submodule-pull:
+	@echo "==> git submodule foreach git pull"
+	@git submodule foreach git pull
+
+submodule-push:
+	@echo "==> git submodule foreach git push"
+	@git submodule foreach git push
 
 .PHONY: setup-keyd
 setup-keyd:

@@ -1,2 +1,5 @@
 .DS_Store
 CHECKLIST.md
+
+# Espanso private snippets (in submodule espanso/private; local copy must not be committed)
+espanso/match/private.yml
