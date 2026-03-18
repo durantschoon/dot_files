@@ -356,7 +356,7 @@ guix-config:
 		echo "Creating channels.scm with current Guix commit..."; \
 		echo "(list (channel" > ~/guix-config/channels.scm; \
 		echo "        (name 'guix)" >> ~/guix-config/channels.scm; \
-		echo "        (url \"https://git.savannah.gnu.org/git/guix.git\")" >> ~/guix-config/channels.scm; \
+		echo "        (url \"https://codeberg.org/guix/guix\")" >> ~/guix-config/channels.scm; \
 		echo "        (branch \"master\")" >> ~/guix-config/channels.scm; \
 		echo "        (introduction" >> ~/guix-config/channels.scm; \
 		echo "          (make-channel-introduction" >> ~/guix-config/channels.scm; \
