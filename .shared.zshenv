@@ -43,6 +43,11 @@ get_context_name() {
 
 # Specific Paths that might be the same on all machines
 
+# NPM
+# NPM globals (Guix: can't write under /gnu/store)
+export NPM_CONFIG_PREFIX="$HOME/.npm-global"
+add_to_front_of_path "$HOME/.npm-global/bin"
+
 # VS Code related
 add_to_front_of_path "~/.console-ninja/.bin"
 add_to_front_of_path "~/.local/bin"
