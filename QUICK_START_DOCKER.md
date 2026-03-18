@@ -53,6 +53,7 @@ make all
 ```
 
 The dotfiles will work with:
+
 - ✅ Symlinks (`.zshrc`, `.aliases`, etc.)
 - ✅ Basic zsh configuration (fallback prompt if starship fails)
 - ✅ Shared configurations
@@ -71,4 +72,3 @@ If container restrictions are too limiting, consider:
 - ✅ Guix found at: `/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin/guix`
 - ⚠️ Package installation: "Operation not permitted" (expected)
 - ⚠️ Dotfiles mount: Need to restart container with volume mount
-
