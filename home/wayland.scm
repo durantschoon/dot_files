@@ -17,7 +17,6 @@
     "eza"
     "emacs"
     "keyd"
-    "node"
     "font-adobe-source-code-pro"
     "font-fira-code"
     "font-cica"
