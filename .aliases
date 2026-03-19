@@ -73,6 +73,15 @@ alias ,.=pp
 #  xhost +127.0.0.1
 #  docker run -it --rm bigdeddu/nyxt:2.2.4
 
+# Examples from my Pop!_OS laptop
+# export VOLUME_LOCAL=/home/durant/DockerVolumes/sawyer
+# export CONTAINER_PATH=/data
+# sudo docker run -it --rm \
+#    --network host \
+#    --mount type=bind,src=$VOLUME_LOCAL,target=$CONTAINER_PATH \
+#    -w $CONTAINER_PATH \
+#    ubuntu:16.04 /bin/bash
+
 # -----------------------------------------------------------------------------
 # Guix Aliases
 # -----------------------------------------------------------------------------

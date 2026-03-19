@@ -3,3 +3,5 @@
 
 # Add Wayland-specific env vars, aliases, or startup logic here.
 # Example: espanso-wayland config, wl-copy/wl-paste paths, etc.
+
+export _JAVA_AWT_WM_NONREPARENTING=1
