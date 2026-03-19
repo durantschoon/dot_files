@@ -6,7 +6,32 @@
              (gnu home services shells)
              (gnu home services shepherd)
              (gnu packages)
+             (guix download)
+             (guix build-system copy)
+             (guix build copy-build-system)
+             (guix build utils)
+             (guix packages)
              (guix gexp))
+
+;; Babashka: native Clojure interpreter (not in Guix, fetch binary from GitHub)
+(define babashka
+  (package
+    (name "babashka")
+    (version "1.12.216")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/babashka/babashka/releases/download/v"
+                                 version "/babashka-" version "-linux-amd64-static.tar.gz"))
+              (sha256 (base32 "18vb8yw2y6kk1fydyw1wjm7ja4gqlfl56168rp62v2pi62dqb19y"))))
+    (build-system copy-build-system)
+    (arguments
+     '(#:install-plan '(("bb" "bin/bb"))
+       #:phases (modify-phases %standard-phases
+                  (delete 'install-license-files))))
+    (home-page "https://github.com/babashka/babashka")
+    (synopsis "Native, fast starting Clojure interpreter for scripting")
+    (description "Babashka is a native Clojure interpreter for scripting.")
+    (license #f)))
 
 (define %base-packages
   '("git" "zsh"
@@ -16,6 +41,8 @@
     "fzf"
     "eza"
     "emacs"
+    "emacs-vterm"
+    "glibc-locales"
     "keyd"
     "font-adobe-source-code-pro"
     "font-fira-code"
@@ -26,7 +53,8 @@
   '("espanso-wayland"))
 
 (home-environment
-  (packages (specifications->packages (append %base-packages %wayland-packages)))
+  (packages (append (specifications->packages (append %base-packages %wayland-packages))
+                   (list babashka)))
   (services
    (list
     ;; Emacs daemon for fast emacsclient
