@@ -158,6 +158,12 @@ export SPACEMACSDIR=$HOME/.spacemacs.d
 # misc
 ######
 
+# Terminal tab/window title: current directory basename (OSC 2; iTerm, GNOME Terminal, etc.)
+function chpwd() {
+    printf "\033]2;%s\007" "${PWD##*/}"
+}
+chpwd
+
 # zsh cd command that learns
 [ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
 
