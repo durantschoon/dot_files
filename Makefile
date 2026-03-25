@@ -72,7 +72,32 @@ ifneq ($(shell which pacman 2>/dev/null),)
 	PACKAGE_MANAGER := pacman
 endif
 
-.PHONY: set_up_links wsl help guix-root-install
+.PHONY: set_up_links wsl help guix-root-install warn-dotfiles-home
+
+# Makefile and set_up_links assume the repo is at $(HOME)/dot_files (symlink is fine).
+DOTFILES_HOME := $(HOME)/dot_files
+
+warn-dotfiles-home:
+	@dfhome="$(DOTFILES_HOME)"; \
+	here="$$(pwd -P 2>/dev/null || pwd)"; \
+	if [ ! -e "$$dfhome" ]; then \
+	  echo ""; \
+	  echo "  *** dot_files: $$dfhome does not exist ***"; \
+	  echo "  Put this repo there (clone or symlink), e.g.:"; \
+	  echo "    ln -s $$(pwd) $$dfhome"; \
+	  echo "  Then run make from $$dfhome so Guix Home paths and links match."; \
+	  echo ""; \
+	else \
+	  exp="$$(cd "$$dfhome" 2>/dev/null && pwd -P)"; \
+	  if [ -n "$$exp" ] && [ "$$exp" != "$$here" ]; then \
+	    echo ""; \
+	    echo "  *** dot_files: not in $$dfhome ***"; \
+	    echo "  Current directory (resolved): $$here"; \
+	    echo "  Expected (resolved):          $$exp"; \
+	    echo "  Run: cd $$dfhome   # or: ln -s $$(pwd) $$dfhome"; \
+	    echo ""; \
+	  fi; \
+	fi
 
 help:
 	@echo "Available targets:"
@@ -88,6 +113,9 @@ help:
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
 	@echo "  make wsl           - Show WSL setup instructions"
 	@echo "  make help          - Show this help message"
+	@echo ""
+	@echo "  This Makefile assumes the repo lives at ~/dot_files (symlink ok)."
+	@echo "  Targets apply, apply-wayland, and set_up_links warn if that is not the case."
 	@echo ""
 	@echo "Platform-specific notes:"
 	@echo "  - Detected OS: $(os) $(arch)"
@@ -124,7 +152,7 @@ all: set_up_links
 dot_file_root_dir := $(wildcard ~/dot_files)
 current_dir := $(shell $(PWD_CMD))
 
-set_up_links: 
+set_up_links: warn-dotfiles-home 
 	@echo OS detected as $(os) $(arch)
 	@echo ------------------------------
 ifneq ("","$(unix_family)")
@@ -476,9 +504,9 @@ guix-config:
 	@echo ""
 
 # Guix Home bootstrap targets (non-invasive)
-.PHONY: apply update install-manifest home-check
+.PHONY: apply apply-wayland update install-manifest home-check
 
-apply:
+apply: warn-dotfiles-home
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
 	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
@@ -496,7 +524,7 @@ apply:
 		echo "------------------------------"; \
 	fi
 
-apply-wayland:
+apply-wayland: warn-dotfiles-home
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
 	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
@@ -539,7 +567,7 @@ setup-keyd:
 	systemctl enable --now keyd
 	@echo "Done! Emacs keys and Caps/Ctrl swap are now live."
 
-update:
+update: warn-dotfiles-home
 	@echo "==> guix pull"
 	@guix pull
 	@echo "==> pin channels.scm"

@@ -193,12 +193,16 @@ if [ -n "$ZSH_VERSION" ]; then
               more'
     fi
 
-    alias s.z='source ~/.zshrc'
+    # alias s.z='source ~/.zshrc'
+    alias s.zs='source ~/.shared.zshrc'
+    alias s.zes='source ~/.shared.zshenv'
     alias s.ze='source ~/.zshenv'
     alias s.zh='source ~/dot_files/.home.zshrc'
     alias s.zp='source ~/.zprofile'
+    alias s.zps='source ~/.shared.zprofile'
     alias s.zw='source ~/dot_files/.work.zshrc'
-    alias s.zall="s.ze && echo '~/.zshenv'; [ -f ~/.zprofile ] && s.zp && echo '~/.zprofile'; s.z && echo '~/.zshrc'"
+    alias s.zws='source ~/dot_files/.shared.work.zshrc'
+    alias s.zall="s.ze && echo '~/.zshenv'; [ -f ~/.zprofile ] && s.zp && echo '~/.zprofile'; s.zs && echo '~/.shared.zshrc'"
     alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
     alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# / directory, o sorted, m mod time, 1 first
     # z move?

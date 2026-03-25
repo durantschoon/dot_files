@@ -4,6 +4,17 @@ My dotfiles repository, currently migrating to a declarative [Guix Home](https:/
 
 I use [Zsh](http://www.zsh.org/) with [starship prompt](https://starship.rs/) for a fast, customizable shell experience. The [Makefile](./Makefile) automatically detects your system and installs the appropriate packages and configuration.
 
+### Where to put this repo
+
+**Use `~/dot_files`** (a symlink to another path is fine). The Makefile, `guix home reconfigure`, and `set_up_links` assume you run commands from that directory so `home/*.scm` `local-file` paths and symlink targets line up. If you clone elsewhere first:
+
+```sh
+ln -s /path/to/your/clone "$HOME/dot_files"
+cd ~/dot_files
+```
+
+Running `make apply`, `make apply-wayland`, or `make set_up_links` from another location prints a reminder.
+
 ## Installation
 
 ### 1. Install Guix (Linux / WSL)
