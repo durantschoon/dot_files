@@ -297,6 +297,12 @@ endif
 		echo "NOTE: ~/bin is a directory, not a symlink. Move or merge scripts into ~/dot_files/bin/, remove ~/bin, then run make set_up_links again."; \
 	fi
 
+	@if [ ! -e "$$HOME/.ipython" ]; then \
+		ln -si ~/dot_files/.ipython ~/.ipython || true; \
+	elif [ -d "$$HOME/.ipython" ] && [ ! -L "$$HOME/.ipython" ]; then \
+		echo "NOTE: ~/.ipython is a directory, not a symlink. Move config to ~/dot_files/.ipython/, remove ~/.ipython, then run make set_up_links again."; \
+	fi
+
 	@if [ -t 0 ]; then \
 		./unix_work_or_home.sh; \
 	else \

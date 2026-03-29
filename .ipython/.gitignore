@@ -1,0 +1,7 @@
+profile_default/db/
+profile_default/log/
+profile_default/pid/
+profile_default/security/
+profile_default/history.sqlite
+__pycache__/
+*.py[cod]
