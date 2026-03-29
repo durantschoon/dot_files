@@ -46,6 +46,7 @@ get_context_name() {
 # VS Code related
 add_to_front_of_path "~/.console-ninja/.bin"
 add_to_front_of_path "~/.local/bin"
+add_to_front_of_path "$HOME/bin"
 
 # codeium windsurf
 add_to_front_of_path "$HOME/.codeium/windsurf/bin"
