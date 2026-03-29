@@ -127,13 +127,14 @@
                             "https://github.com/durantschoon/.spacemacs.d"
                             spacemacs-d)))))
 
-   ;; Link .aliases, .wayland.zshenv, and espanso config to home directory
+   ;; Link .aliases, .wayland.zshenv, portable scripts (~/bin), and espanso config to home directory
    ;; private.yml from submodule espanso/private (only when submodule is initialized)
    (service home-files-service-type
             (append (list `(".aliases" ,(local-file "../.aliases" "aliases"))
                           `(".wayland.zshenv" ,(local-file
                                                 "../.wayland.zshenv"
                                                 "wayland.zshenv"))
+                          `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
                           `(".config/espanso/config/default.yml" ,(local-file
                                                                    "../espanso/config/default.yml"
                                                                    "espanso-default.yml"))
