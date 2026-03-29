@@ -102,7 +102,7 @@ warn-dotfiles-home:
 help:
 	@echo "Available targets:"
 	@echo ""
-	@echo "  make all           - Set up dotfiles (default target)"
+	@echo "  make all           - Set up dotfiles (default target; symlinks ~/bin -> ~/dot_files/bin)"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make apply         - Apply Guix Home configuration (reconfigure)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
@@ -255,6 +255,12 @@ endif
 ifeq ("$(os)","$(OS_LINUX)")
 	ln -si ~/dot_files/.wayland.zshenv ~/.wayland.zshenv || echo
 endif
+	@mkdir -p ~/dot_files/bin
+	@if [ ! -e "$$HOME/bin" ]; then \
+		ln -si ~/dot_files/bin ~/bin || true; \
+	elif [ -d "$$HOME/bin" ] && [ ! -L "$$HOME/bin" ]; then \
+		echo "NOTE: ~/bin is a directory, not a symlink. Move or merge scripts into ~/dot_files/bin/, remove ~/bin, then run make set_up_links again."; \
+	fi
 
 	@if [ -t 0 ]; then \
 		./unix_work_or_home.sh; \
