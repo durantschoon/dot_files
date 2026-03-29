@@ -81,10 +81,11 @@
                             (format #t "Cloning local Spacemacs config to ~a...~%" spacemacs-d)
                             (system* git "-c" (string-append "http.sslCAInfo=" certs) "clone" "https://github.com/durantschoon/.spacemacs.d" spacemacs-d)))))
 
-    ;; Link .aliases and .wayland.zshenv to home directory
+    ;; Link .aliases, .wayland.zshenv, and portable scripts (~/bin) to home directory
     (service home-files-service-type
              (list `(".aliases" ,(local-file "../.aliases" "aliases"))
-                   `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))))
+                   `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))
+                   `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))))
 
     ;; Zsh + Starship + editor aliases
     (service home-zsh-service-type
