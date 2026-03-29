@@ -57,6 +57,11 @@ ifneq ($(MICROSOFT_CHECK),)
 	HOME = $(wsl_home)
 endif
 
+ORBSTACK_CHECK := $(shell grep -i orbstack /proc/version 2>/dev/null)
+ifneq ($(ORBSTACK_CHECK),)
+	flavor := orbstack
+endif
+
 # Detect package manager
 PACKAGE_MANAGER := unknown
 ifneq ($(shell which guix 2>/dev/null),)
@@ -81,21 +86,37 @@ warn-dotfiles-home:
 	@dfhome="$(DOTFILES_HOME)"; \
 	here="$$(pwd -P 2>/dev/null || pwd)"; \
 	if [ ! -e "$$dfhome" ]; then \
-	  echo ""; \
-	  echo "  *** dot_files: $$dfhome does not exist ***"; \
-	  echo "  Put this repo there (clone or symlink), e.g.:"; \
-	  echo "    ln -s $$(pwd) $$dfhome"; \
-	  echo "  Then run make from $$dfhome so Guix Home paths and links match."; \
-	  echo ""; \
+	  if [ "$(flavor)" = "orbstack" ] && [[ "$$here" == /Users/* ]]; then \
+	    echo "OrbStack detected: Linking $$dfhome -> $$here"; \
+	    ln -snf "$$here" "$$dfhome"; \
+	  else \
+	    echo ""; \
+	    echo "  *** dot_files: $$dfhome does not exist ***"; \
+	    echo "  Put this repo there (clone or symlink), e.g.:"; \
+	    echo "    ln -s $$(pwd) $$dfhome"; \
+	    echo "  Then run make from $$dfhome so Guix Home paths and links match."; \
+	    echo ""; \
+	  fi; \
 	else \
 	  exp="$$(cd "$$dfhome" 2>/dev/null && pwd -P)"; \
 	  if [ -n "$$exp" ] && [ "$$exp" != "$$here" ]; then \
-	    echo ""; \
-	    echo "  *** dot_files: not in $$dfhome ***"; \
-	    echo "  Current directory (resolved): $$here"; \
-	    echo "  Expected (resolved):          $$exp"; \
-	    echo "  Run: cd $$dfhome   # or: ln -s $$(pwd) $$dfhome"; \
-	    echo ""; \
+	    if [ "$(flavor)" = "orbstack" ] && [[ "$$here" == /Users/* ]]; then \
+	      if [ ! -L "$$dfhome" ] && [ -d "$$dfhome" ]; then \
+	        echo "OrbStack detected: You are in $$here but $$dfhome exists as a directory."; \
+	        echo "Consider replacing it with a symlink:"; \
+	        echo "  rm -rf $$dfhome && ln -s $$here $$dfhome"; \
+	      else \
+	        echo "OrbStack detected: Updating link $$dfhome -> $$here"; \
+	        ln -snf "$$here" "$$dfhome"; \
+	      fi; \
+	    else \
+	      echo ""; \
+	      echo "  *** dot_files: not in $$dfhome ***"; \
+	      echo "  Current directory (resolved): $$here"; \
+	      echo "  Expected (resolved):          $$exp"; \
+	      echo "  Run: cd $$dfhome   # or: ln -s $$(pwd) $$dfhome"; \
+	      echo ""; \
+	    fi; \
 	  fi; \
 	fi
 
@@ -157,6 +178,19 @@ set_up_links: warn-dotfiles-home
 	@echo ------------------------------
 ifneq ("","$(unix_family)")
 # we're in Unix land
+# On OrbStack, we allow running from /Users if it looks like the right place
+ifeq ($(flavor),orbstack)
+	@if [[ "$(current_dir)" == /Users/* ]] && [[ "$(current_dir)" == */dot_files ]]; then \
+		echo "OrbStack: Running from $(current_dir)"; \
+	elif [ "$(current_dir)" != "$(dot_file_root_dir)" ]; then \
+		if [ -z "$(dot_file_root_dir)" ]; then \
+			echo "dot_file_root_dir did not resolve. We will continue as if you are root in WSL"; \
+		else \
+			echo "You should be in the $(dot_file_root_dir) directory to run this command"; \
+			exit 1; \
+		fi; \
+	fi
+else
 ifneq ("$(current_dir)","$(dot_file_root_dir)")
 ifeq (,$(dot_file_root_dir))
 	@echo dot_file_root_dir did not resolve. We will continue as if you are root in WSL
@@ -165,6 +199,7 @@ else
 	@echo You should be in the ~/dot_files directory to run this command
 	exit 1
 endif	
+endif
 endif
 ifeq ($(flavor), $(FLAVOR_WSL))
 	@echo We are in WSL ... NOTE MUST run make as sudo ... run `make wsl` to remind yourself how
