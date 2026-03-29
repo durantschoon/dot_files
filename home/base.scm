@@ -85,7 +85,9 @@
     (service home-files-service-type
              (list `(".aliases" ,(local-file "../.aliases" "aliases"))
                    `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))
-                   `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))))
+                   `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
+                   `(".ipython/profile_default/startup/money_value.py" ,(local-file "../.ipython/profile_default/startup/money_value.py"))
+                   `(".ipython/profile_default/startup/pretty_rich.py" ,(local-file "../.ipython/profile_default/startup/pretty_rich.py"))))
 
     ;; Zsh + Starship + editor aliases
     (service home-zsh-service-type
