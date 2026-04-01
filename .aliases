@@ -58,6 +58,7 @@ alias up='cd ..'
 alias up2='cd ../..'
 alias up3='cd ../../..'
 alias up4='cd ../../../..'
+alias watch-df='watch -n 1 df -h .'
 alias wh=which
 alias wo=workon
 alias ,=pd
@@ -129,14 +130,15 @@ elif [[ "$(uname)" == "Linux" ]]; then
     # Linux-specific aliases
     alias ssh_fingerprint='ssh-keygen -E md5 -l'
     
-    # Ensure native cmake is used by removing any legacy Windows aliases
+    # Ensure native cmake is used
     unalias cmake 2>/dev/null
 
-elif [[ "$(uname)" == *"MINGW"* || -d /mnt/c/Program\ Files/CMake ]]; then
-    # Windows/WSL: use Windows cmake if available
+elif [[ "$(uname)" == *"MINGW"* ]]; then
+    # Windows/MINGW: use Windows cmake if available
     alias cmake='/mnt/c/Program\ Files/CMake/bin/cmake.exe'
 
-    # WSL-specific helpers
+elif [[ -d /mnt/c/Program\ Files/CMake ]]; then
+    # WSL: use Windows cmake if available
     if [[ $(whoami) == root ]]; then
         alias llhome='ll -L | egrep -v '\''(NTUSER|ntuser)'\'
         alias llhomea='ll -aL | egrep -v '\''(NTUSER|ntuser)'\'
