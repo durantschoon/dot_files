@@ -164,23 +164,20 @@ prompt_context() {
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 source $HOME/.aliases
 
-# obvious?
-setopt HIST_IGNORE_ALL_DUPS
 setopt AUTO_PUSHD
-setopt SHARE_HISTORY
+
+HISTFILE=~/.zsh_history
+HISTSIZE=10000000
+SAVEHIST=10000000
+setopt SHARE_HISTORY          # Share history between sessions
+setopt APPEND_HISTORY         # Append to history, don't replace
+setopt INC_APPEND_HISTORY     # Write to history immediately, not when shell exits
+setopt HIST_IGNORE_ALL_DUPS   # Remove old duplicate commands
+setopt HIST_EXPIRE_DUPS_FIRST # Expire duplicates first if limited
 
 # Use these lines to enable search by globs, e.g. gcc*foo.c
 bindkey "^R" history-incremental-pattern-search-backward
 bindkey "^S" history-incremental-pattern-search-forward
-
-# from http://www.zsh.org/mla/users/2011/msg00281.html
-HISTSIZE=1000
-if (( ! EUID )); then
-  HISTFILE=~/.history_root
-else
-  HISTFILE=~/.history
-fi
-SAVEHIST=1000
 
 # this says it's depercated when it's run
 # source ~/.git-completion.sh
