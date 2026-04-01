@@ -26,9 +26,6 @@ make apply           # Update base configuration
 make apply-wayland   # Update wayland/espanso configuration
 ```
 
-**Pro-tip for fast iteration:** If you are actively debugging your `.aliases`, you can temporarily bypass Guix with a direct symlink:  
-`ln -sf ~/dot_files/.aliases ~/.aliases`
-
 ## Installation
 
 ### 1. Install Guix (Linux / WSL)
