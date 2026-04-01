@@ -119,30 +119,28 @@ if [[ "$(uname)" == "Darwin" ]]; then
     alias ip_addr='ipconfig getifaddr en0 || ipconfig getifaddr en1'
 
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
-        sudo /usr/local/bin/gtime --format="%C ran for %E (%e seconds)" -p ./2TB_BACKUP.command \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
 
     # espanso, mimic linux location, so we can access $XDG_CONFIG_HOME/espanso
     # X Desktop Group
     export XDG_CONFIG_HOME=$HOME/Library/Application\ Support/
 
-elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
-    # Do something under Linux platform
+elif [[ "$(uname)" == "Linux" ]]; then
+    # Linux-specific aliases
     alias ssh_fingerprint='ssh-keygen -E md5 -l'
+    
+    # Ensure native cmake is used by removing any legacy Windows aliases
+    unalias cmake 2>/dev/null
 
-elif [[ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]]; then
-    # Do something under Windows NT platform
+elif [[ "$(uname)" == *"MINGW"* || -d /mnt/c/Program\ Files/CMake ]]; then
+    # Windows/WSL: use Windows cmake if available
     alias cmake='/mnt/c/Program\ Files/CMake/bin/cmake.exe'
 
-elif [[ -d /mnt/c/Program\ Files/CMake ]]; then
-    # WSL: use Windows cmake if available
-    alias cmake='/mnt/c/Program\ Files/CMake/bin/cmake.exe'
-
-    # here's a funky way to tell if I'm on windows WSL
-    if  [[ $(whoami) == root ]]; then
+    # WSL-specific helpers
+    if [[ $(whoami) == root ]]; then
         alias llhome='ll -L | egrep -v '\''(NTUSER|ntuser)'\'
         alias llhomea='ll -aL | egrep -v '\''(NTUSER|ntuser)'\'
-        alias cdhome='cd ~/wsl_user; ll -L | egrep -v '\''(NTUSER|ntuser)'\' # ~/wsl_user is a link to my user dir
+        alias cdhome='cd ~/wsl_user; ll -L | egrep -v '\''(NTUSER|ntuser)'\'
     fi
 fi
 
