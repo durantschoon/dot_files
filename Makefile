@@ -218,7 +218,7 @@ ifeq ("$(os)","$(OS_LINUX)")
 # you already installed git to get this far
 ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt-get update && sudo apt-get dist-upgrade -y
-	sudo apt-get install build-essential curl file -y
+	sudo apt-get install build-essential cmake curl file -y
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
@@ -231,7 +231,7 @@ else ifeq ($(PACKAGE_MANAGER),guix)
 	@which zsh && which curl && which file && echo "All core packages available - skipping installation" || { \
 		echo "Some packages missing - attempting installation..."; \
 		echo "If this fails, try: sudo make guix-root-install"; \
-		guix install zsh fontconfig curl file gcc-toolchain || echo "Package installation failed - continuing anyway"; \
+		guix install zsh cmake fontconfig curl file gcc-toolchain || echo "Package installation failed - continuing anyway"; \
 	}
 	@echo "Installing starship prompt..."
 	@echo "Using curl from Guix profile..."
@@ -241,10 +241,10 @@ else ifeq ($(PACKAGE_MANAGER),guix)
 else ifeq ($(PACKAGE_MANAGER),yum)
 	sudo yum update -y
 	sudo yum groupinstall -y "Development Tools"
-	sudo yum install -y curl file zsh
+	sudo yum install -y cmake curl file zsh
 else ifeq ($(PACKAGE_MANAGER),pacman)
 	sudo pacman -Syu --noconfirm
-	sudo pacman -S --noconfirm base-devel curl file zsh
+	sudo pacman -S --noconfirm base-devel cmake curl file zsh
 else
 	@echo "Unknown package manager: $(PACKAGE_MANAGER)"
 	@echo "Please install build tools, curl, file, and zsh manually"
