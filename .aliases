@@ -22,9 +22,9 @@ alias dfh='df -h .'
 alias dm='docker-machine'
 alias ds='echo -e "\e[3mExample: use -2 to switch to the directory 2 down\e[0m"; dirs -v'
 alias dush="\
- echo '== Gigs =='; du -sh * | egrep '\dG' | sort -rn; \
- echo '\n== Megs =='; du -sh * | egrep '\dM' | sort -rn; \
- echo '\n== Kilos =='; du -sh * | egrep '\dK' | sort -rn"
+ echo '== Gigs =='; du -sh * 2>/dev/null | egrep '[0-9]G' | sort -rn; \
+ echo -e '\n== Megs =='; du -sh * 2>/dev/null | egrep '[0-9]M' | sort -rn; \
+ echo -e '\n== Kilos =='; du -sh * 2>/dev/null | egrep '[0-9]K' | sort -rn"
 alias eg=egrep
 alias espanso_edit="espanso stop; sleep 0.5s; open ~/.espanso_config_link/match/base.yml"
 alias espanso_start='espanso start'
