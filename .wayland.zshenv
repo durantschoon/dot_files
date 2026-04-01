@@ -5,3 +5,4 @@
 # Example: espanso-wayland config, wl-copy/wl-paste paths, etc.
 
 export _JAVA_AWT_WM_NONREPARENTING=1
+export ELECTRON_OZONE_PLATFORM_HINT=auto
