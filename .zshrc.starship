@@ -9,11 +9,14 @@ autoload -Uz compinit
 compinit
 
 # History configuration
-HISTSIZE=1000
-SAVEHIST=1000
-HISTFILE=~/.history
-setopt HIST_IGNORE_ALL_DUPS
-setopt SHARE_HISTORY
+HISTFILE=~/.zsh_history
+HISTSIZE=10000000
+SAVEHIST=10000000
+setopt SHARE_HISTORY          # Share history between sessions
+setopt APPEND_HISTORY         # Append to history, don't replace
+setopt INC_APPEND_HISTORY     # Write to history immediately, not when shell exits
+setopt HIST_IGNORE_ALL_DUPS   # Remove old duplicate commands
+setopt HIST_EXPIRE_DUPS_FIRST # Expire duplicates first if limited
 
 # Directory navigation
 setopt AUTO_PUSHD
