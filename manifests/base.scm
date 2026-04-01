@@ -1,7 +1,7 @@
 (specifications->manifest
  '(
    ;; core
-   "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain"
+   "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain" "cmake"
    "ripgrep" "fd" "fzf" "eza"
 
    ;; editor stack for Spacemacs (holy-mode)

@@ -33,7 +33,7 @@
 (home-environment
   (packages
    (append (specifications->packages
-            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "emacs-vterm" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"))
+            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "emacs" "emacs-vterm" "cmake" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"))
            (list babashka)))
   (services
    (list
