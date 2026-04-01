@@ -36,7 +36,7 @@ alias git_personal_ignore='$EDITOR .git/info/exclude'
 alias h=history
 alias hg='history | grep'
 alias ipy='python -m IPython'
-alias ipn='ipython notebook'
+alias ipn='ipython notebook'w
 alias ll='ls -l'
 alias m='less'
 alias md='mkdir -p'
@@ -130,9 +130,12 @@ elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
     # Do something under Linux platform
     alias ssh_fingerprint='ssh-keygen -E md5 -l'
 
-#elif [[ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]]; then
+elif [[ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]]; then
     # Do something under Windows NT platform
+    alias cmake='/mnt/c/Program\ Files/CMake/bin/cmake.exe'
 
+elif [[ -d /mnt/c/Program\ Files/CMake ]]; then
+    # WSL: use Windows cmake if available
     alias cmake='/mnt/c/Program\ Files/CMake/bin/cmake.exe'
 
     # here's a funky way to tell if I'm on windows WSL
