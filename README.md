@@ -15,6 +15,20 @@ cd ~/dot_files
 
 Running `make apply`, `make apply-wayland`, or `make set_up_links` from another location prints a reminder.
 
+### Guix Home Note: Updating Dotfiles
+
+Since this repo is managed using **Guix Home**, files like `.aliases`, `.zshrc`, and `.zshenv` are symlinked into the **Guix Store** (e.g., `/gnu/store/.../aliases`).
+
+**If you edit a dotfile in this directory, the changes will NOT be active until you reconfigure:**
+
+```sh
+make apply           # Update base configuration
+make apply-wayland   # Update wayland/espanso configuration
+```
+
+**Pro-tip for fast iteration:** If you are actively debugging your `.aliases`, you can temporarily bypass Guix with a direct symlink:  
+`ln -sf ~/dot_files/.aliases ~/.aliases`
+
 ## Installation
 
 ### 1. Install Guix (Linux / WSL)
