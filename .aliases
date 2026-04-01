@@ -18,6 +18,7 @@ alias a='alias'
 alias ag='alias | grep'
 alias c2n='tr ":" "\012"'
 alias cx='chmod +x'
+alias dfh='df -h .'
 alias dm='docker-machine'
 alias ds='echo -e "\e[3mExample: use -2 to switch to the directory 2 down\e[0m"; dirs -v'
 alias dush="\
