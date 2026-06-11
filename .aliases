@@ -659,3 +659,8 @@ alias gloga='git log --oneline --decorate --graph --all'
 alias glg='git log --stat'
 alias glgp='git log --stat -p'
 alias glo='git log --oneline --decorate'
+
+# "date glo" -- compact log with dates/times/initials via bin/git-log-compact
+alias dglo='git log-compact'
+alias dglog='git log-compact --graph'
+alias dgloga='git log-compact --graph --all'
