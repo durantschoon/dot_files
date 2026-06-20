@@ -6,3 +6,6 @@
 
 export _JAVA_AWT_WM_NONREPARENTING=1
 export ELECTRON_OZONE_PLATFORM_HINT=auto
+
+# Permanent fix for 1Password Flatpak clipboard issues under Wayland
+alias 1p="flatpak run --socket=x11 --env=DISPLAY=:0 com.onepassword.OnePassword"
