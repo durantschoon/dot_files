@@ -66,10 +66,18 @@ alias ,.=pp
 
 # watch a function
 # Note: tmstat is defined for Darwin only
-# Example: watchf tmstat 
+# Example: watchf tmstat
+# Example: watchf tmstat 2    # refresh every 2 seconds
 watchf() {
     local fn=$1
-    watch bash -c "$(declare -f "$fn"); $fn"
+    local interval=$2
+    local cmd
+    cmd="bash -c $(printf '%q' "$(declare -f "$fn"); $fn")"
+    if [[ -n $interval && $interval =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        watch -n "$interval" "$cmd"
+    else
+        watch "$cmd"
+    fi
 }
 
 # -----------------------------------------------------------------------------
