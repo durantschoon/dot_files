@@ -64,6 +64,14 @@ alias wo=workon
 alias ,=pd
 alias ,.=pp
 
+# watch a function
+# Note: tmstat is defined for Darwin only
+# Example: watchf tmstat 
+watchf() {
+    local fn=$1
+    watch bash -c "$(declare -f "$fn"); $fn"
+}
+
 # -----------------------------------------------------------------------------
 # Docker Aliases
 # -----------------------------------------------------------------------------
@@ -121,6 +129,26 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
+
+    tmstat() {
+        tmutil status | bb -e '
+(require '\''[clojure.string :as str])
+
+(defn commify [s]
+  (str/replace s #"\B(?=(\d{3})+(?!\d))" ","))
+
+(doseq [line (str/split-lines (slurp *in*))]
+  (println
+    (cond
+      (re-find #"(?i)percent" line)
+      (str/replace line #"\d+\.\d+"
+        #(format "%.2f" (Double/parseDouble %)))
+
+      :else
+      (str/replace line #"(?<=\= )\d+(?=;)"
+        #(commify %)))))
+'
+    }
 
     # espanso, mimic linux location, so we can access $XDG_CONFIG_HOME/espanso
     # X Desktop Group
