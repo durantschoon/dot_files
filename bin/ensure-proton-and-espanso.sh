@@ -48,8 +48,12 @@ fi
 
 # 5. Ensure Espanso is running
 if ! pgrep -x espanso >/dev/null 2>&1; then
-    log "Launching Espanso"
-    open -a "$ESPANSO_APP"
+    if [[ -z "$(head "$HOME/.espanso_config_link/match/base.yml" 2>/dev/null)" ]]; then
+        log "Config link base.yml not ready yet"
+    else
+        log "Launching Espanso"
+        open -a "$ESPANSO_APP"
+    fi
 else
     log "Espanso already running"
 fi
