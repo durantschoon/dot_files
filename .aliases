@@ -206,7 +206,26 @@ if [ -n "$ZSH_VERSION" ]; then
     alias s.zps='source ~/.shared.zprofile'
     alias s.zw='source ~/dot_files/.work.zshrc'
     alias s.zws='source ~/dot_files/.shared.work.zshrc'
-    alias s.zall="s.ze && echo '~/.zshenv'; [ -f ~/.zprofile ] && s.zp && echo '~/.zprofile'; s.zs && echo '~/.shared.zshrc'"
+    alias s.zall="source ~/.zshenv && echo '~/.zshenv'; [ -f ~/.zprofile ] && source ~/.zprofile && echo '~/.zprofile'; source ~/.aliases && echo '~/.aliases'; source ~/.shared.zshrc && echo '~/.shared.zshrc'"
+
+    # Guix Home: reconfigure dotfiles from ~/dot_files and return here
+    dot-apply() {
+        pushd ~/dot_files >/dev/null || return 1
+        make apply || { popd >/dev/null; return 1; }
+        popd >/dev/null
+        source ~/.aliases 2>/dev/null
+    }
+    alias da=dot-apply
+
+    dot-apply-wayland() {
+        pushd ~/dot_files >/dev/null || return 1
+        make apply-wayland || { popd >/dev/null; return 1; }
+        popd >/dev/null
+        source ~/.zshenv 2>/dev/null
+        source ~/.aliases 2>/dev/null
+    }
+    alias daw=dot-apply-wayland
+
     alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
     alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# / directory, o sorted, m mod time, 1 first
     # z move?
