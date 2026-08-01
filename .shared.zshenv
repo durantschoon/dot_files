@@ -19,12 +19,13 @@ fi
 # unique paths
 typeset -U path
 
+# ${~1} forces tilde expansion, so quoted "~/foo" args work too
 add_to_front_of_path () {
-    [ -d $1 ] && export path=($1 "$path[@]")
+    [ -d ${~1} ] && export path=(${~1} "$path[@]")
 }
 
 add_to_end_of_path () {
-    [ -d $1 ] && export path=("$path[@]" $1)
+    [ -d ${~1} ] && export path=("$path[@]" ${~1})
 }
 
 # to add kubectl context name to prompt, it's set across shells so use a file
@@ -44,8 +45,8 @@ get_context_name() {
 # Specific Paths that might be the same on all machines
 
 # VS Code related
-add_to_front_of_path "~/.console-ninja/.bin"
-add_to_front_of_path "~/.local/bin"
+add_to_front_of_path "$HOME/.console-ninja/.bin"
+add_to_front_of_path "$HOME/.local/bin"
 add_to_front_of_path "$HOME/bin"
 
 # codeium windsurf
