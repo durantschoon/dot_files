@@ -40,6 +40,8 @@
     "fd"
     "fzf"
     "eza"
+    "go"
+    "qemu"
     "emacs"
     "emacs-vterm"
     "glibc-locales"
