@@ -5,5 +5,10 @@ CHECKLIST.md
 **/__pycache__/
 *.py[cod]
 
+# Cursor
+# NOTE: a leading "./" does not work in .gitignore -- patterns are already
+# relative to this file -- and the directory is ".cursor", not "cursor".
+.cursor/
+
 # Espanso private snippets (in submodule espanso/private; local copy must not be committed)
 espanso/match/private.yml
