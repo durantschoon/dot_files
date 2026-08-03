@@ -6,4 +6,7 @@
 
    ;; editor stack for Spacemacs (holy-mode)
    "emacs" "aspell" "aspell-dict-en"
+
+   ;; SankeyFin dev toolchain (see sankeyfin/scripts/guix-manifest.scm)
+   "openjdk" "clojure-tools" "just"
  ))
