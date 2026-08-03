@@ -33,7 +33,9 @@
 (home-environment
   (packages
    (append (specifications->packages
-            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "go" "qemu" "emacs" "emacs-vterm" "cmake" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"))
+            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "go" "qemu" "emacs" "emacs-vterm" "cmake" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"
+              ;; SankeyFin dev toolchain (see sankeyfin/scripts/guix-manifest.scm)
+              "openjdk" "clojure-tools" "just"))
            (list babashka)))
   (services
    (list
