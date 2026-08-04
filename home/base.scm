@@ -89,7 +89,65 @@
                    `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))
                    `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
                    `(".ipython/profile_default/startup/money_value.py" ,(local-file "../.ipython/profile_default/startup/money_value.py"))
-                   `(".ipython/profile_default/startup/pretty_rich.py" ,(local-file "../.ipython/profile_default/startup/pretty_rich.py"))))
+                   `(".ipython/profile_default/startup/pretty_rich.py" ,(local-file "../.ipython/profile_default/startup/pretty_rich.py"))
+                   ;; Claude Code, part 1 of 2: the files Claude Code never writes.
+                   ;; Safe as read-only store symlinks. Declaring these as entries
+                   ;; UNDER .claude (rather than declaring ".claude" itself) is what
+                   ;; keeps ~/.claude a real writable directory -- Claude Code stores
+                   ;; projects/, sessions/ and history.jsonl there at runtime.
+                   ;; Declaring ".claude" as one recursive local-file would make the
+                   ;; whole tree a store symlink and break it, the same way ~/bin
+                   ;; above is read-only and defeats installers that target it.
+                   ;; #:recursive? #t on the directories is load-bearing: it preserves
+                   ;; the executable bit on bin/, which a plain local-file drops to 0444.
+                   `(".claude/agent-roles.conf" ,(local-file "../claude/agent-roles.conf"))
+                   `(".claude/agent-templates" ,(local-file "../claude/agent-templates" "claude-agent-templates" #:recursive? #t))
+                   `(".claude/bin" ,(local-file "../claude/bin" "claude-bin" #:recursive? #t))
+                   `(".claude/skills" ,(local-file "../claude/skills" "claude-skills" #:recursive? #t))))
+
+    ;; Claude Code, part 2 of 2: the files Claude Code DOES write.
+    ;; These cannot be store symlinks. Claude Code rewrites its config atomically
+    ;; (temp file + rename), which replaces the symlink with a regular file -- the
+    ;; declaration would silently stop taking effect, with no error to notice.
+    ;; So seed real, writable copies instead.
+    (simple-service 'claude-writable-config
+                    home-activation-service-type
+                    #~(begin
+                        ;; Core Guile only. A gexp does not automatically get
+                        ;; (guix build utils) in its build environment, so mkdir-p
+                        ;; would fail at activation time with "no code for module".
+                        (let* ((claude (string-append (getenv "HOME") "/.claude"))
+                               (agents (string-append claude "/agents")))
+                          (unless (file-exists? claude) (mkdir claude))
+                          (unless (file-exists? agents) (mkdir agents))
+                          ;; Seed-if-absent: /memory owns CLAUDE.md and /config owns
+                          ;; settings.json once they exist. Copy changes back to the
+                          ;; claude/ submodule by hand; do not overwrite them here.
+                          (for-each
+                           (lambda (name source)
+                             (let ((dest (string-append claude "/" name)))
+                               (unless (file-exists? dest)
+                                 (copy-file source dest)
+                                 (chmod dest #o644))))
+                           (list "CLAUDE.md" "settings.json")
+                           (list #$(local-file "../claude/CLAUDE.md")
+                                 #$(local-file "../claude/settings.json")))
+                          ;; Hand-maintained and written by nothing on this machine,
+                          ;; so the repo stays authoritative: overwrite every time.
+                          (let ((dest (string-append claude "/agents/stage-executor.md")))
+                            (copy-file #$(local-file "../claude/agents/stage-executor.md") dest)
+                            (chmod dest #o644))
+                          ;; agents/committer.md is generated from agent-templates/ +
+                          ;; agent-roles.conf, so it is not stored in the repo.
+                          ;; Guarded because activation ordering against the symlink
+                          ;; manager is not guaranteed: on a first-ever reconfigure the
+                          ;; symlinks above may not be in place yet. Re-running
+                          ;; `make apply` (or the script by hand) settles it.
+                          (let ((gen (string-append claude "/bin/generate-agents.sh")))
+                            (if (and (file-exists? gen)
+                                     (file-exists? (string-append claude "/agent-templates")))
+                                (system* gen)
+                                (display "claude: skipping generate-agents.sh (inputs not linked yet); re-run `make apply`\n"))))))
 
     ;; Zsh + Starship + editor aliases
     (service home-zsh-service-type

@@ -142,12 +142,58 @@
                                                                    "espanso-default.yml"))
                           `(".config/espanso/match/base.yml" ,(local-file
                                                                "../espanso/match/base.yml"
-                                                               "espanso-base.yml")))
+                                                               "espanso-base.yml"))
+                          ;; Claude Code, part 1 of 2 -- kept in sync with base.scm.
+                          ;; This file is a divergent COPY of base.scm, not an
+                          ;; extension of it, so anything added there must be added
+                          ;; here too or `make apply-wayland' silently drops it.
+                          ;; Entries live UNDER .claude so that ~/.claude stays a real
+                          ;; writable directory; see base.scm for the full rationale.
+                          `(".claude/agent-roles.conf" ,(local-file "../claude/agent-roles.conf"))
+                          `(".claude/agent-templates" ,(local-file "../claude/agent-templates" "claude-agent-templates" #:recursive? #t))
+                          `(".claude/bin" ,(local-file "../claude/bin" "claude-bin" #:recursive? #t))
+                          `(".claude/skills" ,(local-file "../claude/skills" "claude-skills" #:recursive? #t)))
                     (if (file-exists? "espanso/private/private.yml")
                         (list `(".config/espanso/match/private.yml" ,(local-file
                                                                       "../espanso/private/private.yml"
                                                                       "espanso-private.yml")))
                         '())))
+
+   ;; Claude Code, part 2 of 2 -- kept in sync with base.scm.
+   ;; Files Claude Code rewrites itself cannot be store symlinks: it writes config
+   ;; atomically (temp file + rename), replacing the symlink with a regular file and
+   ;; silently voiding the declaration. Seed real writable copies instead.
+   (simple-service 'claude-writable-config
+                   home-activation-service-type
+                   #~(begin
+                       ;; Core Guile only -- see the note in base.scm: a gexp does
+                       ;; not automatically get (guix build utils).
+                       (let* ((claude (string-append (getenv "HOME") "/.claude"))
+                              (agents (string-append claude "/agents")))
+                         (unless (file-exists? claude) (mkdir claude))
+                         (unless (file-exists? agents) (mkdir agents))
+                         ;; Seed-if-absent: /memory owns CLAUDE.md and /config owns
+                         ;; settings.json once they exist.
+                         (for-each
+                          (lambda (name source)
+                            (let ((dest (string-append claude "/" name)))
+                              (unless (file-exists? dest)
+                                (copy-file source dest)
+                                (chmod dest #o644))))
+                          (list "CLAUDE.md" "settings.json")
+                          (list #$(local-file "../claude/CLAUDE.md")
+                                #$(local-file "../claude/settings.json")))
+                         ;; Written by nothing here, so the repo stays authoritative.
+                         (let ((dest (string-append claude "/agents/stage-executor.md")))
+                           (copy-file #$(local-file "../claude/agents/stage-executor.md") dest)
+                           (chmod dest #o644))
+                         ;; Guarded: activation ordering against the symlink manager
+                         ;; is not guaranteed on a first-ever reconfigure.
+                         (let ((gen (string-append claude "/bin/generate-agents.sh")))
+                           (if (and (file-exists? gen)
+                                    (file-exists? (string-append claude "/agent-templates")))
+                               (system* gen)
+                               (display "claude: skipping generate-agents.sh (inputs not linked yet); re-run `make apply-wayland`\n"))))))
 
    ;; Zsh + Starship + editor aliases
    (service home-zsh-service-type

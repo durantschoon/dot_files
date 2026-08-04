@@ -554,6 +554,13 @@ guix-config:
 .PHONY: apply apply-wayland update install-manifest home-check
 
 apply: warn-dotfiles-home
+	@echo "==> git submodule update --init claude"
+	@# home/base.scm reads ../claude/* via local-file, so an uninitialized
+	@# submodule fails the reconfigure with an opaque "no such file" from the
+	@# store builder. Deliberately NOT `|| true`: claude-config is private, and
+	@# a missing SSH key should stop here with git's own message rather than
+	@# surface later as a Guix error.
+	@git submodule update --init claude
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
 	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
@@ -580,6 +587,10 @@ apply-wayland: warn-dotfiles-home
 	fi
 	@echo "==> git submodule update --init (espanso/private)"
 	@git submodule update --init espanso/private 2>/dev/null || true
+	@echo "==> git submodule update --init claude"
+	@# Unlike espanso/private this is NOT optional: home/wayland.scm reads
+	@# ../claude/* unconditionally, so let git's error stop the build.
+	@git submodule update --init claude
 	@echo "==> guix home reconfigure home/wayland.scm"
 	@guix home reconfigure --allow-downgrades home/wayland.scm
 	@echo "==> done (Guix Home Wayland applied)"
