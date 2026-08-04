@@ -1,3 +1,6 @@
 [submodule "espanso/private"]
 	path = espanso/private
 	url = git@github.com:durantschoon/espanso-private.git
+[submodule "claude"]
+	path = claude
+	url = git@github.com:durantschoon/claude-config.git
