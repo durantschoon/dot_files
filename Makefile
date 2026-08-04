@@ -615,7 +615,37 @@ submodule-push:
 	@git submodule foreach git push
 
 .PHONY: setup-keyd
+# Guix System detection for setup-keyd.
+#
+# Deliberately NOT PACKAGE_MANAGER: that is set to `guix` whenever `which guix`
+# succeeds, which is true on Pop!_OS too (Guix is installed there as a package
+# manager alongside apt). Gating on it would disable this target on the very
+# machine where it works. /run/current-system exists only on Guix System.
+GUIX_SYSTEM := $(wildcard /run/current-system)
+
 setup-keyd:
+ifneq ($(GUIX_SYSTEM),)
+	@echo ""
+	@echo "  *** setup-keyd is not for Guix System ***"
+	@echo ""
+	@echo "  Every step of this target assumes systemd and the FHS:"
+	@echo "    /usr/local/bin           does not exist (no FHS)"
+	@echo "    /etc/systemd/system      does not exist (Shepherd, not systemd)"
+	@echo "    systemctl                does not exist"
+	@echo "    ~/.guix-home/profile/bin is the USER profile; keyd needs root"
+	@echo "                             for /dev/input/event* and /dev/uinput"
+	@echo ""
+	@echo "  On Guix, keyd is a SYSTEM service and belongs in your system"
+	@echo "  config, not in dotfiles. Guix packages keyd but ships no"
+	@echo "  keyd-service-type, so it has to be a hand-written shepherd-service"
+	@echo "  alongside kernel-module-loader (uinput) and an etc-service-type"
+	@echo "  entry for /etc/keyd/default.conf."
+	@echo ""
+	@echo "  Until that exists, Caps/Ctrl swap and the Emacs layer are NOT"
+	@echo "  active on Guix. Nothing starts keyd on its own here."
+	@echo ""
+	@exit 1
+else
 	@echo "Automating system-level links for keyd..."
 	mkdir -p /etc/keyd
 	ln -sf $(HOME)/.guix-home/profile/bin/keyd /usr/local/bin/keyd
@@ -624,6 +654,7 @@ setup-keyd:
 	systemctl daemon-reload
 	systemctl enable --now keyd
 	@echo "Done! Emacs keys and Caps/Ctrl swap are now live."
+endif
 
 update: warn-dotfiles-home
 	@echo "==> guix pull"
