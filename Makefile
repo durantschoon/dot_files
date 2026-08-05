@@ -273,7 +273,14 @@ else
 endif
 endif
 	@echo "Skipping oh-my-zsh installation - using starship instead"
-ifneq (,$(shell $(WHICH_CMD) zsh))
+# 2>/dev/null matters more than it looks: ifneq is evaluated at Makefile PARSE
+# time, so this `which zsh` runs for EVERY target -- including `make apply` on a
+# fresh Guix system where zsh does not exist yet (guix home is about to install
+# it). Without the redirect, "which: no zsh in (...)" prints before any recipe
+# runs and reads as an error in whatever target the user actually invoked.
+# Every other parse-time which in this file already redirects; this one is load-
+# bearing for first-run UX, not just consistency.
+ifneq (,$(shell $(WHICH_CMD) zsh 2>/dev/null))
 	@chsh -s $(shell $(WHICH_CMD) zsh) || echo tried to change shell to $(shell $(WHICH_CMD) zsh), but it failed;
 endif
 
