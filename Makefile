@@ -577,6 +577,13 @@ apply: warn-dotfiles-home
 	@echo "==> guix home reconfigure home/base.scm"
 	@guix home reconfigure --allow-downgrades home/base.scm
 	@echo "==> done (Guix Home applied)"
+	@echo ""
+	@echo "--- NOTE: PATH ---"
+	@echo "Anything just installed lives in ~/.guix-home/profile/bin, which"
+	@echo "this shell's PATH may not include yet (rehash cannot fix that --"
+	@echo "it only rescans directories already ON the PATH). Either:"
+	@echo "  source ~/.profile      # fixes PATH in this shell"
+	@echo "or log out and back in   # also starts user services (emacs daemon)"
 	@if [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \
 		echo "--- NEXT STEP: KEYBINDINGS ---"; \
@@ -601,6 +608,13 @@ apply-wayland: warn-dotfiles-home
 	@echo "==> guix home reconfigure home/wayland.scm"
 	@guix home reconfigure --allow-downgrades home/wayland.scm
 	@echo "==> done (Guix Home Wayland applied)"
+	@echo ""
+	@echo "--- NOTE: PATH ---"
+	@echo "Anything just installed lives in ~/.guix-home/profile/bin, which"
+	@echo "this shell's PATH may not include yet (rehash cannot fix that --"
+	@echo "it only rescans directories already ON the PATH). Either:"
+	@echo "  source ~/.profile      # fixes PATH in this shell"
+	@echo "or log out and back in   # also starts user services (emacs daemon)"
 	@if [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \
 		echo "--- NEXT STEP: KEYBINDINGS ---"; \
