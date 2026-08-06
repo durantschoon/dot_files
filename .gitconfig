@@ -1,3 +1,8 @@
+# Deployed by guix home as a read-only symlink into the store.
+# After editing this file, run `make apply` (or `make apply-wayland`)
+# in ~/dot_files for the change to take effect.
+# Do NOT use `git config --global` -- it would replace the symlink
+# with a detached copy that stops tracking this repo.
 [user]
 	name = Durant Schoon
 	email = durant.schoon@gmail.com
