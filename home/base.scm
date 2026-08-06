@@ -86,6 +86,12 @@
     ;; Link .aliases, .wayland.zshenv, and portable scripts (~/bin) to home directory
     (service home-files-service-type
              (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                   ;; Git identity (name/email) comes up declaratively with the
+                   ;; system. Deployed as a read-only store symlink, so
+                   ;; `git config --global' would silently replace the symlink
+                   ;; with a detached regular file -- edit dot_files/.gitconfig
+                   ;; and re-run `make apply' instead.
+                   `(".gitconfig" ,(local-file "../.gitconfig" "gitconfig"))
                    `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))
                    `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
                    `(".ipython/profile_default/startup/money_value.py" ,(local-file "../.ipython/profile_default/startup/money_value.py"))

@@ -133,6 +133,10 @@
    ;; private.yml from submodule espanso/private (only when submodule is initialized)
    (service home-files-service-type
             (append (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                          ;; Git identity -- kept in sync with base.scm. Edit
+                          ;; dot_files/.gitconfig, not `git config --global'
+                          ;; (that would replace the store symlink).
+                          `(".gitconfig" ,(local-file "../.gitconfig" "gitconfig"))
                           `(".wayland.zshenv" ,(local-file
                                                 "../.wayland.zshenv"
                                                 "wayland.zshenv"))

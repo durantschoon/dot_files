@@ -1,0 +1,18 @@
+[user]
+	name = Durant Schoon
+	email = durant.schoon@gmail.com
+[init]
+	defaultBranch = main
+[core]
+	editor = emacs
+[rebase]
+	autosquash = true
+[push]
+	autoSetupRemote = true
+[diff]
+	submodule = log
+[alias]
+	alias-pr = "!f() { git fetch -fu ${2:-origin} refs/pull/$1/head:pr/$1 && git checkout pr/$1; }; f"
+	alias-sdiff = !git diff && git submodule foreach 'git diff'
+	alias-spush = push --recurse-submodules=on-demand
+	alias-supdate = submodule update --remote --merge
