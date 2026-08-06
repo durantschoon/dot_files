@@ -730,6 +730,12 @@ submodule-push:
 # machine where it works. /run/current-system exists only on Guix System.
 GUIX_SYSTEM := $(wildcard /run/current-system)
 
+# This target runs under sudo, where HOME=/root -- but the keyd binary lives in
+# the INVOKING user's guix home profile. Expanding $(HOME) here once produced a
+# dangling /usr/local/bin/keyd -> /root/.guix-home/... and a silent 203/EXEC
+# crash loop that went unnoticed because GNOME's ctrl:swapcaps masked it.
+REAL_HOME := $(shell getent passwd $${SUDO_USER:-$$USER} | cut -d: -f6)
+
 setup-keyd:
 ifneq ($(GUIX_SYSTEM),)
 	@echo ""
@@ -762,12 +768,19 @@ ifneq ($(GUIX_SYSTEM),)
 else
 	@echo "Automating system-level links for keyd..."
 	mkdir -p /etc/keyd
-	ln -sf $(HOME)/.guix-home/profile/bin/keyd /usr/local/bin/keyd
+	ln -sf $(REAL_HOME)/.guix-home/profile/bin/keyd /usr/local/bin/keyd
 	ln -sf $(shell pwd)/keyd.conf /etc/keyd/default.conf
 	ln -sf $(shell pwd)/keyd.service /etc/systemd/system/keyd.service
 	systemctl daemon-reload
+	@# reset-failed: a prior dangling symlink left the unit in a start-limit
+	@# lockout; without this, enable --now can refuse to start it.
+	systemctl reset-failed keyd 2>/dev/null || true
 	systemctl enable --now keyd
 	@echo "Done! Emacs keys and Caps/Ctrl swap are now live."
+	@echo ""
+	@echo "If GNOME is also swapping (double-swap = keys look UNswapped), clear"
+	@echo "it as your normal user (gsettings talks to the user session, not root):"
+	@echo "  gsettings set org.gnome.desktop.input-sources xkb-options '[]'"
 endif
 
 update: warn-dotfiles-home
