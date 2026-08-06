@@ -81,7 +81,19 @@
                           ;; Clone User Config
                           (unless (file-exists? spacemacs-d)
                             (format #t "Cloning local Spacemacs config to ~a...~%" spacemacs-d)
-                            (system* git "-c" (string-append "http.sslCAInfo=" certs) "clone" "https://github.com/durantschoon/.spacemacs.d" spacemacs-d)))))
+                            (system* git "-c" (string-append "http.sslCAInfo=" certs) "clone" "https://github.com/durantschoon/.spacemacs.d" spacemacs-d))
+                          ;; Vendored GitHub-only packages: local/ is gitignored
+                          ;; in .spacemacs.d (Spacemacs would prune them from
+                          ;; elpa, and in-config install recurses -- see
+                          ;; clean-install.sh, which this mirrors), so the
+                          ;; config clone above never brings them along. init.el
+                          ;; points at these paths with a string :location, and
+                          ;; Emacs fails at startup without them. git clone
+                          ;; creates the leading local/ directory itself.
+                          (let ((claude-ide (string-append spacemacs-d "/local/claude-code-ide")))
+                            (unless (file-exists? (string-append claude-ide "/.git"))
+                              (format #t "Cloning claude-code-ide to ~a...~%" claude-ide)
+                              (system* git "-c" (string-append "http.sslCAInfo=" certs) "clone" "https://github.com/manzaltu/claude-code-ide.el" claude-ide))))))
 
     ;; Link .aliases, .wayland.zshenv, and portable scripts (~/bin) to home directory
     (service home-files-service-type
