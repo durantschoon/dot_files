@@ -15,6 +15,22 @@ cd ~/dot_files
 
 Running `make apply`, `make apply-wayland`, or `make set_up_links` from another location prints a reminder.
 
+### Two layers: `home/` and `system/`
+
+- **`home/`** — the `guix home` configs (`base.scm`, `wayland.scm`). These work
+  on Guix System *and* on a foreign distro like Pop!_OS, and they own the user
+  profile. This is what `make apply` / `make apply-wayland` deploy.
+- **`system/`** — the `operating-system` configs, for machines running Guix as
+  the OS. Deployed with `guix system reconfigure`, not `guix home`. See
+  [`system/README.md`](./system/README.md), which explains why the living
+  config lives here rather than in the installer project, and the no-secrets
+  invariant these files have to hold.
+
+`make check-system` runs the `system/` integrity checks: two drift checks for
+text that has to be duplicated (the keyd config and the channel pin, both
+inlined so the config stays evaluable by root from an installer ISO), and a
+guard against inlined credentials.
+
 ### Guix Home Note: Updating Dotfiles
 
 Since this repo is managed using **Guix Home**, files like `.aliases`, `.zshrc`, and `.zshenv` are symlinked into the **Guix Store** (e.g., `/gnu/store/.../aliases`).
