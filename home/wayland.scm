@@ -44,6 +44,15 @@
     "qemu"
     "emacs"
     "emacs-vterm"
+    "cmake"
+    ;; Spell-checking backend for Emacs ispell/flyspell (same profile so
+    ;; ASPELL_DICT_DIR resolves the dictionary)
+    "aspell"
+    "aspell-dict-en"
+    ;; SankeyFin dev toolchain (see sankeyfin/scripts/guix-manifest.scm)
+    "openjdk"
+    "clojure-tools"
+    "just"
     "glibc-locales"
     "keyd"
     "font-adobe-source-code-pro"
@@ -54,7 +63,23 @@
     ;; glibc provides the ld-linux loader its wrapper uses to run the
     ;; unmodified binary (Guix has no FHS /lib64 loader path).
     "curl"
-    "glibc"))
+    "glibc"
+    ;; Web browser.  NOT "firefox": Mozilla's trademark policy keeps it out of
+    ;; Guix proper, so the spec simply fails to resolve.  LibreWolf is the
+    ;; closest packaged equivalent -- upstream Firefox with telemetry stripped.
+    ;; (IceCat is the alternative, but its LibreJS blocks the nonfree
+    ;; JavaScript claude.ai is built from.)  nonguix does package a real
+    ;; "firefox", but `make apply-wayland' pulls from channels.scm, which
+    ;; declares only the guix channel -- so it is not resolvable from here even
+    ;; on the box whose system config has nonguix.
+    "librewolf"
+    ;; xdg-open, which is how Claude Code (and most CLI tools) turn "open this
+    ;; URL" into a running browser.  Neither %base-packages nor guix home
+    ;; supplies it; without it the OAuth login prints a URL and silently opens
+    ;; nothing.  See default-browser-activation below, which also has to name a
+    ;; handler for xdg-open to find.
+    "xdg-utils"
+    "perl"))
 
 (define %wayland-packages
   '("espanso-wayland"))
@@ -99,6 +124,31 @@
                                   "To enable system-wide Emacs keys, run:~%")
                           (format #t "  sudo make setup-keyd~%~%"))))
 
+   ;; Register LibreWolf as the https:/http: handler -- kept in sync with base.scm.
+   ;;
+   ;; Installing a browser is not enough for `claude' (or any tool that shells
+   ;; out to xdg-open) to launch one.  On a fresh GNOME/Wayland install there is
+   ;; no default for x-scheme-handler/https, so xdg-open exits non-zero and the
+   ;; caller has nothing to report -- the login flow just prints its URL and
+   ;; appears to hang.  xdg-settings writes ~/.config/mimeapps.list, a real
+   ;; writable file, so this does not fight the store-symlink rules elsewhere.
+   ;;
+   ;; Best-effort on purpose: on a first-ever reconfigure the profile may not be
+   ;; on XDG_DATA_DIRS yet, so librewolf.desktop is unfindable and this is a
+   ;; no-op.  Re-running `make apply-wayland' settles it; $BROWSER covers the gap.
+   (simple-service 'default-browser-activation home-activation-service-type
+                   #~(begin
+                       (setenv "XDG_DATA_DIRS"
+                               (string-append (getenv "HOME") "/.guix-home/profile/share:"
+                                              (or (getenv "XDG_DATA_DIRS")
+                                                  "/usr/local/share:/usr/share")))
+                       (unless (zero? (system* #$(file-append
+                                                  (specification->package "xdg-utils")
+                                                  "/bin/xdg-settings")
+                                               "set" "default-web-browser"
+                                               "librewolf.desktop"))
+                         (display "browser: could not set the default handler yet; re-run `make apply-wayland`\n"))))
+
    ;; Ensure Spacemacs and config are present
    (simple-service 'spacemacs-activation home-activation-service-type
                    #~(begin
@@ -132,7 +182,19 @@
                             (string-append "http.sslCAInfo=" certs)
                             "clone"
                             "https://github.com/durantschoon/.spacemacs.d"
-                            spacemacs-d)))))
+                            spacemacs-d))
+                         ;; Vendored GitHub-only packages -- kept in sync with
+                         ;; base.scm. local/ is gitignored in .spacemacs.d
+                         ;; (Spacemacs would prune them from elpa, and in-config
+                         ;; install recurses -- see clean-install.sh, which this
+                         ;; mirrors), so the config clone above never brings them
+                         ;; along. init.el points at these paths with a string
+                         ;; :location, and Emacs fails at startup without them.
+                         ;; git clone creates the leading local/ directory itself.
+                         (let ((claude-ide (string-append spacemacs-d "/local/claude-code-ide")))
+                           (unless (file-exists? (string-append claude-ide "/.git"))
+                             (format #t "Cloning claude-code-ide to ~a...~%" claude-ide)
+                             (system* git "-c" (string-append "http.sslCAInfo=" certs) "clone" "https://github.com/manzaltu/claude-code-ide.el" claude-ide))))))
 
    ;; Link .aliases, .wayland.zshenv, portable scripts (~/bin), and espanso config to home directory
    ;; private.yml from submodule espanso/private (only when submodule is initialized)
@@ -146,6 +208,8 @@
                                                 "../.wayland.zshenv"
                                                 "wayland.zshenv"))
                           `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
+                          `(".ipython/profile_default/startup/money_value.py" ,(local-file "../.ipython/profile_default/startup/money_value.py"))
+                          `(".ipython/profile_default/startup/pretty_rich.py" ,(local-file "../.ipython/profile_default/startup/pretty_rich.py"))
                           `(".config/espanso/config/default.yml" ,(local-file
                                                                    "../espanso/config/default.yml"
                                                                    "espanso-default.yml"))
@@ -213,6 +277,11 @@
                                                    "export VISUAL=\"$EDITOR\"\n"
                                                    "export SPACEMACSDIR=\"$HOME/.spacemacs.d\"
 "
+                                                   ;; Second route to a browser, for tools that
+                                                   ;; consult $BROWSER before falling back to
+                                                   ;; xdg-open. Belt and braces with the activation
+                                                   ;; service above.
+                                                   "export BROWSER=librewolf\n"
                                                    "eval \"$(starship init zsh)\"\n"
                                                    "alias e='emacsclient -c -a \"\"'\n"
                                                    "alias ec='emacsclient -t -a \"\"'\n"
