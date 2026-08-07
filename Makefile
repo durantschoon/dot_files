@@ -774,11 +774,12 @@ ifneq ($(GUIX_SYSTEM),)
 	@echo "  alongside kernel-module-loader (uinput) and an etc-service-type"
 	@echo "  entry for /etc/keyd/default.conf."
 	@echo ""
-	@echo "  That already exists in config-framework-dual-new.scm. It ships"
+	@echo "  That already exists in system/framework-dual.scm. It ships"
 	@echo "  with (auto-start? #f) on purpose, so after reconfiguring:"
 	@echo ""
 	@echo "    sudo herd start keyd"
-	@echo "    # confirm Caps acts as Control, and C-n/C-p/C-f/C-b move"
+	@echo "    # confirm Caps acts as Control, and that C-a and C-f still"
+	@echo "    # reach applications as control characters (no arrow layer)"
 	@echo "    # then set (auto-start? #t) and reconfigure again"
 	@echo ""
 	@echo "  keyd grabs the physical keyboard; auto-starting an unverified"
@@ -826,3 +827,88 @@ home-check:
 	@guix weather -m manifests/base.scm --substitute-urls="https://ci.guix.gnu.org https://bordeaux.guix.gnu.org" || true
 
 # End Guix Home bootstrap targets
+
+# ---------------------------------------------------------------------------
+# system/ integrity checks
+#
+# system/framework-dual.scm has to be evaluable by root from the installer ISO
+# during `guix system init', when no home directory exists and this checkout
+# may be anywhere.  That forces it to INLINE what it needs rather than read
+# ../keyd.conf or system/channels-framework-dual.scm beside it -- see
+# system/README.md.  The price is duplicated text in three places, and
+# duplicated text drifts: that is how the [control:C] keyd layer survived being
+# removed from one copy, and how home/wayland.scm fell six packages behind
+# home/base.scm.  These targets make the duplication checkable instead.
+# ---------------------------------------------------------------------------
+.PHONY: check-system check-keyd-sync check-channels-sync check-system-secrets
+
+check-system: check-keyd-sync check-channels-sync check-system-secrets
+	@echo "==> system/: all checks passed"
+
+# Compares FUNCTIONAL lines only (comments and blanks stripped), so the two
+# copies may explain themselves differently -- keyd.conf carries the long-form
+# rationale -- while the bindings themselves must match exactly.
+check-keyd-sync:
+	@echo "==> keyd.conf vs %keyd-config in system/framework-dual.scm"
+	@a=$$(mktemp); b=$$(mktemp); \
+	grep -vE '^[[:space:]]*#|^[[:space:]]*$$' keyd.conf > $$a; \
+	sed -n '/plain-file "keyd-default.conf"/,/^"))/p' system/framework-dual.scm \
+	  | sed '1d;$$d' | sed 's/^[[:space:]]*"//' \
+	  | grep -vE '^[[:space:]]*#|^[[:space:]]*$$' > $$b; \
+	if diff -u $$a $$b > /dev/null 2>&1; then \
+	  echo "    in sync"; rm -f $$a $$b; \
+	else \
+	  echo "    DRIFT -- the deployed keyd config and the repo copy disagree:"; \
+	  diff -u $$a $$b || true; rm -f $$a $$b; exit 1; \
+	fi
+
+# Compares channel names, URLs, commits and fingerprints as an unordered set,
+# so formatting and the (define ...) wrapper are free to differ.
+check-channels-sync:
+	@echo "==> system/channels-framework-dual.scm vs %framework-dual-channels"
+	@a=$$(mktemp); b=$$(mktemp); \
+	pat='\(name .[a-z]+|"[0-9a-f]{40}"|https://[^"]+|[0-9A-F]{4} [0-9A-F ]+[0-9A-F]{4}'; \
+	grep -oE "$$pat" system/channels-framework-dual.scm | sort > $$a; \
+	sed -n '/define %framework-dual-channels/,/^$$/p' system/framework-dual.scm \
+	  | grep -oE "$$pat" | sort > $$b; \
+	if diff -u $$a $$b > /dev/null 2>&1; then \
+	  echo "    in sync"; rm -f $$a $$b; \
+	else \
+	  echo "    DRIFT -- the install-time pin and the deployed pin disagree:"; \
+	  diff -u $$a $$b || true; rm -f $$a $$b; exit 1; \
+	fi
+
+# Anything an operating-system record puts in the store is world-readable ON THE
+# MACHINE -- activation scripts included -- so an inlined secret leaks to every
+# local user no matter who can read this repo.  Secrets get referenced by path
+# and deployed out of band; see the table in system/README.md.
+#
+# The field is `password', NOT `hashed-password' -- that is NixOS's name, and
+# grepping for it catches nothing on Guix.  See (gnu system accounts) line 75:
+#
+#   (password  user-account-password (default #f))
+#
+# `(password #f)' is the safe value and the default, so the pattern below
+# deliberately allows `#' after the field name and rejects everything else.
+# `(crypt ...)' gets its own alternative because the common idiom embeds the
+# PLAINTEXT: (password (crypt "hunter2" "$6$salt")).
+#
+# The leading ^[^;]* confines the match to code: a Scheme comment starts with
+# `;', which the character class cannot cross, so documentation like the nmcli
+# example in framework-dual.scm does not trip it.
+check-system-secrets:
+	@echo "==> system/*.scm for inlined credentials"
+	@if grep -nE '^[^;]*(\(password[[:space:]]+[^#)[:space:]]|\(crypt[[:space:]]|hashed-password|private-key|psk|BEGIN [A-Z ]*PRIVATE KEY)' system/*.scm; then \
+	  echo ""; \
+	  echo "    FAIL: that belongs on the machine, not in a config."; \
+	  echo "    Whatever goes here is spliced into an activation gexp"; \
+	  echo "    (gnu/system/shadow.scm:422) and lands in /gnu/store, which is"; \
+	  echo "    world-readable -- so this leaks locally even in a private repo."; \
+	  echo ""; \
+	  echo "    account password -> leave (password #f), set it with passwd"; \
+	  echo "    wifi PSK         -> NetworkManager keeps it in /etc/NetworkManager/system-connections/"; \
+	  echo "    private keys     -> reference a path, deploy the file separately"; \
+	  exit 1; \
+	else \
+	  echo "    clean"; \
+	fi
