@@ -33,6 +33,21 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 
 git checkout-index --prefix="$tmp/" -a
 
+# Sharp edge, and the reason for the warning below: the Makefile comes from the
+# index too. Add or edit a check without staging the Makefile and this runs the
+# OLD ruleset against the new files.
+#
+# What makes that genuinely dangerous is that it still BLOCKS the commit -- with
+# "No rule to make target 'check-whatever'" rather than a real finding. A hook
+# that fails for the wrong reason is indistinguishable from one that works, and
+# the natural reading of a red pre-commit is "good, it caught something." It did
+# not. Stage the Makefile in the same commit as whatever it guards.
+if ! git diff --quiet -- Makefile; then
+    echo "pre-commit: NOTE -- Makefile has unstaged changes."
+    echo "            These checks run the STAGED Makefile, not your working copy."
+    echo "            If a target seems to be missing, that is why."
+fi
+
 # Run only the checks whose inputs are actually present. A commit that removes
 # home/ or system/ has nothing for that half to check, and the Makefile globs
 # would error rather than pass.

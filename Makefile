@@ -840,6 +840,11 @@ home-check:
 # removed from one copy, and how home/wayland.scm fell six packages behind
 # home/base.scm.  These targets make the duplication checkable instead.
 # ---------------------------------------------------------------------------
+# If you ADD a check here, stage this Makefile in the same commit as the files it
+# guards.  githooks/pre-commit runs these against the index, Makefile included, so
+# an unstaged new target makes the hook fail with "No rule to make target" instead
+# of a real finding -- which still blocks the commit and so reads like a catch.
+# The hook warns when this Makefile has unstaged changes; see the note there.
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
 .PHONY: check-home-sync install-hooks
 
