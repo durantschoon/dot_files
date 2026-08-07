@@ -38,7 +38,11 @@
               ;; so ASPELL_DICT_DIR resolves the dictionary)
               "aspell" "aspell-dict-en"
               ;; SankeyFin dev toolchain (see sankeyfin/scripts/guix-manifest.scm)
-              "openjdk" "clojure-tools" "just"))
+              "openjdk" "clojure-tools" "just"
+              ;; For bin/install-claude.sh: curl fetches the Claude Code
+              ;; binary, and glibc provides the ld-linux loader its wrapper
+              ;; uses to run the unmodified binary (no FHS /lib64 on Guix)
+              "curl" "glibc"))
            (list babashka)))
   (services
    (list

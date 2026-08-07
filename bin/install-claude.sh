@@ -1,47 +1,56 @@
 #!/usr/bin/env bash
 # install-claude.sh -- install (or update) Claude Code, with Guix System support.
 #
-# Claude Code's official installer ships a dynamically linked binary that
-# expects the FHS glibc loader (/lib64/ld-linux-x86-64.so.2). Guix System is
-# not FHS, so the binary fails at exec. Fix: after installing, patchelf the
-# binary to use the loader and libstdc++/libgcc from a Guix profile.
+# Claude Code's native binary is a Bun single-file executable, dynamically
+# linked, expecting the FHS glibc loader (/lib64/ld-linux-x86-64.so.2).
+# Guix System is not FHS, so the binary cannot exec there. Two things do
+# NOT work, learned the hard way:
 #
-# macOS and Debian derivatives are FHS-friendly, so the stock installer is
-# all they need.
+#   * patchelf: Bun binaries locate their embedded JS blob via a trailer at
+#     the end of the file; patchelf grows/rewrites the ELF, the trailer is
+#     no longer where Bun expects it, and the binary segfaults on startup.
+#   * the official installer: its final step runs the downloaded binary to
+#     self-install ("$binary" install), which is exactly what cannot exec
+#     on Guix yet -- chicken and egg.
+#
+# What does work: run the UNMODIFIED binary through the Guix glibc loader
+# explicitly (`ld-linux-x86-64.so.2 --library-path ... claude`). The binary
+# needs only glibc libs (libc/libm/libdl/libpthread/librt -- no libstdc++),
+# and Bun's blob discovery survives loader invocation (verified: --version
+# works when invoked this way). So on Guix this script mimics the official
+# installer -- fetch latest version, checksum-verify, place the binary in
+# ~/.local/share/claude/versions/ -- then writes ~/.local/bin/claude as a
+# tiny wrapper that execs the loader on it.
+#
+# macOS and FHS Linuxen just use the official installer.
 #
 # Safe to re-run at any time: if `claude` already runs, this script exits
 # without touching anything (pass --force to reinstall/update anyway). That
-# also makes it self-healing on Guix -- when the auto-updater replaces the
-# patched binary with an unpatched one, --version fails and a re-run
-# reinstalls and re-patches.
+# also makes it self-healing on Guix -- if Claude's auto-updater replaces
+# the wrapper with a symlink to a new unwrapped binary, --version fails and
+# a re-run rebuilds the wrapper around the freshly downloaded version.
 
 set -euo pipefail
 
 INSTALLER_URL="https://claude.ai/install.sh"
+DOWNLOAD_BASE_URL="https://downloads.claude.ai/claude-code-releases"
 
-log() { printf '==> %s\n' "$*"; }
+# Logs go to stderr so functions can return values on stdout.
+log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 run_official_installer() {
-    # $1 = "lenient" to tolerate installer failure (on Guix its post-install
-    # self-check runs the still-unpatched binary and fails; the download
-    # itself has already landed by then).
-    local mode="${1:-strict}"
     command -v curl >/dev/null 2>&1 || die "curl is required (guix/brew/apt install curl)"
     log "running the official installer ($INSTALLER_URL)"
-    if [ "$mode" = lenient ]; then
-        curl -fsSL "$INSTALLER_URL" | bash || \
-            log "installer exited non-zero (expected pre-patch on Guix); continuing"
-    else
-        curl -fsSL "$INSTALLER_URL" | bash
-    fi
+    curl -fsSL "$INSTALLER_URL" | bash
 }
 
 # ---------------------------------------------------------------------------
-# Guix System: patch the downloaded binary against a Guix profile's glibc
+# Guix System: download the binary ourselves and wrap it with the glibc loader
 # ---------------------------------------------------------------------------
 
-# Profiles searched for the loader and C++ runtime, most specific first.
+# Profiles searched for the loader, most specific first. glibc is in the
+# home profile via home/*.scm; ~/.guix-profile is the imperative fallback.
 guix_profile_lib_dirs() {
     printf '%s\n' \
         "$HOME/.guix-profile/lib" \
@@ -53,6 +62,14 @@ loader_glob() {
     case "$(uname -m)" in
         x86_64)  echo 'ld-linux-x86-64.so.*' ;;
         aarch64) echo 'ld-linux-aarch64.so.*' ;;
+        *)       die "unsupported architecture: $(uname -m)" ;;
+    esac
+}
+
+release_platform() {
+    case "$(uname -m)" in
+        x86_64)  echo linux-x64 ;;
+        aarch64) echo linux-arm64 ;;
         *)       die "unsupported architecture: $(uname -m)" ;;
     esac
 }
@@ -69,70 +86,88 @@ guix_locate_lib_dir() {
     return 1
 }
 
-# Install whatever the patch step needs but no profile currently provides.
-guix_ensure_patch_deps() {
-    local missing=()
-    guix_locate_lib_dir "$(loader_glob)"  >/dev/null || missing+=(glibc)
-    guix_locate_lib_dir 'libstdc++.so.*'  >/dev/null || missing+=(gcc-toolchain)
-    command -v patchelf >/dev/null 2>&1              || missing+=(patchelf)
-    if [ "${#missing[@]}" -gt 0 ]; then
-        log "installing patch dependencies into ~/.guix-profile: ${missing[*]}"
-        guix install "${missing[@]}"
-        # A fresh profile's bin/ may not be on PATH in this shell yet.
-        export PATH="$HOME/.guix-profile/bin:$PATH"
-        hash -r
+guix_ensure_glibc() {
+    if ! guix_locate_lib_dir "$(loader_glob)" >/dev/null; then
+        log "no glibc loader in any profile; installing glibc into ~/.guix-profile"
+        log "(declarative alternative: it is in home/*.scm; 'make apply-wayland')"
+        guix install glibc
     fi
 }
 
-is_elf() {
-    [ "$(head -c 4 "$1" 2>/dev/null)" = "$(printf '\x7fELF')" ]
+# Mimic the official installer: fetch the latest version, checksum-verify,
+# install to ~/.local/share/claude/versions/<version>. Prints the binary path.
+guix_download_claude() {
+    local platform version manifest checksum versions_dir bin_path
+    platform="$(release_platform)"
+    version="$(curl -fsSL "$DOWNLOAD_BASE_URL/latest")"
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || die "unexpected version string: '$version'"
+
+    versions_dir="$HOME/.local/share/claude/versions"
+    mkdir -p "$versions_dir"
+    bin_path="$versions_dir/$version"
+
+    log "downloading Claude Code $version ($platform)"
+    curl -fsSL -o "$bin_path.tmp" "$DOWNLOAD_BASE_URL/$version/$platform/claude"
+
+    # Same checksum-extraction regex the official install.sh uses.
+    manifest="$(curl -fsSL "$DOWNLOAD_BASE_URL/$version/manifest.json")"
+    if [[ $manifest =~ \"$platform\"[^}]*\"checksum\"[[:space:]]*:[[:space:]]*\"([a-f0-9]{64})\" ]]; then
+        checksum="${BASH_REMATCH[1]}"
+        echo "$checksum  $bin_path.tmp" | sha256sum -c - >/dev/null 2>&1 \
+            || die "checksum mismatch for downloaded binary"
+        log "checksum verified"
+    else
+        log "warning: could not extract checksum from manifest; skipping verification"
+    fi
+
+    chmod 755 "$bin_path.tmp"
+    mv "$bin_path.tmp" "$bin_path"
+    printf '%s\n' "$bin_path"
 }
 
-# Patch every ELF the installer left behind: the launcher target in
-# ~/.local/bin plus any versioned binaries under ~/.local/share/claude.
-guix_patch_claude_binaries() {
-    local loader_dir stdcxx_dir loader rpath
+# Write ~/.local/bin/claude as a wrapper that runs the unmodified binary
+# through the Guix glibc loader. Never patch the binary itself (see header).
+guix_write_wrapper() {
+    local bin_path="$1" loader_dir loader lib_path stdcxx_dir wrapper
     loader_dir="$(guix_locate_lib_dir "$(loader_glob)")" || die "no glibc loader in any Guix profile"
-    stdcxx_dir="$(guix_locate_lib_dir 'libstdc++.so.*')" || die "no libstdc++ in any Guix profile"
     loader="$(compgen -G "$loader_dir/$(loader_glob)" | head -n1)"
-    rpath="$loader_dir:$stdcxx_dir"
-
-    local candidates=()
-    if [ -e "$HOME/.local/bin/claude" ]; then
-        candidates+=("$(readlink -f "$HOME/.local/bin/claude")")
+    lib_path="$loader_dir"
+    # Not needed by today's binary, but harmless future-proofing if present.
+    if stdcxx_dir="$(guix_locate_lib_dir 'libstdc++.so.*')"; then
+        lib_path="$lib_path:$stdcxx_dir"
     fi
-    if [ -d "$HOME/.local/share/claude" ]; then
-        while IFS= read -r f; do
-            candidates+=("$f")
-        done < <(find "$HOME/.local/share/claude" -type f -perm -u+x 2>/dev/null)
-    fi
-    [ "${#candidates[@]}" -gt 0 ] || die "no installed claude binary found under ~/.local"
 
-    local f patched=0
-    while IFS= read -r f; do
-        is_elf "$f" || continue
-        log "patching $f"
-        patchelf --set-interpreter "$loader" --set-rpath "$rpath" "$f"
-        patched=$((patched + 1))
-    done < <(printf '%s\n' "${candidates[@]}" | sort -u)
-    [ "$patched" -gt 0 ] || die "found claude files but none were ELF binaries; nothing patched"
+    wrapper="$HOME/.local/bin/claude"
+    mkdir -p "$HOME/.local/bin"
+    rm -f "$wrapper"
+    cat > "$wrapper" <<EOF
+#!/bin/sh
+# Generated by dot_files/bin/install-claude.sh -- Guix System launcher.
+# Runs the unmodified Claude Code binary via the Guix glibc loader; Guix
+# has no FHS /lib64 loader, and patchelf corrupts Bun binaries (embedded
+# JS blob trailer). Regenerate with: make install-claude
+exec "$loader" --argv0 "$bin_path" --library-path "$lib_path" "$bin_path" "\$@"
+EOF
+    chmod 755 "$wrapper"
+    log "wrote loader wrapper: $wrapper -> $bin_path"
 }
 
 guix_verify() {
     log "verifying: claude --version"
-    "$HOME/.local/bin/claude" --version || die "patched binary still fails to run"
+    "$HOME/.local/bin/claude" --version >&2 || die "wrapped binary still fails to run"
 }
 
 guix_autoupdate_note() {
     cat <<'EOF'
 
-NOTE (Guix): Claude Code's auto-updater will replace the patched binary with
-an unpatched one and it will stop launching. Either disable auto-updates:
+NOTE (Guix): Claude Code's auto-updater replaces the wrapper with a symlink
+to a new binary that cannot exec on Guix. Either disable auto-updates:
 
     export DISABLE_AUTOUPDATER=1   # add to your shell env
 
-and re-run `make install-claude` when you want a newer version, or leave
-updates on and re-run `make install-claude` whenever `claude` stops starting.
+and re-run `install-claude.sh --force` when you want a newer version, or
+leave updates on and re-run `make install-claude` whenever `claude` stops
+starting (make apply / apply-wayland / update do this automatically).
 EOF
 }
 
@@ -160,19 +195,21 @@ main() {
     # note: `which guix` also succeeds on Pop!_OS, so it is not a valid test).
     if [ -e /run/current-system ]; then
         log "Guix System detected"
-        guix_ensure_patch_deps
-        run_official_installer lenient
-        guix_patch_claude_binaries
+        command -v curl >/dev/null 2>&1 || die "curl is required (it is in home/*.scm; make apply-wayland)"
+        guix_ensure_glibc
+        local bin_path
+        bin_path="$(guix_download_claude)"
+        guix_write_wrapper "$bin_path"
         guix_verify
         guix_autoupdate_note
     elif [ "$(uname -s)" = Linux ]; then
         # Covers Debian derivatives, other FHS distros, and WSL alike --
         # the official installer handles all of them unpatched.
         log "Linux detected ($(uname -m))"
-        run_official_installer strict
+        run_official_installer
     elif [ "$(uname -s)" = Darwin ]; then
         log "macOS detected"
-        run_official_installer strict
+        run_official_installer
     else
         die "unhandled OS: $(uname -s) (native Windows: winget install Anthropic.ClaudeCode)"
     fi
