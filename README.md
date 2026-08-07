@@ -31,6 +31,15 @@ text that has to be duplicated (the keyd config and the channel pin, both
 inlined so the config stays evaluable by root from an installer ISO), and a
 guard against inlined credentials.
 
+```sh
+make install-hooks   # once per clone
+```
+
+points `core.hooksPath` at [`githooks/`](./githooks), so `check-system` also runs
+from a pre-commit hook whenever `system/`, `keyd.conf` or the `Makefile` are
+staged. It checks the staged tree rather than the working tree, so it validates
+what you are actually committing. `git commit --no-verify` bypasses it.
+
 ### Guix Home Note: Updating Dotfiles
 
 Since this repo is managed using **Guix Home**, files like `.aliases`, `.zshrc`, and `.zshenv` are symlinked into the **Guix Store** (e.g., `/gnu/store/.../aliases`).
