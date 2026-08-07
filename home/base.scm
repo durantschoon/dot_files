@@ -42,7 +42,24 @@
               ;; For bin/install-claude.sh: curl fetches the Claude Code
               ;; binary, and glibc provides the ld-linux loader its wrapper
               ;; uses to run the unmodified binary (no FHS /lib64 on Guix)
-              "curl" "glibc"))
+              "curl" "glibc"
+              ;; Web browser.  NOT "firefox": Mozilla's trademark policy keeps
+              ;; it out of Guix proper, so the spec simply fails to resolve.
+              ;; LibreWolf is the closest thing that is packaged -- upstream
+              ;; Firefox with the telemetry stripped.  (IceCat is the other
+              ;; option, but it ships LibreJS, which blocks the nonfree
+              ;; JavaScript claude.ai is built from.)  nonguix does package a
+              ;; real "firefox", but `make apply' pulls from channels.scm,
+              ;; which declares only the guix channel -- so it is not
+              ;; resolvable from here even on the box that has nonguix.
+              "librewolf"
+              ;; xdg-open, which is how Claude Code (and most CLI tools) turn
+              ;; "open this URL" into a running browser.  Neither %base-packages
+              ;; nor guix home supplies it; without it the OAuth login prints a
+              ;; URL and silently opens nothing.  See default-browser-activation
+              ;; below, which also has to name a handler for it to find.
+              "xdg-utils"
+              "perl"))
            (list babashka)))
   (services
    (list
@@ -72,6 +89,32 @@
                           (format #t "--- KEYD SETUP REQUIRED ---~%")
                           (format #t "To enable system-wide Emacs keys, run:~%")
                           (format #t "  sudo make setup-keyd~%~%"))))
+
+    ;; Register LibreWolf as the https:/http: handler.
+    ;;
+    ;; Installing a browser is not enough for `claude' (or any tool that shells
+    ;; out to xdg-open) to launch one.  On a fresh GNOME/Wayland install there
+    ;; is no default for x-scheme-handler/https, so xdg-open exits non-zero and
+    ;; the caller has nothing to report -- the login flow just prints its URL
+    ;; and appears to hang.  xdg-settings writes ~/.config/mimeapps.list, a real
+    ;; writable file, so this does not fight the store-symlink rules above.
+    ;;
+    ;; Best-effort on purpose: on a first-ever reconfigure the profile may not
+    ;; be on XDG_DATA_DIRS yet, so librewolf.desktop is unfindable and this is a
+    ;; no-op.  Re-running `make apply' settles it; $BROWSER below covers the gap.
+    (simple-service 'default-browser-activation
+                    home-activation-service-type
+                    #~(begin
+                        (setenv "XDG_DATA_DIRS"
+                                (string-append (getenv "HOME") "/.guix-home/profile/share:"
+                                               (or (getenv "XDG_DATA_DIRS")
+                                                   "/usr/local/share:/usr/share")))
+                        (unless (zero? (system* #$(file-append
+                                                   (specification->package "xdg-utils")
+                                                   "/bin/xdg-settings")
+                                                "set" "default-web-browser"
+                                                "librewolf.desktop"))
+                          (display "browser: could not set the default handler yet; re-run `make apply`\n"))))
 
     ;; Ensure Spacemacs and config are present
     (simple-service 'spacemacs-activation
@@ -184,6 +227,11 @@
            "export EDITOR='emacsclient -c -a \"\"'\n"
            "export VISUAL=\"$EDITOR\"\n"
            "export SPACEMACSDIR=\"$HOME/.spacemacs.d\"\n"
+           ;; Second route to a browser, for tools that consult $BROWSER before
+           ;; falling back to xdg-open. Belt and braces with the activation
+           ;; service above -- either one alone is enough, and which one a given
+           ;; tool honours is not worth discovering during a login flow.
+           "export BROWSER=librewolf\n"
            "eval \"$(starship init zsh)\"\n"
            "alias e='emacsclient -c -a \"\"'\n"
            "alias ec='emacsclient -t -a \"\"'\n"
