@@ -49,7 +49,12 @@
     "font-adobe-source-code-pro"
     "font-fira-code"
     "font-cica"
-    "nss-certs"))
+    "nss-certs"
+    ;; For bin/install-claude.sh: curl fetches the Claude Code binary, and
+    ;; glibc provides the ld-linux loader its wrapper uses to run the
+    ;; unmodified binary (Guix has no FHS /lib64 loader path).
+    "curl"
+    "glibc"))
 
 (define %wayland-packages
   '("espanso-wayland"))
