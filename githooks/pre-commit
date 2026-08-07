@@ -1,0 +1,49 @@
+#!/bin/sh
+# pre-commit -- enforce the system/ invariants at the moment they can still be
+# fixed cheaply.
+#
+# Install with `make install-hooks', which points core.hooksPath here. Because
+# that is repo-local git config rather than a tracked file, a fresh clone needs
+# the target run once; the hook cannot install itself.
+#
+# Bypass with `git commit --no-verify' when you genuinely need to (mid-rebase
+# fixups, committing a known-broken WIP on a branch).
+#
+# Two deliberate design choices:
+#
+#   Scoped.  It fires only when the commit touches system/, keyd.conf or the
+#   Makefile. A hook that blocks commits unrelated to its subject gets bypassed
+#   reflexively, and a reflexively bypassed hook guards nothing.
+#
+#   Staged, not working-tree.  `make check-system' reads files from disk, which
+#   for a pre-commit hook is the wrong tree: you can stage a clean version over
+#   a dirty working copy, or the reverse, and get an answer about neither. So
+#   this exports the index to a temporary directory and runs the checks there,
+#   against exactly the content being committed.
+
+set -e
+
+# Nothing this hook guards is in play -- get out of the way.
+git diff --cached --name-only | grep -qE '^(system/|keyd\.conf$|Makefile$)' || exit 0
+
+echo "pre-commit: system/ files staged, running check-system against the index"
+
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT INT TERM
+
+git checkout-index --prefix="$tmp/" -a
+
+# A commit that removes system/ entirely has nothing to check, and the globs in
+# the Makefile targets would error rather than pass.
+if [ ! -d "$tmp/system" ]; then
+    echo "pre-commit: no system/ in the staged tree, nothing to check"
+    exit 0
+fi
+
+if make -C "$tmp" --no-print-directory check-system; then
+    exit 0
+else
+    echo ""
+    echo "pre-commit: BLOCKED. Fix the above, or bypass with --no-verify."
+    exit 1
+fi
