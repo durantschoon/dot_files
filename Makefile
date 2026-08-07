@@ -135,8 +135,10 @@ warn-dotfiles-home:
 help:
 	@echo "Available targets:"
 	@echo ""
-	@echo "  make all           - Set up dotfiles (default target; symlinks ~/bin -> ~/dot_files/bin)"
+	@echo "  make all           - Set up dotfiles (default target; symlinks ~/bin -> ~/dot_files/bin,"
+	@echo "                       then installs Claude Code if missing)"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
+	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make apply         - Apply Guix Home configuration (reconfigure)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
 	@echo "  make emacs-env     - Regenerate ~/.spacemacs.d/.spacemacs.env from a clean"
@@ -182,7 +184,21 @@ else
 	@echo "This target is only for Guix systems"
 endif
 
-all: set_up_links
+all: set_up_links install-claude
+
+# Install Claude Code as part of bootstrap. The script is idempotent (skips
+# when `claude` already runs) and handles the Guix System non-FHS case by
+# patchelf'ing the official binary; see bin/install-claude.sh for details.
+# Native Windows has no bash, so just point at winget there.
+.PHONY: install-claude
+install-claude:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install Claude Code with:"
+	@echo "  winget install Anthropic.ClaudeCode"
+	@echo "(from WSL, run 'make install-claude' in the WSL shell instead)"
+else
+	@bash bin/install-claude.sh
+endif
 
 # We're going to insist we're in this directory so we can run commands from here
 dot_file_root_dir := $(wildcard ~/dot_files)
@@ -660,6 +676,8 @@ apply: warn-dotfiles-home
 	@guix home reconfigure --allow-downgrades home/base.scm
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
+	@echo "==> ensuring Claude Code is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-claude
 	@echo "==> done (Guix Home applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -693,6 +711,8 @@ apply-wayland: warn-dotfiles-home
 	@guix home reconfigure --allow-downgrades home/wayland.scm
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
+	@echo "==> ensuring Claude Code is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-claude
 	@echo "==> done (Guix Home Wayland applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -792,6 +812,8 @@ update: warn-dotfiles-home
 	@guix home reconfigure home/base.scm
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
+	@echo "==> ensuring Claude Code is installed (idempotent; re-patches if broken)"
+	@$(MAKE) --no-print-directory install-claude
 
 install-manifest:
 	@echo "==> guix package -m manifests/base.scm"
