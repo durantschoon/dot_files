@@ -840,10 +840,25 @@ home-check:
 # removed from one copy, and how home/wayland.scm fell six packages behind
 # home/base.scm.  These targets make the duplication checkable instead.
 # ---------------------------------------------------------------------------
-.PHONY: check-system check-keyd-sync check-channels-sync check-system-secrets
+.PHONY: check-system check-keyd-sync check-channels-sync check-system-secrets install-hooks
 
 check-system: check-keyd-sync check-channels-sync check-system-secrets
 	@echo "==> system/: all checks passed"
+
+# core.hooksPath rather than copying into .git/hooks: the hook stays a tracked
+# file, so editing githooks/pre-commit takes effect immediately with no second
+# install step to forget.  It is repo-local config and therefore not something
+# a fresh clone inherits -- run this once per clone.
+#
+# Safe here because .git/hooks holds nothing but the stock .sample files; if you
+# ever add a hook of your own, put it in githooks/ too, since hooksPath replaces
+# that directory wholesale rather than merging with it.
+install-hooks:
+	@chmod +x githooks/pre-commit
+	@git config core.hooksPath githooks
+	@echo "==> core.hooksPath -> githooks"
+	@echo "    pre-commit runs check-system when system/, keyd.conf or the"
+	@echo "    Makefile are staged; bypass with git commit --no-verify"
 
 # Compares FUNCTIONAL lines only (comments and blanks stripped), so the two
 # copies may explain themselves differently -- keyd.conf carries the long-form
