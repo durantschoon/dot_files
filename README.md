@@ -26,10 +26,19 @@ Running `make apply`, `make apply-wayland`, or `make set_up_links` from another 
   config lives here rather than in the installer project, and the no-secrets
   invariant these files have to hold.
 
-`make check-system` runs the `system/` integrity checks: two drift checks for
-text that has to be duplicated (the keyd config and the channel pin, both
-inlined so the config stays evaluable by root from an installer ISO), and a
-guard against inlined credentials.
+`make check` runs both layers' integrity checks:
+
+| Target | Guards |
+|---|---|
+| `check-home-sync` | `wayland.scm` covering everything in `base.scm` — packages, home-files, services |
+| `check-keyd-sync` | `keyd.conf` vs the copy inlined in `system/framework-dual.scm` |
+| `check-channels-sync` | the install-time channel pin vs the one the system deploys |
+| `check-system-secrets` | no credentials inlined into `system/*.scm` |
+
+The duplication these guard is deliberate: `wayland.scm` is a divergent copy
+rather than an extension of `base.scm`, and the `system/` config inlines what it
+needs so it stays evaluable by root from an installer ISO. Duplication that
+can't be removed can at least be made checkable.
 
 ```sh
 make install-hooks   # once per clone

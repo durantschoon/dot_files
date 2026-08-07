@@ -11,9 +11,9 @@
 #
 # Two deliberate design choices:
 #
-#   Scoped.  It fires only when the commit touches system/, keyd.conf or the
-#   Makefile. A hook that blocks commits unrelated to its subject gets bypassed
-#   reflexively, and a reflexively bypassed hook guards nothing.
+#   Scoped.  It fires only when the commit touches home/, system/, keyd.conf or
+#   the Makefile. A hook that blocks commits unrelated to its subject gets
+#   bypassed reflexively, and a reflexively bypassed hook guards nothing.
 #
 #   Staged, not working-tree.  `make check-system' reads files from disk, which
 #   for a pre-commit hook is the wrong tree: you can stage a clean version over
@@ -24,23 +24,36 @@
 set -e
 
 # Nothing this hook guards is in play -- get out of the way.
-git diff --cached --name-only | grep -qE '^(system/|keyd\.conf$|Makefile$)' || exit 0
+git diff --cached --name-only | grep -qE '^(home/|system/|keyd\.conf$|Makefile$)' || exit 0
 
-echo "pre-commit: system/ files staged, running check-system against the index"
+echo "pre-commit: guarded files staged, running make check against the index"
 
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 git checkout-index --prefix="$tmp/" -a
 
-# A commit that removes system/ entirely has nothing to check, and the globs in
-# the Makefile targets would error rather than pass.
-if [ ! -d "$tmp/system" ]; then
-    echo "pre-commit: no system/ in the staged tree, nothing to check"
+# Run only the checks whose inputs are actually present. A commit that removes
+# home/ or system/ has nothing for that half to check, and the Makefile globs
+# would error rather than pass.
+#
+# Written as full if-blocks rather than `[ -d x ] && targets=...' because under
+# `set -e' a trailing false test is itself a failing command, and the hook would
+# abort with no output -- reading, from the outside, exactly like a pass.
+targets=""
+if [ -d "$tmp/home" ]; then
+    targets="$targets check-home-sync"
+fi
+if [ -d "$tmp/system" ]; then
+    targets="$targets check-system"
+fi
+
+if [ -z "$targets" ]; then
+    echo "pre-commit: neither home/ nor system/ in the staged tree, nothing to check"
     exit 0
 fi
 
-if make -C "$tmp" --no-print-directory check-system; then
+if make -C "$tmp" --no-print-directory $targets; then
     exit 0
 else
     echo ""

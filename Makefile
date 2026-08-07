@@ -840,10 +840,70 @@ home-check:
 # removed from one copy, and how home/wayland.scm fell six packages behind
 # home/base.scm.  These targets make the duplication checkable instead.
 # ---------------------------------------------------------------------------
-.PHONY: check-system check-keyd-sync check-channels-sync check-system-secrets install-hooks
+.PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
+.PHONY: check-home-sync install-hooks
+
+check: check-home-sync check-system
+	@echo "==> all checks passed"
 
 check-system: check-keyd-sync check-channels-sync check-system-secrets
 	@echo "==> system/: all checks passed"
+
+# home/wayland.scm is a divergent COPY of home/base.scm rather than an extension
+# of it, so anything added to base must be added there too or `make apply-wayland'
+# silently drops it -- which is exactly what happened to aspell (a9503ff), cmake,
+# openjdk, clojure-tools, just, the IPython startup files and the claude-code-ide
+# clone, on the machine that deploys wayland.scm.
+#
+# The relation checked is base SUBSET-OF wayland, not equality: wayland legitimately
+# adds espanso-wayland and its config files. That direction catches the real
+# failure mode (add to base, forget wayland) without false-positiving on the
+# wayland-only additions that are the whole point of the second file.
+#
+# Comments are stripped before extraction because they contain quoted words that
+# would otherwise read as package specs -- the librewolf note alone mentions
+# "firefox" twice.
+#
+# WHAT THIS DOES NOT COVER, so you do not read a pass as more than it is: it
+# compares package specs, home-files destination paths, and service names. It
+# does not compare the BODIES of activation gexps. Run against the pre-fix tree
+# (6cae015) it correctly reports all six missing packages and both IPython
+# files, but it is blind to the claude-code-ide clone that was missing from
+# wayland.scm's spacemacs-activation, because that is a difference inside a
+# service that both files declare. Diff the two files by hand when you touch an
+# activation body.
+check-home-sync:
+	@echo "==> home/base.scm entries vs home/wayland.scm"
+	@rc=0; t=$$(mktemp -d); \
+	sed -n '/specifications->packages/,/(list babashka)/p' home/base.scm \
+	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-base; \
+	sed -n '/define %base-packages/,/^(home-environment/p' home/wayland.scm \
+	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-way; \
+	sed 's/;.*//' home/base.scm    | grep -oE '`\("[^"]+"' | sed 's/^`("//;s/"$$//' | sort -u > $$t/file-base; \
+	sed 's/;.*//' home/wayland.scm | grep -oE '`\("[^"]+"' | sed 's/^`("//;s/"$$//' | sort -u > $$t/file-way; \
+	sed 's/;.*//' home/base.scm    | grep -oE "simple-service '[a-z-]+|\(service [a-z-]+-service-type" | sed "s/.*'//;s/(service //" | sort -u > $$t/svc-base; \
+	sed 's/;.*//' home/wayland.scm | grep -oE "simple-service '[a-z-]+|\(service [a-z-]+-service-type" | sed "s/.*'//;s/(service //" | sort -u > $$t/svc-way; \
+	for k in pkg file svc; do \
+	  miss=$$(comm -23 $$t/$$k-base $$t/$$k-way); \
+	  if [ -n "$$miss" ]; then \
+	    rc=1; \
+	    case $$k in \
+	      pkg)  echo "    packages in base.scm but MISSING from wayland.scm:" ;; \
+	      file) echo "    home-files in base.scm but MISSING from wayland.scm:" ;; \
+	      svc)  echo "    services in base.scm but MISSING from wayland.scm:" ;; \
+	    esac; \
+	    echo "$$miss" | sed 's/^/      /'; \
+	  fi; \
+	done; \
+	rm -rf $$t; \
+	if [ $$rc -eq 0 ]; then \
+	  echo "    wayland.scm covers everything in base.scm"; \
+	else \
+	  echo ""; \
+	  echo "    The Guix System box deploys wayland.scm, so anything only in"; \
+	  echo "    base.scm never reaches the machine that needs it."; \
+	  exit 1; \
+	fi
 
 # core.hooksPath rather than copying into .git/hooks: the hook stays a tracked
 # file, so editing githooks/pre-commit takes effect immediately with no second
@@ -857,7 +917,7 @@ install-hooks:
 	@chmod +x githooks/pre-commit
 	@git config core.hooksPath githooks
 	@echo "==> core.hooksPath -> githooks"
-	@echo "    pre-commit runs check-system when system/, keyd.conf or the"
+	@echo "    pre-commit runs the checks when home/, system/, keyd.conf or the"
 	@echo "    Makefile are staged; bypass with git commit --no-verify"
 
 # Compares FUNCTIONAL lines only (comments and blanks stripped), so the two
