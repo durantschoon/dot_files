@@ -12,3 +12,7 @@ CHECKLIST.md
 
 # Espanso private snippets (in submodule espanso/private; local copy must not be committed)
 espanso/match/private.yml
+
+# Claude Code per-machine permission approvals (accumulates as prompts are
+# approved; /gnu/store paths in it are generation-specific anyway)
+.claude/settings.local.json
