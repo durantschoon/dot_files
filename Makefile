@@ -900,6 +900,18 @@ check-system-hosts:
 # would otherwise read as package specs -- the librewolf note alone mentions
 # "firefox" twice.
 #
+# The sed ranges end on a STRUCTURAL marker -- the `(services' field -- not on
+# the last package in the list. The end marker used to be `(list babashka)', and
+# a4056fc appending github-cli to that line turned it into
+# `(list babashka github-cli)))', which the pattern no longer matched. An
+# unmatched end address does not error: sed just prints to EOF, so the extractor
+# swallowed the whole file and reported every quoted string in it -- home-file
+# names, gsettings keys, "set", "bin" -- as a package missing from wayland.scm.
+# That is a check failing OPEN in the noisiest possible way: it blocked the
+# pre-commit hook on ~24 phantom findings while no longer comparing package
+# lists at all. Anything that names a package here breaks the moment that
+# package moves.
+#
 # WHAT THIS DOES NOT COVER, so you do not read a pass as more than it is: it
 # compares package specs, home-files destination paths, and service names. It
 # does not compare the BODIES of activation gexps. Run against the pre-fix tree
@@ -911,7 +923,7 @@ check-system-hosts:
 check-home-sync:
 	@echo "==> home/base.scm entries vs home/wayland.scm"
 	@rc=0; t=$$(mktemp -d); \
-	sed -n '/specifications->packages/,/(list babashka)/p' home/base.scm \
+	sed -n '/specifications->packages/,/^[[:space:]]*(services/p' home/base.scm \
 	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-base; \
 	sed -n '/define %base-packages/,/^(home-environment/p' home/wayland.scm \
 	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-way; \
