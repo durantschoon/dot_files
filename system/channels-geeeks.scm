@@ -1,11 +1,11 @@
 ;; system/channels-geeeks.scm
 ;;
-;; Pinned guix + nonguix for host `geeeks' -- the Framework 13 (AMD Ryzen AI
-;; 300).  Resolved from channel HEAD on 2026-08-01.
+;; Pinned guix + nonguix for host class `geeeks' -- the Framework 13 (AMD Ryzen
+;; AI 300).  Resolved from channel HEAD on 2026-08-01.
 ;;
-;; One pin file per machine, named channels-<host>.scm to sit beside the
-;; <host>.scm it belongs to.  `make check-channels-sync' walks system/*.scm and
-;; requires each machine config to have one.
+;; One pin file per host class, named channels-<class>.scm to sit beside the
+;; <class>.scm it belongs to.  `make check-channels-sync' walks system/*.scm and
+;; requires every host class config to have one.
 ;;
 ;; Replaces the wingolog-era (2024-02-16) pin, which predates this laptop's
 ;; silicon by ~5 months and therefore cannot supply its amdgpu firmware

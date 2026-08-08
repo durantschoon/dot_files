@@ -17,22 +17,28 @@ Running `make apply`, `make apply-wayland`, or `make set_up_links` from another 
 
 ### Two layers: `home/` and `system/`
 
-- **`home/`** — the `guix home` configs (`base.scm`, `wayland.scm`). These work
-  on Guix System *and* on a foreign distro like Pop!_OS, and they own the user
-  profile. This is what `make apply` / `make apply-wayland` deploy.
-- **`system/`** — the `operating-system` configs, for machines running Guix as
-  the OS. Deployed with `guix system reconfigure`, not `guix home`. See
-  [`system/README.md`](./system/README.md), which explains why the living
-  config lives here rather than in the installer project, and the no-secrets
-  invariant these files have to hold.
+The split is by *what decides the contents*, not by which command deploys them:
+
+- **`home/`** — user preferences, decided by what one person wants (windowing
+  system, fonts, shell, editor) and independent of the hardware underneath. The
+  `guix home` configs (`base.scm`, `wayland.scm`) work on Guix System *and* on a
+  foreign distro like Pop!_OS, and they own the user profile. This is what `make
+  apply` / `make apply-wayland` deploy.
+- **`system/`** — host classes, decided by a hardware combination plus the needs
+  *any* user has on it (it boots, it reaches a network, it is secure) and
+  independent of who is using it. `operating-system` configs named after the host
+  class they describe, deployed with `guix system reconfigure`. See
+  [`system/README.md`](./system/README.md) for the full distinction, the test for
+  which side a given setting belongs on, and the no-secrets invariant these files
+  have to hold.
 
 `make check` runs both layers' integrity checks:
 
 | Target | Guards |
 |---|---|
 | `check-home-sync` | `wayland.scm` covering everything in `base.scm` — packages, home-files, services |
-| `check-system-hosts` | each `system/<host>.scm` vs the `(host-name ...)` inside it |
-| `check-keyd-sync` | `keyd.conf` vs the copy inlined in `system/<host>.scm` |
+| `check-system-hosts` | each `system/<class>.scm` vs the `(host-name ...)` inside it |
+| `check-keyd-sync` | `keyd.conf` vs the copy inlined in `system/<class>.scm` |
 | `check-channels-sync` | the install-time channel pin vs the one the system deploys |
 | `check-system-secrets` | no credentials inlined into `system/*.scm` |
 
