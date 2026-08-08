@@ -40,6 +40,7 @@
     "fd"
     "fzf"
     "eza"
+    "jq"
     "go"
     "qemu"
     "emacs"
