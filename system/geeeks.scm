@@ -1,5 +1,12 @@
-;; Framework 13 AMD (Ryzen AI 300 / Strix Point) - Dual-Boot Minimal Config
+;; geeeks -- Framework 13 AMD (Ryzen AI 300 / Strix Point), dual-booting Pop!_OS
 ;; Revised 2026-08-02.
+;;
+;; The file name is the HOST NAME, matching (host-name "geeeks") below, and
+;; `make check-system-hosts' enforces that the two agree.  It is not decoration:
+;; this record hardcodes disk labels, firmware and a bootloader target, and
+;; `guix system reconfigure' will apply any config you hand it, so the file name
+;; is what tells you which one belongs to the box you are sitting at.  A second
+;; machine (a cloud VM, say) gets system/<its-host>.scm beside this.
 ;;
 ;; Changes from the previously deployed /etc/config.scm:
 ;;
@@ -34,8 +41,8 @@
 ;;      file-system using (flags '(no-atime)) rather than (options "noatime").
 ;;
 ;; Build with the pinned channels, NOT with the host guix:
-;;   guix time-machine -C ~/channels-framework-dual.scm -- \
-;;     system init /mnt/guixroot/etc/config.scm /mnt/guixroot
+;;   guix time-machine -C system/channels-geeeks.scm -- \
+;;     system init system/geeeks.scm /mnt/guixroot
 
 (use-modules (gnu)
              (gnu packages base)       ;glibc, for the ld.so compatibility symlink
@@ -54,7 +61,12 @@
 
 ;; Channels pinned 2026-08-01, mirrored from the installer into this system.
 ;; The guix service writes these to /etc/guix/channels.scm at activation.
-(define %framework-dual-channels
+;;
+;; Named %system-channels rather than %geeeks-channels so every machine config
+;; in system/ uses the same identifier: `make check-channels-sync' is then one
+;; loop over system/*.scm pairing each with its system/channels-<host>.scm,
+;; instead of a pattern that has to be edited for each new machine.
+(define %system-channels
   (list (channel
          (name 'guix)
          (url "https://git.savannah.gnu.org/git/guix.git")
@@ -461,7 +473,7 @@ leftcontrol = capslock
      (guix-service-type
       config => (guix-configuration
                  (inherit config)
-                 (channels %framework-dual-channels)
+                 (channels %system-channels)
                  (substitute-urls
                   (cons "https://substitutes.nonguix.org"
                         %default-substitute-urls))

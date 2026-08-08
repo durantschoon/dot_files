@@ -1,7 +1,11 @@
-;; system/channels-framework-dual.scm
+;; system/channels-geeeks.scm
 ;;
-;; Pinned guix + nonguix for the Framework 13 (AMD Ryzen AI 300).
-;; Resolved from channel HEAD on 2026-08-01.
+;; Pinned guix + nonguix for host `geeeks' -- the Framework 13 (AMD Ryzen AI
+;; 300).  Resolved from channel HEAD on 2026-08-01.
+;;
+;; One pin file per machine, named channels-<host>.scm to sit beside the
+;; <host>.scm it belongs to.  `make check-channels-sync' walks system/*.scm and
+;; requires each machine config to have one.
 ;;
 ;; Replaces the wingolog-era (2024-02-16) pin, which predates this laptop's
 ;; silicon by ~5 months and therefore cannot supply its amdgpu firmware
@@ -10,13 +14,13 @@
 ;; At this pin, nonguix's `linux' is 7.1 and `linux-lts' is 6.18. Both are well
 ;; past the 6.10 that gfx11.5 support requires.
 ;;
-;; These commits are duplicated as %framework-dual-channels inside
-;; framework-dual.scm, which mirrors them into /etc/guix/channels.scm on the
-;; installed system.  The duplication is deliberate -- see system/README.md --
-;; and `make check-channels-sync' fails if the two drift apart.
+;; These commits are duplicated as %system-channels inside geeeks.scm, which
+;; mirrors them into /etc/guix/channels.scm on the installed system.  The
+;; duplication is deliberate -- see system/README.md -- and
+;; `make check-channels-sync' fails if the two drift apart.
 ;;
 ;; Usage (from a checkout of this repo, on the installer ISO):
-;;   guix time-machine -C system/channels-framework-dual.scm -- system init ...
+;;   guix time-machine -C system/channels-geeeks.scm -- system init ...
 
 (list
   (channel
