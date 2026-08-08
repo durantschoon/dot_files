@@ -163,7 +163,19 @@ sudo guix system reconfigure system/$(hostname).scm
 sudo herd restart keyd     # /etc/keyd/default.conf changes need a reload
 ```
 
-`keyd` ships `(auto-start? #f)` deliberately: it grabs the physical keyboard, and
-a bad config auto-starting at boot leaves you with no console input and no way to
-type a rollback. Start it by hand, confirm Caps acts as Control, and only then
-consider flipping it.
+`keyd` ran with `(auto-start? #f)` through the first deploys, because it grabs
+the physical keyboard and a bad config auto-starting at boot leaves you with no
+console input and no way to type a rollback. That cost one `sudo herd start keyd`
+per boot, which is the whole reason to stop paying it once the config is proven —
+it is `#t` as of 2026-08-08.
+
+Two things still catch a bad keyd, which is what makes that affordable: the
+`ctrl:swapcaps` in each class's `keyboard-layout` is applied by the kernel keymap
+and by GDM/Xorg with no keyd involved, so Caps still acts as Control at a console
+either way; and GRUB still lists the previous generation. The care now belongs on
+edits to `%keyd-config` rather than on the flag — test one with `sudo herd restart
+keyd` on a running system before you reconfigure.
+
+Note that a plain `herd status keyd` fails with *"service 'keyd' could not be
+found"*. That queries the **user** shepherd that `guix home` runs; `keyd` is a
+root service, so it needs `sudo herd`.

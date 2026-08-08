@@ -426,21 +426,35 @@ leftcontrol = capslock
                  ;; and then disables a service that respawns too fast, so a
                  ;; broken config cannot become a tight crash loop.
                  (respawn? #t)
-                 ;; DELIBERATELY NOT auto-started on the first deploy.
+                 ;; Auto-started, as of 2026-08-08.  This was #f through the
+                 ;; first deploys, on purpose: keyd grabs the physical keyboard
+                 ;; and re-emits through a virtual device, and if that goes
+                 ;; wrong you have no console input, at boot, with no way to
+                 ;; type a rollback.  This machine has already lost its internal
+                 ;; keyboard once (the noapic/nolapic episode,
+                 ;; docs/FRAMEWORK_STARTUP_HANG_FIX.md) and it is an i8042
+                 ;; device either way.
                  ;;
-                 ;; keyd grabs the physical keyboard and re-emits through a
-                 ;; virtual device; if that goes wrong you have no console
-                 ;; input, at boot, with no way to type a rollback.  This
-                 ;; machine has already lost its internal keyboard once (the
-                 ;; noapic/nolapic episode, docs/FRAMEWORK_STARTUP_HANG_FIX.md)
-                 ;; and it is an i8042 device either way.
+                 ;; The config above has since run across many boots -- started
+                 ;; by hand every time, which is what #f cost -- so the
+                 ;; unproven-config case it guarded against no longer applies.
                  ;;
-                 ;; So: reconfigure, then `sudo herd start keyd', confirm Caps
-                 ;; acts as Control and Control-n/p/f/b move the cursor, and
-                 ;; only then set this to #t and reconfigure again.  Leaving it
-                 ;; #f costs one command per boot; getting it wrong costs the
-                 ;; keyboard.
-                 (auto-start? #f))))
+                 ;; Two things still catch a bad keyd, which is what makes #t
+                 ;; affordable rather than merely convenient:
+                 ;;
+                 ;;   - (keyboard-layout ... "ctrl:swapcaps") above is applied
+                 ;;     by the kernel keymap and by GDM/Xorg, entirely
+                 ;;     independently of keyd.  Caps still acts as Control at a
+                 ;;     console even with keyd dead or misbehaving.
+                 ;;   - GRUB still lists every previous generation, and this
+                 ;;     service is the only difference between them.
+                 ;;
+                 ;; Changing %keyd-config is the case to be careful with now,
+                 ;; not this flag: a bad edit there now takes effect at boot
+                 ;; rather than when you choose to start it.  Test one with
+                 ;; `sudo herd restart keyd' on a running system before
+                 ;; reconfiguring.
+                 (auto-start? #t))))
 
          ;; The FHS dynamic loader, as one symlink.
          ;;
