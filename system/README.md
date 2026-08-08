@@ -72,7 +72,7 @@ honest.
 A host class config passes through three states, and only two of them were
 versioned before this directory existed:
 
-1. **Generated** — the platform installer (currently `cloudzy-guix-install`,
+1. **Generated** — the platform installer (currently `guix-platform-install`,
    named before it grew past its first platform) writes a minimal
    `/mnt/etc/config.scm` at install time, one generator per hardware
    combination. Its job is getting Guix to boot on that hardware at all. That
