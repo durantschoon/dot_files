@@ -70,6 +70,7 @@ releases and other GitHub features to the terminal.")
     "fzf"
     "eza"
     "jq"
+    "file"
     "go"
     "qemu"
     "emacs"

@@ -62,7 +62,7 @@ releases and other GitHub features to the terminal.")
 (home-environment
   (packages
    (append (specifications->packages
-            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "jq" "go" "qemu" "emacs" "emacs-vterm" "cmake" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"
+            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "jq" "file" "go" "qemu" "emacs" "emacs-vterm" "cmake" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"
               ;; Spell-checking backend for Emacs ispell/flyspell (same profile
               ;; so ASPELL_DICT_DIR resolves the dictionary)
               "aspell" "aspell-dict-en"
