@@ -38,6 +38,9 @@
 ;; commit, so fetch the upstream release binary.  Unlike the Claude Code
 ;; binary (see bin/install-claude.sh) this one is a static Go build -- no
 ;; ld-linux loader, no shared libs -- so it runs on Guix unwrapped.
+;; Installing it does NOT log it in: gh keeps its token in the OS keyring,
+;; which nothing here tracks, so `gh auth login' is a one-time step per
+;; machine -- the same deal as the `ssh-add' note on gpg-agent below.
 (define github-cli
   (package
     (name "github-cli")
