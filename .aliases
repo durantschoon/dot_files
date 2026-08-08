@@ -44,6 +44,7 @@ alias ms='make shell'
 alias mt='make test'
 alias nrun='npm run'
 alias nrt='echo npm run test; npm run test'
+alias labels='lsblk -o NAME,SIZE,LABEL'
 alias path='echo $PATH | c2n'
 alias pp='popd; ds'
 alias port_scan='lsof -nP +c 15 | { head -1; grep LISTEN; } ' # mac only?
