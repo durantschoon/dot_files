@@ -1,5 +1,6 @@
 (use-modules (gnu home)
              (gnu home services)
+             (gnu home services gnupg)
              (gnu home services shells)
              (gnu home services shepherd)
              (gnu packages)
@@ -59,10 +60,31 @@
               ;; URL and silently opens nothing.  See default-browser-activation
               ;; below, which also has to name a handler for it to find.
               "xdg-utils"
+              ;; gpg CLI, matching the gpg-agent the service below runs
+              "gnupg"
               "perl"))
            (list babashka)))
   (services
    (list
+    ;; gpg-agent doubling as the SSH agent (ssh-support? #t): every login
+    ;; shell gets SSH_AUTH_SOCK pointed at gpg-agent's socket, so one unlock
+    ;; per cache-TTL covers git push from any terminal -- including Claude
+    ;; Code sessions, which otherwise have no agent at all.  One-time step
+    ;; per machine after reconfigure: `ssh-add ~/.ssh/id_ed25519_ds' imports
+    ;; the key into ~/.gnupg/sshcontrol permanently.
+    (service home-gpg-agent-service-type
+      (home-gpg-agent-configuration
+       (pinentry-program
+        (file-append (specification->package "pinentry") "/bin/pinentry"))
+       (ssh-support? #t)
+       (default-cache-ttl 3600)
+       (max-cache-ttl 28800)
+       (default-cache-ttl-ssh 3600)
+       (max-cache-ttl-ssh 28800)
+       ;; Let unlock prompts land in Emacs (M-x pinentry-start) instead of a
+       ;; GTK popup when a request originates from an Emacs subprocess.
+       (extra-content "allow-emacs-pinentry\nallow-loopback-pinentry\n")))
+
     ;; Emacs daemon for fast emacsclient
     (service home-shepherd-service-type
       (home-shepherd-configuration
