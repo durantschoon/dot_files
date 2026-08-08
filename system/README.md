@@ -1,53 +1,99 @@
 # system/ — Guix System configs
 
-`guix home` configs live in `home/`. These are the other half: the
-`operating-system` declarations that `guix system reconfigure` consumes, for
-machines running Guix as the OS rather than as a package manager on top of a
-foreign distro.
+This repo has two halves, and keeping them apart is the point:
 
-| File | Machine |
+| | Decided by | Independent of | Lives in |
+|---|---|---|---|
+| **Host class** | a hardware combination, plus the needs *any* user has on it — that it boots, reaches a network, is secure | who is using it | `system/` |
+| **User preferences** | what one person wants — windowing system, fonts, shell, editor | what hardware it runs on | `home/` |
+
+`system/` holds the `operating-system` declarations that `guix system
+reconfigure` consumes, for machines running Guix as the OS rather than as a
+package manager on top of a foreign distro. `home/` holds the `guix home` side.
+
+The user side is only *mostly* hardware-independent: `home/base.scm` versus
+`home/wayland.scm` splits on whether there is a graphical session to configure at
+all, which is the one place the machine reaches into `home/`. Everything past
+that split — which fonts, which editor, which shell — does not care.
+
+## Host classes, not machines
+
+| File | Host class |
 |---|---|
-| `geeeks.scm` | Framework 13 (AMD Ryzen AI 300), host `geeeks`, dual-booting Pop!_OS |
-| `channels-geeeks.scm` | the channel pin that machine was installed from |
+| `geeeks.scm` | Framework 13 (AMD Ryzen AI 300), dual-booting Pop!_OS (its GRUB entry is omitted when Pop!_OS is absent) |
+| `channels-geeeks.scm` | the channel pin that class installs from |
 
-**One machine, two files, named after the host.** `<host>.scm` is the
-`operating-system` record; `channels-<host>.scm` is the pin it was installed
-from. The name is not decoration — an `operating-system` hardcodes disk labels,
-firmware and a bootloader target, and `guix system reconfigure` will apply
-whatever you hand it, so the file name is what tells you which config belongs to
-the box you are sitting at. `make check-system-hosts` asserts that each file
-name matches the `(host-name ...)` inside it, and `make check-channels-sync`
-fails if a machine config has no pin beside it. Adding a machine means adding
-both files; the checks then pick it up with no edits.
+`geeeks` is not one particular laptop. It is a **host class**: a name for a set
+of installs similar enough to share a single config — same silicon, same
+firmware, same disk layout, same answer to *"what does any user need here?"*.
+Buy that laptop twice and both machines instantiate `geeeks`. The class name
+becomes the `host-name` of every machine that does, which is what makes the name
+worth checking rather than merely tidy.
 
-## Why these live here and not in cloudzy-guix-install
+Two files per class, named after it: `<class>.scm` is the `operating-system`
+record, `channels-<class>.scm` is the pin it installs from. The name carries
+weight because nothing else does — an `operating-system` hardcodes disk labels,
+firmware and a bootloader target, and `guix system reconfigure` applies whatever
+you hand it, so the file name is the only thing saying which config belongs to
+the box in front of you. `make check-system-hosts` asserts that each file name
+matches the `(host-name ...)` inside it; `make check-channels-sync` fails if a
+class has no pin beside it. Adding a class means adding both files — the checks
+pick it up with no edits.
 
-A Guix System config passes through three distinct states, and only two of them
-were versioned before this directory existed:
+The one place the abstraction leaks: two machines of the same class running at
+once would both answer to the same host name, which a shared network will not
+love. A class that grows a second concurrent instance needs a per-instance host
+name, and at that point the file name and `(host-name ...)` can no longer be the
+same string. Cross that bridge when a second box exists, not before.
 
-1. **Generated** — `cloudzy-guix-install` writes a minimal `/mnt/etc/config.scm`
-   at install time (`framework-dual/install/03-config-dual-boot.go`). That
-   generator is the installer's business, and it stays there.
-2. **Living** — the config you then hand-evolve on the machine, as it grows
-   channels, a desktop, the FHS loader shim, keyd. **This is what `system/`
-   holds.** It had no home before, so it sat unversioned in `~`.
-3. **Captured** — `cloudzy-guix-install/known-good/` records what actually
-   booted, via Guix's `provenance-service-type`. That directory is explicitly
+## Which side does a setting belong to?
+
+Ask both questions:
+
+- Would a **different user** on this same hardware still need it? → host class.
+- Would **this user** on different hardware still want it? → user preferences.
+
+Yes to both means the setting is doing two jobs and wants splitting. No to both
+means it is specific to one person *on one machine* — rare, and usually a sign
+of something that should be a secret deployed out of band rather than a config
+at all.
+
+One trap: *who decides* and *who can deploy* are different questions. keyd is
+pure user preference — Caps acting as Control is taste, not hardware — but it
+reads `/dev/input/event*` and writes `/dev/uinput`, both root-only, so it can
+only be deployed from the system side. That is why `keyd.conf` is duplicated
+into a host class config instead of simply living in `home/`, and why `make
+setup-keyd` refuses to run on Guix System. When the two answers disagree, *who
+can deploy* decides where the text goes, and a drift check keeps the copies
+honest.
+
+## Why these live here and not in the platform installer
+
+A host class config passes through three states, and only two of them were
+versioned before this directory existed:
+
+1. **Generated** — the platform installer (currently `cloudzy-guix-install`,
+   named before it grew past its first platform) writes a minimal
+   `/mnt/etc/config.scm` at install time, one generator per hardware
+   combination. Its job is getting Guix to boot on that hardware at all. That
+   stays there.
+2. **Living** — the config you then hand-evolve, as it grows channels, a
+   desktop, the FHS loader shim, keyd. **This is what `system/` holds.** It had
+   no home before, so it sat unversioned in the user's home directory.
+3. **Captured** — the installer's `known-good/` records what actually booted,
+   via Guix's `provenance-service-type`. That directory is explicitly
    capture-only: *"not hand-maintained copies"*, *"must not be edited"*,
    *"nothing here is an input to the installer."* It is evidence, not a source.
 
-`CHECKLIST.md:694` in that repo scopes keyd, the `/lib64` loader shim, and
-personal dotfiles out of the installer on purpose — the installer installs a
-*system*, the user brings their own machine. State 2 is the user's side of that
-line, so it belongs in this repo, next to the `home/` configs and `keyd.conf`
-that it has to stay consistent with.
-
-One wrinkle worth knowing: that CHECKLIST line routes keyd to "user layers
-riding on `guix home`", but keyd **cannot** be a `guix home` service — it reads
-`/dev/input/event*` and writes `/dev/uinput`, both root-only, which is exactly
-why the `setup-keyd` target refuses to run on Guix System. keyd is a system
-concern that the generic installer does not want. That is the gap these files
-fell into.
+State 1 is identical for everyone with that hardware, which is why it belongs to
+a repo organised by platform. State 2 is where a host class starts making
+choices a *particular* set of users wants — pinned channels, a desktop, keyd — so
+it belongs here, next to the `home/` configs and `keyd.conf` it has to stay
+consistent with. `CHECKLIST.md:694` in the installer scopes keyd, the `/lib64`
+loader shim and personal dotfiles out on purpose, drawing the same line from the
+other side: the installer installs a *platform*, the user brings the rest. (It
+routes keyd to "user layers riding on `guix home`", which cannot work — see the
+trap above. That mismatch is the gap these files fell into.)
 
 ## The invariant: no secrets, ever
 
@@ -71,8 +117,8 @@ is NixOS's name and does nothing on Guix. It is spliced verbatim into an
 activation gexp by `user-account->gexp` in `(gnu system shadow)`, so it ends up
 in the store like anything else. And the form you will find in examples,
 `(crypt "hunter2" "$6$salt")`, evaluates *when the config is evaluated* — which
-means it keeps your plaintext in the file and in git history. `geeeks.scm`
-carries this warning inline, in the `user-account` record itself, so it is read
+means it keeps your plaintext in the file and in git history. Each host class
+config carries this warning inline, in the `user-account` record itself, so it is read
 at the moment it matters rather than in a header nobody revisits.
 
 `make check-system-secrets` enforces all of the above mechanically. That matters
@@ -82,10 +128,10 @@ and the failure mode here is adding one idiomatic-looking line without stopping.
 ## The other invariant: self-contained
 
 These configs must be evaluable **by root, from the installer ISO, during
-`guix system init`**, when `/home/durant` may not exist and this checkout may
-be sitting anywhere. That is why `geeeks.scm` inlines its keyd config
-and its channel list rather than reading `../keyd.conf` or
-`channels-geeeks.scm` beside it.
+`guix system init`** — when the user's home directory does not exist yet, there
+is no user yet, and this checkout may be sitting anywhere. That is why a host
+class config inlines its keyd config and its channel list rather than reading
+`../keyd.conf` or `channels-<class>.scm` beside it.
 
 Do not "clean that up" into a `local-file` or an `include`. It would work on a
 running system and fail at the one moment you cannot debug it — a bare disk with
@@ -93,18 +139,22 @@ no network and no editor. The cost of the invariant is duplicated text, which is
 what the drift checks are for:
 
 ```sh
-make check-system-hosts    # <host>.scm  vs  its own (host-name ...)
+make check-system-hosts    # <class>.scm  vs  its own (host-name ...)
 make check-keyd-sync       # keyd.conf  vs  %keyd-config
-make check-channels-sync   # channels-<host>.scm  vs  %system-channels
+make check-channels-sync   # channels-<class>.scm  vs  %system-channels
 make check-system-secrets  # no inlined credentials
 make check-system          # all four
 ```
 
-All of them walk `system/*.scm` rather than naming a machine, so a new host is
+All of them walk `system/*.scm` rather than naming a class, so a new one is
 covered the moment its two files land. `check-keyd-sync` only checks configs
 that actually inline a keyd config — keyd remaps a physical keyboard, so a
-headless machine is not "drifted" for having none — but it says so out loud if
-*no* config inlines it, rather than passing on an empty set.
+headless class is not "drifted" for having none — but it says so out loud if *no*
+config inlines it, rather than passing on an empty set.
+
+The identifier inside each config is `%system-channels`, not
+`%geeeks-channels`, for the same reason: one name every class reuses means the
+check is a loop over the directory instead of a pattern edited per machine.
 
 ## Deploying
 

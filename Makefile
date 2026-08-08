@@ -831,10 +831,10 @@ home-check:
 # ---------------------------------------------------------------------------
 # system/ integrity checks
 #
-# A machine config in system/ has to be evaluable by root from the installer ISO
-# during `guix system init', when no home directory exists and this checkout
+# A host class config in system/ has to be evaluable by root from the installer
+# ISO during `guix system init', when no home directory exists and this checkout
 # may be anywhere.  That forces it to INLINE what it needs rather than read
-# ../keyd.conf or system/channels-<host>.scm beside it -- see
+# ../keyd.conf or system/channels-<class>.scm beside it -- see
 # system/README.md.  The price is duplicated text in three places, and
 # duplicated text drifts: that is how the [control:C] keyd layer survived being
 # removed from one copy, and how home/wayland.scm fell six packages behind
@@ -848,9 +848,9 @@ home-check:
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
 .PHONY: check-home-sync check-system-hosts install-hooks
 
-# The machine configs -- every system/*.scm that is not a channel pin.  Written
-# as a filter-out over two wildcards rather than a `system/[!c]*' style glob so
-# that a future machine whose host name happens to start with "c" is not
+# The host class configs -- every system/*.scm that is not a channel pin.
+# Written as a filter-out over two wildcards rather than a `system/[!c]*' style
+# glob so that a future class whose name happens to start with "c" is not
 # silently dropped from every check below.
 SYSTEM_PINS    := $(wildcard system/channels-*.scm)
 SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
@@ -861,12 +861,13 @@ check: check-home-sync check-system
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
 	@echo "==> system/: all checks passed"
 
-# The file name IS the target machine: you pick a config to reconfigure with by
-# reading `hostname' and reaching for system/<that>.scm.  Nothing enforces that
-# at deploy time -- `guix system reconfigure' will happily apply another box's
-# config, which hardcodes disk labels, firmware and a bootloader target -- so
-# the naming convention is the only signal, and this check keeps it honest
-# rather than letting a rename quietly point the name at the wrong machine.
+# The file name IS the host class, and a machine of that class takes the class
+# name as its host name -- so you pick a config to reconfigure with by reading
+# `hostname' and reaching for system/<that>.scm.  Nothing enforces the pairing at
+# deploy time: `guix system reconfigure' will happily apply another class's
+# config, which hardcodes disk labels, firmware and a bootloader target.  The
+# naming convention is the only signal, so this check keeps it honest rather than
+# letting a rename quietly point a name at the wrong hardware.
 check-system-hosts:
 	@echo "==> system/*.scm file name vs (host-name ...)"
 	@rc=0; \
@@ -992,12 +993,13 @@ check-keyd-sync:
 # Compares channel names, URLs, commits and fingerprints as an unordered set,
 # so formatting and the (define ...) wrapper are free to differ.
 #
-# Each machine config pairs with system/channels-<host>.scm.  A missing pin is a
-# FAILURE, not a skip: the pin is what `guix time-machine -C' consumes to rebuild
-# that machine from the installer ISO, and noticing it is absent on the ISO --
-# with no network and no editor -- is the worst possible time.
+# Each host class config pairs with system/channels-<class>.scm.  A missing pin
+# is a FAILURE, not a skip: the pin is what `guix time-machine -C' consumes to
+# rebuild a machine of that class from the installer ISO, and noticing it is
+# absent on the ISO -- with no network and no editor -- is the worst possible
+# time.
 check-channels-sync:
-	@echo "==> system/channels-<host>.scm vs %system-channels"
+	@echo "==> system/channels-<class>.scm vs %system-channels"
 	@rc=0; \
 	pat='\(name .[a-z]+|"[0-9a-f]{40}"|https://[^"]+|[0-9A-F]{4} [0-9A-F ]+[0-9A-F]{4}'; \
 	for f in $(SYSTEM_CONFIGS); do \
