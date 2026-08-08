@@ -159,9 +159,32 @@ check is a loop over the directory instead of a pattern edited per machine.
 ## Deploying
 
 ```sh
-sudo guix system reconfigure system/$(hostname).scm
+sudo -i guix system reconfigure /path/to/dot_files/system/$(hostname).scm
 sudo herd restart keyd     # /etc/keyd/default.conf changes need a reload
 ```
+
+Two details in that first line are load-bearing, and both cost real time to
+rediscover.
+
+**`sudo -i`, not plain `sudo`.** There are two guix installations on a Guix
+System box — root's, at `/var/guix/profiles/per-user/root/current-guix`, and
+each user's, from `guix pull`. They carry different channel sets. Root's is
+pulled at install time with the pin in `channels-<class>.scm` and therefore has
+nonguix; a user's has whatever that user last pulled, which for a fresh account
+is guix alone. A host class config that uses nonguix — every one here does, for
+`linux` and `linux-firmware` — then fails to evaluate under the wrong guix with:
+
+```
+guix system: error: failed to load 'system/geeeks.scm':
+no code for module (nongnu packages linux)
+```
+
+`sudo -i` starts a root *login* shell, so `guix` resolves to root's regardless of
+what the invoking user has pulled. Plain `sudo` may resolve to the user's, and
+whether it does is a `PATH` question you should not have to think about mid-deploy.
+
+**An absolute path.** `sudo -i` also changes directory to `/root`, so a relative
+`system/geeeks.scm` will not be found there.
 
 `keyd` ran with `(auto-start? #f)` through the first deploys, because it grabs
 the physical keyboard and a bad config auto-starting at boot leaves you with no
