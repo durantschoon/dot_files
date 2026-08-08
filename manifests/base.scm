@@ -2,7 +2,7 @@
  '(
    ;; core
    "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain" "cmake"
-   "ripgrep" "fd" "fzf" "eza"
+   "ripgrep" "fd" "fzf" "eza" "jq"
 
    ;; editor stack for Spacemacs (holy-mode)
    "emacs" "aspell" "aspell-dict-en"
