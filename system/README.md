@@ -7,8 +7,18 @@ foreign distro.
 
 | File | Machine |
 |---|---|
-| `framework-dual.scm` | Framework 13 (AMD Ryzen AI 300), host `geeeks`, dual-booting Pop!_OS |
-| `channels-framework-dual.scm` | the channel pin that machine was installed from |
+| `geeeks.scm` | Framework 13 (AMD Ryzen AI 300), host `geeeks`, dual-booting Pop!_OS |
+| `channels-geeeks.scm` | the channel pin that machine was installed from |
+
+**One machine, two files, named after the host.** `<host>.scm` is the
+`operating-system` record; `channels-<host>.scm` is the pin it was installed
+from. The name is not decoration — an `operating-system` hardcodes disk labels,
+firmware and a bootloader target, and `guix system reconfigure` will apply
+whatever you hand it, so the file name is what tells you which config belongs to
+the box you are sitting at. `make check-system-hosts` asserts that each file
+name matches the `(host-name ...)` inside it, and `make check-channels-sync`
+fails if a machine config has no pin beside it. Adding a machine means adding
+both files; the checks then pick it up with no edits.
 
 ## Why these live here and not in cloudzy-guix-install
 
@@ -61,7 +71,7 @@ is NixOS's name and does nothing on Guix. It is spliced verbatim into an
 activation gexp by `user-account->gexp` in `(gnu system shadow)`, so it ends up
 in the store like anything else. And the form you will find in examples,
 `(crypt "hunter2" "$6$salt")`, evaluates *when the config is evaluated* — which
-means it keeps your plaintext in the file and in git history. `framework-dual.scm`
+means it keeps your plaintext in the file and in git history. `geeeks.scm`
 carries this warning inline, in the `user-account` record itself, so it is read
 at the moment it matters rather than in a header nobody revisits.
 
@@ -73,9 +83,9 @@ and the failure mode here is adding one idiomatic-looking line without stopping.
 
 These configs must be evaluable **by root, from the installer ISO, during
 `guix system init`**, when `/home/durant` may not exist and this checkout may
-be sitting anywhere. That is why `framework-dual.scm` inlines its keyd config
+be sitting anywhere. That is why `geeeks.scm` inlines its keyd config
 and its channel list rather than reading `../keyd.conf` or
-`channels-framework-dual.scm` beside it.
+`channels-geeeks.scm` beside it.
 
 Do not "clean that up" into a `local-file` or an `include`. It would work on a
 running system and fail at the one moment you cannot debug it — a bare disk with
@@ -83,16 +93,23 @@ no network and no editor. The cost of the invariant is duplicated text, which is
 what the drift checks are for:
 
 ```sh
+make check-system-hosts    # <host>.scm  vs  its own (host-name ...)
 make check-keyd-sync       # keyd.conf  vs  %keyd-config
-make check-channels-sync   # channels-framework-dual.scm  vs  %framework-dual-channels
+make check-channels-sync   # channels-<host>.scm  vs  %system-channels
 make check-system-secrets  # no inlined credentials
-make check-system          # all three
+make check-system          # all four
 ```
+
+All of them walk `system/*.scm` rather than naming a machine, so a new host is
+covered the moment its two files land. `check-keyd-sync` only checks configs
+that actually inline a keyd config — keyd remaps a physical keyboard, so a
+headless machine is not "drifted" for having none — but it says so out loud if
+*no* config inlines it, rather than passing on an empty set.
 
 ## Deploying
 
 ```sh
-sudo guix system reconfigure system/framework-dual.scm
+sudo guix system reconfigure system/$(hostname).scm
 sudo herd restart keyd     # /etc/keyd/default.conf changes need a reload
 ```
 

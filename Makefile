@@ -774,7 +774,7 @@ ifneq ($(GUIX_SYSTEM),)
 	@echo "  alongside kernel-module-loader (uinput) and an etc-service-type"
 	@echo "  entry for /etc/keyd/default.conf."
 	@echo ""
-	@echo "  That already exists in system/framework-dual.scm. It ships"
+	@echo "  That already exists in system/geeeks.scm. It ships"
 	@echo "  with (auto-start? #f) on purpose, so after reconfiguring:"
 	@echo ""
 	@echo "    sudo herd start keyd"
@@ -831,10 +831,10 @@ home-check:
 # ---------------------------------------------------------------------------
 # system/ integrity checks
 #
-# system/framework-dual.scm has to be evaluable by root from the installer ISO
+# A machine config in system/ has to be evaluable by root from the installer ISO
 # during `guix system init', when no home directory exists and this checkout
 # may be anywhere.  That forces it to INLINE what it needs rather than read
-# ../keyd.conf or system/channels-framework-dual.scm beside it -- see
+# ../keyd.conf or system/channels-<host>.scm beside it -- see
 # system/README.md.  The price is duplicated text in three places, and
 # duplicated text drifts: that is how the [control:C] keyd layer survived being
 # removed from one copy, and how home/wayland.scm fell six packages behind
@@ -846,13 +846,43 @@ home-check:
 # of a real finding -- which still blocks the commit and so reads like a catch.
 # The hook warns when this Makefile has unstaged changes; see the note there.
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
-.PHONY: check-home-sync install-hooks
+.PHONY: check-home-sync check-system-hosts install-hooks
+
+# The machine configs -- every system/*.scm that is not a channel pin.  Written
+# as a filter-out over two wildcards rather than a `system/[!c]*' style glob so
+# that a future machine whose host name happens to start with "c" is not
+# silently dropped from every check below.
+SYSTEM_PINS    := $(wildcard system/channels-*.scm)
+SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 
 check: check-home-sync check-system
 	@echo "==> all checks passed"
 
-check-system: check-keyd-sync check-channels-sync check-system-secrets
+check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
 	@echo "==> system/: all checks passed"
+
+# The file name IS the target machine: you pick a config to reconfigure with by
+# reading `hostname' and reaching for system/<that>.scm.  Nothing enforces that
+# at deploy time -- `guix system reconfigure' will happily apply another box's
+# config, which hardcodes disk labels, firmware and a bootloader target -- so
+# the naming convention is the only signal, and this check keeps it honest
+# rather than letting a rename quietly point the name at the wrong machine.
+check-system-hosts:
+	@echo "==> system/*.scm file name vs (host-name ...)"
+	@rc=0; \
+	for f in $(SYSTEM_CONFIGS); do \
+	  want=$$(basename $$f .scm); \
+	  got=$$(sed -n 's/^[[:space:]]*(host-name[[:space:]]*"\([^"]*\)").*/\1/p' $$f | head -1); \
+	  if [ -z "$$got" ]; then \
+	    rc=1; echo "    $$f: no (host-name ...) found"; \
+	  elif [ "$$want" = "$$got" ]; then \
+	    echo "    $$f: host-name \"$$got\""; \
+	  else \
+	    rc=1; \
+	    echo "    $$f: MISMATCH -- host-name is \"$$got\", so this file should be system/$$got.scm"; \
+	  fi; \
+	done; \
+	exit $$rc
 
 # home/wayland.scm is a divergent COPY of home/base.scm rather than an extension
 # of it, so anything added to base must be added there too or `make apply-wayland'
@@ -928,35 +958,69 @@ install-hooks:
 # Compares FUNCTIONAL lines only (comments and blanks stripped), so the two
 # copies may explain themselves differently -- keyd.conf carries the long-form
 # rationale -- while the bindings themselves must match exactly.
+#
+# Only configs that actually inline a keyd config are checked.  keyd is a laptop
+# concern (it remaps a physical keyboard); a headless cloud machine has no
+# %keyd-config and must not be reported as drifted for not having one.  If NO
+# config inlines it, that is reported rather than passing silently -- a check
+# that quietly matches nothing is worse than no check.
 check-keyd-sync:
-	@echo "==> keyd.conf vs %keyd-config in system/framework-dual.scm"
-	@a=$$(mktemp); b=$$(mktemp); \
-	grep -vE '^[[:space:]]*#|^[[:space:]]*$$' keyd.conf > $$a; \
-	sed -n '/plain-file "keyd-default.conf"/,/^"))/p' system/framework-dual.scm \
-	  | sed '1d;$$d' | sed 's/^[[:space:]]*"//' \
-	  | grep -vE '^[[:space:]]*#|^[[:space:]]*$$' > $$b; \
-	if diff -u $$a $$b > /dev/null 2>&1; then \
-	  echo "    in sync"; rm -f $$a $$b; \
-	else \
-	  echo "    DRIFT -- the deployed keyd config and the repo copy disagree:"; \
-	  diff -u $$a $$b || true; rm -f $$a $$b; exit 1; \
-	fi
+	@echo "==> keyd.conf vs %keyd-config in system/*.scm"
+	@rc=0; found=0; \
+	for f in $(SYSTEM_CONFIGS); do \
+	  grep -q 'plain-file "keyd-default.conf"' $$f || continue; \
+	  found=1; \
+	  a=$$(mktemp); b=$$(mktemp); \
+	  grep -vE '^[[:space:]]*#|^[[:space:]]*$$' keyd.conf > $$a; \
+	  sed -n '/plain-file "keyd-default.conf"/,/^"))/p' $$f \
+	    | sed '1d;$$d' | sed 's/^[[:space:]]*"//' \
+	    | grep -vE '^[[:space:]]*#|^[[:space:]]*$$' > $$b; \
+	  if diff -u $$a $$b > /dev/null 2>&1; then \
+	    echo "    $$f: in sync"; \
+	  else \
+	    rc=1; \
+	    echo "    $$f: DRIFT -- the deployed keyd config and the repo copy disagree:"; \
+	    diff -u $$a $$b || true; \
+	  fi; \
+	  rm -f $$a $$b; \
+	done; \
+	if [ $$found -eq 0 ]; then \
+	  echo "    NOTE: no system config inlines keyd; keyd.conf is unguarded"; \
+	fi; \
+	exit $$rc
 
 # Compares channel names, URLs, commits and fingerprints as an unordered set,
 # so formatting and the (define ...) wrapper are free to differ.
+#
+# Each machine config pairs with system/channels-<host>.scm.  A missing pin is a
+# FAILURE, not a skip: the pin is what `guix time-machine -C' consumes to rebuild
+# that machine from the installer ISO, and noticing it is absent on the ISO --
+# with no network and no editor -- is the worst possible time.
 check-channels-sync:
-	@echo "==> system/channels-framework-dual.scm vs %framework-dual-channels"
-	@a=$$(mktemp); b=$$(mktemp); \
+	@echo "==> system/channels-<host>.scm vs %system-channels"
+	@rc=0; \
 	pat='\(name .[a-z]+|"[0-9a-f]{40}"|https://[^"]+|[0-9A-F]{4} [0-9A-F ]+[0-9A-F]{4}'; \
-	grep -oE "$$pat" system/channels-framework-dual.scm | sort > $$a; \
-	sed -n '/define %framework-dual-channels/,/^$$/p' system/framework-dual.scm \
-	  | grep -oE "$$pat" | sort > $$b; \
-	if diff -u $$a $$b > /dev/null 2>&1; then \
-	  echo "    in sync"; rm -f $$a $$b; \
-	else \
-	  echo "    DRIFT -- the install-time pin and the deployed pin disagree:"; \
-	  diff -u $$a $$b || true; rm -f $$a $$b; exit 1; \
-	fi
+	for f in $(SYSTEM_CONFIGS); do \
+	  host=$$(basename $$f .scm); pin=system/channels-$$host.scm; \
+	  if [ ! -f $$pin ]; then \
+	    rc=1; echo "    $$f: MISSING $$pin (the pin guix time-machine -C needs)"; \
+	    continue; \
+	  fi; \
+	  a=$$(mktemp); b=$$(mktemp); \
+	  grep -oE "$$pat" $$pin | sort > $$a; \
+	  sed -n '/define %system-channels/,/^$$/p' $$f | grep -oE "$$pat" | sort > $$b; \
+	  if [ ! -s $$b ]; then \
+	    rc=1; echo "    $$f: no %system-channels found -- did the define get renamed?"; \
+	  elif diff -u $$a $$b > /dev/null 2>&1; then \
+	    echo "    $$f: in sync with $$pin"; \
+	  else \
+	    rc=1; \
+	    echo "    $$f: DRIFT -- the install-time pin and the deployed pin disagree:"; \
+	    diff -u $$a $$b || true; \
+	  fi; \
+	  rm -f $$a $$b; \
+	done; \
+	exit $$rc
 
 # Anything an operating-system record puts in the store is world-readable ON THE
 # MACHINE -- activation scripts included -- so an inlined secret leaks to every
@@ -975,7 +1039,7 @@ check-channels-sync:
 #
 # The leading ^[^;]* confines the match to code: a Scheme comment starts with
 # `;', which the character class cannot cross, so documentation like the nmcli
-# example in framework-dual.scm does not trip it.
+# example in geeeks.scm does not trip it.
 check-system-secrets:
 	@echo "==> system/*.scm for inlined credentials"
 	@if grep -nE '^[^;]*(\(password[[:space:]]+[^#)[:space:]]|\(crypt[[:space:]]|hashed-password|private-key|psk|BEGIN [A-Z ]*PRIVATE KEY)' system/*.scm; then \

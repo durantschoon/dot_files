@@ -31,7 +31,8 @@ Running `make apply`, `make apply-wayland`, or `make set_up_links` from another 
 | Target | Guards |
 |---|---|
 | `check-home-sync` | `wayland.scm` covering everything in `base.scm` — packages, home-files, services |
-| `check-keyd-sync` | `keyd.conf` vs the copy inlined in `system/framework-dual.scm` |
+| `check-system-hosts` | each `system/<host>.scm` vs the `(host-name ...)` inside it |
+| `check-keyd-sync` | `keyd.conf` vs the copy inlined in `system/<host>.scm` |
 | `check-channels-sync` | the install-time channel pin vs the one the system deploys |
 | `check-system-secrets` | no credentials inlined into `system/*.scm` |
 
