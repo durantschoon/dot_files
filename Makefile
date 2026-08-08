@@ -846,7 +846,86 @@ home-check:
 # of a real finding -- which still blocks the commit and so reads like a catch.
 # The hook warns when this Makefile has unstaged changes; see the note there.
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
-.PHONY: check-home-sync check-system-hosts install-hooks
+.PHONY: check-home-sync check-system-hosts install-hooks add-pkg
+
+# add-pkg -- add a package spec to the home configs, both of them.
+#
+#   make add-pkg PKG=htop                  both configs
+#   make add-pkg PKG=firefox WAYLAND_ONLY=1   wayland.scm only
+#
+# Editing both is the point. home/wayland.scm is a divergent copy of
+# home/base.scm, and a package added to one and forgotten in the other silently
+# never reaches the machine that deploys the other -- which is what happened to
+# aspell, cmake, openjdk, clojure-tools and just (a9503ff, 6cae015) and why
+# check-home-sync exists at all. Doing it by hand is the failure mode; this is
+# the same edit performed twice by something that cannot forget.
+#
+# WAYLAND_ONLY is for packages that must not go in base.scm. check-home-sync
+# verifies base SUBSET-OF wayland, so wayland-only additions pass by design.
+# The case that needs it: a package from a channel the base machine's DAEMON
+# cannot substitute. firefox comes from nonguix, and this Guix System box has
+# nonguix's substitute URL and signing key from system/geeeks.scm, so it
+# downloads; a foreign-distro machine running base.scm has neither and would
+# try to COMPILE FIREFOX FROM SOURCE.
+#
+# The spec is resolved against channels.scm -- the pin `make apply' pulls --
+# rather than against whatever guix happens to be on PATH. Those differ, and the
+# difference is not academic: on this box the ambient root guix has nonguix and
+# resolves "firefox" happily, while channels.scm may not, so an ambient check
+# would accept a spec that then fails the reconfigure. That is the trap both
+# home configs already document in their librewolf comments. FAST=1 uses the
+# ambient guix when you would rather have the seconds back; SKIP_CHECK=1 skips
+# resolution entirely, which is what you want when adding a package from a
+# channel you are adding in the same commit.
+ADD_PKG_FILES := home/base.scm home/wayland.scm
+ifdef WAYLAND_ONLY
+ADD_PKG_FILES := home/wayland.scm
+endif
+
+add-pkg:
+	@test -n "$(PKG)" || { \
+	  echo "usage: make add-pkg PKG=<spec> [WAYLAND_ONLY=1] [FAST=1] [SKIP_CHECK=1]"; \
+	  exit 2; \
+	}
+	@if [ -n "$(SKIP_CHECK)" ]; then \
+	  echo "==> resolving \"$(PKG)\": skipped (SKIP_CHECK)"; \
+	elif [ -n "$(FAST)" ]; then \
+	  echo "==> resolving \"$(PKG)\" against the ambient guix (FAST)"; \
+	  guix show $(PKG) >/dev/null 2>&1 || { \
+	    echo "    \"$(PKG)\" does not resolve. Typo, or wrong channel."; exit 1; }; \
+	else \
+	  echo "==> resolving \"$(PKG)\" against channels.scm"; \
+	  guix time-machine -C channels.scm -- show $(PKG) >/dev/null 2>&1 || { \
+	    echo "    \"$(PKG)\" does not resolve against channels.scm."; \
+	    echo "    A typo, or a package from a channel channels.scm does not declare."; \
+	    echo "    Re-run with SKIP_CHECK=1 if you are adding that channel in this commit."; \
+	    exit 1; }; \
+	fi
+	@echo "==> adding \"$(PKG)\" to $(ADD_PKG_FILES)"
+	@t=$$(mktemp -d); trap 'rm -rf $$t' EXIT; \
+	for f in $(ADD_PKG_FILES); do cp $$f $$t/$$(basename $$f); done; \
+	for f in $(ADD_PKG_FILES); do \
+	  guile --no-auto-compile -s build-aux/add-pkg.scm $$f "$(PKG)" || { \
+	    echo "    failed on $$f -- restoring every file this target touched"; \
+	    for g in $(ADD_PKG_FILES); do cp $$t/$$(basename $$g) $$g; done; \
+	    exit 1; }; \
+	done
+	@$(MAKE) --no-print-directory check-home-sync
+	@# Which config this machine deploys is a property of the MACHINE, not of the
+	@# session: $$WAYLAND_DISPLAY is unset when you log into a tty on the very box
+	@# that deploys wayland.scm, and would offer to apply the wrong config. The
+	@# Guix System box is the one that deploys wayland.scm, so test for that.
+	@# Gated on a tty so the pre-commit hook and any non-interactive caller do not
+	@# hang waiting on a read that will never come.
+	@if [ ! -t 0 ]; then \
+	  echo "==> not a terminal; not offering to apply"; \
+	elif [ -d /run/current-system ]; then \
+	  printf '==> run `make apply-wayland` now? [y/N] '; read r; \
+	  case "$$r" in [Yy]*) $(MAKE) apply-wayland ;; *) echo "    skipped" ;; esac; \
+	else \
+	  printf '==> run `make apply` now? [y/N] '; read r; \
+	  case "$$r" in [Yy]*) $(MAKE) apply ;; *) echo "    skipped" ;; esac; \
+	fi
 
 # The host class configs -- every system/*.scm that is not a channel pin.
 # Written as a filter-out over two wildcards rather than a `system/[!c]*' style
