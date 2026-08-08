@@ -72,15 +72,24 @@ releases and other GitHub features to the terminal.")
               ;; binary, and glibc provides the ld-linux loader its wrapper
               ;; uses to run the unmodified binary (no FHS /lib64 on Guix)
               "curl" "glibc"
-              ;; Web browser.  NOT "firefox": Mozilla's trademark policy keeps
-              ;; it out of Guix proper, so the spec simply fails to resolve.
-              ;; LibreWolf is the closest thing that is packaged -- upstream
-              ;; Firefox with the telemetry stripped.  (IceCat is the other
-              ;; option, but it ships LibreJS, which blocks the nonfree
-              ;; JavaScript claude.ai is built from.)  nonguix does package a
-              ;; real "firefox", but `make apply' pulls from channels.scm,
-              ;; which declares only the guix channel -- so it is not
-              ;; resolvable from here even on the box that has nonguix.
+              ;; Web browser.  NOT "firefox" -- and no longer because it fails
+              ;; to resolve: channels.scm declares nonguix now, so the spec
+              ;; resolves here perfectly well.  It is omitted on purpose.
+              ;;
+              ;; Resolving and downloading are different problems.  The DAEMON
+              ;; needs nonguix's substitute URL and signing key or it builds
+              ;; from source, and this file is the FOREIGN-DISTRO config, whose
+              ;; daemon has neither -- adding "firefox" here would quietly
+              ;; commit that machine to compiling Firefox.  The Guix System box
+              ;; gets both from system/geeeks.scm, so home/wayland.scm declares
+              ;; it and this file does not.  check-home-sync verifies base
+              ;; SUBSET-OF wayland, so the asymmetry passes by design; see the
+              ;; longer note beside "firefox" over there.
+              ;;
+              ;; LibreWolf is upstream Firefox with the telemetry stripped, and
+              ;; is packaged in Guix proper.  (IceCat is the other option, but
+              ;; it ships LibreJS, which blocks the nonfree JavaScript
+              ;; claude.ai is built from.)
               "librewolf"
               ;; xdg-open, which is how Claude Code (and most CLI tools) turn
               ;; "open this URL" into a running browser.  Neither %base-packages

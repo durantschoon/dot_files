@@ -95,14 +95,36 @@ releases and other GitHub features to the terminal.")
     ;; unmodified binary (Guix has no FHS /lib64 loader path).
     "curl"
     "glibc"
-    ;; Web browser.  NOT "firefox": Mozilla's trademark policy keeps it out of
-    ;; Guix proper, so the spec simply fails to resolve.  LibreWolf is the
-    ;; closest packaged equivalent -- upstream Firefox with telemetry stripped.
-    ;; (IceCat is the alternative, but its LibreJS blocks the nonfree
-    ;; JavaScript claude.ai is built from.)  nonguix does package a real
-    ;; "firefox", but `make apply-wayland' pulls from channels.scm, which
-    ;; declares only the guix channel -- so it is not resolvable from here even
-    ;; on the box whose system config has nonguix.
+    ;; Web browsers, both of them, on purpose.
+    ;;
+    ;; firefox is nonguix's -- Mozilla's trademark policy keeps the branded
+    ;; build out of Guix proper -- and channels.scm now declares that channel.
+    ;; It is HERE AND NOT IN base.scm, which is the asymmetry to understand
+    ;; before "fixing" it: declaring the channel is what makes the spec
+    ;; RESOLVE, but downloading the result needs the DAEMON to have nonguix's
+    ;; substitute URL and signing key.  This Guix System box has both, from
+    ;; system/geeeks.scm.  A foreign-distro machine running base.scm has
+    ;; neither, and would compile Firefox from source.  check-home-sync
+    ;; verifies base SUBSET-OF wayland precisely so this is legal.
+    ;;
+    ;; It earns its place over librewolf on two specific counts, both measured
+    ;; rather than assumed:
+    ;;
+    ;;   - Profiles.  Firefox reads ~/.config/mozilla/firefox (the XDG path,
+    ;;     not the legacy ~/.mozilla), which is where the five profiles
+    ;;     migrated from Pop!_OS live.  librewolf looks in ~/.librewolf and
+    ;;     sees none of them.
+    ;;   - librewolf.cfg sets privacy.resistFingerprinting to #t, which blanks
+    ;;     canvas readback -- and with it the QR code on 1Password's web
+    ;;     sign-in.  It also sets privacy.sanitize.sanitizeOnShutdown, which
+    ;;     drops the site storage 1Password caches its Secret Key in, so the
+    ;;     34-character key gets retyped every restart.
+    ;;
+    ;; librewolf stays: it is the hardened browser for everything that is not
+    ;; those two things, and the fallback if a nonguix pin ever fails to build.
+    ;; (IceCat is the third packaged option and is unusable here -- its LibreJS
+    ;; blocks the nonfree JavaScript claude.ai is built from.)
+    "firefox"
     "librewolf"
     ;; xdg-open, which is how Claude Code (and most CLI tools) turn "open this
     ;; URL" into a running browser.  Neither %base-packages nor guix home
