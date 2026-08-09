@@ -234,16 +234,53 @@ if [ -n "$ZSH_VERSION" ]; then
               more'
     fi
 
-    # alias s.z='source ~/.zshrc'
-    alias s.zs='source ~/.shared.zshrc'
-    alias s.zes='source ~/.shared.zshenv'
-    alias s.ze='source ~/.zshenv'
-    alias s.zh='source ~/dot_files/.home.zshrc'
-    alias s.zp='source ~/.zprofile'
-    alias s.zps='source ~/.shared.zprofile'
-    alias s.zw='source ~/dot_files/.work.zshrc'
-    alias s.zws='source ~/dot_files/.shared.work.zshrc'
-    alias s.zall="source ~/.zshenv && echo '~/.zshenv'; [ -f ~/.zprofile ] && source ~/.zprofile && echo '~/.zprofile'; source ~/.aliases && echo '~/.aliases'; source ~/.shared.zshrc && echo '~/.shared.zshrc'"
+    ###########################################################################
+    # Re-source a zsh config file.
+    #
+    # These aliases name files that exist on SOME of these machines.  Under
+    # guix home they mostly do not, and that is not a broken deployment:
+    # home-zsh-configuration CONCATENATES the files in its zshrc/zshenv/zprofile
+    # fields into one generated file per hook, under $ZDOTDIR (here
+    # ~/.config/zsh), instead of symlinking each into $HOME.  So .shared.zshrc,
+    # .shared.zshenv and .shared.zprofile have no separate existence to source;
+    # their contents are already inside $ZDOTDIR/.zshrc and friends.
+    #
+    # Sourcing a missing file is a hard error that aborts the rest of a compound
+    # alias, which is what made `s.zall' quit partway through.  Route everything
+    # through this helper so an absent file reports and is stepped over.
+    # The echo is NOT chained to the source with &&.  A config file's exit
+    # status is whatever its last command happened to return, which says nothing
+    # about whether it loaded: .shared.zshenv ends with
+    # `[ -f /usr/local/bin/fzf ] && eval ...', false on any machine without a
+    # /usr/local, so `source ... && echo' reported nothing for a file that had
+    # just been sourced perfectly well.
+    _source_if() {
+        if [ -f "$1" ]; then
+            source "$1"
+            echo "  sourced  $1"
+        else
+            echo "  skipped  $1 (not present on this machine)"
+        fi
+    }
+
+    # The file that actually holds everything under guix home.  ${ZDOTDIR:-$HOME}
+    # keeps this correct on machines that never set ZDOTDIR.
+    alias s.z='_source_if "${ZDOTDIR:-$HOME}/.zshrc"'
+    alias s.ze='_source_if "${ZDOTDIR:-$HOME}/.zshenv"'
+    # NOT ~/.zprofile: on a guix home machine that path is a stale leftover from
+    # before guix home managed zsh, while the live one is under $ZDOTDIR.
+    alias s.zp='_source_if "${ZDOTDIR:-$HOME}/.zprofile"'
+
+    # The per-fragment aliases, for machines that do symlink them into $HOME.
+    alias s.zs='_source_if ~/.shared.zshrc'
+    alias s.zes='_source_if ~/.shared.zshenv'
+    alias s.zps='_source_if ~/.shared.zprofile'
+    alias s.zh='_source_if ~/dot_files/.home.zshrc'
+    alias s.zw='_source_if ~/dot_files/.work.zshrc'
+    alias s.zws='_source_if ~/dot_files/.shared.work.zshrc'
+
+    # Everything, in the order zsh itself reads it, skipping what is absent.
+    alias s.zall='for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; unset _f'
 
     # Guix Home: reconfigure dotfiles from ~/dot_files and return here
     dot-apply() {
