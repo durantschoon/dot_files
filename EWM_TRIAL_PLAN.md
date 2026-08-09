@@ -55,6 +55,20 @@ Note the emacs daemon shepherd service in `home/wayland.scm` also names
 `"emacs"` — it must move to the same package, or you will run two different
 Emacs builds.
 
+**Status: done** (commit `bef8534`). The daemon runs pgtk and answers
+`emacsclient -e` normally.
+
+**Open item — graphical frame creation is unverified.** Attempting
+`emacsclient -c` against the pgtk daemon from a *non-tty, non-graphical*
+context (a Claude Code shell) wedged the daemon: it kept accepting
+connections but stopped processing evals, and needed `herd restart emacs`.
+That may be nothing more than "`-c` has no sane frame to create when the
+caller has neither a tty nor a forwarded display" — the same class of problem
+as the gpg-agent bug above, since the shepherd-launched daemon has no
+`WAYLAND_DISPLAY` of its own either. But it was not chased down, so **test
+`emacsclient -c` from a real terminal** before trusting the daemon, and know
+that `herd restart emacs` is the recovery.
+
 ---
 
 ## Stage 1 — build the compositor
