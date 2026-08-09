@@ -86,6 +86,45 @@ the daemon logs every 25s.
 
 ---
 
+## Prior art — a working EWM setup to crib from
+
+`idlip/d-nix`, in `d-setup.org` under the niri subsection:
+<https://github.com/idlip/d-nix/blob/gol-d/d-setup.org#ewm-config>
+
+It is a NixOS config, not Guix, so nothing transfers verbatim — but four
+things in it are worth knowing before Stage 1:
+
+1. **Upstream ships a NixOS module.** The flake takes
+   `git+https://codeberg.org/ezemtsov/ewm` and enables it with
+   `programs.ewm.enable = true` via `inputs.ewm.nixosModules.default`. So
+   upstream expects EWM to be wired in as a *system-level integration*, not
+   just a binary you run. Guix has no equivalent, which means writing that
+   service is real work this plan does not yet account for — see Stage 1.5.
+2. **It uses `emacs-git-pgtk`**, independently confirming the pgtk
+   requirement that Stage 0 already satisfied.
+3. **`withScreencastSupport = true`**, matching the `--features=screencast`
+   in the build command below.
+4. **It pushes the session environment into D-Bus** on startup:
+   `dbus-update-activation-environment --systemd WAYLAND_DISPLAY …`
+
+Point 4 is the one to sit with. That line exists because a compositor-less
+session bus leaves D-Bus-activated services with no `WAYLAND_DISPLAY` — which
+is *precisely* the bug that broke `ssh-add` on this machine, just arriving
+from a different direction. Under EWM there is no GNOME session doing this
+for you, so whatever replaces it has to push the environment itself, or every
+display-less daemon inherits the same failure. Guix has no
+`dbus-update-activation-environment --systemd`, so the shepherd equivalent is
+an open design question.
+
+### Stage 1.5 — the integration nobody has written for Guix
+
+Between "the binary runs" and "this is my desktop" sits the service work the
+NixOS module does for free: launching the compositor as a session, exporting
+the environment to D-Bus and shepherd, and replacing the pieces
+`gnome-desktop-service-type` currently supplies (see the inventory below).
+Budget for this separately. It is the most likely reason a trial stalls after
+a successful first launch.
+
 ## Stage 1 — build the compositor
 
 Do this in a throwaway `guix shell`, never in the home profile. Rust plus a
