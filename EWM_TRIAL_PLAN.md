@@ -58,16 +58,31 @@ Emacs builds.
 **Status: done** (commit `bef8534`). The daemon runs pgtk and answers
 `emacsclient -e` normally.
 
-**Open item — graphical frame creation is unverified.** Attempting
-`emacsclient -c` against the pgtk daemon from a *non-tty, non-graphical*
-context (a Claude Code shell) wedged the daemon: it kept accepting
-connections but stopped processing evals, and needed `herd restart emacs`.
-That may be nothing more than "`-c` has no sane frame to create when the
-caller has neither a tty nor a forwarded display" — the same class of problem
-as the gpg-agent bug above, since the shepherd-launched daemon has no
-`WAYLAND_DISPLAY` of its own either. But it was not chased down, so **test
-`emacsclient -c` from a real terminal** before trusting the daemon, and know
-that `herd restart emacs` is the recovery.
+**Open item — graphical frame creation is still unverified, but pgtk is
+exonerated.** Creating a graphical frame from a headless agent shell wedges
+the daemon: it keeps accepting connections but stops processing evals, and
+needs `herd restart emacs`. Two hypotheses were tested and both are dead:
+
+| Test (scratch daemons, real pty via `script`) | Result |
+|---|---|
+| pgtk, `-Q`, **with** display env | frame OK, no wedge |
+| pgtk, `-Q`, **without** display env | frame OK, no wedge |
+| pgtk + Spacemacs, `make-frame-on-display` | **wedged** |
+| **X11** + Spacemacs, `make-frame-on-display` | **wedged — identically** |
+
+So it is neither the missing `WAYLAND_DISPLAY` (unlike the gpg-agent bug) nor
+pgtk: the plain X11 build fails exactly the same way, meaning this predates
+the pgtk switch and is not a regression from it. It is either the Spacemacs
+config or, more likely, an artifact of asking a daemon to build a graphical
+frame from inside a non-interactive `emacsclient -e` in a session with no
+real desktop attached — a situation that does not arise in normal use.
+
+Note `emacsclient -c` from such a shell creates a *text-terminal* frame
+(`framep` → `t`), not a graphical one, so `-c` alone never actually exercised
+the graphical path. **Still worth one test from a real GNOME terminal**; the
+recovery is `herd restart emacs`, and one possibly-related smell is the
+`[persp-mode] ... (error "Invalid face box" :line-width 1 :color unspecified)`
+the daemon logs every 25s.
 
 ---
 
