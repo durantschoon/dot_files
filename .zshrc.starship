@@ -32,8 +32,22 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 # Load aliases
 [[ -f $HOME/.aliases ]] && source $HOME/.aliases
 
-# Load shared configuration
-[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc
+# Shared configuration is NOT sourced here.
+#
+# There used to be `[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc', which is
+# dead under guix home and looks like a missing file when you go looking: no
+# ~/.shared.zshrc link exists, so the [ -f ] guard fails and the line silently
+# does nothing.
+#
+# That is not a broken deployment. home-zsh-configuration CONCATENATES the files
+# in its `zshrc' field into one ~/.config/zsh/.zshrc rather than symlinking each
+# into $HOME -- .shared.zshrc is the next entry in that list, so its contents
+# already follow this file's, in order, with nothing to source. (Confirmed: the
+# generated .zshrc is 254 lines and contains .shared.zshrc's definitions.)
+#
+# Restoring the line would be actively wrong -- if ~/.shared.zshrc ever did
+# exist, everything in it would run twice.  Machines that DO symlink it into
+# $HOME use the top-level .zshrc, which keeps its own copy of the line.
 
 # Environment-specific configuration
 [[ -f ~/.HOME && -f ~/dot_files/.home.zshrc ]] && source ~/dot_files/.home.zshrc

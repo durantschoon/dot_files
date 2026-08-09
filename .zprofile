@@ -18,3 +18,36 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     [ -z "${MANPATH-}" ] || export MANPATH=":${MANPATH#:}";
     export INFOPATH="/opt/homebrew/share/info:${INFOPATH:-}";
 fi
+
+###############################################################################
+# Personal bin directories -- REPEATED here, deliberately.
+#
+# .shared.zshenv already runs these two add_to_front_of_path calls, and on a
+# non-login shell that is enough.  On a LOGIN shell it is not, and the reason is
+# ordering: zsh reads .zshenv first, then .zprofile, and guix home's generated
+# .zprofile opens with
+#
+#     emulate sh -c '. /etc/profile'
+#     emulate sh -c '. ~/.profile'
+#
+# both of which REBUILD PATH from the Guix profiles rather than extending it.
+# Everything .zshenv added is discarded before this file's own content runs.
+# Measured on geeeks, 2026-08-08:
+#
+#     zsh -c   'echo $PATH'  ->  ~/bin and ~/.local/bin present
+#     zsh -l -c 'echo $PATH' ->  both gone
+#
+# which is why ~/.local/bin/claude was not on PATH in any terminal.
+#
+# This file's content is appended AFTER those two lines by guix home, so adding
+# them here is the first point at which they survive.  Keeping the .zshenv copy
+# covers the non-login case, where this file is never read at all.  `typeset -U
+# path' in .zshenv makes the duplication a no-op rather than a doubled entry.
+#
+# add_to_front_of_path is defined in .shared.zshenv, which has already run.
+if typeset -f add_to_front_of_path > /dev/null; then
+    add_to_front_of_path "$HOME/.local/bin"
+    add_to_front_of_path "$HOME/bin"
+else
+    echo ".zprofile: add_to_front_of_path undefined -- is .shared.zshenv deployed?" >&2
+fi
