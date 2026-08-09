@@ -58,31 +58,48 @@ Emacs builds.
 **Status: done** (commit `bef8534`). The daemon runs pgtk and answers
 `emacsclient -e` normally.
 
-**Open item — graphical frame creation is still unverified, but pgtk is
-exonerated.** Creating a graphical frame from a headless agent shell wedges
-the daemon: it keeps accepting connections but stops processing evals, and
-needs `herd restart emacs`. Two hypotheses were tested and both are dead:
+**Resolved: `emacsclient -c` hung, and the cause was a broken face.** For a
+while after the switch, `emacsclient -c` against the daemon hung with "Server
+not responding" and left it wedged — accepting connections but processing no
+evals — recoverable only with `herd restart emacs`. Tested from a real
+terminal, the combination is what matters:
 
-| Test (scratch daemons, real pty via `script`) | Result |
-|---|---|
-| pgtk, `-Q`, **with** display env | frame OK, no wedge |
-| pgtk, `-Q`, **without** display env | frame OK, no wedge |
-| pgtk + Spacemacs, `make-frame-on-display` | **wedged** |
-| **X11** + Spacemacs, `make-frame-on-display` | **wedged — identically** |
+| Build | Config | `emacsclient -c` |
+|---|---|---|
+| X11 | Spacemacs | works |
+| pgtk | `-Q` | works |
+| pgtk | Spacemacs | **hung** |
 
-So it is neither the missing `WAYLAND_DISPLAY` (unlike the gpg-agent bug) nor
-pgtk: the plain X11 build fails exactly the same way, meaning this predates
-the pgtk switch and is not a regression from it. It is either the Spacemacs
-config or, more likely, an artifact of asking a daemon to build a graphical
-frame from inside a non-interactive `emacsclient -e` in a session with no
-real desktop attached — a situation that does not arise in normal use.
+Neither ingredient alone. The culprit was origami's defface, which
+interpolates `(face-attribute 'highlight :background)` at *load* time. A
+daemon starts with only a text-terminal frame (`framep` → `t`), so the theme
+is not realized and that lookup returns `unspecified` — not a legal `:box`
+colour. The face is then baked permanently broken and every later frame
+inherits it, announced at each startup as:
 
-Note `emacsclient -c` from such a shell creates a *text-terminal* frame
-(`framep` → `t`), not a graphical one, so `-c` alone never actually exercised
-the graphical path. **Still worth one test from a real GNOME terminal**; the
-recovery is `herd restart emacs`, and one possibly-related smell is the
-`[persp-mode] ... (error "Invalid face box" :line-width 1 :color unspecified)`
-the daemon logs every 25s.
+    Error (use-package): origami/:init: Invalid face box:
+    :line-width, 1, :color, unspecified
+
+X11 tolerates realizing that face; pgtk hangs on it. That is why it appeared
+to be a pgtk regression and was not — plain `emacs` has a real frame before
+origami loads, so the daemon is the necessary ingredient, and the shepherd
+emacs service is what introduced it.
+
+Fixed in `~/.spacemacs.d/init.el` (separate repo) in two parts: a
+`custom-set-faces` in `dotspacemacs/user-init` that pre-empts the broken
+defface, since Custom settings outrank `face-defface-spec` and user-init runs
+before layers load; and `bds/fix-origami-fold-header-face` on
+`server-after-make-frame-hook` in user-config, recomputing the real theme
+colour once a graphical frame exists. Startup log is clean and
+`emacsclient -c` works.
+
+**Method note, since it cost real time here:** `emacsclient -c` from a
+headless shell creates a *text-terminal* frame (`framep` → `t`), not a
+graphical one, so it never exercises the path under test; and
+`make-frame-on-display` from a non-interactive `emacsclient -e` wedges every
+build regardless, which produced a confident but worthless "both wedge, so
+pgtk is exonerated" reading. Only a real terminal settles this class of
+question.
 
 ---
 
