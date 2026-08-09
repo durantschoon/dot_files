@@ -33,7 +33,7 @@ you have already decided you like it.
 
 | Requirement | Status | Notes |
 |---|---|---|
-| Emacs with **pgtk** | ❌ **verified missing** | You run plain `emacs` 30.2 (`/gnu/store/ybrn…-emacs-30.2`), which links no Wayland libs. EWM has a whole "PGTK Requirement" troubleshooting page. |
+| Emacs with **pgtk** | ❌ **verified missing** | `system-configuration-features` reports `CAIRO X11 GTK3` — an X11 build, so it renders through XWayland. `emacs-pgtk` reports `CAIRO PGTK GTK3`. EWM has a whole "PGTK Requirement" troubleshooting page. (Note: `ldd` cannot tell these apart — Guix ships `bin/emacs` as a wrapper script, and both builds pull Wayland in transitively via gtk+3.) |
 | `emacs-pgtk` in Guix | ✅ verified available | Version **30.2** — identical to what you run, so it is a drop-in. |
 | Mesa / `libEGL.so.1` | ✅ verified present | `/run/current-system/profile/lib/libEGL.so.1` |
 | `wl-clipboard` | ❌ verified missing | EWM uses `wl-copy`/`wl-paste` for clipboard integration. |

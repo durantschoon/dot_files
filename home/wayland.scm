@@ -73,7 +73,15 @@ releases and other GitHub features to the terminal.")
     "file"
     "go"
     "qemu"
-    "emacs"
+    ;; emacs-pgtk, not plain emacs: the pgtk build talks Wayland natively
+    ;; instead of going through mutter's XWayland, and it is what EWM
+    ;; requires should that experiment go anywhere (see EWM_TRIAL_PLAN.md).
+    ;; Same 30.2 as the plain build, so Spacemacs is unaffected.  base.scm
+    ;; deliberately stays on plain "emacs" -- that config targets headless
+    ;; and Docker hosts, which have no use for a GTK-linked Emacs.
+    ;; The emacs daemon service below must name the same package, or the
+    ;; daemon and `emacs' on PATH would be two different builds.
+    "emacs-pgtk"
     "emacs-vterm"
     "cmake"
     ;; Spell-checking backend for Emacs ispell/flyspell (same profile so
@@ -137,7 +145,11 @@ releases and other GitHub features to the terminal.")
     "perl"))
 
 (define %wayland-packages
-  '("espanso-wayland"))
+  '("espanso-wayland"
+    ;; wl-copy/wl-paste: the Wayland clipboard CLI.  Useful on its own for
+    ;; piping between a terminal and GUI apps, and required by EWM, which
+    ;; shells out to it for clipboard integration.
+    "wl-clipboard"))
 
 (home-environment
   (packages (append (specifications->packages (append %base-packages %wayland-packages))
@@ -187,7 +199,7 @@ releases and other GitHub features to the terminal.")
                                                                               (list #$
                                                                                (file-append
                                                                                 (specification->package
-                                                                                 "emacs")
+                                                                                 "emacs-pgtk")
                                                                                 "/bin/emacs")
                                                                                "--fg-daemon")))
                                                                             (stop #~
