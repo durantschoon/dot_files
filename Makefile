@@ -658,6 +658,26 @@ emacs-env:
 	  echo "==> no running Emacs; the file loads on next GUI start"; \
 	fi
 
+# A reconfigure only rewrites ~/.gnupg/gpg-agent.conf -- the *running* agent
+# keeps the config it read at startup, and herd reports it as "Replacement
+# pending (restart to upgrade)" indefinitely.  That mostly goes unnoticed,
+# because the setting rarely changes.  The trap is pinentry-program, which
+# names an absolute store path: `guix pull' moves pinentry to a new path, the
+# new conf points there, and the live agent still holds the old one.  It keeps
+# working until a `guix gc' collects the old path, at which point gpg-agent
+# cannot launch a pinentry and every ssh-add fails with the thoroughly
+# unhelpful "agent refused operation" -- days after the reconfigure that
+# actually caused it.  Restarting here keeps the live agent and the config in
+# step, so that failure can never accumulate.
+#
+# Not fatal if it fails: shepherd is not running during a first-time install
+# or a reconfigure from a bare TTY, and neither is a reason to fail the build.
+.PHONY: restart-gpg-agent
+restart-gpg-agent:
+	@echo "==> restarting gpg-agent onto the new config"
+	@herd restart gpg-agent 2>/dev/null \
+	  || echo "    (skipped: no user shepherd -- the agent will pick this up at next login)"
+
 apply: warn-dotfiles-home
 	@echo "==> git submodule update --init claude"
 	@# home/base.scm reads ../claude/* via local-file, so an uninitialized
@@ -674,6 +694,7 @@ apply: warn-dotfiles-home
 	fi
 	@echo "==> guix home reconfigure home/base.scm"
 	@guix home reconfigure --allow-downgrades home/base.scm
+	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent)"
@@ -709,6 +730,7 @@ apply-wayland: warn-dotfiles-home
 	@git submodule update --init claude
 	@echo "==> guix home reconfigure home/wayland.scm"
 	@guix home reconfigure --allow-downgrades home/wayland.scm
+	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent)"

@@ -146,13 +146,27 @@ releases and other GitHub features to the terminal.")
    (list
     ;; gpg-agent doubling as the SSH agent -- kept in sync with base.scm.
     ;; ssh-support? #t points SSH_AUTH_SOCK at gpg-agent's socket, so one
-    ;; unlock per cache-TTL covers git push from any terminal.  One-time step
-    ;; per machine after reconfigure: `ssh-add ~/.ssh/id_ed25519_ds' imports
-    ;; the key into ~/.gnupg/sshcontrol permanently.
+    ;; unlock per cache-TTL covers git push from any terminal.  `ssh-add
+    ;; ~/.ssh/id_ed25519_ds' imports the key into ~/.gnupg/sshcontrol: a
+    ;; one-time step per machine, NOT per reconfigure -- ~/.gnupg is not
+    ;; managed by Guix, so the key survives every reconfigure and reboot.
+    ;; Later reboots only re-unlock it, once per cache-TTL.
     (service home-gpg-agent-service-type
       (home-gpg-agent-configuration
+       ;; pinentry-gnome3, NOT the plain `pinentry' (whose /bin/pinentry is a
+       ;; symlink to pinentry-gtk-2).  Shepherd starts gpg-agent before the
+       ;; graphical session exists, so the agent's environment has no DISPLAY,
+       ;; WAYLAND_DISPLAY or XAUTHORITY -- and the ssh-agent protocol, unlike
+       ;; gpg's assuan channel, carries no display info for it to fall back
+       ;; on.  gtk-2 therefore cannot open a window for ssh requests and dies
+       ;; with "Inappropriate ioctl for device", which ssh-add reports as the
+       ;; useless "agent refused operation".  pinentry-gnome3 reaches the
+       ;; desktop over D-Bus (DBUS_SESSION_BUS_ADDRESS *is* in the agent's
+       ;; environment) and falls back to curses on a bare TTY, so it prompts
+       ;; correctly no matter what environment shepherd handed the agent.
        (pinentry-program
-        (file-append (specification->package "pinentry") "/bin/pinentry"))
+        (file-append (specification->package "pinentry-gnome3")
+                     "/bin/pinentry-gnome3"))
        (ssh-support? #t)
        (default-cache-ttl 3600)
        (max-cache-ttl 28800)
