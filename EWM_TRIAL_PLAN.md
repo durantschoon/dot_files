@@ -150,19 +150,42 @@ crates.io dependency tree does not belong in a declarative profile.
 ```sh
 git clone https://codeberg.org/ezemtsov/ewm ~/src/ewm
 cd ~/src/ewm/compositor
-guix shell --pure rust rust:cargo pkg-config \
-     libinput libseat eudev libxkbcommon mesa wayland wayland-protocols \
-     pixman dbus \
-     -- cargo build --features=screencast
+guix shell --pure rust rust:cargo pkg-config nss-certs bash-minimal \
+     clang-toolchain libinput libseat eudev libxkbcommon mesa wayland \
+     glib libdisplay-info pipewire \
+     -- bash -c 'LIBCLANG_PATH=$GUIX_ENVIRONMENT/lib cargo build --features=screencast'
 ```
 
-The dependency list is an educated guess from Smithay's requirements, not from
-EWM's docs — expect to add to it as `pkg-config` complains. `--pure` is
-deliberate: it makes missing dependencies fail loudly at build time instead of
-silently binding to something from your profile that will not be there at
-runtime.
+This command is measured, not guessed: stage 03 ran it clean (empty `target/`)
+against EWM `dc5eb71` and it exited 0 in 1m23s, producing
+`target/debug/libewm_core.so`. The error-by-error log of how the list was
+derived is `docs/stages/stage-03-REPORT.md`.
 
-Success gives you `target/debug/libewm_core.so`.
+What changed versus the earlier educated guess:
+
+- **Added `glib`** — `glib-sys` needs `glib-2.0.pc` for GIO (XDG app enumeration).
+- **Added `libdisplay-info`** — `libdisplay-info-sys` needs it for EDID parsing.
+- **Added `pipewire`** — required by `--features=screencast`; `libspa-sys` fails
+  without `libpipewire-0.3.pc`. The guess omitted it.
+- **Added `clang-toolchain`** — `libspa-sys` runs `bindgen`, which needs
+  `libclang.so`. Guix does not put it anywhere `clang-sys` searches, hence the
+  explicit `LIBCLANG_PATH=$GUIX_ENVIRONMENT/lib`; that is also why `bash-minimal`
+  is in the list (something has to expand `$GUIX_ENVIRONMENT` inside the shell).
+- **Added `nss-certs`** — `--pure` drops `SSL_CERT_FILE`, so cargo cannot verify
+  `index.crates.io` and dies before compiling anything.
+- **Dropped `wayland-protocols`, `pixman`, `dbus`** — never queried by any build
+  script. The Rust `wayland-protocols` crate vendors the XML, `zbus` is a pure-Rust
+  D-Bus implementation, and Smithay's GL renderer does not use pixman. Removing
+  all three was confirmed by a clean rebuild, not inferred.
+
+`--pure` is deliberate: it makes missing dependencies fail loudly at build time
+instead of silently binding to something from your profile that will not be there
+at runtime. Its cost is the two lines of scaffolding above (`nss-certs`,
+`LIBCLANG_PATH`), which is the price of that guarantee.
+
+Success gives you `target/debug/libewm_core.so` — an 82 MB unstripped ELF shared
+object. Note this is the *build-time* list; Stage 2 will exercise runtime
+dependencies (libseat/seatd, EGL, DRM) that a successful compile does not prove.
 
 ---
 
