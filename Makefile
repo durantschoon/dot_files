@@ -1021,6 +1021,34 @@ check-system-hosts:
 # wayland.scm's spacemacs-activation, because that is a difference inside a
 # service that both files declare. Diff the two files by hand when you touch an
 # activation body.
+#
+# DECLARED SUBSTITUTIONS, the one escape hatch. The two configs sometimes name
+# DIFFERENT packages for the same job on purpose, and a plain subset test reads
+# that as drift: bef8534 moved wayland.scm to "emacs-pgtk" and left base.scm on
+# "emacs", and this check went red on every commit after it.
+# HOME_PKG_SUBSTITUTIONS below declares such pairs for the pkg pass only.
+#
+# The exemption is CONDITIONAL, and that is the whole design: a base spec is
+# excused only while its wayland counterpart is actually present in wayland.scm's
+# extracted list. Delete "emacs-pgtk" from wayland.scm and "emacs" is reported
+# missing again, word for word as before. An unconditional exemption would fail
+# OPEN -- the same failure this block already carries a scar from, where the
+# check kept exiting while no longer checking anything. Note the direction: a
+# substitution can only ever suppress a finding it was explicitly told to
+# suppress; it can never invent one.
+#
+# Entries are meant to stay rare and to stay justified -- each is a place where
+# the two configs knowingly disagree, so each names the commit that made them
+# disagree and where the reasoning is written down. The file and svc passes have
+# no equivalent mechanism and should not grow one before a real case turns up;
+# one hand-rolled exemption table is already one more than ideal.
+#
+#   emacs=emacs-pgtk -- bef8534. wayland.scm wants the pgtk build, which talks
+#     Wayland natively; base.scm deliberately stays on plain "emacs" because it
+#     targets headless and Docker hosts with no use for a GTK-linked Emacs. The
+#     reasoning is written out at home/wayland.scm:76-83.
+HOME_PKG_SUBSTITUTIONS := emacs=emacs-pgtk
+
 check-home-sync:
 	@echo "==> home/base.scm entries vs home/wayland.scm"
 	@rc=0; t=$$(mktemp -d); \
@@ -1028,6 +1056,14 @@ check-home-sync:
 	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-base; \
 	sed -n '/define %base-packages/,/^(home-environment/p' home/wayland.scm \
 	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-way; \
+	for sub in $(HOME_PKG_SUBSTITUTIONS); do \
+	  b="\"$${sub%%=*}\""; w="\"$${sub#*=}\""; \
+	  if grep -qxF "$$b" $$t/pkg-base && grep -qxF "$$w" $$t/pkg-way; then \
+	    grep -vxF "$$b" $$t/pkg-base > $$t/pkg-base.sub; \
+	    mv $$t/pkg-base.sub $$t/pkg-base; \
+	    echo "    substitution: $$b in base.scm satisfied by $$w in wayland.scm"; \
+	  fi; \
+	done; \
 	sed 's/;.*//' home/base.scm    | grep -oE '`\("[^"]+"' | sed 's/^`("//;s/"$$//' | sort -u > $$t/file-base; \
 	sed 's/;.*//' home/wayland.scm | grep -oE '`\("[^"]+"' | sed 's/^`("//;s/"$$//' | sort -u > $$t/file-way; \
 	sed 's/;.*//' home/base.scm    | grep -oE "simple-service '[a-z-]+|\(service [a-z-]+-service-type" | sed "s/.*'//;s/(service //" | sort -u > $$t/svc-base; \
