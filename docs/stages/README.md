@@ -51,6 +51,14 @@ degraded.
   executor's worktree, never report-reading alone.
 - Long builds: Bash calls cap at 10 minutes, so executors run builds with
   `run_in_background` and poll.
+- Every prompt's Blocked protocol specifies a DISTINCT blocked-case commit message —
+  reusing the success message makes the git log assert work that never happened
+  (learned in stage 01).
+- The coordinator runs `make check` before committing anything to `main`, prompts
+  included — stage 01 blocked on a gate failure the coordinator had shipped
+  (`bef8534`) and never noticed.
+- Executor shells have a broken bare `grep` (Claude Code shell-snapshot artifact);
+  prompts point executors at `git grep`/`rg` instead.
 - Retro every 5 stages (before authoring stage NN where NN % 5 == 0): re-read the
   last five REPORTs' Deviations and Open-questions sections, fix systemic patterns in
   this README in the same commit as the new prompt.
