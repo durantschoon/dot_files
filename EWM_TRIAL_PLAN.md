@@ -209,6 +209,70 @@ Only after this stage should `system/geeeks.scm` change.
 
 ---
 
+## Stage 4 — package it for Guix (near-future work, deliberately last)
+
+Upstream ships a Nix flake and nothing else. If EWM survives Stage 3 the
+`guix shell` line above stops being good enough — a compositor you log into
+should not depend on a `~/src` checkout and a debug build. This stage is
+committed to as future work; the sequencing below is the decision, not a menu.
+
+**Sequencing.** Build with `guix shell` and see whether you like it → if yes,
+package into a *personal channel*, not upstream Guix → solve the session/env
+question last, because it is the part with no prior art to copy.
+
+Reasons for each ordering choice:
+
+- **Personal channel, not upstream.** The bar for alpha software in Guix
+  proper is high, and you would be chasing it. EWM's Emacs-facing API is
+  explicitly incomplete, and a generated crate closure is a snapshot of one
+  `Cargo.lock` that has to be regenerated on every version bump. A channel
+  absorbs that churn; `guix.git` review does not.
+- **Session/env last.** Everything else here is mechanical. Getting a
+  shepherd-managed session to publish `WAYLAND_DISPLAY`/`DISPLAY` into D-Bus
+  and to the services that need it is genuinely unsolved on Guix — there is no
+  `dbus-update-activation-environment --systemd` to copy. That is the same
+  class of bug as the gpg-agent pinentry failure fixed in `home/wayland.scm`,
+  and it is the most likely thing to eat a weekend. Do not let it block the
+  parts that are known to work.
+
+### Verified: the crate importer emits the shape the registry wants
+
+An open question was whether `guix import crate -f` produces the modern
+`rust-crates.scm` shape or something needing hand massaging. Tested against
+EWM's real lockfile (279 packages), and it does:
+
+```sh
+guix import crate -f Cargo.lock ewm-core   # -f is a modifier; the name is still required
+```
+
+That exits 0 and emits ~1145 lines of exactly the registry form, with real
+base32 hashes already computed:
+
+```scheme
+(define rust-aho-corasick-1.1.4
+  (crate-source "aho-corasick" "1.1.4"
+                "00a32wb2h07im3skkikc495jvncf62jl6s96vwc7bhi70h9imlyx"))
+```
+
+**The one gap:** the importer does not emit the registration block. Upstream
+`gnu/packages/rust-crates.scm` follows its `crate-source` defines with a single
+`define-cargo-inputs` form mapping each package to its closure, and that has to
+be generated separately — mechanically, from the same list of names:
+
+```scheme
+(define-cargo-inputs lookup-cargo-inputs
+                     (ewm-core => (list rust-aho-corasick-1.1.4
+                                        ...
+                                        rust-zvariant-utils-3.3.0)))
+```
+
+`cargo-inputs` accepts a `#:module` argument, so a personal channel can ship
+its own registry module rather than patching Guix's. Net: the importer does the
+expensive part (fetch and hash 279 crates), one scripted transform produces the
+registration, and nothing about this stage is research.
+
+---
+
 ## GNOME dependency inventory
 
 What is actually tied to GNOME, and what happens to each if you commit to EWM.
