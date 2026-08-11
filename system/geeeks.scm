@@ -53,7 +53,7 @@
 
 (use-modules (gnu)
              (gnu packages base)       ;glibc, for the ld.so compatibility symlink
-             (gnu packages linux)
+             (gnu packages linux)      ;linux-firmware, keyd, iptables, iproute2
              (gnu packages shells)     ;zsh, for the declared login shell
              (gnu packages ssh)        ;openssh
              (gnu packages version-control) ;git
@@ -61,7 +61,12 @@
              (gnu services linux)      ;kernel-module-loader-service-type
              (gnu services shepherd)   ;shepherd-service, shepherd-root-service-type
              (gnu system nss)
+             (guix build-system copy)  ;copy-build-system, for the tailscale tarball
              (guix channels)           ;channel, make-channel-introduction
+             (guix download)           ;url-fetch
+             (guix gexp)               ;#~, file-append
+             (guix packages)           ;package, origin, base32
+             ((guix licenses) #:prefix license:)
              (nongnu packages linux)
              (nongnu system linux-initrd)
              (srfi srfi-1))
@@ -106,6 +111,68 @@
   (q #C1FD53E5D4CE971933EC50C9F307AE2171A2D3B52C804642A7A35F84F3A4EA98#)
   )
  )"))
+
+;; Tailscale, from upstream's prebuilt static binaries.
+;;
+;; WHY A LOCAL PACKAGE.  Guix has no `tailscale' package and no
+;; tailscale-service-type at the pinned commit -- `guix search tailscale'
+;; returns only go-github-com-tailscale-* library modules.  Building the real
+;; thing from source with go-build-system would mean packaging tailscale's
+;; entire (unvendored) module graph, which is not a weekend.  So this takes the
+;; same shape nonguix already established on this machine: ship upstream's
+;; binary, pinned by hash.
+;;
+;; This is LESS invasive than the /lib64 shim below, not more.  Both binaries
+;; are `statically linked' Go executables -- no INTERP header, no libc, nothing
+;; resolved outside the store at exec time -- so no loader symlink and no
+;; patchelf are involved.  The tradeoff is only that the bits are trusted rather
+;; than built: the sha256 below is upstream's own published
+;; tailscale_1.102.2_amd64.tgz.sha256, checked against the downloaded tarball.
+;;
+;; Bumping the version means changing BOTH strings.  Get the new hash with:
+;;   guix download https://pkgs.tailscale.com/stable/tailscale_<ver>_amd64.tgz
+;;
+;; x86_64 only, stated rather than implied -- the URI hardcodes _amd64, so on
+;; any other architecture this must fail to evaluate rather than fetch a tarball
+;; of the wrong binaries.
+(define %tailscale-version "1.102.2")
+
+(define tailscale-bin
+  (package
+    (name "tailscale-bin")
+    (version %tailscale-version)
+    (source
+     (origin
+       (method url-fetch)
+       (uri (string-append "https://pkgs.tailscale.com/stable/tailscale_"
+                           version "_amd64.tgz"))
+       (sha256
+        (base32 "1n04mcwfnh8pzcrhmmmr88yn0719abk0210y7awzg5fyz09dwb5d"))))
+    (build-system copy-build-system)
+    (arguments
+     (list
+      ;; sbin/ for the daemon, bin/ for the CLI -- matching upstream's own
+      ;; split, which is what tailscaled's baked-in default paths assume.
+      #:install-plan
+      #~'(("tailscale"  "bin/tailscale")
+          ("tailscaled" "sbin/tailscaled"))
+      #:phases
+      #~(modify-phases %standard-phases
+          ;; Nothing to strip or check: Go emits its own symbol table (which
+          ;; `tailscale bug' reports leans on) and static binaries have no
+          ;; RUNPATH for validate-runpath to walk.
+          (delete 'strip)
+          (delete 'validate-runpath))))
+    (supported-systems '("x86_64-linux"))
+    (home-page "https://tailscale.com")
+    (synopsis "Tailscale node agent and CLI (upstream static binaries)")
+    (description
+     "Prebuilt, statically linked @command{tailscaled} and @command{tailscale}
+from @url{https://pkgs.tailscale.com}, repacked into a Guix package.  Guix
+packages neither the daemon nor a service type, and Tailscale's Go module graph
+is not vendored, so upstream's release tarball is used instead of a source
+build.")
+    (license license:bsd-3)))
 
 ;; Pop!_OS chainload entry, emitted only when Pop!_OS is actually installed.
 ;;
@@ -329,8 +396,16 @@ leftcontrol = capslock
  ;; (zsh is NOT needed here -- the login shell's file-append above already
  ;; pulls it into the system closure.)
  ;;
+ ;; tailscale-bin is the fourth, and it is here for the CLI rather than the
+ ;; daemon: the shepherd service below refers to the daemon by store path and
+ ;; would work with this line deleted, but `tailscale status' and `tailscale up'
+ ;; have to be typeable.  System profile rather than home profile for the same
+ ;; reason as git and openssh -- root needs it too, and you may well be joining
+ ;; the tailnet from a rescue shell precisely because the machine is otherwise
+ ;; unreachable.
+ ;;
  ;; Everything else stays out; `guix home' owns the user-level package set.
- (packages (append (list git openssh gnu-make) %base-packages))
+ (packages (append (list git openssh gnu-make tailscale-bin) %base-packages))
 
  ;; Desktop services: GNOME on Wayland, plus networking.
  ;;
@@ -454,6 +529,109 @@ leftcontrol = capslock
                  ;; rather than when you choose to start it.  Test one with
                  ;; `sudo herd restart keyd' on a running system before
                  ;; reconfiguring.
+                 (auto-start? #t))))
+
+         ;; tailscaled, as a SYSTEM service.
+         ;;
+         ;; Same "who can deploy decides" rule as keyd (system/README.md): a VPN
+         ;; is arguably a user preference, but tailscaled opens /dev/net/tun,
+         ;; rewrites the routing table and touches netfilter, so it cannot live
+         ;; in `guix home' no matter who wants it.
+         ;;
+         ;; Guix ships no tailscale-service-type either, so the shepherd service
+         ;; is written out by hand, transcribed from the tailscaled.service unit
+         ;; inside upstream's own tarball.  Four things in that unit matter here
+         ;; and are easy to lose in translation:
+         ;;
+         ;;   --state    without it the daemon defaults to a path under $HOME,
+         ;;              which for a root daemon is nonsense; /var/lib/tailscale
+         ;;              is what every distro package uses and what `tailscale
+         ;;              up' documentation assumes.
+         ;;   --socket   this is the CLI's compiled-in default, restated so that
+         ;;              plain `tailscale status' works with no flags.  Change
+         ;;              it here and every CLI invocation needs --socket too.
+         ;;   --port     41641 is Tailscale's registered port.  0 (the binary's
+         ;;              default) picks a random one each start, which still
+         ;;              works but gives a NAT nothing stable to keep open.
+         ;;   --cleanup  ExecStopPost in the unit, and the reason `stop' below
+         ;;              is not a bare make-kill-destructor.  Killing tailscaled
+         ;;              leaves its routes and netfilter rules installed; they
+         ;;              then point at a tailscale0 device that no longer has a
+         ;;              daemon behind it, so traffic to tailnet addresses is
+         ;;              silently blackholed until the next boot.
+         ;;
+         ;; No kernel-module-loader entry for `tun': this kernel has CONFIG_TUN
+         ;; built in (`modinfo tun' says "filename: (builtin)"), so /dev/net/tun
+         ;; already exists at boot.  If a future kernel pin makes it a module,
+         ;; add "tun" to the existing kernel-module-loader list above rather than
+         ;; declaring a second instance of that service type -- duplicate
+         ;; instances fail the reconfigure.
+         ;;
+         ;; PATH is set explicitly because make-forkexec-constructor's
+         ;; #:environment-variables REPLACES the environment rather than adding
+         ;; to it.  tailscaled prefers its netlink nftables backend, which needs
+         ;; no binaries at all, but falls back to exec'ing iptables/ip on
+         ;; kernels or configurations where that backend will not initialise --
+         ;; and an empty PATH turns that fallback into an obscure failure well
+         ;; after startup looked fine.  SSL_CERT_* likewise: a static Go binary
+         ;; with no certificate path cannot TLS to the control plane, and Guix
+         ;; puts the bundle somewhere Go does not guess.
+         (simple-service 'tailscale-state activation-service-type
+                         ;; Recreated on every boot and every reconfigure.
+                         ;; 0700 on the state directory is not cosmetic: it
+                         ;; holds tailscaled.state, which contains this node's
+                         ;; private key.
+                         #~(begin
+                             (use-modules (guix build utils))
+                             (mkdir-p "/var/lib/tailscale")
+                             (chmod "/var/lib/tailscale" #o700)
+                             (mkdir-p "/var/run/tailscale")
+                             (chmod "/var/run/tailscale" #o755)))
+
+         (simple-service
+          'tailscaled shepherd-root-service-type
+          (list (shepherd-service
+                 (provision '(tailscaled))
+                 ;; `networking' is NetworkManager here.  tailscaled survives
+                 ;; starting before there is a route out -- it retries -- but
+                 ;; ordering it after avoids a burst of failed control-plane
+                 ;; connections in the log on every boot.
+                 (requirement '(networking))
+                 (documentation "Tailscale node agent.")
+                 (start
+                  #~(make-forkexec-constructor
+                     (list #$(file-append tailscale-bin "/sbin/tailscaled")
+                           "--state=/var/lib/tailscale/tailscaled.state"
+                           "--socket=/var/run/tailscale/tailscaled.sock"
+                           "--port=41641")
+                     #:log-file "/var/log/tailscaled.log"
+                     #:environment-variables
+                     (list (string-append
+                            "PATH="
+                            #$(file-append iptables "/sbin") ":"
+                            ;; The VARIABLE is `iproute'; the package it names
+                            ;; is "iproute2".  `guix build iproute' fails and
+                            ;; (file-append iproute2 ...) is unbound -- the two
+                            ;; spellings are not interchangeable.
+                            #$(file-append iproute "/sbin"))
+                           "SSL_CERT_DIR=/etc/ssl/certs"
+                           "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")))
+                 (stop
+                  #~(lambda (pid)
+                      ((make-kill-destructor) pid)
+                      ;; Best effort, and deliberately not fatal: --cleanup on a
+                      ;; node that never came up exits non-zero, and a `stop'
+                      ;; that throws leaves shepherd believing the service is
+                      ;; still running.
+                      (system* #$(file-append tailscale-bin "/sbin/tailscaled")
+                               "--cleanup")
+                      #f))
+                 (respawn? #t)
+                 ;; Unlike keyd, this one is safe to auto-start from the first
+                 ;; deploy: the worst a broken tailscaled does is fail to join
+                 ;; the tailnet.  It cannot cost you the console, and it cannot
+                 ;; take out the WiFi this machine's only interface depends on
+                 ;; -- tailscale0 is an additional interface, not a replacement.
                  (auto-start? #t))))
 
          ;; The FHS dynamic loader, as one symlink.

@@ -110,6 +110,7 @@ So secrets are referenced by path and deployed out of band, never inlined:
 | `(password (crypt "pw" "$6$salt"))` | leave `(password #f)`, set it once with `passwd` |
 | a wifi PSK in the config | let NetworkManager keep it in `/etc/NetworkManager/system-connections/` (root-only, 0600) |
 | an inlined WireGuard key | `(private-key "/etc/wireguard/private.key")`, deployed separately |
+| a Tailscale auth key in `tailscaled` flags | run `tailscale up` once; the node key lands in `/var/lib/tailscale/` (0700, root-only) |
 
 The account password deserves its own note, because it is the one you are most
 likely to add without thinking. The field is **`password`** — `hashed-password`
@@ -159,12 +160,19 @@ check is a loop over the directory instead of a pattern edited per machine.
 ## Deploying
 
 ```sh
-sudo -i guix system reconfigure /path/to/dot_files/system/$(hostname).scm
+make reconfigure           # from the repo root; the system half of `make apply'
 sudo herd restart keyd     # /etc/keyd/default.conf changes need a reload
 ```
 
-Two details in that first line are load-bearing, and both cost real time to
-rediscover.
+`make reconfigure` runs `make check-system` first, refuses on anything that is
+not Guix System, selects `system/$(uname -n).scm`, and then runs:
+
+```sh
+sudo -i guix system reconfigure /path/to/dot_files/system/$(hostname).scm
+```
+
+Two details in that expansion are load-bearing, which is why the target exists
+rather than leaving it to be retyped — both cost real time to rediscover.
 
 **`sudo -i`, not plain `sudo`.** There are two guix installations on a Guix
 System box — root's, at `/var/guix/profiles/per-user/root/current-guix`, and
@@ -186,6 +194,14 @@ whether it does is a `PATH` question you should not have to think about mid-depl
 **An absolute path.** `sudo -i` also changes directory to `/root`, so a relative
 `system/geeeks.scm` will not be found there.
 
+The target also closes a gap `check-system-hosts` structurally cannot.
+That check asserts `system/<x>.scm` calls itself `<x>`; it has no way to know
+whether `<x>` is the machine you are sitting at. Deriving the file from
+`uname -n` is what makes the pairing hold at deploy time, and it is why
+`make reconfigure` takes no argument to override the choice — `guix system
+reconfigure` will cheerfully apply another class's disk labels and bootloader
+target to this disk.
+
 `keyd` ran with `(auto-start? #f)` through the first deploys, because it grabs
 the physical keyboard and a bad config auto-starting at boot leaves you with no
 console input and no way to type a rollback. That cost one `sudo herd start keyd`
@@ -201,4 +217,35 @@ keyd` on a running system before you reconfigure.
 
 Note that a plain `herd status keyd` fails with *"service 'keyd' could not be
 found"*. That queries the **user** shepherd that `guix home` runs; `keyd` is a
-root service, so it needs `sudo herd`.
+root service, so it needs `sudo herd`. The same applies to `tailscaled`.
+
+## Joining the tailnet
+
+`tailscaled` auto-starts from the reconfigure, but a running daemon is not a
+joined node — that takes one interactive command, once per machine:
+
+```sh
+sudo tailscale up --operator=$USER
+sudo tailscale status
+```
+
+`--operator` is the part worth remembering. tailscaled's control socket is
+root-owned `0600`, so without it every later `tailscale status` needs `sudo`;
+with it, the named user can drive the daemon directly. It is recorded in the
+daemon's own state, so it survives reboots and reconfigures and does not belong
+in the config.
+
+`tailscale up` prints a login URL. Opening it associates *this* node with your
+tailnet, so the tailnet has to exist first — but any device can create it,
+including this one.
+
+**`--ssh` is deliberately not used here.** It makes a machine reachable *over*
+Tailscale SSH, which is what a machine you connect **to** wants (the Mac mini
+runner sets it). This laptop is the coordinator: it connects out. Adding
+`--ssh` would put tailscaled in front of port 22 for no benefit.
+
+Tailscale is the one package here taken as an upstream **binary** rather than
+built — see the long comment on `tailscale-bin` in each config for why, and for
+the two strings to change when bumping the version. Unlike the `/lib64` shim
+next to it, this needs no loader escape hatch: both binaries are statically
+linked Go.

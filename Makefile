@@ -141,6 +141,9 @@ help:
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make apply         - Apply Guix Home configuration (reconfigure)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
+	@echo "  make reconfigure   - Apply the SYSTEM config for this machine (Guix System only;"
+	@echo "                       picks system/\$$(uname -n).scm, runs check-system first,"
+	@echo "                       then sudo -i guix system reconfigure)"
 	@echo "  make emacs-env     - Regenerate ~/.spacemacs.d/.spacemacs.env from a clean"
 	@echo "                       login shell and push it into a running Emacs."
 	@echo "                       Runs automatically after apply/apply-wayland/update."
@@ -868,7 +871,7 @@ home-check:
 # of a real finding -- which still blocks the commit and so reads like a catch.
 # The hook warns when this Makefile has unstaged changes; see the note there.
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
-.PHONY: check-home-sync check-system-hosts install-hooks add-pkg
+.PHONY: check-home-sync check-system-hosts install-hooks add-pkg reconfigure
 
 # add-pkg -- add a package spec to the home configs, both of them.
 #
@@ -1207,3 +1210,81 @@ check-system-secrets:
 	else \
 	  echo "    clean"; \
 	fi
+
+# reconfigure -- deploy this machine's host class config.
+#
+# The `guix home' counterpart is `make apply'. This is the system half, and it
+# stayed prose in system/README.md for a while because three of its details are
+# easy to get wrong in a way that either fails loudly at the worst moment or,
+# worse, succeeds against the wrong config:
+#
+#   sudo -i, not sudo   There are two guix installations on a Guix System box.
+#                       Root's is pulled at install time from
+#                       system/channels-<class>.scm and therefore has nonguix;
+#                       a user's has whatever that user last pulled. Every
+#                       config here needs nonguix for `linux' and
+#                       `linux-firmware', so the wrong one dies with
+#                       "no code for module (nongnu packages linux)". `-i'
+#                       starts a root LOGIN shell, which resolves `guix' to
+#                       root's regardless of the invoker's PATH.
+#   $(CURDIR), not a    `sudo -i' also cds to /root, so a relative
+#   relative path       system/geeeks.scm is simply not there. CURDIR is
+#                       already absolute and already resolved, so this works
+#                       through the ~/dot_files symlink too.
+#   uname -n, not a     `guix system reconfigure' applies whatever config you
+#   hardcoded class     hand it, and a config hardcodes disk labels, firmware
+#                       and a bootloader target. check-system-hosts asserts
+#                       that system/<x>.scm calls itself <x> -- it cannot
+#                       assert that <x> is the machine you are sitting at,
+#                       because it does not know. Selecting the file FROM the
+#                       running host name is what closes that gap, and it is
+#                       why this target takes no argument to override it.
+#
+# `uname -n' rather than `hostname': coreutils is guaranteed here and this
+# Makefile already leans on uname for OS detection, whereas `hostname' comes
+# from inetutils and is one more thing to be absent in a rescue shell.
+#
+# check-system runs first as a prerequisite, so a drifted keyd config or an
+# inlined credential stops the deploy rather than being baked into a generation.
+reconfigure: check-system
+	@if [ -z "$(GUIX_SYSTEM)" ]; then \
+	  echo ""; \
+	  echo "  *** make reconfigure is only for Guix System ***"; \
+	  echo ""; \
+	  echo "  /run/current-system does not exist here, so there is no"; \
+	  echo "  operating-system generation to replace. Guix as a PACKAGE"; \
+	  echo "  MANAGER on Pop!_OS or Ubuntu still gets you 'make apply'"; \
+	  echo "  (guix home); it does not get you this."; \
+	  echo ""; \
+	  exit 1; \
+	fi
+	@host=$$(uname -n); \
+	config="$(CURDIR)/system/$$host.scm"; \
+	if [ ! -f "$$config" ]; then \
+	  echo ""; \
+	  echo "  no host class config for this machine"; \
+	  echo ""; \
+	  echo "    uname -n says:  $$host"; \
+	  echo "    looked for:     $$config"; \
+	  echo ""; \
+	  echo "  Host classes present:"; \
+	  for f in $(SYSTEM_CONFIGS); do echo "    $$(basename $$f .scm)"; done; \
+	  echo ""; \
+	  echo "  Either this machine belongs to an existing class and its host"; \
+	  echo "  name is wrong, or it is a new class needing system/$$host.scm"; \
+	  echo "  and system/channels-$$host.scm (see system/README.md)."; \
+	  echo ""; \
+	  exit 1; \
+	fi; \
+	echo "==> sudo -i guix system reconfigure $$config"; \
+	sudo -i guix system reconfigure "$$config"
+	@echo "==> done (system reconfigured)"
+	@echo ""
+	@echo "--- NEXT STEPS ---"
+	@echo "A reconfigure builds and activates the new generation, but it does"
+	@echo "not restart already-running services onto their new config:"
+	@echo "  sudo herd restart keyd     # if %keyd-config changed"
+	@echo "  sudo herd status           # what is running now"
+	@echo ""
+	@echo "The previous generation stays in the GRUB menu, so a bad boot is a"
+	@echo "reboot away from being undone."
