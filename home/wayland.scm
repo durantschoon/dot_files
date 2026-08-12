@@ -223,7 +223,26 @@ releases and other GitHub features to the terminal.")
                                   "To enable system-wide Emacs keys, run:~%")
                           (format #t "  sudo make setup-keyd~%~%"))))
 
-   ;; Register LibreWolf as the https:/http: handler -- kept in sync with base.scm.
+   ;; Register Firefox as the https:/http: handler.
+   ;;
+   ;; This DIVERGES from base.scm, which sets librewolf.desktop, and the
+   ;; divergence is the point rather than drift to be tidied away: base.scm is
+   ;; the foreign-distro config and deliberately does not install firefox at all
+   ;; (see the note beside "librewolf" there), so pointing it at
+   ;; firefox.desktop would name a handler that does not exist.  Only this file
+   ;; ships both browsers, so only this file can choose between them.
+   ;;
+   ;; Firefox rather than LibreWolf for the two reasons listed beside the
+   ;; packages above -- the migrated Pop!_OS profiles live in the XDG path
+   ;; Firefox reads, and LibreWolf's resistFingerprinting blanks the canvas that
+   ;; 1Password's sign-in QR code is drawn on.  Those both bite hardest through
+   ;; exactly this handler: a link opened from Claude Code or a mail client is
+   ;; the case where you do not get to pick the browser at the point of use.
+   ;; LibreWolf is still installed and still one `librewolf' away.
+   ;;
+   ;; check-home-sync does not police this line.  It compares package, home-file
+   ;; and service NAMES, and both configs keep the same
+   ;; 'default-browser-activation service -- only the handler inside differs.
    ;;
    ;; Installing a browser is not enough for `claude' (or any tool that shells
    ;; out to xdg-open) to launch one.  On a fresh GNOME/Wayland install there is
@@ -233,7 +252,7 @@ releases and other GitHub features to the terminal.")
    ;; writable file, so this does not fight the store-symlink rules elsewhere.
    ;;
    ;; Best-effort on purpose: on a first-ever reconfigure the profile may not be
-   ;; on XDG_DATA_DIRS yet, so librewolf.desktop is unfindable and this is a
+   ;; on XDG_DATA_DIRS yet, so firefox.desktop is unfindable and this is a
    ;; no-op.  Re-running `make apply-wayland' settles it; $BROWSER covers the gap.
    (simple-service 'default-browser-activation home-activation-service-type
                    #~(begin
@@ -245,7 +264,7 @@ releases and other GitHub features to the terminal.")
                                                   (specification->package "xdg-utils")
                                                   "/bin/xdg-settings")
                                                "set" "default-web-browser"
-                                               "librewolf.desktop"))
+                                               "firefox.desktop"))
                          (display "browser: could not set the default handler yet; re-run `make apply-wayland`\n"))))
 
    ;; Ensure Spacemacs and config are present
@@ -379,8 +398,10 @@ releases and other GitHub features to the terminal.")
                                                    ;; Second route to a browser, for tools that
                                                    ;; consult $BROWSER before falling back to
                                                    ;; xdg-open. Belt and braces with the activation
-                                                   ;; service above.
-                                                   "export BROWSER=librewolf\n"
+                                                   ;; service above, so it names the same browser --
+                                                   ;; firefox here, librewolf in base.scm, which does
+                                                   ;; not install firefox.
+                                                   "export BROWSER=firefox\n"
                                                    "eval \"$(starship init zsh)\"\n"
                                                    "alias e='emacsclient -c -a \"\"'\n"
                                                    "alias ec='emacsclient -t -a \"\"'\n"
