@@ -188,24 +188,103 @@ releases and other GitHub features to the terminal.")
        ;; GTK popup when a request originates from an Emacs subprocess.
        (extra-content "allow-emacs-pinentry\nallow-loopback-pinentry\n")))
 
-    ;; Emacs daemon for fast emacsclient
+    ;; User shepherd services: the Emacs daemon, and espanso.
+    ;;
+    ;; ONE home-shepherd-service-type instance holding both.  Declaring the type
+    ;; twice produces duplicate service instances and fails the reconfigure --
+    ;; the same rule the system side has for kernel-module-loader.  A third
+    ;; service goes in this list, not in a new (service ...) form.
     (service home-shepherd-service-type
-             (home-shepherd-configuration (services (list (shepherd-service (provision '
-                                                                             (emacs))
-                                                                            (documentation
-                                                                             "Emacs user daemon.")
-                                                                            (start #~
-                                                                             (make-forkexec-constructor
-                                                                              (list #$
-                                                                               (file-append
-                                                                                (specification->package
-                                                                                 "emacs-pgtk")
-                                                                                "/bin/emacs")
-                                                                               "--fg-daemon")))
-                                                                            (stop #~
-                                                                             (make-kill-destructor))
-                                                                            (auto-start?
-                                                                             #t))))))
+             (home-shepherd-configuration
+              (services
+               (list
+                (shepherd-service
+                 (provision '(emacs))
+                 (documentation "Emacs user daemon.")
+                 (start #~(make-forkexec-constructor
+                           (list #$(file-append
+                                    (specification->package "emacs-pgtk")
+                                    "/bin/emacs")
+                                 "--fg-daemon")))
+                 (stop #~(make-kill-destructor))
+                 (auto-start? #t))
+
+                ;; espanso, the text expander.
+                ;;
+                ;; `espanso daemon' rather than `espanso start': start is the
+                ;; launcher, which hands off to a system service manager and
+                ;; then exits.  On Guix that fails outright --
+                ;;
+                ;;   unable to start service: systemd not found
+                ;;
+                ;; -- because espanso only knows systemd, and its suggested
+                ;; workaround (`espanso service start --unmanaged') explicitly
+                ;; means nothing supervises it and you restart it by hand every
+                ;; login.  `espanso daemon' is documented as "start the daemon
+                ;; without spawning a new process", which is exactly the
+                ;; foreground process a supervisor wants.  Shepherd IS the
+                ;; service manager espanso could not find.
+                ;;
+                ;; Requires membership in the `input' group, granted in
+                ;; system/geeeks.scm and effective only at the NEXT LOGIN.
+                ;; Without it the worker panics at startup with "Unable to open
+                ;; EVDEV devices" -- espanso reads /dev/input/event* directly
+                ;; on Wayland, there being no X11-style global grab.
+                (shepherd-service
+                 (provision '(espanso))
+                 (documentation "espanso text expander daemon.")
+                 (start
+                  #~(make-forkexec-constructor
+                     (list #$(file-append
+                              (specification->package "espanso-wayland")
+                              "/bin/espanso")
+                           "daemon")
+                     #:log-file (string-append (getenv "HOME") "/.cache/espanso/daemon.log")
+                     ;; #:environment-variables REPLACES the environment, so
+                     ;; everything espanso needs has to be rebuilt here.
+                     ;;
+                     ;; WAYLAND_DISPLAY is the one that actually bites.  This
+                     ;; user's shepherd has XDG_RUNTIME_DIR, XDG_SESSION_TYPE
+                     ;; and DBUS_SESSION_BUS_ADDRESS but NOT WAYLAND_DISPLAY --
+                     ;; verified by reading /proc/<shepherd>/environ -- and
+                     ;; espanso needs a Wayland connection to INJECT text (the
+                     ;; virtual-keyboard protocol), even though it DETECTS
+                     ;; through evdev without one.  So it would sit there
+                     ;; recognising triggers and typing nothing.
+                     ;;
+                     ;; Inherit it when present and fall back to wayland-0,
+                     ;; which is what GNOME uses here and what a single
+                     ;; compositor gets by convention.  A second concurrent
+                     ;; compositor would be wayland-1 and would need this
+                     ;; revisited.
+                     #:environment-variables
+                     (let* ((home (getenv "HOME"))
+                            (runtime (or (getenv "XDG_RUNTIME_DIR")
+                                         (string-append "/run/user/"
+                                                        (number->string (getuid)))))
+                            (dbus (getenv "DBUS_SESSION_BUS_ADDRESS")))
+                       (append
+                        (list (string-append "HOME=" home)
+                              (string-append "XDG_RUNTIME_DIR=" runtime)
+                              (string-append "WAYLAND_DISPLAY="
+                                             (or (getenv "WAYLAND_DISPLAY") "wayland-0"))
+                              "XDG_SESSION_TYPE=wayland"
+                              (string-append "PATH=" home "/.guix-home/profile/bin"))
+                        (if dbus
+                            (list (string-append "DBUS_SESSION_BUS_ADDRESS=" dbus))
+                            '())))))
+                 (stop #~(make-kill-destructor))
+                 ;; Shepherd may well win the race against the compositor at
+                 ;; login, in which case the socket does not exist yet and the
+                 ;; first start fails.  respawn? covers that; shepherd's own
+                 ;; throttle stops it becoming a tight loop if the real problem
+                 ;; is the missing `input' group instead.
+                 ;;
+                 ;; If it ever does get disabled for respawning too fast, the
+                 ;; log named above says which of the two it was, and
+                 ;; `herd start espanso' recovers without a reconfigure.
+                 (respawn? #t)
+                 (auto-start? #t))))))
 
     ;; System-wide Emacs keybindings (activation)
     (simple-service 'emacs-keybindings-activation home-activation-service-type

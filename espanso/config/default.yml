@@ -9,6 +9,20 @@
 # To make customization easier, this file contains some of the commonly used
 # parameters. Feel free to uncomment and tune them to fit your needs!
 
+# --- Keyboard layout
+
+# Espanso cannot work this out on its own here and says so on every start:
+#   "unable to determine keyboard layout automatically, please explicitly
+#    specify it in the configuration"
+# It needs the layout to map evdev scancodes to characters, so without it the
+# detection side is guessing. "us" matches the system keyboard-layout declared
+# in system/geeeks.scm.
+#
+# Note the CapsLock/Control swap does NOT belong here: that arrives from keyd
+# and from the ctrl:swapcaps X keyboard option, both below this layer.
+keyboard_layout:
+  layout: "us"
+
 # --- Notifications
 
 show_notifications: false
