@@ -330,7 +330,30 @@ leftcontrol = capslock
                 (comment "Durant Schoon")
                 (group "users")
                 (home-directory "/home/durant")
-                (supplementary-groups '("wheel" "netdev"))
+                ;; "input" is for espanso, and it is a real privilege rather
+                ;; than a formality: it grants read access to
+                ;; /dev/input/event*, which is every keystroke on this machine,
+                ;; from every application, including passwords.  Any process
+                ;; running as this user can then keylog it.
+                ;;
+                ;; It is accepted here because espanso is a text expander --
+                ;; reading every keystroke IS its function, and it cannot work
+                ;; without this.  On Wayland there is no X11-style global grab
+                ;; to fall back on, so espanso uses evdev directly and fails
+                ;; with "Unable to open EVDEV devices" until this lands.  The
+                ;; alternative espanso itself suggests is running it as root,
+                ;; which is strictly worse.
+                ;;
+                ;; This is the one entry here driven by a USER preference
+                ;; rather than by the hardware, and it is in the system config
+                ;; only because group membership cannot be granted from `guix
+                ;; home' -- the same "who can deploy decides" rule as keyd and
+                ;; tailscaled (system/README.md).  A user of this class who
+                ;; does not want espanso should drop "input".
+                ;;
+                ;; Takes effect at the NEXT LOGIN, not at reconfigure: groups
+                ;; are resolved when the session starts.
+                (supplementary-groups '("wheel" "netdev" "input"))
                 ;; There is deliberately no (password ...) here.
                 ;;
                 ;; The field exists, defaults to #f, and setting it is the
