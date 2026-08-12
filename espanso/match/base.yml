@@ -264,6 +264,15 @@ matches:
         format: "%B %d, %Y"
   - trigger: "degxx"
     replace: "°"
+  # U+2192 RIGHTWARDS ARROW, on its own
+  - trigger: "arrxx"
+    replace: "→"
+  # The zsh global alias for 2>&1, defined in .aliases -- merges stderr into
+  # stdout.  It has to be typed with the real arrow: `err->out' parses as a
+  # redirection and `err-\>out' is a quoted word, which zsh will not
+  # alias-expand.  Hence this expansion.
+  - trigger: "e2oxx"
+    replace: "err→out"
   - trigger: "pkxx"
     replace: "Personal Knowledge"
   - trigger: "pkmxx"
