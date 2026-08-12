@@ -210,6 +210,67 @@ fi
 [[ -f ~/dot_aliases/dot_aliases ]] && source ~/dot_aliases/dot_aliases # bitbucket
 
 ###############################################################################
+# Cloud Services
+###############################################################################
+#
+# A standing section, not a scratchpad: several providers are in use at once and
+# one migration is in progress, so "which service, and what is set up for it
+# here" is a recurring question.  Aliases below, inventory first.
+#
+# MIGRATION IN PROGRESS (2026): consolidate onto Proton Drive, and stop paying
+# for the overlap.  Until it finishes several are live at once, so anything
+# added here should say which one it targets rather than assuming a default.
+#
+# KEEPING
+#
+#   Proton Drive   Incoming primary.  NO official Linux client -- access is
+#                  rclone's `protondrive' backend, which is reverse-engineered.
+#                  Guix packages rclone (1.72.1 at the current pin) and that
+#                  build does include the backend.
+#   Google Drive   rclone's `drive' backend, or GNOME Online Accounts, which
+#                  surfaces it through gvfs at /run/user/$UID/gvfs.  GNOME is
+#                  already running gvfsd-fuse here, so that route needs no new
+#                  packages -- but see the inotify note below.
+#
+# DROPPING -- both are paid, and the storage is already covered above
+#
+#   Dropbox        Cancel once its contents are moved.  Genuinely good at the
+#                  job and the only one here with a real Linux daemon (not
+#                  packaged in Guix; rclone's `dropbox' backend is the portable
+#                  route).  It is going for cost, not for any fault -- worth
+#                  recording so this does not get re-litigated as a technical
+#                  question later.
+#   iCloud Drive   Cancel.  Paying for it alongside the above is the whole
+#                  reason it is on this list.  Web only: no Linux client, and
+#                  rclone has no backend for it, so there is no scripted way to
+#                  bulk-move the contents out -- budget manual time for that
+#                  before cancelling, and do it in that order.
+#
+# TWO RULES, both learned the hard way:
+#
+#   1. Credentials never live in this repo.  It is public, and rclone.conf
+#      stores passwords OBSCURED, not encrypted -- `rclone obscure' is
+#      reversible by anyone with rclone.  Keep ~/.config/rclone/rclone.conf out
+#      of version control and deploy it out of band, the same rule
+#      system/README.md applies to wifi PSKs and private keys.
+#
+#   2. Do not sync anything git can version.  Espanso match files were tried on
+#      Proton Drive and it was unreliable; they now live in dot_files itself
+#      (espanso/match/base.yml plus the espanso/private submodule), which is
+#      versioned, works offline and needs no credentials on the machine.
+#      Reach for a cloud drive only for content that genuinely does not belong
+#      in git.
+#
+#      The technical half of that: a FUSE mount -- rclone mount, or gvfs --
+#      does not deliver inotify events, so tools that reload on file change
+#      (espanso among them) silently miss remote edits.  Sync to real disk
+#      instead of mounting when anything is watching the files.
+#
+# No aliases yet -- nothing is configured on this machine.  When rclone lands,
+# it belongs in home/base.scm and home/wayland.scm (both, or check-home-sync
+# fails), and per-remote aliases belong here.
+
+###############################################################################
 # Zsh Aliases
 ###############################################################################
 
@@ -601,6 +662,23 @@ if [ -n "$ZSH_VERSION" ]; then
     alias -g .....='../../../..'
     alias -g CA="2>&1 | cat -A"
     alias -g C='| wc -l'
+
+    # Merge stderr into stdout, spelled as an arrow.
+    #   make check err→out | tail -5
+    #
+    # The arrow is U+2192, NOT an ASCII "->".  This is the whole reason the
+    # name looks exotic, so it is worth stating before someone "fixes" it:
+    #
+    #   err->out    parses as the word `err-' followed by a redirection to a
+    #               file named `out'.  Never reaches alias lookup.
+    #   err-\>out   escapes the `>', which makes it a QUOTED word -- and zsh
+    #               does not alias-expand any word containing quoting.  It
+    #               arrives at the command as the literal filename `err->out'.
+    #   err→out     `→' is an ordinary character to the parser, so no quoting
+    #               is needed and the alias expands.
+    #
+    # Typed via an espanso expansion rather than a keyboard key.
+    alias -g 'err→out'='2>&1'
     
     # Log to ~/logs directory (creates directory if needed)
     # Usage: command LOG filename
