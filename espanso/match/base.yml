@@ -94,8 +94,6 @@ matches:
     replace: <a href="" target="_blank"></a>
   - trigger: namexx
     replace: durantschoon
-  - trigger: "namexx"
-    replace: durantschoon
   - trigger: npxx
     replace: No problem!
   - trigger: ywxx
@@ -195,8 +193,6 @@ matches:
     replace: "#raspberry_\U0001D6D1"
   - trigger: tpxx
     replace: "Turing \U0001D6D1"
-  - trigger: degxx
-    replace: "\xB0"
   - trigger: rfwxx
     replace: robotframework
   - trigger: _xx
@@ -264,13 +260,13 @@ matches:
         format: "%B %d, %Y"
   - trigger: "degxx"
     replace: "°"
-  # U+2192 RIGHTWARDS ARROW, on its own
-  - trigger: "arrxx"
-    replace: "→"
   # The zsh global alias for 2>&1, defined in .aliases -- merges stderr into
   # stdout.  It has to be typed with the real arrow: `err->out' parses as a
   # redirection and `err-\>out' is a quoted word, which zsh will not
   # alias-expand.  Hence this expansion.
+  #
+  # For a bare arrow use the existing raxx / laxx pair above, not a third
+  # trigger for the same character.
   - trigger: "e2oxx"
     replace: "err→out"
   - trigger: "pkxx"
