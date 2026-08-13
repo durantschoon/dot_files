@@ -57,6 +57,7 @@
              (gnu packages shells)     ;zsh, for the declared login shell
              (gnu packages ssh)        ;openssh
              (gnu packages version-control) ;git
+             (gnu services base)       ;udev-service-type, udev-rule
              (gnu services desktop)    ;%desktop-services, gnome-desktop-service-type
              (gnu services linux)      ;kernel-module-loader-service-type
              (gnu services shepherd)   ;shepherd-service, shepherd-root-service-type
@@ -553,6 +554,45 @@ leftcontrol = capslock
                  ;; `sudo herd restart keyd' on a running system before
                  ;; reconfiguring.
                  (auto-start? #t))))
+
+         ;; /dev/uinput, writable by the `input' group -- for espanso.
+         ;;
+         ;; The kernel creates this node crw------- root root, so group
+         ;; membership alone buys nothing: espanso's DETECTOR reads
+         ;; /dev/input/event* (the `input' group, granted on the account above)
+         ;; but its INJECTOR writes to /dev/uinput, and that second half fails
+         ;; independently with
+         ;;
+         ;;   Error: could not open uinput device
+         ;;
+         ;; Espanso's own advice on that line -- "this might be due to a recent
+         ;; kernel update, please restart your PC so that the uinput module can
+         ;; be loaded correctly" -- is a red herring here.  The module is loaded
+         ;; and always has been: keyd requires it too, which is what the
+         ;; kernel-module-loader entry below is for, and /proc/misc lists
+         ;; uinput.  It is a permissions problem, not a module problem, and
+         ;; rebooting for it is time spent on the wrong hypothesis.
+         ;;
+         ;; This is a SECOND privilege on top of the `input' group and worth
+         ;; naming separately: read access to /dev/input lets a process see
+         ;; every keystroke, while write access to /dev/uinput lets it SYNTHESISE
+         ;; them into any application.  Together that is full keyboard control
+         ;; for anything running as this user.  Accepted for the same reason --
+         ;; injecting keystrokes is precisely what a text expander does, and the
+         ;; alternative espanso suggests is running it as root.
+         ;;
+         ;; static_node= is what makes this apply to a node created by module
+         ;; autoload rather than by a hotplug event, which is exactly how uinput
+         ;; appears.  Without it the rule silently never matches.
+         ;;
+         ;; This EXTENDS the udev service %desktop-services already runs; it is
+         ;; not a second instance, so it does not collide the way a duplicate
+         ;; (service ...) form would.
+         (simple-service
+          'uinput-udev-rule udev-service-type
+          (list (udev-rule
+                 "90-uinput-input-group.rules"
+                 "KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\", OPTIONS+=\"static_node=uinput\"\n")))
 
          ;; tailscaled, as a SYSTEM service.
          ;;
