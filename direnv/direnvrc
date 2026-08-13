@@ -1,0 +1,82 @@
+# -*- mode: sh; -*-
+#
+# direnvrc -- per-directory Guix environments, with narration.
+#
+# Deployed by guix home from dot_files/direnv/direnvrc. The copy at
+# ~/.config/direnv/direnvrc is a READ-ONLY STORE SYMLINK, so edit the repo file
+# and re-run `make apply-wayland'.
+#
+#
+# WHAT THIS IS FOR
+#
+# This is the Guix answer to sdkman / nvm / pyenv / rbenv. Those keep a mutable
+# "current" symlink and rewrite PATH globally, so switching is a stateful act
+# you perform. Guix composes an environment per DIRECTORY instead: two projects
+# pin different JDKs, both are in the store at once, and `cd' is the only
+# switch. Nothing is ever "active" system-wide.
+#
+# Drop one of these in a project and it applies on entry:
+#
+#   .envrc          use guix openjdk@21 clojure-tools     # ad hoc
+#   .envrc          use guix -m manifest.scm              # from a manifest
+#   .envrc          use guix -D -f guix.scm               # dev env for a package
+#
+# Then `direnv allow' once per project -- direnv refuses to run an .envrc it
+# has not been told to trust, which is what stops a cloned repo executing code
+# on `cd'. That prompt is a feature; do not paper over it.
+#
+#
+# TURNING THE NARRATION OFF
+#
+# Everything here is direnv's own use_guix plus EXPLANATION. When the mechanics
+# are second nature:
+#
+#   export DIRENV_GUIX_QUIET=1     # in ~/dot_files/.aliases
+#
+# and you get direnv's ordinary terse output. Deleting this file entirely also
+# works and leaves the built-in use_guix, which behaves identically minus the
+# talking.
+
+use_guix() {
+  # Re-enter the environment when any of these change, so editing a manifest
+  # takes effect on the next prompt rather than the next `direnv reload'.
+  watch_file guix.scm
+  watch_file manifest.scm
+  watch_file channels.scm
+
+  if [ -n "${DIRENV_GUIX_QUIET}" ]; then
+    if [ -f channels.scm ]; then
+      eval "$(guix time-machine -C channels.scm -- shell "$@" --search-paths)"
+    else
+      eval "$(guix shell "$@" --search-paths)"
+    fi
+    return
+  fi
+
+  log_status "guix: entering $(basename "$PWD")"
+  log_status "guix:   spec -> guix shell $*"
+
+  if [ -f channels.scm ]; then
+    # A channels.scm pins the CHANNEL COMMITS, so the environment is
+    # reproducible over time and not merely over machines -- the thing sdkman
+    # structurally cannot do, since it fetches whatever upstream serves today.
+    # The cost is that a cold time-machine has to fetch and compile that guix
+    # first, which is minutes, once per pin.
+    log_status "guix:   channels.scm found -- pinning via time-machine"
+    log_status "guix:   (first run on a new pin is slow; later ones are cached)"
+    eval "$(guix time-machine -C channels.scm -- shell "$@" --search-paths)"
+  else
+    log_status "guix:   no channels.scm -- using your current guix"
+    log_status "guix:   (add one to pin this project to exact commits)"
+    eval "$(guix shell "$@" --search-paths)"
+  fi
+
+  # Report what actually landed, because the failure mode here is silent: your
+  # PROFILE's version stays on PATH behind the shell's, so a typo'd package
+  # name leaves you using the wrong one with no error. `guix shell --pure'
+  # is the fix when a stray version is worse than a missing one.
+  if command -v java >/dev/null 2>&1; then
+    log_status "guix:   java -> $(java -version 2>&1 | head -1)"
+  fi
+  log_status "guix:   ready. Silence this with DIRENV_GUIX_QUIET=1"
+}

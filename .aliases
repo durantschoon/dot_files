@@ -33,8 +33,13 @@ alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
 alias git_id_help='git_email; echo Check your git_id aliases for more info which are set in .private_aliases.'
 alias git_personal_ignore='$EDITOR .git/info/exclude'
-alias h=history
-alias hg='history | grep'
+# `history' in zsh is `fc -l', which defaults to the LAST 16 EVENTS -- unlike
+# bash, where it prints everything. The "1" means "from event 1", i.e. all of
+# it. Without it `hg' greps only the last 16 lines and quietly reports nothing
+# for a command you definitely ran, which is indistinguishable from having no
+# history at all.
+alias h='history 1'
+alias hg='history 1 | grep'
 alias ipy='python -m IPython'
 alias ipn='ipython notebook'w
 alias ll='ls -l'
@@ -55,6 +60,10 @@ alias s.b='source ~/.bashrc'
 alias s2n='tr " " "\012"'
 alias sg='set | grep'
 alias spew='wget -qO-' # URL to spew the contents to stdout
+# Tailscale. `ts' is otherwise unused here -- note it IS a real command in
+# moreutils (timestamp-prefix a pipe), so this shadows that if moreutils ever
+# lands in the profile.
+alias ts='tailscale'
 alias up='cd ..'
 alias up2='cd ../..'
 alias up3='cd ../../..'

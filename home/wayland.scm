@@ -62,6 +62,82 @@
 releases and other GitHub features to the terminal.")
     (license #f)))
 
+;; Freeplane: mind mapping.  Guix packages neither this nor FreeMind, which it
+;; forked from and whose .mm files it still reads -- FreeMind itself has had no
+;; release since 2014, so the fork is the live one.
+;;
+;; THE JAVA VERSION IS PINNED, and that is the part a version bump will break.
+;; freeplane.sh refuses to launch outside Java 8 or 11-23:
+;;
+;;   Currently, freeplane requires java version 8 or from 11 to 23
+;;
+;; while Guix's plain `openjdk' is 25 -- out of range, and already on PATH here
+;; because %base-packages installs it for the SankeyFin toolchain.  So the
+;; launcher sets FREEPLANE_JAVA_HOME to openjdk@21 (an LTS, mid-range)
+;; explicitly rather than letting freeplane.sh search PATH and find the 25.
+;;
+;; That pin is invisible to everything else: it is an environment variable set
+;; inside this one wrapper, so `java' on your PATH stays whatever the profile
+;; says.  Two JDKs coexisting is the normal case in Guix, not a workaround.
+;;
+;; FREEPLANE_USE_UNSUPPORTED_JAVA_VERSION=1 is upstream's escape hatch and is
+;; deliberately NOT used -- it silences the check rather than satisfying it,
+;; and a mind map is not where you want to discover an incompatibility.
+;;
+;; PATH is set in the wrapper too, and is not optional: freeplane.sh shells out
+;; to grep/awk/sed/tr/which just to parse `java -version'.  With an empty PATH it
+;; fails in the version check, before Java is ever invoked.
+(define freeplane
+  (package
+    (name "freeplane")
+    (version "1.13.3")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/freeplane/freeplane/releases/download/"
+                                  "release-" version "/freeplane_bin-" version ".zip"))
+              (sha256 (base32 "115s2h95m4bqzymhcslxw7cwwhgx6cjzpyr9rb84f32fx7nl1b7i"))))
+    (build-system copy-build-system)
+    ;; The release is a .zip, so the unpack phase needs unzip; tar cannot read it.
+    (native-inputs (list (specification->package "unzip")))
+    (arguments
+     (list
+      #:install-plan #~'(("." "share/freeplane"))
+      #:phases
+      #~(modify-phases %standard-phases
+          ;; Prebuilt jars and a shell script: nothing to strip, and no ELF
+          ;; RUNPATH for validate-runpath to walk.
+          (delete 'strip)
+          (delete 'validate-runpath)
+          (add-after 'install 'make-launcher
+            (lambda _
+              (let* ((share (string-append #$output "/share/freeplane"))
+                     (bin   (string-append #$output "/bin")))
+                (chmod (string-append share "/freeplane.sh") #o555)
+                (mkdir-p bin)
+                (call-with-output-file (string-append bin "/freeplane")
+                  (lambda (port)
+                    (format port "#!~a/bin/sh
+export FREEPLANE_JAVA_HOME=~a
+export PATH=~a/bin:~a/bin:~a/bin:~a/bin:~a/bin:$PATH
+exec ~a/freeplane.sh \"$@\"
+"
+                            #$(specification->package "bash-minimal")
+                            #$(specification->package "openjdk@21")
+                            #$(specification->package "coreutils")
+                            #$(specification->package "grep")
+                            #$(specification->package "gawk")
+                            #$(specification->package "sed")
+                            #$(specification->package "which")
+                            share)))
+                (chmod (string-append bin "/freeplane") #o555)))))))
+    (home-page "https://www.freeplane.org")
+    (synopsis "Mind mapping and knowledge management (FreeMind's successor)")
+    (description "Freeplane is a Java mind-mapping application, the actively
+maintained fork of FreeMind.  It reads and writes FreeMind's @file{.mm} files.
+Licensed GPLv2+; the field below follows the @code{babashka}/@code{github-cli}
+convention in this file of not importing @code{(guix licenses)}.")
+    (license #f)))
+
 (define %base-packages
   '("git" "zsh"
     "starship"
@@ -73,6 +149,8 @@ releases and other GitHub features to the terminal.")
     "file"
     "go"
     "qemu"
+    "obsidian"
+    "direnv"
     ;; emacs-pgtk, not plain emacs: the pgtk build talks Wayland natively
     ;; instead of going through mutter's XWayland, and it is what EWM
     ;; requires should that experiment go anywhere (see EWM_TRIAL_PLAN.md).
@@ -153,7 +231,7 @@ releases and other GitHub features to the terminal.")
 
 (home-environment
   (packages (append (specifications->packages (append %base-packages %wayland-packages))
-                   (list babashka github-cli)))
+                   (list babashka github-cli freeplane)))
   (services
    (list
     ;; gpg-agent doubling as the SSH agent -- kept in sync with base.scm.
@@ -258,11 +336,39 @@ releases and other GitHub features to the terminal.")
                      ;; compositor would be wayland-1 and would need this
                      ;; revisited.
                      #:environment-variables
+                     ;; XDG_DATA_DIRS and GDK_PIXBUF_MODULE_FILE are here for
+                     ;; espanso's GTK tray icon, which crashed the tray process
+                     ;; on every start without them:
+                     ;;
+                     ;;   Failed to load .../image-missing.png:
+                     ;;   Unrecognized image file format
+                     ;;   Bail out! Gtk:ERROR ... ensure_surface_for_gicon
+                     ;;
+                     ;; That reads like a missing icon package and is not one.
+                     ;; The path is /org/gtk/libgtk/..., a GResource compiled
+                     ;; INTO libgtk, so the file is always present -- and
+                     ;; `image-missing' is itself the fallback, already the
+                     ;; second failure.  Two things were absent, both of them
+                     ;; casualties of this very list replacing the environment:
+                     ;; XDG_DATA_DIRS, without which GTK finds no icon theme
+                     ;; and falls back; and the gdk-pixbuf loaders cache,
+                     ;; without which it cannot decode the PNG it fell back to.
+                     ;;
+                     ;; Only the tray died, never expansion -- so if this ever
+                     ;; regresses it is cosmetic, not a reason to stop espanso.
                      (let* ((home (getenv "HOME"))
                             (runtime (or (getenv "XDG_RUNTIME_DIR")
                                          (string-append "/run/user/"
                                                         (number->string (getuid)))))
-                            (dbus (getenv "DBUS_SESSION_BUS_ADDRESS")))
+                            (dbus (getenv "DBUS_SESSION_BUS_ADDRESS"))
+                            (data-dirs (getenv "XDG_DATA_DIRS"))
+                            ;; 2.10.0 is gdk-pixbuf's module ABI directory, not
+                            ;; its package version -- it has not moved in years.
+                            ;; Probed rather than assumed, so a miss degrades to
+                            ;; the old cosmetic breakage instead of a bad env.
+                            (pixbuf (string-append
+                                     home "/.guix-home/profile/lib"
+                                     "/gdk-pixbuf-2.0/2.10.0/loaders.cache")))
                        (append
                         (list (string-append "HOME=" home)
                               (string-append "XDG_RUNTIME_DIR=" runtime)
@@ -272,6 +378,12 @@ releases and other GitHub features to the terminal.")
                               (string-append "PATH=" home "/.guix-home/profile/bin"))
                         (if dbus
                             (list (string-append "DBUS_SESSION_BUS_ADDRESS=" dbus))
+                            '())
+                        (if data-dirs
+                            (list (string-append "XDG_DATA_DIRS=" data-dirs))
+                            '())
+                        (if (file-exists? pixbuf)
+                            (list (string-append "GDK_PIXBUF_MODULE_FILE=" pixbuf))
                             '())))))
                  (stop #~(make-kill-destructor))
                  ;; Shepherd may well win the race against the compositor at
@@ -397,6 +509,7 @@ releases and other GitHub features to the terminal.")
    ;; private.yml from submodule espanso/private (only when submodule is initialized)
    (service home-files-service-type
             (append (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                  `(".config/direnv/direnvrc" ,(local-file "../direnv/direnvrc" "direnvrc"))
                           ;; Git identity -- kept in sync with base.scm. Edit
                           ;; dot_files/.gitconfig, not `git config --global'
                           ;; (that would replace the store symlink).
@@ -482,6 +595,10 @@ releases and other GitHub features to the terminal.")
                                                    ;; not install firefox.
                                                    "export BROWSER=firefox\n"
                                                    "eval \"$(starship init zsh)\"\n"
+                                                   "# direnv: per-directory guix environments. Hooked AFTER starship\n"
+                                                   "# because both wrap precmd, and direnv must run last to export\n"
+                                                   "# into the prompt it is about to draw. See direnv/direnvrc.\n"
+                                                   "eval \"$(direnv hook zsh)\"\n"
                                                    "alias e='emacsclient -c -a \"\"'\n"
                                                    "alias ec='emacsclient -t -a \"\"'\n"
                                                    "alias ll=\"ls -lah\"\n"

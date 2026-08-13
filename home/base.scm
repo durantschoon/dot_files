@@ -59,10 +59,86 @@
 releases and other GitHub features to the terminal.")
     (license #f)))
 
+;; Freeplane: mind mapping.  Guix packages neither this nor FreeMind, which it
+;; forked from and whose .mm files it still reads -- FreeMind itself has had no
+;; release since 2014, so the fork is the live one.
+;;
+;; THE JAVA VERSION IS PINNED, and that is the part a version bump will break.
+;; freeplane.sh refuses to launch outside Java 8 or 11-23:
+;;
+;;   Currently, freeplane requires java version 8 or from 11 to 23
+;;
+;; while Guix's plain `openjdk' is 25 -- out of range, and already on PATH here
+;; because %base-packages installs it for the SankeyFin toolchain.  So the
+;; launcher sets FREEPLANE_JAVA_HOME to openjdk@21 (an LTS, mid-range)
+;; explicitly rather than letting freeplane.sh search PATH and find the 25.
+;;
+;; That pin is invisible to everything else: it is an environment variable set
+;; inside this one wrapper, so `java' on your PATH stays whatever the profile
+;; says.  Two JDKs coexisting is the normal case in Guix, not a workaround.
+;;
+;; FREEPLANE_USE_UNSUPPORTED_JAVA_VERSION=1 is upstream's escape hatch and is
+;; deliberately NOT used -- it silences the check rather than satisfying it,
+;; and a mind map is not where you want to discover an incompatibility.
+;;
+;; PATH is set in the wrapper too, and is not optional: freeplane.sh shells out
+;; to grep/awk/sed/tr/which just to parse `java -version'.  With an empty PATH it
+;; fails in the version check, before Java is ever invoked.
+(define freeplane
+  (package
+    (name "freeplane")
+    (version "1.13.3")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/freeplane/freeplane/releases/download/"
+                                  "release-" version "/freeplane_bin-" version ".zip"))
+              (sha256 (base32 "115s2h95m4bqzymhcslxw7cwwhgx6cjzpyr9rb84f32fx7nl1b7i"))))
+    (build-system copy-build-system)
+    ;; The release is a .zip, so the unpack phase needs unzip; tar cannot read it.
+    (native-inputs (list (specification->package "unzip")))
+    (arguments
+     (list
+      #:install-plan #~'(("." "share/freeplane"))
+      #:phases
+      #~(modify-phases %standard-phases
+          ;; Prebuilt jars and a shell script: nothing to strip, and no ELF
+          ;; RUNPATH for validate-runpath to walk.
+          (delete 'strip)
+          (delete 'validate-runpath)
+          (add-after 'install 'make-launcher
+            (lambda _
+              (let* ((share (string-append #$output "/share/freeplane"))
+                     (bin   (string-append #$output "/bin")))
+                (chmod (string-append share "/freeplane.sh") #o555)
+                (mkdir-p bin)
+                (call-with-output-file (string-append bin "/freeplane")
+                  (lambda (port)
+                    (format port "#!~a/bin/sh
+export FREEPLANE_JAVA_HOME=~a
+export PATH=~a/bin:~a/bin:~a/bin:~a/bin:~a/bin:$PATH
+exec ~a/freeplane.sh \"$@\"
+"
+                            #$(specification->package "bash-minimal")
+                            #$(specification->package "openjdk@21")
+                            #$(specification->package "coreutils")
+                            #$(specification->package "grep")
+                            #$(specification->package "gawk")
+                            #$(specification->package "sed")
+                            #$(specification->package "which")
+                            share)))
+                (chmod (string-append bin "/freeplane") #o555)))))))
+    (home-page "https://www.freeplane.org")
+    (synopsis "Mind mapping and knowledge management (FreeMind's successor)")
+    (description "Freeplane is a Java mind-mapping application, the actively
+maintained fork of FreeMind.  It reads and writes FreeMind's @file{.mm} files.
+Licensed GPLv2+; the field below follows the @code{babashka}/@code{github-cli}
+convention in this file of not importing @code{(guix licenses)}.")
+    (license #f)))
+
 (home-environment
   (packages
    (append (specifications->packages
-            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "jq" "file" "go" "qemu" "emacs" "emacs-vterm" "cmake" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs"
+            '("git" "zsh" "starship" "ripgrep" "fd" "fzf" "eza" "jq" "file" "go" "qemu" "emacs" "emacs-vterm" "cmake" "glibc-locales" "keyd" "font-adobe-source-code-pro" "font-fira-code" "font-cica" "nss-certs" "obsidian" "direnv"
               ;; Spell-checking backend for Emacs ispell/flyspell (same profile
               ;; so ASPELL_DICT_DIR resolves the dictionary)
               "aspell" "aspell-dict-en"
@@ -100,7 +176,7 @@ releases and other GitHub features to the terminal.")
               ;; gpg CLI, matching the gpg-agent the service below runs
               "gnupg"
               "perl"))
-           (list babashka github-cli)))
+           (list babashka github-cli freeplane)))
   (services
    (list
     ;; gpg-agent doubling as the SSH agent (ssh-support? #t): every login
@@ -221,6 +297,7 @@ releases and other GitHub features to the terminal.")
     ;; Link .aliases, .wayland.zshenv, and portable scripts (~/bin) to home directory
     (service home-files-service-type
              (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                   `(".config/direnv/direnvrc" ,(local-file "../direnv/direnvrc" "direnvrc"))
                    ;; Git identity (name/email) comes up declaratively with the
                    ;; system. Deployed as a read-only store symlink, so
                    ;; `git config --global' would silently replace the symlink
@@ -306,6 +383,10 @@ releases and other GitHub features to the terminal.")
            ;; tool honours is not worth discovering during a login flow.
            "export BROWSER=librewolf\n"
            "eval \"$(starship init zsh)\"\n"
+           "# direnv: per-directory guix environments. Hooked AFTER starship\n"
+           "# because both wrap precmd, and direnv must run last to export\n"
+           "# into the prompt it is about to draw. See direnv/direnvrc.\n"
+           "eval \"$(direnv hook zsh)\"\n"
            "alias e='emacsclient -c -a \"\"'\n"
            "alias ec='emacsclient -t -a \"\"'\n"
            "alias ll=\"ls -lah\"\n"
