@@ -57,7 +57,7 @@ fi
 # abort with no output -- reading, from the outside, exactly like a pass.
 targets=""
 if [ -d "$tmp/home" ]; then
-    targets="$targets check-home-sync"
+    targets="$targets check-session-coupling"
 fi
 if [ -d "$tmp/system" ]; then
     targets="$targets check-system"

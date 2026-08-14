@@ -489,8 +489,8 @@ leftcontrol = capslock
  ;;                   Linux from source.
  (services
   (append
-   ;; The desktop this host class runs.  ;[session] -- home/wayland.scm keeps
-   ;; the user-side couplings behind its %session record; this line and the
+   ;; The desktop this host class runs.  ;[session] -- home/common.scm keeps
+   ;; the user-side couplings behind its session records; this line and the
    ;; %desktop-services expression below are the SYSTEM-side couplings, and
    ;; the ones a committed EWM switch would edit (docs/EWM_TRIAL_PLAN.md: the trial
    ;; itself changes neither -- EWM runs from a TTY on its own VT while GNOME

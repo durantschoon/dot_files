@@ -20,10 +20,11 @@ Running `make apply`, `make apply-wayland`, or `make set_up_links` from another 
 The split is by *what decides the contents*, not by which command deploys them:
 
 - **`home/`** — user preferences, decided by what one person wants (windowing
-  system, fonts, shell, editor) and independent of the hardware underneath. The
-  `guix home` configs (`base.scm`, `wayland.scm`) work on Guix System *and* on a
-  foreign distro like Pop!_OS, and they own the user profile. This is what `make
-  apply` / `make apply-wayland` deploy.
+  system, fonts, shell, editor) and independent of the hardware underneath. One
+  parameterized source, `home/common.scm`, works on Guix System *and* on a
+  foreign distro like Pop!_OS; the entry files `base.scm` and `wayland.scm` are
+  three lines each and only pick a *session record* (foreign vs GNOME-Wayland).
+  This is what `make apply` / `make apply-wayland` deploy.
 - **`system/`** — host classes, decided by a hardware combination plus the needs
   *any* user has on it (it boots, it reaches a network, it is secure) and
   independent of who is using it. `operating-system` configs named after the host
@@ -43,16 +44,18 @@ your session).
 
 | Target | Guards |
 |---|---|
-| `check-home-sync` | `wayland.scm` covering everything in `base.scm` — packages, home-files, services |
+| `check-session-coupling` | compositor reliance confined to `[session]`-tagged lines — the session records in `home/common.scm` are the only place GNOME (or a successor) may be named |
 | `check-system-hosts` | each `system/<class>.scm` vs the `(host-name ...)` inside it |
 | `check-keyd-sync` | `keyd.conf` vs the copy inlined in `system/<class>.scm` |
 | `check-channels-sync` | the install-time channel pin vs the one the system deploys |
 | `check-system-secrets` | no credentials inlined into `system/*.scm` |
 
-The duplication these guard is deliberate: `wayland.scm` is a divergent copy
-rather than an extension of `base.scm`, and the `system/` config inlines what it
-needs so it stays evaluable by root from an installer ISO. Duplication that
-can't be removed can at least be made checkable.
+The `system/` duplication these guard is deliberate: a host class config
+inlines what it needs so it stays evaluable by root from an installer ISO, and
+duplication that can't be removed can at least be made checkable. The *home*
+side used to carry a `check-home-sync` for the same reason — `wayland.scm` was
+a divergent copy of `base.scm` — until the 2026-08-13 fold made both files
+entries into `home/common.scm`, removing the copies instead of checking them.
 
 ```sh
 make install-hooks   # once per clone

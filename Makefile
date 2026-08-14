@@ -871,41 +871,40 @@ home-check:
 # of a real finding -- which still blocks the commit and so reads like a catch.
 # The hook warns when this Makefile has unstaged changes; see the note there.
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
-.PHONY: check-home-sync check-system-hosts install-hooks add-pkg reconfigure
+.PHONY: check-system-hosts install-hooks add-pkg reconfigure
 .PHONY: check-session-coupling
 
-# add-pkg -- add a package spec to the home configs, both of them.
+# add-pkg -- add a package spec to home/common.scm.
 #
-#   make add-pkg PKG=htop                  both configs
-#   make add-pkg PKG=firefox WAYLAND_ONLY=1   wayland.scm only
+#   make add-pkg PKG=htop                     %base-packages: every session
+#   make add-pkg PKG=foo WAYLAND_ONLY=1       %wayland-packages: Wayland only
 #
-# Editing both is the point. home/wayland.scm is a divergent copy of
-# home/base.scm, and a package added to one and forgotten in the other silently
-# never reaches the machine that deploys the other -- which is what happened to
-# aspell, cmake, openjdk, clojure-tools and just (a9503ff, 6cae015) and why
-# check-home-sync exists at all. Doing it by hand is the failure mode; this is
-# the same edit performed twice by something that cannot forget.
+# Since the 2026-08-13 fold there is ONE file to edit -- both package lists
+# live in home/common.scm, and the old both-files dance (with its documented
+# misses: aspell a9503ff; cmake, openjdk, clojure-tools, just 6cae015) is
+# structurally impossible to repeat.  WAYLAND_ONLY now selects the LIST, not
+# the file: %wayland-packages reaches only sessions whose record says
+# (wayland? . #t).
 #
-# WAYLAND_ONLY is for packages that must not go in base.scm. check-home-sync
-# verifies base SUBSET-OF wayland, so wayland-only additions pass by design.
-# The case that needs it: a package from a channel the base machine's DAEMON
-# cannot substitute. firefox comes from nonguix, and this Guix System box has
-# nonguix's substitute URL and signing key from system/geeeks.scm, so it
-# downloads; a foreign-distro machine running base.scm has neither and would
-# try to COMPILE FIREFOX FROM SOURCE.
+# Note what WAYLAND_ONLY does NOT cover: firefox-style packages, gated on
+# nonguix-substitutes? rather than wayland?, are wired in dotfiles-home by
+# hand -- they are a conditional in code, not a member of either list, and a
+# package that must not reach foreign-distro daemons needs that treatment,
+# not a list entry.  See the firefox conditional in common.scm.
 #
 # The spec is resolved against channels.scm -- the pin `make apply' pulls --
 # rather than against whatever guix happens to be on PATH. Those differ, and the
 # difference is not academic: on this box the ambient root guix has nonguix and
 # resolves "firefox" happily, while channels.scm may not, so an ambient check
-# would accept a spec that then fails the reconfigure. That is the trap both
-# home configs already document in their librewolf comments. FAST=1 uses the
+# would accept a spec that then fails the reconfigure. That is the trap
+# common.scm documents in its librewolf comment. FAST=1 uses the
 # ambient guix when you would rather have the seconds back; SKIP_CHECK=1 skips
 # resolution entirely, which is what you want when adding a package from a
 # channel you are adding in the same commit.
-ADD_PKG_FILES := home/base.scm home/wayland.scm
+ADD_PKG_FILES := home/common.scm
+ADD_PKG_LIST := %base-packages
 ifdef WAYLAND_ONLY
-ADD_PKG_FILES := home/wayland.scm
+ADD_PKG_LIST := %wayland-packages
 endif
 
 add-pkg:
@@ -931,12 +930,15 @@ add-pkg:
 	@t=$$(mktemp -d); trap 'rm -rf $$t' EXIT; \
 	for f in $(ADD_PKG_FILES); do cp $$f $$t/$$(basename $$f); done; \
 	for f in $(ADD_PKG_FILES); do \
-	  guile --no-auto-compile -s build-aux/add-pkg.scm $$f "$(PKG)" || { \
+	  guile --no-auto-compile -s build-aux/add-pkg.scm $$f "$(PKG)" "$(ADD_PKG_LIST)" || { \
 	    echo "    failed on $$f -- restoring every file this target touched"; \
 	    for g in $(ADD_PKG_FILES); do cp $$t/$$(basename $$g) $$g; done; \
 	    exit 1; }; \
 	done
-	@$(MAKE) --no-print-directory check-home-sync
+	@# A spec whose NAME trips the compositor-coupling regex (gnome-tweaks,
+	@# gdm-settings...) fails here, at add time, rather than at commit time --
+	@# route it through the session record or tag the inserted line.
+	@$(MAKE) --no-print-directory check-session-coupling
 	@# Which config this machine deploys is a property of the MACHINE, not of the
 	@# session: $$WAYLAND_DISPLAY is unset when you log into a tty on the very box
 	@# that deploys wayland.scm, and would offer to apply the wrong config. The
@@ -960,7 +962,7 @@ add-pkg:
 SYSTEM_PINS    := $(wildcard system/channels-*.scm)
 SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 
-check: check-home-sync check-system check-session-coupling
+check: check-system check-session-coupling
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
@@ -990,109 +992,15 @@ check-system-hosts:
 	done; \
 	exit $$rc
 
-# home/wayland.scm is a divergent COPY of home/base.scm rather than an extension
-# of it, so anything added to base must be added there too or `make apply-wayland'
-# silently drops it -- which is exactly what happened to aspell (a9503ff), cmake,
-# openjdk, clojure-tools, just, the IPython startup files and the claude-code-ide
-# clone, on the machine that deploys wayland.scm.
-#
-# The relation checked is base SUBSET-OF wayland, not equality: wayland legitimately
-# adds espanso-wayland and its config files. That direction catches the real
-# failure mode (add to base, forget wayland) without false-positiving on the
-# wayland-only additions that are the whole point of the second file.
-#
-# Comments are stripped before extraction because they contain quoted words that
-# would otherwise read as package specs -- the librewolf note alone mentions
-# "firefox" twice.
-#
-# The sed ranges end on a STRUCTURAL marker -- the `(services' field -- not on
-# the last package in the list. The end marker used to be `(list babashka)', and
-# a4056fc appending github-cli to that line turned it into
-# `(list babashka github-cli)))', which the pattern no longer matched. An
-# unmatched end address does not error: sed just prints to EOF, so the extractor
-# swallowed the whole file and reported every quoted string in it -- home-file
-# names, gsettings keys, "set", "bin" -- as a package missing from wayland.scm.
-# That is a check failing OPEN in the noisiest possible way: it blocked the
-# pre-commit hook on ~24 phantom findings while no longer comparing package
-# lists at all. Anything that names a package here breaks the moment that
-# package moves.
-#
-# WHAT THIS DOES NOT COVER, so you do not read a pass as more than it is: it
-# compares package specs, home-files destination paths, and service names. It
-# does not compare the BODIES of activation gexps. Run against the pre-fix tree
-# (6cae015) it correctly reports all six missing packages and both IPython
-# files, but it is blind to the claude-code-ide clone that was missing from
-# wayland.scm's spacemacs-activation, because that is a difference inside a
-# service that both files declare. Diff the two files by hand when you touch an
-# activation body.
-#
-# DECLARED SUBSTITUTIONS, the one escape hatch. The two configs sometimes name
-# DIFFERENT packages for the same job on purpose, and a plain subset test reads
-# that as drift: bef8534 moved wayland.scm to "emacs-pgtk" and left base.scm on
-# "emacs", and this check went red on every commit after it.
-# HOME_PKG_SUBSTITUTIONS below declares such pairs for the pkg pass only.
-#
-# The exemption is CONDITIONAL, and that is the whole design: a base spec is
-# excused only while its wayland counterpart is actually present in wayland.scm's
-# extracted list. Delete "emacs-pgtk" from wayland.scm and "emacs" is reported
-# missing again, word for word as before. An unconditional exemption would fail
-# OPEN -- the same failure this block already carries a scar from, where the
-# check kept exiting while no longer checking anything. Note the direction: a
-# substitution can only ever suppress a finding it was explicitly told to
-# suppress; it can never invent one.
-#
-# Entries are meant to stay rare and to stay justified -- each is a place where
-# the two configs knowingly disagree, so each names the commit that made them
-# disagree and where the reasoning is written down. The file and svc passes have
-# no equivalent mechanism and should not grow one before a real case turns up;
-# one hand-rolled exemption table is already one more than ideal.
-#
-#   emacs=emacs-pgtk -- bef8534. wayland.scm wants the pgtk build, which talks
-#     Wayland natively; base.scm deliberately stays on plain "emacs" because it
-#     targets headless and Docker hosts with no use for a GTK-linked Emacs. The
-#     reasoning is written out at home/wayland.scm:76-83.
-HOME_PKG_SUBSTITUTIONS := emacs=emacs-pgtk
-
-check-home-sync:
-	@echo "==> home/base.scm entries vs home/wayland.scm"
-	@rc=0; t=$$(mktemp -d); \
-	sed -n '/specifications->packages/,/^[[:space:]]*(services/p' home/base.scm \
-	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-base; \
-	sed -n '/define %base-packages/,/^(home-environment/p' home/wayland.scm \
-	  | sed 's/;.*//' | grep -oE '"[a-z0-9][a-z0-9._+-]*"' | sort -u > $$t/pkg-way; \
-	for sub in $(HOME_PKG_SUBSTITUTIONS); do \
-	  b="\"$${sub%%=*}\""; w="\"$${sub#*=}\""; \
-	  if grep -qxF "$$b" $$t/pkg-base && grep -qxF "$$w" $$t/pkg-way; then \
-	    grep -vxF "$$b" $$t/pkg-base > $$t/pkg-base.sub; \
-	    mv $$t/pkg-base.sub $$t/pkg-base; \
-	    echo "    substitution: $$b in base.scm satisfied by $$w in wayland.scm"; \
-	  fi; \
-	done; \
-	sed 's/;.*//' home/base.scm    | grep -oE '`\("[^"]+"' | sed 's/^`("//;s/"$$//' | sort -u > $$t/file-base; \
-	sed 's/;.*//' home/wayland.scm | grep -oE '`\("[^"]+"' | sed 's/^`("//;s/"$$//' | sort -u > $$t/file-way; \
-	sed 's/;.*//' home/base.scm    | grep -oE "simple-service '[a-z-]+|\(service [a-z-]+-service-type" | sed "s/.*'//;s/(service //" | sort -u > $$t/svc-base; \
-	sed 's/;.*//' home/wayland.scm | grep -oE "simple-service '[a-z-]+|\(service [a-z-]+-service-type" | sed "s/.*'//;s/(service //" | sort -u > $$t/svc-way; \
-	for k in pkg file svc; do \
-	  miss=$$(comm -23 $$t/$$k-base $$t/$$k-way); \
-	  if [ -n "$$miss" ]; then \
-	    rc=1; \
-	    case $$k in \
-	      pkg)  echo "    packages in base.scm but MISSING from wayland.scm:" ;; \
-	      file) echo "    home-files in base.scm but MISSING from wayland.scm:" ;; \
-	      svc)  echo "    services in base.scm but MISSING from wayland.scm:" ;; \
-	    esac; \
-	    echo "$$miss" | sed 's/^/      /'; \
-	  fi; \
-	done; \
-	rm -rf $$t; \
-	if [ $$rc -eq 0 ]; then \
-	  echo "    wayland.scm covers everything in base.scm"; \
-	else \
-	  echo ""; \
-	  echo "    The Guix System box deploys wayland.scm, so anything only in"; \
-	  echo "    base.scm never reaches the machine that needs it."; \
-	  exit 1; \
-	fi
+# check-home-sync used to live here: home/wayland.scm was a divergent COPY of
+# home/base.scm, and the check verified base SUBSET-OF wayland after packages
+# kept landing in one file and silently never reaching the machine deploying
+# the other (aspell a9503ff; cmake, openjdk, clojure-tools, just, the IPython
+# startup files, claude-code-ide 6cae015).  The 2026-08-13 fold made both
+# files three-line entries into home/common.scm, so there are no longer two
+# copies to drift and nothing for the check to check.  If a second home
+# variant ever grows back as a COPY rather than a session record in
+# common.scm, resurrect this from git history -- or better, do not let it.
 
 # core.hooksPath rather than copying into .git/hooks: the hook stays a tracked
 # file, so editing githooks/pre-commit takes effect immediately with no second
@@ -1212,8 +1120,8 @@ check-system-secrets:
 	  echo "    clean"; \
 	fi
 
-# check-session-coupling -- compositor reliance stays behind the %session
-# switch in home/wayland.scm.
+# check-session-coupling -- compositor reliance stays behind the session
+# records in home/common.scm.
 #
 # The trap this guards is a GNOME assumption that works today and fails only
 # when the session changes -- silently, months later, with nothing connecting
@@ -1222,7 +1130,7 @@ check-system-secrets:
 # pastes stale clipboard contents instead of the expansion.  The fix is one
 # YAML line, and NOTHING about that line says "GNOME" -- under a compositor
 # that has the protocol it becomes wrong in the opposite direction, and grep
-# would never find it.  docs/EWM_TRIAL_PLAN.md carries the full inventory as prose;
+# would never find it.  docs/EWM_TRIAL_PLAN.md used to carry the inventory as prose;
 # prose drifts, so this makes it mechanical, same as check-keyd-sync.
 #
 # The contract: every CODE line (comments stripped) matching the coupling
@@ -1238,15 +1146,18 @@ check-system-secrets:
 #     uses, so a `;' inside a code string false-strips the rest of that line.
 #     That can only HIDE a coupling on such lines, never false-fail, which is
 #     the right direction for a lint.
-#   - home/base.scm is deliberately not walked.  It is the foreign-distro
-#     config: what desktop its hosts run is that config's own business, and
-#     its future is an open question (it may fold into a %session value of
-#     its own, or be deleted with check-home-sync if foreign-distro deploys
-#     are truly dead).  Widening the walk is one edit to the `for f in' list.
+#   - ALL of home/*.scm is walked since the 2026-08-13 fold: base.scm and
+#     wayland.scm are three-line entries into common.scm now, and the session
+#     records all live in common.scm, so the old base.scm exemption has
+#     nothing left to exempt.
+#   - The [ -e ] guard keeps the hook's staged-tree runs honest: a commit
+#     touching only system/ exports no home/, and an unexpanded home/*.scm
+#     glob would otherwise hand awk a nonexistent file.
 check-session-coupling:
 	@echo "==> compositor coupling confined to [session]-tagged lines"
 	@rc=0; \
-	for f in home/wayland.scm $(SYSTEM_CONFIGS); do \
+	for f in home/*.scm $(SYSTEM_CONFIGS); do \
+	  [ -e "$$f" ] || continue; \
 	  hits=$$(awk '{ orig=$$0; code=$$0; sub(/;.*/, "", code); \
 	    if (tolower(code) ~ /gnome|gsettings|gdm|mutter|wlr-data|desktop-services|pinentry-gnome/ \
 	        && orig !~ /\[session\]/) \
@@ -1258,9 +1169,9 @@ check-session-coupling:
 	else \
 	  echo ""; \
 	  echo "    FAIL: naked compositor coupling."; \
-	  echo "    Route it through %session in home/wayland.scm (facts in the"; \
-	  echo "    record, consequences at the consumer), or tag the line with"; \
-	  echo "    ;[session] if it IS the switch or a gated consumer."; \
+	  echo "    Route it through the session records in home/common.scm (facts"; \
+	  echo "    in the record, consequences at the consumer), or tag the line"; \
+	  echo "    with ;[session] if it IS the switch or a gated consumer."; \
 	fi; \
 	exit $$rc
 

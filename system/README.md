@@ -11,10 +11,12 @@ This repo has two halves, and keeping them apart is the point:
 reconfigure` consumes, for machines running Guix as the OS rather than as a
 package manager on top of a foreign distro. `home/` holds the `guix home` side.
 
-The user side is only *mostly* hardware-independent: `home/base.scm` versus
-`home/wayland.scm` splits on whether there is a graphical session to configure at
-all, which is the one place the machine reaches into `home/`. Everything past
-that split — which fonts, which editor, which shell — does not care.
+The user side is only *mostly* hardware-independent: `home/common.scm` is
+parameterized by a *session record* (foreign vs GNOME-Wayland — picked by the
+three-line entry files `base.scm` / `wayland.scm`), and whether there is a
+graphical session to configure is the one place the machine reaches into
+`home/`. Everything past that fact — which fonts, which editor, which shell —
+does not care.
 
 ## Host classes, not machines
 

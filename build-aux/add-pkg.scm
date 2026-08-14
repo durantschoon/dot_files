@@ -1,6 +1,10 @@
 ;;; add-pkg.scm --- insert a package spec into a home config, comment-safe
 ;;;
-;;; Usage: guile -s build-aux/add-pkg.scm <file.scm> <package-spec>
+;;; Usage: guile -s build-aux/add-pkg.scm <file.scm> <package-spec> [list-name]
+;;;
+;;; LIST-NAME defaults to %base-packages; `make add-pkg WAYLAND_ONLY=1' passes
+;;; %wayland-packages instead.  Since the 2026-08-13 fold both lists live in
+;;; home/common.scm, so this script edits ONE file where it used to edit two.
 ;;;
 ;;; Exit 0 on success or when the package is already present (idempotent),
 ;;; non-zero with a message on stderr otherwise.  Writes nothing unless the
@@ -86,6 +90,11 @@
 
 ;;; Locating the package list
 
+;; Which (define <name> '(...)) to edit.  Plain mutable binding rather than a
+;; parameter: main sets it once from argv before any read, and the verify pass
+;; must see the same value.
+(define %target-list-name '%base-packages)
+
 (define (package-list-form form)
   "Return the (quote (...)) FORM holding the spec list, or #f if FORM is not one
 of the two shapes a home config uses.  Both are matched explicitly rather than by
@@ -94,16 +103,23 @@ hunting for any quoted string list: a wrong guess here edits the wrong list.
 The quote form itself is returned, not the list inside it, because it is the only
 thing carrying source properties -- see the header."
   (cond
-   ;; (define %base-packages '("git" ...))          -- home/wayland.scm
+   ;; (define %base-packages '("git" ...))          -- home/common.scm
+   ;; (or %wayland-packages, per %target-list-name)
    ((and (pair? form)
          (eq? (car form) 'define)
          (pair? (cdr form))
-         (eq? (cadr form) '%base-packages)
+         (eq? (cadr form) %target-list-name)
          (pair? (cddr form))
          (quoted-list (caddr form)))
     => identity)
-   ;; (specifications->packages '("git" ...))       -- home/base.scm, nested
-   ((and (pair? form) (find-specifications form)) => identity)
+   ;; (specifications->packages '("git" ...)) -- the pre-fold base.scm shape,
+   ;; kept so the script still works on a checkout from before the fold.
+   ;; Matched only for the default list name: %wayland-packages never lived
+   ;; inside a specifications->packages call.
+   ((and (eq? %target-list-name '%base-packages)
+         (pair? form)
+         (find-specifications form))
+    => identity)
    (else #f)))
 
 (define (quoted-list x)
@@ -117,14 +133,22 @@ thing carrying source properties -- see the header."
 
 (define (find-specifications form)
   "Depth-first search for (specifications->packages '(...)) anywhere in FORM.
-base.scm buries the call inside (home-environment (packages (append ...))), so
-this cannot just look at the top level."
+The pre-fold base.scm buried the call inside (home-environment (packages
+(append ...))), so this cannot just look at the top level.
+
+The walk tolerates IMPROPER lists: common.scm's session records are alists of
+dotted pairs -- (name . gnome-wayland) -- and srfi-1 `any' calls cdr straight
+through a dotted tail and crashes on the non-pair it finds there.  Found the
+hard way when the first post-fold add-pkg run died inside the session record,
+three defines before the list it came for."
   (and (pair? form)
        (or (and (eq? (car form) 'specifications->packages)
                 (pair? (cdr form))
                 (quoted-list (cadr form)))
-           (any (lambda (sub) (and (pair? sub) (find-specifications sub)))
-                form))))
+           (let loop ((rest form))
+             (and (pair? rest)
+                  (or (and (pair? (car rest)) (find-specifications (car rest)))
+                      (loop (cdr rest))))))))
 
 (define (read-package-list file)
   "Return (values specs index) -- the spec list in FILE and the 0-BASED index of
@@ -225,7 +249,9 @@ base.scm keeps its leading run on one long line, wayland.scm one per line."
 
 (define (main args)
   (when (< (length args) 3)
-    (die "usage: guile -s build-aux/add-pkg.scm <file.scm> <package-spec>"))
+    (die "usage: guile -s build-aux/add-pkg.scm <file.scm> <package-spec> [list-name]"))
+  (when (> (length args) 3)
+    (set! %target-list-name (string->symbol (list-ref args 3))))
   (let* ((file (list-ref args 1))
          (spec (list-ref args 2)))
     (call-with-values (lambda () (read-package-list file))
