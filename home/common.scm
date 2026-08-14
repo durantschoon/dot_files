@@ -1,4 +1,4 @@
-;;; home/common.scm --- THE home configuration, parameterized by session.
+;;; home/common.scm --- THE home configuration: session facts + layers.
 ;;;
 ;;; This file replaced the divergent-copy pair base.scm/wayland.scm on
 ;;; 2026-08-13.  Those two files shared ~90% of their text, differed in six
@@ -12,13 +12,21 @@
 ;;; parameterized source removes the entire failure class, and check-home-sync
 ;;; with it.
 ;;;
-;;; THE SHAPE.  The entry files are what `make apply' / `make apply-wayland'
-;;; deploy, and they are three lines each: load this file, call
-;;; (dotfiles-home <session>).  Everything session-dependent consults the
-;;; session record; the six differences above are now derivations from its
-;;; facts.  The compositor-coupling rules from the %session refactor apply
-;;; here unchanged -- `make check-session-coupling' walks home/*.scm, and any
-;;; code line naming a compositor outside a [session]-tagged line fails.
+;;; THE SHAPE.  Two axes, deliberately kept apart:
+;;;
+;;;   SESSION   facts about the machine's graphical session (which
+;;;             compositor, which protocols it implements).  You do not
+;;;             choose these; the machine does.  Entry files pick a record.
+;;;   LAYERS    features you opt into (espanso, the emacs setup, the gpg
+;;;             ssh-agent...).  You choose these; the default is all of
+;;;             them, and a future machine wanting a subset passes its own
+;;;             list to dotfiles-home #:layers.
+;;;
+;;; The entry files are what `make apply' / `make apply-wayland' deploy, and
+;;; they are three lines each: load this file, call (dotfiles-home <session>).
+;;; The compositor-coupling rules apply here unchanged -- `make
+;;; check-session-coupling' walks home/*.scm, and any code line naming a
+;;; compositor outside a [session]-tagged line fails.
 ;;;
 ;;; TWO LOAD-BEARING NAMES for tooling that reads this file textually:
 ;;;
@@ -41,12 +49,17 @@
              (gnu home services shells)
              (gnu home services shepherd)
              (gnu packages)
+             (gnu services)            ;service-kind, service-type-name -- for
+                                       ;the layer ownership check
              (guix download)
              (guix build-system copy)
              (guix build copy-build-system)
              (guix build utils)
              (guix packages)
-             (guix gexp))
+             (guix gexp)
+             (ice-9 format)
+             (srfi srfi-1)
+             (srfi srfi-9))
 
 ;; Babashka: native Clojure interpreter (not in Guix, fetch binary from GitHub)
 (define babashka
@@ -177,7 +190,7 @@ convention in this file of not importing @code{(guix licenses)}.")
 ;;
 ;; An ENTRY FILE picks one of these and hands it to dotfiles-home; nothing
 ;; else may name a compositor (make check-session-coupling enforces it).
-;; Entries are FACTS, not conclusions -- consumers inside dotfiles-home derive
+;; Entries are FACTS, not conclusions -- consumers inside the layers derive
 ;; the conclusions, so flipping a fact updates every consequence at once.
 ;;
 ;; The facts:
@@ -266,12 +279,51 @@ convention in this file of not importing @code{(guix licenses)}.")
       (error "session-ref: no such session fact" key))
     (cdr entry)))
 
-;; Packages every session gets.  ONE list now -- the old base/wayland split
-;; meant every addition had to be made twice, and the misses are documented in
-;; the header.  `make add-pkg PKG=<spec>' edits this list (the define's name
-;; and quoted-list shape are its anchor -- see the header before "improving"
-;; either).  Session-dependent packages are NOT here: the emacs flavor,
-;; firefox and %wayland-packages are appended by dotfiles-home.
+;; Session-derived values used by more than one layer.  Plain named functions,
+;; on purpose: when two layers need the same derivation (the zsh layer's
+;; $BROWSER and the browser layer's xdg handler must name the SAME browser),
+;; they call the same function with the session in hand.  Contrast rde, where
+;; features share values through a config-wide get-value registry -- an
+;; implicit channel where a missing or misspelled key surfaces far from its
+;; cause.  Here the dependency is an ordinary identifier: mistype it and the
+;; file does not evaluate.
+
+(define (session-apply-command session)
+  "The make target that deploys SESSION -- so every best-effort message names
+the command that actually redeploys the config it appears in."
+  (if (session-ref session 'wayland?) "make apply-wayland" "make apply"))
+
+(define (session-emacs-package session)
+  "emacs-pgtk on Wayland: the pgtk build talks Wayland natively instead of
+going through the compositor's XWayland, and it is what EWM requires should
+that experiment go anywhere (docs/EWM_TRIAL_PLAN.md).  Same 30.2 as the plain
+build, so Spacemacs is unaffected.  The foreign session stays on plain emacs
+-- headless and Docker hosts have no use for a GTK-linked Emacs.  The emacs
+layer uses this ONE function for both the profile package and the daemon
+service, which is what guarantees the daemon and `emacs' on PATH are the same
+build."
+  (if (session-ref session 'wayland?) "emacs-pgtk" "emacs"))
+
+(define (session-browser session)
+  "The default browser: firefox when the host can substitute it, else
+librewolf.  Firefox earns the default on two measured counts -- the profiles
+migrated from Pop!_OS live in ~/.config/mozilla/firefox, the XDG path Firefox
+reads and librewolf (~/.librewolf) does not; and librewolf.cfg's
+privacy.resistFingerprinting blanks the canvas that 1Password's sign-in QR
+code is drawn on, while sanitizeOnShutdown drops the site storage its Secret
+Key is cached in.  Both bite hardest through the default handler, where you
+do not get to pick the browser at the point of use.  LibreWolf stays
+installed either way."
+  (if (session-ref session 'nonguix-substitutes?) "firefox" "librewolf"))
+
+;; Packages every session gets.  `make add-pkg PKG=<spec>' edits this list
+;; (the define's name and quoted-list shape are its anchor -- see the header
+;; before "improving" either).  Grouped by purpose IN COMMENTS rather than
+;; split into layers: a package-only group is not a feature, and a layer must
+;; earn its name with behavior -- services, activation, session logic.  (This
+;; is a deliberate lesson from Spacemacs, where trivial one-package layers
+;; multiplied until the layer list said little; see the layer-system notes
+;; below.)
 (define %base-packages
   '("git"
     "zsh"
@@ -306,19 +358,18 @@ convention in this file of not importing @code{(guix licenses)}.")
     ;; LibreWolf is installed for EVERY session: upstream Firefox with the
     ;; telemetry stripped, packaged in Guix proper, so it never needs nonguix
     ;; substitutes.  Whether branded firefox joins it -- and which of the two
-    ;; becomes the default handler -- is decided per session by
-    ;; nonguix-substitutes?; see the record documentation above and the
-    ;; browser derivation in dotfiles-home.  (IceCat is the third packaged
-    ;; option and is unusable here: its LibreJS blocks the nonfree JavaScript
-    ;; claude.ai is built from.)
+    ;; becomes the default handler -- is decided per session; see
+    ;; session-browser above and the browser layer below.  (IceCat is the
+    ;; third packaged option and is unusable here: its LibreJS blocks the
+    ;; nonfree JavaScript claude.ai is built from.)
     "librewolf"
     ;; xdg-open, which is how Claude Code (and most CLI tools) turn "open
     ;; this URL" into a running browser.  Neither %base-packages upstream nor
     ;; guix home supplies it; without it the OAuth login prints a URL and
-    ;; silently opens nothing.  See default-browser-activation below, which
-    ;; also has to name a handler for it to find.
+    ;; silently opens nothing.  See the browser layer, which also has to name
+    ;; a handler for it to find.
     "xdg-utils"
-    ;; gpg CLI, matching the gpg-agent the service below runs
+    ;; gpg CLI, matching the gpg-agent the gpg-ssh-agent layer runs
     "gnupg"
     "perl"))
 
@@ -339,329 +390,133 @@ convention in this file of not importing @code{(guix licenses)}.")
     ;; .spacemacs.d/init.el.
     "emacs-guix"))
 
-(define (dotfiles-home session)
-  "Return the home-environment for SESSION, one of the records above."
-  (define (sref key) (session-ref session key))
-  (define wayland? (sref 'wayland?))
+;; ===========================================================================
+;; The layer system
+;;
+;; A LAYER is a named feature: the packages, services, files and activation
+;; logic for one capability, kept together and toggled as one thing.  The
+;; name is Spacemacs's -- its layers (packages.el + config.el + funcs.el
+;; bundled under one symbol in dotspacemacs-configuration-layers) are the
+;; direct model, and `#:layers' below plays the role of that list.
+;;
+;; RDE EXISTS, AND I KNOW IT.  Andrew Tropin's rde <https://git.sr.ht/~abcdw/rde>
+;; is this same idea grown into a full framework -- `features' like
+;; (feature-emacs) (feature-sway) that contribute to Guix Home AND Guix
+;; System at once.  If this homegrown system ever feels like maintaining a
+;; framework rather than a config, switching to rde instead of growing this
+;; further is the intended escape route; evaluate it before adding any
+;; machinery here.  Rolling our own first was a considered choice, not
+;; ignorance of prior art: this repo's configs are hand-reasoned line by
+;; line, and a framework would own decisions these files currently explain.
+;;
+;; Where the names come from, and where this deliberately differs:
+;;
+;;   layer          Spacemacs.  rde calls the same idea a `feature'.
+;;   synopsis       Guix package vocabulary, for the one-line description.
+;;   requires       neither system has this, and both hurt for it.  A list
+;;                  of session facts (by key) that must be truthy for the
+;;                  layer to activate.  In Spacemacs, cross-layer and
+;;                  layer-to-environment dependencies are implicit -- load
+;;                  order, hooks, configuration-layer/package-usedp -- and
+;;                  toggling a layer breaks others silently.  In rde,
+;;                  features read a config-wide value registry (get-value)
+;;                  and a missing value fails far from its cause.  Here the
+;;                  dependency is DECLARED, and because it is checked with
+;;                  session-ref, a typo'd fact name is an immediate error,
+;;                  not a silently-inactive layer.
+;;   ownership      Spacemacs has package ownership by convention (one layer
+;;                  "owns" a package; a second configurer wins silently by
+;;                  load order).  Here it is ENFORCED: dotfiles-home errors
+;;                  at evaluation time if two layers instantiate the same
+;;                  service type, naming both layers -- turning Guix's late
+;;                  "more than one target service" reconfigure failure (and
+;;                  Spacemacs's silent last-wins) into an immediate, located
+;;                  error.  Layers share a target the Guix way instead:
+;;                  simple-service EXTENSIONS, which compose without limit.
+;;
+;; The contract for writing a layer:
+;;
+;;   - `packages' and `services' are each either a plain list or a procedure
+;;     of the session; procedures for anything session-dependent.
+;;   - A layer may INSTANTIATE a service type only if it owns it outright
+;;     (home-zsh belongs to the zsh layer, home-files to the dotfiles layer).
+;;     To contribute to someone else's target -- another shepherd daemon,
+;;     more home files, extra zshrc lines -- use a simple-service extension.
+;;     The ownership check enforces the difference.
+;;   - Package-only groups are NOT layers; they are commented groups in
+;;     %base-packages.  A layer must bring behavior.
+;;
+;; Escape hatch, stated so nobody reverse-engineers it: dotfiles-home
+;; #:extra-services appends raw Guix services after the layer fold.  Anything
+;; a layer cannot express is still just Guix underneath.
 
-  ;; The `make apply' vs `make apply-wayland' hint in every best-effort
-  ;; message, derived so the advice always names the command that deploys
-  ;; the session it appears in.
-  (define apply-cmd (if wayland? "make apply-wayland" "make apply"))
+(define-record-type <layer>
+  (%make-layer name synopsis requires packages services)
+  layer?
+  (name     layer-name)                 ;symbol
+  (synopsis layer-synopsis)             ;one line, package-style
+  (requires layer-requires)             ;session fact keys that must be truthy
+  (packages layer-packages)             ;session -> list of specs/packages
+  (services layer-services))            ;session -> list of services
 
-  ;; emacs-pgtk on Wayland: the pgtk build talks Wayland natively instead of
-  ;; going through the compositor's XWayland, and it is what EWM requires
-  ;; should that experiment go anywhere (docs/EWM_TRIAL_PLAN.md).  Same 30.2
-  ;; as the plain build, so Spacemacs is unaffected.  The foreign session
-  ;; stays on plain "emacs" -- headless and Docker hosts have no use for a
-  ;; GTK-linked Emacs.  The emacs daemon service below uses this same
-  ;; variable, which is what guarantees the daemon and `emacs' on PATH are
-  ;; the same build.
-  (define emacs-package (if wayland? "emacs-pgtk" "emacs"))
+(define* (layer #:key name synopsis (requires '())
+                (packages '()) (services '()))
+  "Construct a layer.  PACKAGES and SERVICES accept a plain list (for the
+static case) or a procedure of the session; both are normalized to
+procedures."
+  (define (->thunk v) (if (procedure? v) v (lambda (_session) v)))
+  (unless (symbol? name) (error "layer: #:name must be a symbol" name))
+  (%make-layer name (or synopsis "") requires
+               (->thunk packages) (->thunk services)))
 
-  ;; Default browser: firefox when the host can substitute it, else
-  ;; librewolf.  Firefox earns the default on two measured counts -- the
-  ;; profiles migrated from Pop!_OS live in ~/.config/mozilla/firefox, the
-  ;; XDG path Firefox reads and librewolf (~/.librewolf) does not; and
-  ;; librewolf.cfg's privacy.resistFingerprinting blanks the canvas that
-  ;; 1Password's sign-in QR code is drawn on, while sanitizeOnShutdown drops
-  ;; the site storage its Secret Key is cached in.  Both bite hardest through
-  ;; the default handler, where you do not get to pick the browser at the
-  ;; point of use.  LibreWolf stays installed either way.
-  (define browser (if (sref 'nonguix-substitutes?) "firefox" "librewolf"))
+(define (layer-active? l session)
+  "A layer is active when every fact it requires is truthy in SESSION.
+session-ref errors on an unknown key, so a typo in #:requires fails the
+build instead of quietly deactivating the layer."
+  (every (lambda (key) (session-ref session key)) (layer-requires l)))
 
-  ;; espanso's config, with the injection backend DERIVED rather than
-  ;; written.  The fact consulted is `wlr-data-control?' -- see its entry in
-  ;; the session-record documentation for the silent wrong-paste failure this
-  ;; prevents.  Generated as base-file-plus-appended-key so
-  ;; espanso/config/default.yml stays the plain YAML espanso's docs describe,
-  ;; editable without touching Scheme.
-  (define espanso-default-yml
-    (computed-file
-     "espanso-default.yml"
-     #~(begin
-         (use-modules (ice-9 textual-ports))
-         (call-with-output-file #$output
-           (lambda (out)
-             (put-string out (call-with-input-file
-                                 #$(local-file "../espanso/config/default.yml"
-                                               "espanso-default-base.yml")
-                               get-string-all))
-             (put-string out #$(string-append
-                                "\n# --- appended by home/common.scm from the session record"
-                                " -- do not edit here ---\n"
-                                "backend: "
-                                (if (sref 'wlr-data-control?)           ;[session]
-                                    "Auto" "Inject")
-                                "\n")))))))
+(define (assert-service-ownership contributions)
+  "CONTRIBUTIONS is a list of (layer-name . services).  Error if two layers
+instantiate the same service TYPE -- the home-shepherd double-instantiation
+class of failure, caught here with both layers named instead of at
+reconfigure time with neither.  simple-service creates a fresh type per
+call, so extensions never collide; only genuine double ownership does."
+  (fold (lambda (contribution seen)
+          (let ((owner (car contribution)))
+            (fold (lambda (svc seen)
+                    (let* ((type (service-kind svc))
+                           (prev (assq type seen)))
+                      (when prev
+                        (error (format #f "layer service collision: layers '~a' and '~a' both instantiate service type '~a'; one must own it and the other extend it via simple-service"
+                                       (cdr prev) owner
+                                       (service-type-name type))))
+                      (cons (cons type owner) seen)))
+                  seen
+                  (cdr contribution))))
+        '()
+        contributions)
+  #t)
 
-  (home-environment
-   (packages
-    (append (specifications->packages
-             (append %base-packages
-                     (list emacs-package)
-                     ;; firefox only where the daemon can substitute it --
-                     ;; see nonguix-substitutes? in the record documentation.
-                     (if (sref 'nonguix-substitutes?) '("firefox") '())
-                     (if wayland? %wayland-packages '())))
-            (list babashka github-cli freeplane)))
-   (services
-    (list
-     ;; gpg-agent doubling as the SSH agent (ssh-support? #t): every login
-     ;; shell gets SSH_AUTH_SOCK pointed at gpg-agent's socket, so one unlock
-     ;; per cache-TTL covers git push from any terminal -- including Claude
-     ;; Code sessions, which otherwise have no agent at all.  `ssh-add
-     ;; ~/.ssh/id_ed25519_ds' imports the key into ~/.gnupg/sshcontrol: a
-     ;; one-time step per machine, NOT per reconfigure -- ~/.gnupg is not
-     ;; managed by Guix, so the key survives every reconfigure and reboot.
-     ;; Later reboots only re-unlock it, once per cache-TTL.
-     (service home-gpg-agent-service-type
-       (home-gpg-agent-configuration
-        ;; The gnome3 pinentry rather than plain `pinentry' (a symlink to
-        ;; pinentry-gtk-2): shepherd starts gpg-agent before the graphical
-        ;; session exists, so the agent's environment has no DISPLAY,
-        ;; WAYLAND_DISPLAY or XAUTHORITY -- and the ssh-agent protocol,
-        ;; unlike gpg's assuan channel, carries no display info to fall back
-        ;; on.  gtk-2 therefore cannot open a window for ssh requests and
-        ;; dies with "Inappropriate ioctl for device", which ssh-add reports
-        ;; as the useless "agent refused operation".  The gnome3 flavour
-        ;; reaches the desktop over D-Bus (DBUS_SESSION_BUS_ADDRESS *is* in
-        ;; the agent's environment) and falls back to curses on a bare TTY.
-        ;; WHICH pinentry is a session fact; both name entries exist because
-        ;; Guix's package and binary names do not always agree.
-        (pinentry-program
-         (file-append (specification->package (sref 'pinentry-package))
-                      (string-append "/bin/" (sref 'pinentry-binary))))
-        (ssh-support? #t)
-        (default-cache-ttl 3600)
-        (max-cache-ttl 28800)
-        (default-cache-ttl-ssh 3600)
-        (max-cache-ttl-ssh 28800)
-        ;; Let unlock prompts land in Emacs (M-x pinentry-start) instead of a
-        ;; GTK popup when a request originates from an Emacs subprocess.
-        (extra-content "allow-emacs-pinentry\nallow-loopback-pinentry\n")))
+;; ---------------------------------------------------------------------------
+;; The layers
 
-     ;; User shepherd services: the Emacs daemon always, espanso on Wayland.
-     ;;
-     ;; ONE home-shepherd-service-type instance holding all of them.
-     ;; Declaring the type twice produces duplicate service instances and
-     ;; fails the reconfigure -- the same rule the system side has for
-     ;; kernel-module-loader.  A new service goes in this list.
-     (service home-shepherd-service-type
-              (home-shepherd-configuration
-               (services
-                (append
-                 (list
-                  (shepherd-service
-                   (provision '(emacs))
-                   (documentation "Emacs user daemon.")
-                   (start #~(make-forkexec-constructor
-                             (list #$(file-append
-                                      (specification->package emacs-package)
-                                      "/bin/emacs")
-                                   "--fg-daemon")))
-                   (stop #~(make-kill-destructor))
-                   (auto-start? #t)))
-                 (if wayland?
-                     (list
-                      ;; espanso, the text expander.
-                      ;;
-                      ;; `espanso daemon' rather than `espanso start': start
-                      ;; is a launcher that hands off to a system service
-                      ;; manager and exits, which on Guix fails outright with
-                      ;; "unable to start service: systemd not found" --
-                      ;; espanso only knows systemd, and its suggested
-                      ;; `--unmanaged' workaround means nothing supervises it
-                      ;; and you restart it by hand every login.  `espanso
-                      ;; daemon' is documented as "start the daemon without
-                      ;; spawning a new process", exactly the foreground
-                      ;; process a supervisor wants.  Shepherd IS the service
-                      ;; manager espanso could not find.
-                      ;;
-                      ;; Requires membership in the `input' group, granted in
-                      ;; system/geeeks.scm and effective only at the NEXT
-                      ;; LOGIN.  Without it the worker panics at startup with
-                      ;; "Unable to open EVDEV devices" -- espanso reads
-                      ;; /dev/input/event* directly on Wayland, there being
-                      ;; no X11-style global grab.
-                      (shepherd-service
-                       (provision '(espanso))
-                       (documentation "espanso text expander daemon.")
-                       (start
-                        #~(make-forkexec-constructor
-                           (list #$(file-append
-                                    (specification->package "espanso-wayland")
-                                    "/bin/espanso")
-                                 "daemon")
-                           #:log-file (string-append (getenv "HOME")
-                                                     "/.cache/espanso/daemon.log")
-                           ;; #:environment-variables REPLACES the
-                           ;; environment, so everything espanso needs has to
-                           ;; be rebuilt here.
-                           ;;
-                           ;; WAYLAND_DISPLAY is the one that actually bites.
-                           ;; This user's shepherd has XDG_RUNTIME_DIR,
-                           ;; XDG_SESSION_TYPE and DBUS_SESSION_BUS_ADDRESS
-                           ;; but NOT WAYLAND_DISPLAY -- verified by reading
-                           ;; /proc/<shepherd>/environ -- and espanso needs a
-                           ;; Wayland connection to INJECT text (the
-                           ;; virtual-keyboard protocol), even though it
-                           ;; DETECTS through evdev without one.  So it would
-                           ;; sit there recognising triggers and typing
-                           ;; nothing.  Inherit it when present, else fall
-                           ;; back to the socket name the session records.
-                           ;;
-                           ;; XDG_DATA_DIRS and GDK_PIXBUF_MODULE_FILE are
-                           ;; for espanso's GTK tray icon, which crashed the
-                           ;; tray process on every start without them
-                           ;; ("Failed to load .../image-missing.png" --
-                           ;; /org/gtk/libgtk/... is a GResource compiled
-                           ;; INTO libgtk, so that error is never a missing
-                           ;; icon package: image-missing IS the fallback,
-                           ;; already the second failure.  Both were
-                           ;; casualties of this list replacing the
-                           ;; environment).  Only the tray died, never
-                           ;; expansion -- a regression here is cosmetic, not
-                           ;; a reason to stop espanso.
-                           #:environment-variables
-                           (let* ((home (getenv "HOME"))
-                                  (runtime (or (getenv "XDG_RUNTIME_DIR")
-                                               (string-append "/run/user/"
-                                                              (number->string (getuid)))))
-                                  (dbus (getenv "DBUS_SESSION_BUS_ADDRESS"))
-                                  (data-dirs (getenv "XDG_DATA_DIRS"))
-                                  ;; 2.10.0 is gdk-pixbuf's module ABI
-                                  ;; directory, not its package version -- it
-                                  ;; has not moved in years.  Probed rather
-                                  ;; than assumed, so a miss degrades to the
-                                  ;; old cosmetic breakage instead of a bad
-                                  ;; env.
-                                  (pixbuf (string-append
-                                           home "/.guix-home/profile/lib"
-                                           "/gdk-pixbuf-2.0/2.10.0/loaders.cache")))
-                             (append
-                              (list (string-append "HOME=" home)
-                                    (string-append "XDG_RUNTIME_DIR=" runtime)
-                                    (string-append "WAYLAND_DISPLAY="
-                                                   (or (getenv "WAYLAND_DISPLAY")
-                                                       #$(sref 'wayland-display)))
-                                    "XDG_SESSION_TYPE=wayland"
-                                    (string-append "PATH=" home "/.guix-home/profile/bin"))
-                              (if dbus
-                                  (list (string-append "DBUS_SESSION_BUS_ADDRESS=" dbus))
-                                  '())
-                              (if data-dirs
-                                  (list (string-append "XDG_DATA_DIRS=" data-dirs))
-                                  '())
-                              (if (file-exists? pixbuf)
-                                  (list (string-append "GDK_PIXBUF_MODULE_FILE=" pixbuf))
-                                  '())))))
-                       (stop #~(make-kill-destructor))
-                       ;; Shepherd may well win the race against the
-                       ;; compositor at login, in which case the socket does
-                       ;; not exist yet and the first start fails.  respawn?
-                       ;; covers that; shepherd's own throttle stops it
-                       ;; becoming a tight loop if the real problem is the
-                       ;; missing `input' group instead.  If it does get
-                       ;; disabled for respawning too fast, the log named
-                       ;; above says which of the two it was, and `herd start
-                       ;; espanso' recovers without a reconfigure.
-                       (respawn? #t)
-                       (auto-start? #t)))
-                     '())))))
-
-     ;; System-wide Emacs keybindings (activation)
-     ;;
-     ;; Gated on the session having gsettings; the skip announces itself
-     ;; instead of failing quietly.  GTK apps get their Emacs keys from
-     ;; gtk-key-theme; Emacs and readline implement them natively and never
-     ;; needed it.
-     (simple-service 'emacs-keybindings-activation home-activation-service-type
-                     #~(begin
-                         (use-modules (ice-9 format))
-                         (if #$(sref 'has-gsettings?)                   ;[session]
-                             ;; Set GTK key theme to Emacs
-                             (system* "gsettings" "set"                 ;[session]
-                                      "org.gnome.desktop.interface"     ;[session]
-                                      "gtk-key-theme" "Emacs")
-                             (format #t "session: no gsettings here; GTK key theme not set~%")) ;[session]
-
-                         ;; Check for keyd system-wide config
-                         (unless (file-exists? "/etc/keyd/default.conf")
-                           (format #t "--- KEYD SETUP REQUIRED ---~%")
-                           (format #t "To enable system-wide Emacs keys, run:~%")
-                           (format #t "  sudo make setup-keyd~%~%"))))
-
-     ;; Register the session's browser as the https:/http: handler.
-     ;;
-     ;; Installing a browser is not enough for `claude' (or any tool that
-     ;; shells out to xdg-open) to launch one.  On a fresh install there is
-     ;; no default for x-scheme-handler/https, so xdg-open exits non-zero and
-     ;; the caller has nothing to report -- the login flow just prints its
-     ;; URL and appears to hang.  xdg-settings writes ~/.config/mimeapps.list,
-     ;; a real writable file, so this does not fight the store-symlink rules
-     ;; elsewhere.
-     ;;
-     ;; Best-effort on purpose: on a first-ever reconfigure the profile may
-     ;; not be on XDG_DATA_DIRS yet, so the .desktop file is unfindable and
-     ;; this is a no-op.  Re-running the apply command settles it; $BROWSER
-     ;; in the zshrc below covers the gap.
-     (simple-service 'default-browser-activation home-activation-service-type
-                     #~(begin
-                         (setenv "XDG_DATA_DIRS"
-                                 (string-append (getenv "HOME") "/.guix-home/profile/share:"
-                                                (or (getenv "XDG_DATA_DIRS")
-                                                    "/usr/local/share:/usr/share")))
-                         (unless (zero? (system* #$(file-append
-                                                    (specification->package "xdg-utils")
-                                                    "/bin/xdg-settings")
-                                                 "set" "default-web-browser"
-                                                 #$(string-append browser ".desktop")))
-                           (display #$(string-append
-                                       "browser: could not set the default handler yet; re-run `"
-                                       apply-cmd "`\n")))))
-
-     ;; Ensure Spacemacs and config are present
-     (simple-service 'spacemacs-activation home-activation-service-type
-                     #~(begin
-                         (let* ((emacs-d (string-append (getenv "HOME") "/.emacs.d"))
-                                (spacemacs-d (string-append (getenv "HOME") "/.spacemacs.d"))
-                                (git (string-append #$(specification->package "git") "/bin/git"))
-                                (certs (string-append #$(specification->package "nss-certs")
-                                                      "/etc/ssl/certs/ca-certificates.crt")))
-                           ;; Clone Spacemacs (upstream)
-                           (unless (file-exists? (string-append emacs-d "/.git"))
-                             (format #t "Cloning Spacemacs to ~a...~%" emacs-d)
-                             (system* git "-c" (string-append "http.sslCAInfo=" certs)
-                                      "clone" "-b" "develop"
-                                      "https://github.com/syl20bnr/spacemacs" emacs-d))
-                           ;; Clone User Config
-                           (unless (file-exists? spacemacs-d)
-                             (format #t "Cloning local Spacemacs config to ~a...~%" spacemacs-d)
-                             (system* git "-c" (string-append "http.sslCAInfo=" certs)
-                                      "clone" "https://github.com/durantschoon/.spacemacs.d"
-                                      spacemacs-d))
-                           ;; Vendored GitHub-only packages: local/ is
-                           ;; gitignored in .spacemacs.d (Spacemacs would prune
-                           ;; them from elpa, and in-config install recurses --
-                           ;; see clean-install.sh, which this mirrors), so the
-                           ;; config clone above never brings them along.
-                           ;; init.el points at these paths with a string
-                           ;; :location, and Emacs fails at startup without
-                           ;; them.  git clone creates the leading local/
-                           ;; directory itself.
-                           (let ((claude-ide (string-append spacemacs-d "/local/claude-code-ide")))
-                             (unless (file-exists? (string-append claude-ide "/.git"))
-                               (format #t "Cloning claude-code-ide to ~a...~%" claude-ide)
-                               (system* git "-c" (string-append "http.sslCAInfo=" certs)
-                                        "clone"
-                                        "https://github.com/manzaltu/claude-code-ide.el"
-                                        claude-ide))))))
-
-     ;; Link .aliases, .wayland.zshenv, portable scripts (~/bin) -- and on
-     ;; Wayland, the espanso config -- into the home directory.
-     (service home-files-service-type
-              (append
+;; dotfiles: baseline packages and the core dotfile symlinks.  Owns the
+;; home-files instance; other layers extend it via simple-service.
+(define %dotfiles-layer
+  (layer
+   #:name 'dotfiles
+   #:synopsis "baseline packages and dotfile symlinks"
+   #:packages
+   (lambda (session)
+     (append %base-packages
+             (if (session-ref session 'wayland?) %wayland-packages '())
+             ;; Package OBJECTS (defined above), not specs -- the fold
+             ;; resolves both.
+             (list github-cli freeplane babashka)))
+   #:services
+   (lambda (session)
+     (list
+      (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
                      `(".config/direnv/direnvrc" ,(local-file "../direnv/direnvrc" "direnvrc"))
                      ;; Git identity (name/email) comes up declaratively with
@@ -675,133 +530,528 @@ convention in this file of not importing @code{(guix licenses)}.")
                      `(".ipython/profile_default/startup/money_value.py"
                        ,(local-file "../.ipython/profile_default/startup/money_value.py"))
                      `(".ipython/profile_default/startup/pretty_rich.py"
-                       ,(local-file "../.ipython/profile_default/startup/pretty_rich.py"))
-                     ;; Claude Code, part 1 of 2: the files Claude Code never
-                     ;; writes.  Safe as read-only store symlinks.  Declaring
-                     ;; these as entries UNDER .claude (rather than declaring
-                     ;; ".claude" itself) is what keeps ~/.claude a real
-                     ;; writable directory -- Claude Code stores projects/,
-                     ;; sessions/ and history.jsonl there at runtime.
-                     ;; Declaring ".claude" as one recursive local-file would
-                     ;; make the whole tree a store symlink and break it, the
-                     ;; same way ~/bin above is read-only and defeats
-                     ;; installers that target it.  #:recursive? #t on the
-                     ;; directories is load-bearing: it preserves the
-                     ;; executable bit on bin/, which a plain local-file drops
-                     ;; to 0444.
-                     `(".claude/agent-roles.conf" ,(local-file "../claude/agent-roles.conf"))
-                     `(".claude/agent-templates" ,(local-file "../claude/agent-templates"
-                                                              "claude-agent-templates"
-                                                              #:recursive? #t))
-                     `(".claude/bin" ,(local-file "../claude/bin" "claude-bin" #:recursive? #t))
-                     `(".claude/skills" ,(local-file "../claude/skills" "claude-skills"
-                                                     #:recursive? #t)))
-               (if wayland?
-                   (append
-                    (list
-                     ;; Generated, not copied: espanso-default-yml appends the
-                     ;; session-derived injection backend to the static file.
-                     `(".config/espanso/config/default.yml" ,espanso-default-yml)
-                     `(".config/espanso/match/base.yml"
-                       ,(local-file "../espanso/match/base.yml" "espanso-base.yml")))
-                    ;; private.yml from the espanso/private submodule, only
-                    ;; when initialized.  This probe is CWD-DEPENDENT (a bare
-                    ;; relative path, not a local-file) -- the Makefile's
-                    ;; repo-root warning is what makes that safe, as
-                    ;; documented in the header.
-                    (if (file-exists? "espanso/private/private.yml")
-                        (list `(".config/espanso/match/private.yml"
-                                ,(local-file "../espanso/private/private.yml"
-                                             "espanso-private.yml")))
-                        '()))
-                   '())))
+                       ,(local-file "../.ipython/profile_default/startup/pretty_rich.py"))))))))
 
-     ;; Claude Code, part 2 of 2: the files Claude Code DOES write.  These
-     ;; cannot be store symlinks: it rewrites config atomically (temp file +
-     ;; rename), which replaces the symlink with a regular file -- the
-     ;; declaration would silently stop taking effect, with no error to
-     ;; notice.  So seed real, writable copies instead.
-     (simple-service 'claude-writable-config home-activation-service-type
-                     #~(begin
-                         ;; Core Guile only.  A gexp does not automatically
-                         ;; get (guix build utils) in its build environment,
-                         ;; so mkdir-p would fail at activation time with "no
-                         ;; code for module".
-                         (let* ((claude (string-append (getenv "HOME") "/.claude"))
-                                (agents (string-append claude "/agents")))
-                           (unless (file-exists? claude) (mkdir claude))
-                           (unless (file-exists? agents) (mkdir agents))
-                           ;; Seed-if-absent: /memory owns CLAUDE.md and
-                           ;; /config owns settings.json once they exist.
-                           ;; Copy changes back to the claude/ submodule by
-                           ;; hand; do not overwrite them here.
-                           (for-each
-                            (lambda (name source)
-                              (let ((dest (string-append claude "/" name)))
-                                (unless (file-exists? dest)
-                                  (copy-file source dest)
-                                  (chmod dest #o644))))
-                            (list "CLAUDE.md" "settings.json")
-                            (list #$(local-file "../claude/CLAUDE.md")
-                                  #$(local-file "../claude/settings.json")))
-                           ;; Hand-maintained and written by nothing on this
-                           ;; machine, so the repo stays authoritative:
-                           ;; overwrite every time.
-                           (let ((dest (string-append claude "/agents/stage-executor.md")))
-                             (copy-file #$(local-file "../claude/agents/stage-executor.md") dest)
-                             (chmod dest #o644))
-                           ;; agents/committer.md is generated from
-                           ;; agent-templates/ + agent-roles.conf, so it is
-                           ;; not stored in the repo.  Guarded because
-                           ;; activation ordering against the symlink manager
-                           ;; is not guaranteed: on a first-ever reconfigure
-                           ;; the symlinks above may not be in place yet.
-                           ;; Re-running the apply command settles it.
-                           (let ((gen (string-append claude "/bin/generate-agents.sh")))
-                             (if (and (file-exists? gen)
-                                      (file-exists? (string-append claude "/agent-templates")))
-                                 (system* gen)
-                                 (display #$(string-append
-                                             "claude: skipping generate-agents.sh "
-                                             "(inputs not linked yet); re-run `"
-                                             apply-cmd "`\n")))))))
+;; zsh: owns the home-zsh instance.  Other layers append zshrc fragments by
+;; extending home-zsh-service-type -- see the espanso... no: see the browser
+;; layer's $BROWSER fragment and the ordering note inside it.
+(define %zsh-layer
+  (layer
+   #:name 'zsh
+   #:synopsis "zsh + starship prompt + editor aliases"
+   #:services
+   (lambda (session)
+     (list
+      (service home-zsh-service-type
+        (home-zsh-configuration
+         (zshrc
+          (list
+           (plain-file "zsh-extra-config"
+                       (string-append
+                        "export EDITOR='emacsclient -c -a \"\"'\n"
+                        "export VISUAL=\"$EDITOR\"\n"
+                        "export SPACEMACSDIR=\"$HOME/.spacemacs.d\"\n"
+                        "eval \"$(starship init zsh)\"\n"
+                        ;; direnv: per-directory guix environments.  Hooked
+                        ;; AFTER starship because both wrap precmd, and direnv
+                        ;; must run last to export into the prompt it is about
+                        ;; to draw.  See direnv/direnvrc.
+                        "eval \"$(direnv hook zsh)\"\n"
+                        "alias e='emacsclient -c -a \"\"'\n"
+                        "alias ec='emacsclient -t -a \"\"'\n"
+                        "alias ll=\"ls -lah\"\n"
+                        "[[ -f ~/.aliases ]] && source ~/.aliases\n"))
+           (local-file "../.zshrc.starship" "zshrc.starship")
+           (local-file "../.shared.zshrc" "shared.zshrc")
+           ;; (local-file "../.work.zshrc" "work.zshrc") ;; Uncomment if needed
+           ))
+         (zshenv
+          (list
+           (local-file "../.shared.zshenv" "shared.zshenv")
+           (local-file "../.linux.zshenv" "linux.zshenv")
+           ;; (local-file "../.mac.zshenv" "mac.zshenv") ;; Uncomment if needed
+           ))
+         (zprofile
+          (list
+           (local-file "../.zprofile" "zprofile")))))))))
 
-     ;; Zsh + Starship + editor aliases
-     (service home-zsh-service-type
-       (home-zsh-configuration
-        (zshrc
-         (list
-          (plain-file "zsh-extra-config"
-                      (string-append
-                       "export EDITOR='emacsclient -c -a \"\"'\n"
-                       "export VISUAL=\"$EDITOR\"\n"
-                       "export SPACEMACSDIR=\"$HOME/.spacemacs.d\"\n"
-                       ;; Second route to a browser, for tools that consult
-                       ;; $BROWSER before falling back to xdg-open.  Belt and
-                       ;; braces with the activation service above, naming
-                       ;; the same session-derived browser -- either one
-                       ;; alone is enough, and which one a given tool honours
-                       ;; is not worth discovering during a login flow.
-                       "export BROWSER=" browser "\n"
-                       "eval \"$(starship init zsh)\"\n"
-                       "# direnv: per-directory guix environments. Hooked AFTER starship\n"
-                       "# because both wrap precmd, and direnv must run last to export\n"
-                       "# into the prompt it is about to draw. See direnv/direnvrc.\n"
-                       "eval \"$(direnv hook zsh)\"\n"
-                       "alias e='emacsclient -c -a \"\"'\n"
-                       "alias ec='emacsclient -t -a \"\"'\n"
-                       "alias ll=\"ls -lah\"\n"
-                       "[[ -f ~/.aliases ]] && source ~/.aliases\n"))
-          (local-file "../.zshrc.starship" "zshrc.starship")
-          (local-file "../.shared.zshrc" "shared.zshrc")
-          ;; (local-file "../.work.zshrc" "work.zshrc") ;; Uncomment if needed
-          ))
-        (zshenv
-         (list
-          (local-file "../.shared.zshenv" "shared.zshenv")
-          (local-file "../.linux.zshenv" "linux.zshenv")
-          ;; (local-file "../.mac.zshenv" "mac.zshenv") ;; Uncomment if needed
-          ))
-        (zprofile
-         (list
-          (local-file "../.zprofile" "zprofile")))))))))
+;; gpg-ssh-agent: gpg-agent doubling as the SSH agent (ssh-support? #t):
+;; every login shell gets SSH_AUTH_SOCK pointed at gpg-agent's socket, so one
+;; unlock per cache-TTL covers git push from any terminal -- including Claude
+;; Code sessions, which otherwise have no agent at all.  `ssh-add
+;; ~/.ssh/id_ed25519_ds' imports the key into ~/.gnupg/sshcontrol: a one-time
+;; step per machine, NOT per reconfigure -- ~/.gnupg is not managed by Guix,
+;; so the key survives every reconfigure and reboot.  Later reboots only
+;; re-unlock it, once per cache-TTL.
+(define %gpg-ssh-agent-layer
+  (layer
+   #:name 'gpg-ssh-agent
+   #:synopsis "gpg-agent as the one agent for gpg AND ssh"
+   #:services
+   (lambda (session)
+     (list
+      (service home-gpg-agent-service-type
+        (home-gpg-agent-configuration
+         ;; The gnome3 pinentry rather than plain `pinentry' (a symlink to
+         ;; pinentry-gtk-2): shepherd starts gpg-agent before the graphical
+         ;; session exists, so the agent's environment has no DISPLAY,
+         ;; WAYLAND_DISPLAY or XAUTHORITY -- and the ssh-agent protocol,
+         ;; unlike gpg's assuan channel, carries no display info to fall back
+         ;; on.  gtk-2 therefore cannot open a window for ssh requests and
+         ;; dies with "Inappropriate ioctl for device", which ssh-add reports
+         ;; as the useless "agent refused operation".  The gnome3 flavour
+         ;; reaches the desktop over D-Bus (DBUS_SESSION_BUS_ADDRESS *is* in
+         ;; the agent's environment) and falls back to curses on a bare TTY.
+         ;; WHICH pinentry is a session fact; both name entries exist because
+         ;; Guix's package and binary names do not always agree.
+         (pinentry-program
+          (file-append (specification->package
+                        (session-ref session 'pinentry-package))
+                       (string-append "/bin/"
+                                      (session-ref session 'pinentry-binary))))
+         (ssh-support? #t)
+         (default-cache-ttl 3600)
+         (max-cache-ttl 28800)
+         (default-cache-ttl-ssh 3600)
+         (max-cache-ttl-ssh 28800)
+         ;; Let unlock prompts land in Emacs (M-x pinentry-start) instead of a
+         ;; GTK popup when a request originates from an Emacs subprocess.
+         (extra-content "allow-emacs-pinentry\nallow-loopback-pinentry\n")))))))
+
+;; emacs: the session-flavored emacs package, the daemon, the Spacemacs
+;; checkout, and the GTK keybindings activation.
+(define %emacs-layer
+  (layer
+   #:name 'emacs
+   #:synopsis "emacs daemon + Spacemacs + system-wide Emacs keys"
+   #:packages
+   (lambda (session) (list (session-emacs-package session)))
+   #:services
+   (lambda (session)
+     (list
+      ;; The daemon, as an EXTENSION of the shepherd instance dotfiles-home
+      ;; provides -- see the ownership rules in the layer-system notes.
+      (simple-service 'emacs-daemon home-shepherd-service-type
+                      (list
+                       (shepherd-service
+                        (provision '(emacs))
+                        (documentation "Emacs user daemon.")
+                        (start #~(make-forkexec-constructor
+                                  (list #$(file-append
+                                           (specification->package
+                                            (session-emacs-package session))
+                                           "/bin/emacs")
+                                        "--fg-daemon")))
+                        (stop #~(make-kill-destructor))
+                        (auto-start? #t))))
+
+      ;; System-wide Emacs keybindings (activation)
+      ;;
+      ;; Gated on the session having gsettings; the skip announces itself
+      ;; instead of failing quietly.  GTK apps get their Emacs keys from
+      ;; gtk-key-theme; Emacs and readline implement them natively and never
+      ;; needed it.
+      (simple-service 'emacs-keybindings-activation home-activation-service-type
+                      #~(begin
+                          (use-modules (ice-9 format))
+                          (if #$(session-ref session 'has-gsettings?)     ;[session]
+                              ;; Set GTK key theme to Emacs
+                              (system* "gsettings" "set"                  ;[session]
+                                       "org.gnome.desktop.interface"      ;[session]
+                                       "gtk-key-theme" "Emacs")
+                              (format #t "session: no gsettings here; GTK key theme not set~%")) ;[session]
+
+                          ;; Check for keyd system-wide config
+                          (unless (file-exists? "/etc/keyd/default.conf")
+                            (format #t "--- KEYD SETUP REQUIRED ---~%")
+                            (format #t "To enable system-wide Emacs keys, run:~%")
+                            (format #t "  sudo make setup-keyd~%~%"))))
+
+      ;; Ensure Spacemacs and config are present
+      (simple-service 'spacemacs-activation home-activation-service-type
+                      #~(begin
+                          (let* ((emacs-d (string-append (getenv "HOME") "/.emacs.d"))
+                                 (spacemacs-d (string-append (getenv "HOME") "/.spacemacs.d"))
+                                 (git (string-append #$(specification->package "git") "/bin/git"))
+                                 (certs (string-append #$(specification->package "nss-certs")
+                                                       "/etc/ssl/certs/ca-certificates.crt")))
+                            ;; Clone Spacemacs (upstream)
+                            (unless (file-exists? (string-append emacs-d "/.git"))
+                              (format #t "Cloning Spacemacs to ~a...~%" emacs-d)
+                              (system* git "-c" (string-append "http.sslCAInfo=" certs)
+                                       "clone" "-b" "develop"
+                                       "https://github.com/syl20bnr/spacemacs" emacs-d))
+                            ;; Clone User Config
+                            (unless (file-exists? spacemacs-d)
+                              (format #t "Cloning local Spacemacs config to ~a...~%" spacemacs-d)
+                              (system* git "-c" (string-append "http.sslCAInfo=" certs)
+                                       "clone" "https://github.com/durantschoon/.spacemacs.d"
+                                       spacemacs-d))
+                            ;; Vendored GitHub-only packages: local/ is
+                            ;; gitignored in .spacemacs.d (Spacemacs would prune
+                            ;; them from elpa, and in-config install recurses --
+                            ;; see clean-install.sh, which this mirrors), so the
+                            ;; config clone above never brings them along.
+                            ;; init.el points at these paths with a string
+                            ;; :location, and Emacs fails at startup without
+                            ;; them.  git clone creates the leading local/
+                            ;; directory itself.
+                            (let ((claude-ide (string-append spacemacs-d "/local/claude-code-ide")))
+                              (unless (file-exists? (string-append claude-ide "/.git"))
+                                (format #t "Cloning claude-code-ide to ~a...~%" claude-ide)
+                                (system* git "-c" (string-append "http.sslCAInfo=" certs)
+                                         "clone"
+                                         "https://github.com/manzaltu/claude-code-ide.el"
+                                         claude-ide))))))))))
+
+;; browser: firefox where the host daemon can substitute it, the xdg default
+;; handler, and $BROWSER -- all derived from the SAME session-browser call,
+;; which is the point of having the function.
+(define %browser-layer
+  (layer
+   #:name 'browser
+   #:synopsis "session browser: xdg handler + $BROWSER, firefox where substitutable"
+   #:packages
+   (lambda (session)
+     ;; librewolf and xdg-utils are in %base-packages (every session);
+     ;; branded firefox only where nonguix substitutes exist.
+     (if (session-ref session 'nonguix-substitutes?) '("firefox") '()))
+   #:services
+   (lambda (session)
+     (let ((browser (session-browser session))
+           (apply-cmd (session-apply-command session)))
+       (list
+        ;; Register the session's browser as the https:/http: handler.
+        ;;
+        ;; Installing a browser is not enough for `claude' (or any tool that
+        ;; shells out to xdg-open) to launch one.  On a fresh install there is
+        ;; no default for x-scheme-handler/https, so xdg-open exits non-zero
+        ;; and the caller has nothing to report -- the login flow just prints
+        ;; its URL and appears to hang.  xdg-settings writes
+        ;; ~/.config/mimeapps.list, a real writable file, so this does not
+        ;; fight the store-symlink rules elsewhere.
+        ;;
+        ;; Best-effort on purpose: on a first-ever reconfigure the profile may
+        ;; not be on XDG_DATA_DIRS yet, so the .desktop file is unfindable and
+        ;; this is a no-op.  Re-running the apply command settles it; the
+        ;; $BROWSER fragment below covers the gap.
+        (simple-service 'default-browser-activation home-activation-service-type
+                        #~(begin
+                            (setenv "XDG_DATA_DIRS"
+                                    (string-append (getenv "HOME") "/.guix-home/profile/share:"
+                                                   (or (getenv "XDG_DATA_DIRS")
+                                                       "/usr/local/share:/usr/share")))
+                            (unless (zero? (system* #$(file-append
+                                                       (specification->package "xdg-utils")
+                                                       "/bin/xdg-settings")
+                                                    "set" "default-web-browser"
+                                                    #$(string-append browser ".desktop")))
+                              (display #$(string-append
+                                          "browser: could not set the default handler yet; re-run `"
+                                          apply-cmd "`\n")))))
+
+        ;; $BROWSER, as a zshrc FRAGMENT extending the zsh layer's instance --
+        ;; the second route to a browser, for tools that consult $BROWSER
+        ;; before falling back to xdg-open.  Belt and braces with the handler
+        ;; above; both come from the same session-browser call so they cannot
+        ;; disagree.  Extensions append AFTER the zsh layer's base zshrc,
+        ;; which is fine here: a bare export has no ordering constraints
+        ;; (unlike the starship/direnv pair, which is why THOSE stay together
+        ;; in the base fragment).
+        (simple-service 'browser-env home-zsh-service-type
+                        (home-zsh-extension
+                         (zshrc (list (plain-file
+                                       "zshrc-browser"
+                                       (string-append "export BROWSER=" browser "\n")))))))))))
+
+;; espanso: the text expander, Wayland only -- it reads evdev and injects
+;; through the virtual-keyboard protocol, both meaningless without a
+;; compositor.  #:requires replaces the wayland? conditionals that used to be
+;; scattered through the monolithic dotfiles-home: on the foreign session the
+;; whole layer is inactive, and the note printed at build time says so.
+(define %espanso-layer
+  (layer
+   #:name 'espanso
+   #:synopsis "espanso text expander: daemon + generated config"
+   #:requires '(wayland?)
+   ;; The espanso-wayland package itself rides in %wayland-packages (the
+   ;; WAYLAND_ONLY add-pkg anchor) rather than here; this layer brings the
+   ;; behavior.
+   #:services
+   (lambda (session)
+     ;; espanso's config, with the injection backend DERIVED rather than
+     ;; written.  The fact consulted is `wlr-data-control?' -- see its entry
+     ;; in the session-record documentation for the silent wrong-paste
+     ;; failure this prevents.  Generated as base-file-plus-appended-key so
+     ;; espanso/config/default.yml stays the plain YAML espanso's docs
+     ;; describe, editable without touching Scheme.
+     (define espanso-default-yml
+       (computed-file
+        "espanso-default.yml"
+        #~(begin
+            (use-modules (ice-9 textual-ports))
+            (call-with-output-file #$output
+              (lambda (out)
+                (put-string out (call-with-input-file
+                                    #$(local-file "../espanso/config/default.yml"
+                                                  "espanso-default-base.yml")
+                                  get-string-all))
+                (put-string out #$(string-append
+                                   "\n# --- appended by home/common.scm from the session record"
+                                   " -- do not edit here ---\n"
+                                   "backend: "
+                                   (if (session-ref session 'wlr-data-control?) ;[session]
+                                       "Auto" "Inject")
+                                   "\n")))))))
+     (list
+      ;; Config files, extending the dotfiles layer's home-files instance.
+      (simple-service 'espanso-config home-files-service-type
+                      (append
+                       (list
+                        `(".config/espanso/config/default.yml" ,espanso-default-yml)
+                        `(".config/espanso/match/base.yml"
+                          ,(local-file "../espanso/match/base.yml" "espanso-base.yml")))
+                       ;; private.yml from the espanso/private submodule, only
+                       ;; when initialized.  This probe is CWD-DEPENDENT (a
+                       ;; bare relative path, not a local-file) -- the
+                       ;; Makefile's repo-root warning is what makes that
+                       ;; safe, as documented in the header.
+                       (if (file-exists? "espanso/private/private.yml")
+                           (list `(".config/espanso/match/private.yml"
+                                   ,(local-file "../espanso/private/private.yml"
+                                                "espanso-private.yml")))
+                           '())))
+
+      ;; The daemon, extending the shepherd instance.
+      ;;
+      ;; `espanso daemon' rather than `espanso start': start is a launcher
+      ;; that hands off to a system service manager and exits, which on Guix
+      ;; fails outright with "unable to start service: systemd not found" --
+      ;; espanso only knows systemd, and its suggested `--unmanaged'
+      ;; workaround means nothing supervises it and you restart it by hand
+      ;; every login.  `espanso daemon' is documented as "start the daemon
+      ;; without spawning a new process", exactly the foreground process a
+      ;; supervisor wants.  Shepherd IS the service manager espanso could not
+      ;; find.
+      ;;
+      ;; Requires membership in the `input' group, granted in
+      ;; system/geeeks.scm and effective only at the NEXT LOGIN.  Without it
+      ;; the worker panics at startup with "Unable to open EVDEV devices" --
+      ;; espanso reads /dev/input/event* directly on Wayland, there being no
+      ;; X11-style global grab.
+      (simple-service 'espanso-daemon home-shepherd-service-type
+                      (list
+                       (shepherd-service
+                        (provision '(espanso))
+                        (documentation "espanso text expander daemon.")
+                        (start
+                         #~(make-forkexec-constructor
+                            (list #$(file-append
+                                     (specification->package "espanso-wayland")
+                                     "/bin/espanso")
+                                  "daemon")
+                            #:log-file (string-append (getenv "HOME")
+                                                      "/.cache/espanso/daemon.log")
+                            ;; #:environment-variables REPLACES the
+                            ;; environment, so everything espanso needs has to
+                            ;; be rebuilt here.
+                            ;;
+                            ;; WAYLAND_DISPLAY is the one that actually bites.
+                            ;; This user's shepherd has XDG_RUNTIME_DIR,
+                            ;; XDG_SESSION_TYPE and DBUS_SESSION_BUS_ADDRESS
+                            ;; but NOT WAYLAND_DISPLAY -- verified by reading
+                            ;; /proc/<shepherd>/environ -- and espanso needs a
+                            ;; Wayland connection to INJECT text (the
+                            ;; virtual-keyboard protocol), even though it
+                            ;; DETECTS through evdev without one.  So it would
+                            ;; sit there recognising triggers and typing
+                            ;; nothing.  Inherit it when present, else fall
+                            ;; back to the socket name the session records.
+                            ;;
+                            ;; XDG_DATA_DIRS and GDK_PIXBUF_MODULE_FILE are
+                            ;; for espanso's GTK tray icon, which crashed the
+                            ;; tray process on every start without them
+                            ;; ("Failed to load .../image-missing.png" --
+                            ;; /org/gtk/libgtk/... is a GResource compiled
+                            ;; INTO libgtk, so that error is never a missing
+                            ;; icon package: image-missing IS the fallback,
+                            ;; already the second failure.  Both were
+                            ;; casualties of this list replacing the
+                            ;; environment).  Only the tray died, never
+                            ;; expansion -- a regression here is cosmetic, not
+                            ;; a reason to stop espanso.
+                            #:environment-variables
+                            (let* ((home (getenv "HOME"))
+                                   (runtime (or (getenv "XDG_RUNTIME_DIR")
+                                                (string-append "/run/user/"
+                                                               (number->string (getuid)))))
+                                   (dbus (getenv "DBUS_SESSION_BUS_ADDRESS"))
+                                   (data-dirs (getenv "XDG_DATA_DIRS"))
+                                   ;; 2.10.0 is gdk-pixbuf's module ABI
+                                   ;; directory, not its package version -- it
+                                   ;; has not moved in years.  Probed rather
+                                   ;; than assumed, so a miss degrades to the
+                                   ;; old cosmetic breakage instead of a bad
+                                   ;; env.
+                                   (pixbuf (string-append
+                                            home "/.guix-home/profile/lib"
+                                            "/gdk-pixbuf-2.0/2.10.0/loaders.cache")))
+                              (append
+                               (list (string-append "HOME=" home)
+                                     (string-append "XDG_RUNTIME_DIR=" runtime)
+                                     (string-append "WAYLAND_DISPLAY="
+                                                    (or (getenv "WAYLAND_DISPLAY")
+                                                        #$(session-ref session 'wayland-display)))
+                                     "XDG_SESSION_TYPE=wayland"
+                                     (string-append "PATH=" home "/.guix-home/profile/bin"))
+                               (if dbus
+                                   (list (string-append "DBUS_SESSION_BUS_ADDRESS=" dbus))
+                                   '())
+                               (if data-dirs
+                                   (list (string-append "XDG_DATA_DIRS=" data-dirs))
+                                   '())
+                               (if (file-exists? pixbuf)
+                                   (list (string-append "GDK_PIXBUF_MODULE_FILE=" pixbuf))
+                                   '())))))
+                        (stop #~(make-kill-destructor))
+                        ;; Shepherd may well win the race against the
+                        ;; compositor at login, in which case the socket does
+                        ;; not exist yet and the first start fails.  respawn?
+                        ;; covers that; shepherd's own throttle stops it
+                        ;; becoming a tight loop if the real problem is the
+                        ;; missing `input' group instead.  If it does get
+                        ;; disabled for respawning too fast, the log named
+                        ;; above says which of the two it was, and `herd start
+                        ;; espanso' recovers without a reconfigure.
+                        (respawn? #t)
+                        (auto-start? #t))))))))
+
+;; claude-code: the files Claude Code reads (store symlinks, extending the
+;; dotfiles layer's home-files) and the files it WRITES (seeded as real
+;; copies by activation -- Claude Code rewrites config atomically via temp
+;; file + rename, which would replace a store symlink with a regular file and
+;; silently void the declaration).
+(define %claude-code-layer
+  (layer
+   #:name 'claude-code
+   #:synopsis "Claude Code config: read-only links + writable seeds"
+   #:services
+   (lambda (session)
+     (let ((apply-cmd (session-apply-command session)))
+       (list
+        ;; Part 1 of 2: the files Claude Code never writes.  Safe as
+        ;; read-only store symlinks.  Declaring these as entries UNDER
+        ;; .claude (rather than declaring ".claude" itself) is what keeps
+        ;; ~/.claude a real writable directory -- Claude Code stores
+        ;; projects/, sessions/ and history.jsonl there at runtime.
+        ;; Declaring ".claude" as one recursive local-file would make the
+        ;; whole tree a store symlink and break it, the same way ~/bin is
+        ;; read-only and defeats installers that target it.  #:recursive? #t
+        ;; on the directories is load-bearing: it preserves the executable
+        ;; bit on bin/, which a plain local-file drops to 0444.
+        (simple-service 'claude-code-files home-files-service-type
+                        (list
+                         `(".claude/agent-roles.conf" ,(local-file "../claude/agent-roles.conf"))
+                         `(".claude/agent-templates" ,(local-file "../claude/agent-templates"
+                                                                  "claude-agent-templates"
+                                                                  #:recursive? #t))
+                         `(".claude/bin" ,(local-file "../claude/bin" "claude-bin" #:recursive? #t))
+                         `(".claude/skills" ,(local-file "../claude/skills" "claude-skills"
+                                                         #:recursive? #t))))
+
+        ;; Part 2 of 2: the files Claude Code DOES write.
+        (simple-service 'claude-writable-config home-activation-service-type
+                        #~(begin
+                            ;; Core Guile only.  A gexp does not automatically
+                            ;; get (guix build utils) in its build
+                            ;; environment, so mkdir-p would fail at
+                            ;; activation time with "no code for module".
+                            (let* ((claude (string-append (getenv "HOME") "/.claude"))
+                                   (agents (string-append claude "/agents")))
+                              (unless (file-exists? claude) (mkdir claude))
+                              (unless (file-exists? agents) (mkdir agents))
+                              ;; Seed-if-absent: /memory owns CLAUDE.md and
+                              ;; /config owns settings.json once they exist.
+                              ;; Copy changes back to the claude/ submodule by
+                              ;; hand; do not overwrite them here.
+                              (for-each
+                               (lambda (name source)
+                                 (let ((dest (string-append claude "/" name)))
+                                   (unless (file-exists? dest)
+                                     (copy-file source dest)
+                                     (chmod dest #o644))))
+                               (list "CLAUDE.md" "settings.json")
+                               (list #$(local-file "../claude/CLAUDE.md")
+                                     #$(local-file "../claude/settings.json")))
+                              ;; Hand-maintained and written by nothing on
+                              ;; this machine, so the repo stays
+                              ;; authoritative: overwrite every time.
+                              (let ((dest (string-append claude "/agents/stage-executor.md")))
+                                (copy-file #$(local-file "../claude/agents/stage-executor.md") dest)
+                                (chmod dest #o644))
+                              ;; agents/committer.md is generated from
+                              ;; agent-templates/ + agent-roles.conf, so it is
+                              ;; not stored in the repo.  Guarded because
+                              ;; activation ordering against the symlink
+                              ;; manager is not guaranteed: on a first-ever
+                              ;; reconfigure the symlinks above may not be in
+                              ;; place yet.  Re-running the apply command
+                              ;; settles it.
+                              (let ((gen (string-append claude "/bin/generate-agents.sh")))
+                                (if (and (file-exists? gen)
+                                         (file-exists? (string-append claude "/agent-templates")))
+                                    (system* gen)
+                                    (display #$(string-append
+                                                "claude: skipping generate-agents.sh "
+                                                "(inputs not linked yet); re-run `"
+                                                apply-cmd "`\n"))))))))))))
+
+;; Enabled layers, in service order.  A machine wanting a subset passes its
+;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
+(define %default-layers
+  (list %dotfiles-layer
+        %zsh-layer
+        %gpg-ssh-agent-layer
+        %emacs-layer
+        %browser-layer
+        %espanso-layer
+        %claude-code-layer))
+
+(define* (dotfiles-home session #:key (layers %default-layers)
+                        (extra-services '()))
+  "Return the home-environment for SESSION with LAYERS applied.
+
+Inactive layers (unmet #:requires) contribute nothing; a note on stderr says
+which, so a layer silently missing from the result is impossible to confuse
+with one that was never listed.  EXTRA-SERVICES is the escape hatch: raw Guix
+services appended after the fold, for anything not worth a layer."
+  (let* ((active   (filter (lambda (l) (layer-active? l session)) layers))
+         (inactive (filter (lambda (l) (not (layer-active? l session))) layers))
+         (contributions (map (lambda (l)
+                               (cons (layer-name l)
+                                     ((layer-services l) session)))
+                             active)))
+    ;; Build-time visibility, following the precedent of the Pop!_OS probe in
+    ;; system/geeeks.scm: notes to stderr during evaluation.
+    (format (current-error-port) "note: session '~a': layers: ~{~a~^, ~}~%"
+            (session-ref session 'name) (map layer-name active))
+    (unless (null? inactive)
+      (format (current-error-port)
+              "note: inactive (unmet session facts): ~{~a~^, ~}~%"
+              (map layer-name inactive)))
+    (assert-service-ownership contributions)
+    (home-environment
+     (packages
+      (map (lambda (p) (if (string? p) (specification->package p) p))
+           (append-map (lambda (l) ((layer-packages l) session)) active)))
+     (services
+      (append
+       ;; Scaffolding dotfiles-home itself provides: the ONE shepherd
+       ;; instance every layer's daemons extend.  A layer must never
+       ;; instantiate this type (the ownership check would name it) --
+       ;; extend it with (simple-service 'name home-shepherd-service-type
+       ;; (list <shepherd-service> ...)).
+       (list (service home-shepherd-service-type
+                      (home-shepherd-configuration)))
+       (append-map cdr contributions)
+       extra-services)))))

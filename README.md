@@ -24,7 +24,13 @@ The split is by *what decides the contents*, not by which command deploys them:
   parameterized source, `home/common.scm`, works on Guix System *and* on a
   foreign distro like Pop!_OS; the entry files `base.scm` and `wayland.scm` are
   three lines each and only pick a *session record* (foreign vs GNOME-Wayland).
-  This is what `make apply` / `make apply-wayland` deploy.
+  Within it, features are organized as *layers* (in the Spacemacs sense —
+  espanso, the emacs setup, the gpg ssh-agent…), each bundling its packages,
+  services and activation logic, activated per session via declared
+  requirements. See the layer-system notes in `common.scm`, including why it's
+  homegrown rather than [rde](https://git.sr.ht/~abcdw/rde), and the escape
+  route to rde if it ever grows framework-shaped. This is what `make apply` /
+  `make apply-wayland` deploy.
 - **`system/`** — host classes, decided by a hardware combination plus the needs
   *any* user has on it (it boots, it reaches a network, it is secure) and
   independent of who is using it. `operating-system` configs named after the host
