@@ -153,7 +153,7 @@ convention in this file of not importing @code{(guix licenses)}.")
     "direnv"
     ;; emacs-pgtk, not plain emacs: the pgtk build talks Wayland natively
     ;; instead of going through mutter's XWayland, and it is what EWM
-    ;; requires should that experiment go anywhere (see EWM_TRIAL_PLAN.md).
+    ;; requires should that experiment go anywhere (see docs/EWM_TRIAL_PLAN.md).
     ;; Same 30.2 as the plain build, so Spacemacs is unaffected.  base.scm
     ;; deliberately stays on plain "emacs" -- that config targets headless
     ;; and Docker hosts, which have no use for a GTK-linked Emacs.

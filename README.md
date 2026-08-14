@@ -35,7 +35,7 @@ The split is by *what decides the contents*, not by which command deploys them:
 Both layers version their deploys as *generations*, and they are separate
 streams — plus two more for your `guix pull` and root's. Rolling back one does
 not touch the others, and GRUB only lists the system ones. See
-[`GENERATIONS_AND_ROLLBACK.md`](./GENERATIONS_AND_ROLLBACK.md) for which stream
+[`GENERATIONS_AND_ROLLBACK.md`](./docs/GENERATIONS_AND_ROLLBACK.md) for which stream
 owns what, and the traps (numbers are not dates; deployed is not the same as in
 your session).
 

@@ -44,7 +44,7 @@ degraded.
 ## Coordinator practices
 
 - Stage prompts land on `main` before launch (canonical text + number reservation).
-- At most one in-flight stage touches any shared file (EWM_TRIAL_PLAN.md counts).
+- At most one in-flight stage touches any shared file (docs/EWM_TRIAL_PLAN.md counts).
 - Executors attempt their own push and expect credential failure; the coordinator
   pushes and merges.
 - Review = whitelist audit + full diff read + independent gate rerun in the
