@@ -246,21 +246,9 @@ convention in this file of not importing @code{(guix licenses)}.")
 ;;                        XDG_RUNTIME_DIR; espanso's service falls back to it
 ;;                        when shepherd's environment lacks WAYLAND_DISPLAY.
 ;;
-;; What an EWM session record would look like, per docs/EWM_TRIAL_PLAN.md
-;; (the pinentry answer is a trial question -- pinentry-gnome3 prompts via
-;; the gcr system prompter over D-Bus, which GNOME Shell provides and EWM
-;; likely does not; its curses fallback still works, and the trial plan
-;; argues allow-emacs-pinentry is the better endpoint there anyway):
-;;
-;;   (define %ewm-session                                            ;[session]
-;;     '((name . ewm)
-;;       (wayland? . #t)
-;;       (nonguix-substitutes? . #t)
-;;       (pinentry-package . "pinentry-gnome3")   ; trial question
-;;       (pinentry-binary  . "pinentry-gnome3")
-;;       (has-gsettings? . #f)
-;;       (wlr-data-control? . #f)                 ; flip after verifying
-;;       (wayland-display . "wayland-0")))        ; check in XDG_RUNTIME_DIR
+;; The EWM session record is real (below, after %foreign-session), deployed
+;; by home/ewm.scm via `make apply-ewm' -- see docs/EWM_TRIAL_PLAN.md for the
+;; trial this serves.
 (define %gnome-wayland-session                                      ;[session]
   '((name                 . gnome-wayland)                          ;[session]
     (wayland?             . #t)
@@ -284,6 +272,55 @@ convention in this file of not importing @code{(guix licenses)}.")
     (has-gsettings?       . #t)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
     (wayland-display      . "wayland-0")))
+
+;; The EWM trial session (docs/EWM_TRIAL_PLAN.md), deployed by home/ewm.scm.
+;;
+;; This record describes the COEXISTENCE trial -- EWM on its own VT while
+;; GNOME keeps running under GDM -- not an adopted EWM desktop.  Both facts
+;; that differ from a post-adoption record are consequences of that:
+;;
+;;   wayland-display    "wayland-1", NOT wayland-0: GNOME already holds
+;;                      wayland-0 in XDG_RUNTIME_DIR, so EWM, the second
+;;                      concurrent compositor, binds the next free name.
+;;                      At adoption (GDM gone) this becomes wayland-0.
+;;   has-gsettings?     #f.  gnome-settings-daemon serves the GNOME session,
+;;                      not the EWM VT; the keybindings activation prints its
+;;                      skip note instead of half-working.  (GNOME's own
+;;                      settings persist -- they were set on earlier applies.)
+;;
+;; Two TRIAL QUESTIONS are encoded here conservatively, per the convention
+;; that guesses are labelled:
+;;
+;;   pinentry-*         pinentry-gnome3 prompts via the gcr system prompter
+;;                      over D-Bus, which GNOME Shell provides and EWM likely
+;;                      does not.  Its curses fallback still works, so the
+;;                      trial keeps it and OBSERVES: run `ssh-add' or a gpg
+;;                      sign from the EWM VT and see what prompts.  The trial
+;;                      plan argues allow-emacs-pinentry (already in
+;;                      extra-content) is the better endpoint there anyway.
+;;   wlr-data-control?  UNVERIFIED, likely #t -- Smithay implements the
+;;                      protocol; whether EWM enables it is THE question for
+;;                      espanso's clipboard backend.  Check from the EWM VT:
+;;                      guix shell wayland-utils -- wayland-info, looking for
+;;                      zwlr_data_control_manager_v1.  Flip only after seeing
+;;                      it; a wrong #t re-breaks expansion silently.
+;;
+;; Espanso is deliberately ABSENT from the trial anyway -- excluded by
+;; #:layers in home/ewm.scm, not by a fact here.  Its requires (wayland?)
+;; WOULD be satisfied under EWM; the problem is the trial's two concurrent
+;; compositors: espanso detects keystrokes globally via evdev but injects
+;; through whichever Wayland socket it connected to, so a trigger typed on
+;; the EWM VT could paste into a GNOME window on the other VT.  Re-add the
+;; layer at adoption, together with the wlr-data-control? answer.
+(define %ewm-session                                                ;[session]
+  '((name                 . ewm)
+    (wayland?             . #t)
+    (nonguix-substitutes? . #t)
+    (pinentry-package     . "pinentry-gnome3")                      ;[session]
+    (pinentry-binary      . "pinentry-gnome3")                      ;[session]
+    (has-gsettings?       . #f)                                     ;[session]
+    (wlr-data-control?    . #f)                                     ;[session]
+    (wayland-display      . "wayland-1")))
 
 ;; assq rather than assq-ref, so a mistyped key errors instead of returning
 ;; #f -- a silent #f reads as "capability absent" and misconfigures the

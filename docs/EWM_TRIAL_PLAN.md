@@ -372,9 +372,16 @@ The system side keeps exactly two tagged couplings —
 `gnome-desktop-service-type` and `%desktop-services` — which are the lines a
 committed switch edits, per the Rollback section below.
 
-So the EWM trial's config work reduces to: add an `%ewm-session` record (a
-commented template sits beside the others in `common.scm`), point an entry
-file at it, reconfigure home, and answer the two unverified questions. The system config
+The trial's config work is DONE and waiting: `%ewm-session` is a real record
+in `common.scm` (note `wayland-display . "wayland-1"` — GNOME holds
+`wayland-0` during coexistence), `home/ewm.scm` deploys it with every layer
+except espanso (excluded by `#:layers`, since two concurrent compositors make
+espanso's evdev-detect/Wayland-inject split cross VTs), and `make apply-ewm`
+is the lean deploy — return with `guix home roll-back`. What remains is
+building EWM itself (Stages 1–2) and answering the two unverified questions
+from the EWM VT: what prompts when `ssh-add` needs a pinentry, and whether
+`wayland-info` (guix shell wayland-utils) lists
+`zwlr_data_control_manager_v1`. The system config
 changes only at adoption, exactly as this plan already argued.
 
 ---

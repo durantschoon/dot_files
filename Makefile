@@ -141,6 +141,8 @@ help:
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make apply         - Apply Guix Home configuration (reconfigure)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
+	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
+	@echo "                       roll back with 'guix home roll-back')"
 	@echo "  make reconfigure   - Apply the SYSTEM config for this machine (Guix System only;"
 	@echo "                       picks system/\$$(uname -n).scm, runs check-system first,"
 	@echo "                       then sudo -i guix system reconfigure)"
@@ -753,6 +755,26 @@ apply-wayland: warn-dotfiles-home
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
+
+# apply-ewm -- deploy the EWM TRIAL home generation (docs/EWM_TRIAL_PLAN.md,
+# home/ewm.scm).  Deliberately leaner than apply/apply-wayland: no guix pull,
+# no .spacemacs.env refresh, no claude-install pass -- this is a generation
+# you try and roll back from, not a daily driver, and every skipped step is
+# one less difference to un-do.  Return with:
+#   guix home roll-back
+# The claude submodule IS still required: the claude-code layer reads
+# ../claude/* via local-file, and an uninitialized submodule fails the
+# reconfigure with an opaque "no such file" from the store builder.
+apply-ewm: warn-dotfiles-home
+	@echo "==> git submodule update --init claude"
+	@git submodule update --init claude
+	@echo "==> guix home reconfigure home/ewm.scm"
+	@guix home reconfigure --allow-downgrades home/ewm.scm
+	@echo "==> done (EWM trial generation deployed)"
+	@echo ""
+	@echo "    GNOME keeps running on its VT; launch EWM from a fresh TTY"
+	@echo "    per docs/EWM_TRIAL_PLAN.md.  Return to the GNOME-tuned home"
+	@echo "    with:  guix home roll-back"
 
 submodule-update:
 	@echo "==> git submodule update --init --recursive"
