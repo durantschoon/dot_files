@@ -414,7 +414,7 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias llrm='echo "Paste ls -lt output for files to delete and ^D when done"; /bin/rm -rf `awk '\''{print $9}'\''`'
 
-    ee () { echo $* ; $* }
+    ee () { echo $* ; $* ; } # trailing `;' is for bash's parser -- see f2m below
 
     # nr () { echo "npm run $*" ; npm run $* }
 
@@ -446,16 +446,16 @@ if [ -n "$ZSH_VERSION" ]; then
     epoch_date () { date -r $(echo $1 | cut -c1-10); } # epoch_date 1679656475630
     epoch_date2 () { date -r $(echo $1 | cut -c1-10) +'%Y-%m-%d %H:%M:%S'; }
 
-    rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || =rm $* } # builtin rm
+    rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || =rm $* ; } # builtin rm; the `;' is for bash -- see f2m
 
-    function killport(){ lsof -nti:$1 | xargs kill -9 } # killport 3000
+    function killport(){ lsof -nti:$1 | xargs kill -9 ; } # killport 3000
 
     function rg () {
         [[ -d .git/ ]] && echo 'skipping .git/ dir ...';
         local arg=$1; shift
         =rg --hidden $arg -g '!.git/*' $@
     }
-    function rg_with_git () { =rg --hidden $* }
+    function rg_with_git () { =rg --hidden $* ; } # `;' for bash -- see f2m
 
     function psg () {
         ps -ef | (head -n 1; tail -n +2 | grep "$@" | grep -v grep)
@@ -515,9 +515,16 @@ if [ -n "$ZSH_VERSION" ]; then
     MVP="$HOME/.ipython/profile_default/startup/money_value.py"
     if [ -x "$MVP" ]; then
         unalias f2m m2f half 2>/dev/null
-        function f2m () { "$MVP" f2m "$@" | pbcopy }
-        function m2f () { "$MVP" m2f "$@" | pbcopy }
-        function half () { "$MVP" half "$@" | pbcopy }
+        # The `;' before each `}' is load-bearing for BASH, which never runs
+        # these (they sit in the zsh guard) but must still PARSE them: bash
+        # requires a command terminator before a closing brace, while zsh
+        # accepts a bare `}' after a pipeline. Without the semicolons the
+        # function never closes, the guard's if-body swallows everything
+        # after it, and bash reports "syntax error near unexpected token
+        # else" hundreds of lines from the cause.
+        function f2m () { "$MVP" f2m "$@" | pbcopy; }
+        function m2f () { "$MVP" m2f "$@" | pbcopy; }
+        function half () { "$MVP" half "$@" | pbcopy; }
         # e.g. half \$3,604.67 && echo `pbpaste`
     else
         unset -f f2m m2f half 2>/dev/null
@@ -746,7 +753,7 @@ if [ -n "$ZSH_VERSION" ]; then
     # brew install parallel
     # on mac you need final - below
     # seq 1000 | parallel -N100 –pipe –slf instances "(hostname; wc -l) | paste -sd: - | bc"
-    F0 () { find $* -print0 } # use F0 to pipe to X0 or X0G
+    F0 () { find $* -print0; } # use F0 to pipe to X0 or X0G (the `;' is for bash's parser -- see f2m above)
     alias -g XG='| xargs egrep'
     alias -g X='| xargs'
 
