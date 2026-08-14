@@ -348,6 +348,36 @@ what you have now. Flip `pinentry-program` when you commit to EWM, not before.
 
 ---
 
+## The session switch (added 2026-08-13)
+
+The GNOME inventory this document opened with is now *enforced* rather than
+remembered. `home/wayland.scm` carries a `%session` record — the one place the
+compositor is named — and every former GNOME hardcoding in that file consults
+it: which pinentry, whether `gsettings` exists to be called, which
+`WAYLAND_DISPLAY` socket espanso's shepherd service falls back to, and whether
+espanso may use its clipboard backend (`wlr-data-control?`, the fact behind
+the silent wrong-paste bug that motivated all of this — espanso's config is
+now *generated*, base YAML plus a backend line derived from that fact).
+
+Entries are **facts, not conclusions**: consumers derive the consequences, so
+flipping a fact updates everything that depends on it at once. The `%session`
+block's own comments say what each fact likely becomes under EWM, marked
+unverified where it is a trial question (`wlr-data-control?` and the gcr
+prompter behind pinentry-gnome3 are the two real ones).
+
+`make check-session-coupling` (wired into `make check` and the pre-commit
+hook's `check` path) keeps it honest: any *code* line in `home/wayland.scm` or
+`system/*.scm` naming a compositor outside a `[session]`-tagged line fails.
+The system side keeps exactly two tagged couplings —
+`gnome-desktop-service-type` and `%desktop-services` — which are the lines a
+committed switch edits, per the Rollback section below.
+
+So the EWM trial's config work reduces to: flip facts in `%session`,
+reconfigure home, and answer the two unverified questions. The system config
+changes only at adoption, exactly as this plan already argued.
+
+---
+
 ## Rollback
 
 Through Stage 3 there is nothing to roll back — GNOME is untouched and remains

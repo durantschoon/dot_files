@@ -44,57 +44,20 @@ toggle_key: OFF
 # but you may want to try the "Clipboard" or "Inject" backend in case of issues.
 # backend: Clipboard
 #
-# Inject, NOT Auto, and this is not a preference -- Auto is broken on GNOME
-# Wayland in a way that silently pastes the WRONG TEXT.
+# NOTE: the `backend' key is deliberately NOT set in this file.  When guix
+# home deploys it, home/wayland.scm APPENDS the key, derived from the
+# %session record there: on compositors without the wlr-data-control protocol
+# (GNOME's Mutter), espanso's Auto backend silently pastes stale clipboard
+# contents instead of the expansion -- observed on this machine -- so Inject
+# is forced; on compositors that implement the protocol, Auto is restored.
+# The full reasoning lives with %espanso-default-yml in home/wayland.scm,
+# next to the fact that decides it.
 #
-# Auto routes a match through the CLIPBOARD backend when the replacement is
-# longer than clipboard_threshold or contains characters the keyboard layout
-# cannot type.  That backend sets the clipboard, sends Ctrl+V, then restores it.
-#
-# Owning the Wayland clipboard requires the wlr-data-control protocol, which is
-# a wlroots extension that GNOME's Mutter does not implement.  espanso detects
-# this and says so in its log:
-#
-#   using WaylandFallbackClipboard
-#
-# The fallback cannot actually set the clipboard, but the Ctrl+V is sent
-# anyway -- so the expansion pastes WHATEVER YOU LAST COPIED.  Nothing errors;
-# you just get the wrong text.  wl-clipboard being installed does not help:
-# the protocol is missing from the compositor, not the tooling.
-#
-# Inject bypasses the clipboard entirely and types through the EVDEV virtual
-# keyboard.  The tradeoff is that it types via the layout declared below, so
-# characters outside it may not be injectable -- test the Unicode expansions
-# (raxx, laxx, degxx, chxx, e2oxx) after changing this.  If they break, they
-# are the ones to reconsider, not the setting: wrong text pasted silently is
-# worse than a character that does not appear.
-backend: Inject
-#
-# Inject, NOT Auto, and this is not a preference -- Auto is broken on GNOME
-# Wayland in a way that silently pastes the WRONG TEXT.
-#
-# Auto routes a match through the CLIPBOARD backend when the replacement is
-# longer than clipboard_threshold or contains characters the keyboard layout
-# cannot type.  That backend sets the clipboard, sends Ctrl+V, then restores it.
-#
-# Owning the Wayland clipboard requires the wlr-data-control protocol, which is
-# a wlroots extension that GNOME's Mutter does not implement.  espanso detects
-# this and says so in its log:
-#
-#   using WaylandFallbackClipboard
-#
-# The fallback cannot actually set the clipboard, but the Ctrl+V is sent
-# anyway -- so the expansion pastes WHATEVER YOU LAST COPIED.  Nothing errors;
-# you just get the wrong text.  wl-clipboard being installed does not help:
-# the protocol is missing from the compositor, not the tooling.
-#
-# Inject bypasses the clipboard entirely and types through the EVDEV virtual
-# keyboard.  The tradeoff is that it types via the layout declared below, so
-# characters outside it may not be injectable -- test the Unicode expansions
-# (raxx, laxx, degxx, chxx, e2oxx) after changing this.  If they break, they
-# are the ones to reconsider, not the setting: wrong text pasted silently is
-# worse than a character that does not appear.
-backend: Inject
+# If you ever consume this file OUTSIDE guix home, add the key by hand:
+# `backend: Inject' is the safe choice on GNOME Wayland.  After any backend
+# change, test the Unicode expansions (raxx, laxx, degxx, chxx, e2oxx) --
+# Inject types through the EVDEV virtual keyboard, which is layout-sensitive
+# where the clipboard route is not.
 
 # --- Auto-restart
 

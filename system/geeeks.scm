@@ -489,7 +489,13 @@ leftcontrol = capslock
  ;;                   Linux from source.
  (services
   (append
-   (list (service gnome-desktop-service-type)
+   ;; The desktop this host class runs.  ;[session] -- home/wayland.scm keeps
+   ;; the user-side couplings behind its %session record; this line and the
+   ;; %desktop-services expression below are the SYSTEM-side couplings, and
+   ;; the ones a committed EWM switch would edit (docs/EWM_TRIAL_PLAN.md: the trial
+   ;; itself changes neither -- EWM runs from a TTY on its own VT while GNOME
+   ;; keeps this service).
+   (list (service gnome-desktop-service-type)                       ;[session]
 
          ;; keyd, as a SYSTEM service.
          ;;
@@ -731,7 +737,7 @@ leftcontrol = capslock
          ;;       silently un-patches it on the next release
          (extra-special-file "/lib64/ld-linux-x86-64.so.2"
                              (file-append glibc "/lib/ld-linux-x86-64.so.2")))
-   (modify-services %desktop-services
+   (modify-services %desktop-services                               ;[session]
      (guix-service-type
       config => (guix-configuration
                  (inherit config)

@@ -138,6 +138,103 @@ Licensed GPLv2+; the field below follows the @code{babashka}/@code{github-cli}
 convention in this file of not importing @code{(guix licenses)}.")
     (license #f)))
 
+;; ---------------------------------------------------------------------------
+;; %session -- the one place the graphical session is named.        ;[session]
+;;
+;; This config runs under GNOME on Wayland today, and EWM (see
+;; docs/EWM_TRIAL_PLAN.md) is a live candidate to replace it.  Every place this
+;; file used to hardcode a GNOME-ism now consults this record instead, so
+;; switching compositors is an edit HERE plus a reconfigure -- not a hunt
+;; through the file.  `make check-session-coupling' enforces the confinement:
+;; a code line naming a compositor outside a [session]-tagged line fails.
+;;
+;; Entries are FACTS about the session, not conclusions.  Consumers derive
+;; the conclusions -- %espanso-default-yml turns `wlr-data-control?' into an
+;; espanso backend, the gpg-agent service turns `pinentry-package' into a
+;; store path -- so flipping a fact updates every consequence at once, and
+;; each piece of reasoning lives beside the consumer that owns it.
+;;
+;; What each fact would become under EWM, marked per the trial plan's
+;; convention that guesses are labelled as guesses:
+;;
+;;   compositor          'ewm.  Documentation and dispatch; nothing keys off
+;;                       it directly today.
+;;   pinentry-*          UNVERIFIED.  pinentry-gnome3 prompts via the gcr
+;;                       system prompter over D-Bus, which GNOME Shell
+;;                       provides; whether anything provides it under EWM is
+;;                       a trial question.  Its curses fallback still works,
+;;                       and docs/EWM_TRIAL_PLAN.md argues allow-emacs-pinentry is
+;;                       the better endpoint there anyway.  Two entries
+;;                       because Guix's PACKAGE name and the BINARY it ships
+;;                       do not always agree: pinentry-gtk2 installs
+;;                       bin/pinentry-gtk-2.
+;;   has-gsettings?      #f.  No GNOME schemas outside GNOME; the gate makes
+;;                       the skip announce itself instead of failing quietly.
+;;   wlr-data-control?   UNVERIFIED, likely #t -- Smithay implements the
+;;                       protocol; whether EWM enables it is a trial
+;;                       question.  Until verified, leave #f: the Inject
+;;                       consequence is merely conservative, while a wrong #t
+;;                       re-breaks expansion SILENTLY (see
+;;                       %espanso-default-yml for the failure it causes).
+;;   wayland-display     "wayland-0" almost certainly, but check: it is
+;;                       whatever socket name the compositor binds in
+;;                       XDG_RUNTIME_DIR.
+(define %session                                                    ;[session]
+  '((compositor         . gnome)                                    ;[session]
+    (pinentry-package   . "pinentry-gnome3")                        ;[session]
+    (pinentry-binary    . "pinentry-gnome3")                        ;[session]
+    (has-gsettings?     . #t)                                       ;[session]
+    (wlr-data-control?  . #f)                                       ;[session]
+    (wayland-display    . "wayland-0")))                            ;[session]
+
+;; assq rather than assq-ref, so a mistyped key errors instead of returning
+;; #f -- a silent #f reads as "capability absent" and misconfigures the
+;; consumer, which is exactly the hidden-coupling failure this record exists
+;; to end.
+(define (session-ref key)
+  (let ((entry (assq key %session)))
+    (unless entry
+      (error "session-ref: no such session fact" key))
+    (cdr entry)))
+
+;; espanso's config, with the injection backend DERIVED rather than written.
+;;
+;; The fact consulted is `wlr-data-control?'.  Espanso's Auto backend routes
+;; a match through the clipboard whenever the replacement is long or contains
+;; characters outside the keyboard layout: set clipboard, send Ctrl+V,
+;; restore.  Owning the Wayland clipboard from a background process requires
+;; the wlr-data-control protocol -- a wlroots extension GNOME's Mutter does
+;; not implement -- and espanso's fallback (`using WaylandFallbackClipboard'
+;; in the log) cannot actually set anything, but the Ctrl+V is sent anyway.
+;; Observed here 2026-08-13: type an expansion, get WHATEVER YOU LAST
+;; COPIED, no error anywhere.  Hence backend Inject on such compositors --
+;; type through the EVDEV virtual keyboard, never touch the clipboard.  On a
+;; compositor that implements the protocol, Auto is restored: it is the
+;; better backend when the clipboard route works, since EVDEV injection of
+;; long replacements is slower and layout-sensitive.
+;;
+;; Generated as base-file-plus-appended-key so espanso/config/default.yml
+;; stays the plain YAML espanso's docs describe, editable without touching
+;; Scheme.
+(define %espanso-default-yml
+  (computed-file
+   "espanso-default.yml"
+   #~(begin
+       (use-modules (ice-9 textual-ports))
+       (call-with-output-file #$output
+         (lambda (out)
+           (put-string out (call-with-input-file
+                               #$(local-file "../espanso/config/default.yml"
+                                             "espanso-default-base.yml")
+                             get-string-all))
+           (put-string out #$(string-append
+                              "\n# --- appended by home/wayland.scm from %session"
+                              " -- do not edit here ---\n"
+                              "backend: "
+                              (if (session-ref 'wlr-data-control?)      ;[session]
+                                  "Auto" "Inject")
+                              "\n")))))))
+
 (define %base-packages
   '("git" "zsh"
     "starship"
@@ -254,9 +351,13 @@ convention in this file of not importing @code{(guix licenses)}.")
        ;; desktop over D-Bus (DBUS_SESSION_BUS_ADDRESS *is* in the agent's
        ;; environment) and falls back to curses on a bare TTY, so it prompts
        ;; correctly no matter what environment shepherd handed the agent.
+       ;;
+       ;; WHICH pinentry is a session fact, so the names come from %session
+       ;; rather than being spelled here -- and there are two of them because
+       ;; Guix's package name and the binary it ships do not always agree.
        (pinentry-program
-        (file-append (specification->package "pinentry-gnome3")
-                     "/bin/pinentry-gnome3"))
+        (file-append (specification->package (session-ref 'pinentry-package))
+                     (string-append "/bin/" (session-ref 'pinentry-binary))))
        (ssh-support? #t)
        (default-cache-ttl 3600)
        (max-cache-ttl 28800)
@@ -330,11 +431,11 @@ convention in this file of not importing @code{(guix licenses)}.")
                      ;; through evdev without one.  So it would sit there
                      ;; recognising triggers and typing nothing.
                      ;;
-                     ;; Inherit it when present and fall back to wayland-0,
-                     ;; which is what GNOME uses here and what a single
-                     ;; compositor gets by convention.  A second concurrent
-                     ;; compositor would be wayland-1 and would need this
-                     ;; revisited.
+                     ;; Inherit it when present, else fall back to the name
+                     ;; %session records -- whatever socket THIS compositor
+                     ;; binds in XDG_RUNTIME_DIR ("wayland-0" for a lone
+                     ;; compositor, by convention).  A second concurrent
+                     ;; compositor gets wayland-1 and needs the fact updated.
                      #:environment-variables
                      ;; XDG_DATA_DIRS and GDK_PIXBUF_MODULE_FILE are here for
                      ;; espanso's GTK tray icon, which crashed the tray process
@@ -373,7 +474,8 @@ convention in this file of not importing @code{(guix licenses)}.")
                         (list (string-append "HOME=" home)
                               (string-append "XDG_RUNTIME_DIR=" runtime)
                               (string-append "WAYLAND_DISPLAY="
-                                             (or (getenv "WAYLAND_DISPLAY") "wayland-0"))
+                                             (or (getenv "WAYLAND_DISPLAY")
+                                                 #$(session-ref 'wayland-display)))
                               "XDG_SESSION_TYPE=wayland"
                               (string-append "PATH=" home "/.guix-home/profile/bin"))
                         (if dbus
@@ -399,13 +501,21 @@ convention in this file of not importing @code{(guix licenses)}.")
                  (auto-start? #t))))))
 
     ;; System-wide Emacs keybindings (activation)
+    ;;
+    ;; Gated on the session actually having gsettings: outside GNOME there is
+    ;; no schema daemon for this to talk to, and the old unconditional call
+    ;; would have failed without saying what it was trying to do.  GTK apps
+    ;; get their Emacs keys from gtk-key-theme; Emacs and readline implement
+    ;; them natively and never needed it.
     (simple-service 'emacs-keybindings-activation home-activation-service-type
                     #~(begin
                         (use-modules (ice-9 format))
-                        ;; Set GTK key theme to Emacs
-                        (system* "gsettings" "set"
-                                 "org.gnome.desktop.interface" "gtk-key-theme"
-                                 "Emacs")
+                        (if #$(session-ref 'has-gsettings?)             ;[session]
+                            ;; Set GTK key theme to Emacs
+                            (system* "gsettings" "set"                  ;[session]
+                                     "org.gnome.desktop.interface"      ;[session]
+                                     "gtk-key-theme" "Emacs")
+                            (format #t "session: no gsettings here; GTK key theme not set~%")) ;[session]
 
                         ;; Check for keyd system-wide config
                         (unless (file-exists? "/etc/keyd/default.conf")
@@ -520,9 +630,10 @@ convention in this file of not importing @code{(guix licenses)}.")
                           `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
                           `(".ipython/profile_default/startup/money_value.py" ,(local-file "../.ipython/profile_default/startup/money_value.py"))
                           `(".ipython/profile_default/startup/pretty_rich.py" ,(local-file "../.ipython/profile_default/startup/pretty_rich.py"))
-                          `(".config/espanso/config/default.yml" ,(local-file
-                                                                   "../espanso/config/default.yml"
-                                                                   "espanso-default.yml"))
+                          ;; Generated, not copied: %espanso-default-yml
+                          ;; appends the session-derived injection backend to
+                          ;; the static file.  See its definition up top.
+                          `(".config/espanso/config/default.yml" ,%espanso-default-yml)
                           `(".config/espanso/match/base.yml" ,(local-file
                                                                "../espanso/match/base.yml"
                                                                "espanso-base.yml"))

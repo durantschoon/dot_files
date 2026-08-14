@@ -872,6 +872,7 @@ home-check:
 # The hook warns when this Makefile has unstaged changes; see the note there.
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
 .PHONY: check-home-sync check-system-hosts install-hooks add-pkg reconfigure
+.PHONY: check-session-coupling
 
 # add-pkg -- add a package spec to the home configs, both of them.
 #
@@ -959,7 +960,7 @@ add-pkg:
 SYSTEM_PINS    := $(wildcard system/channels-*.scm)
 SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 
-check: check-home-sync check-system
+check: check-home-sync check-system check-session-coupling
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
@@ -1210,6 +1211,58 @@ check-system-secrets:
 	else \
 	  echo "    clean"; \
 	fi
+
+# check-session-coupling -- compositor reliance stays behind the %session
+# switch in home/wayland.scm.
+#
+# The trap this guards is a GNOME assumption that works today and fails only
+# when the session changes -- silently, months later, with nothing connecting
+# the symptom to the cause.  The espanso backend was the motivating case: on
+# GNOME Wayland, Mutter lacks wlr-data-control, so espanso's clipboard path
+# pastes stale clipboard contents instead of the expansion.  The fix is one
+# YAML line, and NOTHING about that line says "GNOME" -- under a compositor
+# that has the protocol it becomes wrong in the opposite direction, and grep
+# would never find it.  docs/EWM_TRIAL_PLAN.md carries the full inventory as prose;
+# prose drifts, so this makes it mechanical, same as check-keyd-sync.
+#
+# The contract: every CODE line (comments stripped) matching the coupling
+# pattern must carry a `[session]' tag in a comment on that same line.  The
+# tag asserts "this line is session-aware" -- it is either part of the
+# %session record itself, or a consumer gated through session-ref.  An
+# untagged match is a new naked coupling: route it through %session, or tag
+# it if it genuinely is the switch.
+#
+# Two scope notes, said out loud rather than discovered:
+#
+#   - Comment-stripping is the same `;.*' heuristic check-system-secrets
+#     uses, so a `;' inside a code string false-strips the rest of that line.
+#     That can only HIDE a coupling on such lines, never false-fail, which is
+#     the right direction for a lint.
+#   - home/base.scm is deliberately not walked.  It is the foreign-distro
+#     config: what desktop its hosts run is that config's own business, and
+#     its future is an open question (it may fold into a %session value of
+#     its own, or be deleted with check-home-sync if foreign-distro deploys
+#     are truly dead).  Widening the walk is one edit to the `for f in' list.
+check-session-coupling:
+	@echo "==> compositor coupling confined to [session]-tagged lines"
+	@rc=0; \
+	for f in home/wayland.scm $(SYSTEM_CONFIGS); do \
+	  hits=$$(awk '{ orig=$$0; code=$$0; sub(/;.*/, "", code); \
+	    if (tolower(code) ~ /gnome|gsettings|gdm|mutter|wlr-data|desktop-services|pinentry-gnome/ \
+	        && orig !~ /\[session\]/) \
+	      printf "    %s:%d: %s\n", FILENAME, FNR, orig }' $$f); \
+	  if [ -n "$$hits" ]; then rc=1; echo "$$hits"; fi; \
+	done; \
+	if [ $$rc -eq 0 ]; then \
+	  echo "    clean"; \
+	else \
+	  echo ""; \
+	  echo "    FAIL: naked compositor coupling."; \
+	  echo "    Route it through %session in home/wayland.scm (facts in the"; \
+	  echo "    record, consequences at the consumer), or tag the line with"; \
+	  echo "    ;[session] if it IS the switch or a gated consumer."; \
+	fi; \
+	exit $$rc
 
 # reconfigure -- deploy this machine's host class config.
 #
