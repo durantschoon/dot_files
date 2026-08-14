@@ -60,10 +60,13 @@ alias s.b='source ~/.bashrc'
 alias s2n='tr " " "\012"'
 alias sg='set | grep'
 alias spew='wget -qO-' # URL to spew the contents to stdout
-# Tailscale. `ts' is otherwise unused here -- note it IS a real command in
-# moreutils (timestamp-prefix a pipe), so this shadows that if moreutils ever
-# lands in the profile.
-alias ts='tailscale'
+# Tailscale.  This was `ts' until moreutils landed in the profile
+# (2026-08-14) -- moreutils ships a real `ts' (timestamp-prefix a pipe, e.g.
+# `tail -f log | ts') that the alias shadowed, exactly as the old comment
+# here predicted.  `tls' is free: no such binary exists, and the plausible
+# collisions were rejected on purpose -- `tsc' is the TypeScript compiler,
+# and anything longer defeats the point of an alias.
+alias tls='tailscale'
 alias up='cd ..'
 alias up2='cd ../..'
 alias up3='cd ../../..'

@@ -400,6 +400,7 @@ installed either way."
     "font-cica"
     "nss-certs"
     "myrepos"
+    "moreutils"
     ;; Spell-checking backend for Emacs ispell/flyspell (same profile so
     ;; ASPELL_DICT_DIR resolves the dictionary)
     "aspell" "aspell-dict-en"
