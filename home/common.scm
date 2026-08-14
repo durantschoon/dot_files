@@ -399,6 +399,7 @@ installed either way."
     "font-fira-code"
     "font-cica"
     "nss-certs"
+    "myrepos"
     ;; Spell-checking backend for Emacs ispell/flyspell (same profile so
     ;; ASPELL_DICT_DIR resolves the dictionary)
     "aspell" "aspell-dict-en"
