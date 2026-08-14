@@ -28,6 +28,22 @@
 ;;; check-session-coupling' walks home/*.scm, and any code line naming a
 ;;; compositor outside a [session]-tagged line fails.
 ;;;
+;;; WHY IS THIS NOT JUST RDE?  Ask it now, before reading further -- everyone
+;;; does, including the author.  rde <https://git.sr.ht/~abcdw/rde> (Andrew
+;;; Tropin) is the mature version of exactly this idea: `features' like
+;;; (feature-emacs) that contribute to Guix Home and Guix System at once,
+;;; maintained by people who are not me.  Not using it (yet) is deliberate,
+;;; and the full answer -- with the pre-committed triggers for switching --
+;;; lives in README.md's "Why not rde?" section.  The short form: this repo's
+;;; configs are explanations as much as configuration, and a framework would
+;;; own decisions these files currently explain; the layer machinery below is
+;;; ~a hundred lines over Guix's own service extensions, which is a config to
+;;; maintain, not a framework; and at two sessions and seven layers, rde's
+;;; weight buys a feature library this setup would use three entries of.  If
+;;; the machinery here ever grows framework-shaped, evaluate rde BEFORE
+;;; adding to it -- the layer contract (session facts in, packages + services
+;;; out) maps cleanly onto rde features, so the port is bounded.
+;;;
 ;;; TWO LOAD-BEARING NAMES for tooling that reads this file textually:
 ;;;
 ;;;   %base-packages   build-aux/add-pkg.scm inserts new package specs by
@@ -399,15 +415,11 @@ installed either way."
 ;; bundled under one symbol in dotspacemacs-configuration-layers) are the
 ;; direct model, and `#:layers' below plays the role of that list.
 ;;
-;; RDE EXISTS, AND I KNOW IT.  Andrew Tropin's rde <https://git.sr.ht/~abcdw/rde>
-;; is this same idea grown into a full framework -- `features' like
-;; (feature-emacs) (feature-sway) that contribute to Guix Home AND Guix
-;; System at once.  If this homegrown system ever feels like maintaining a
-;; framework rather than a config, switching to rde instead of growing this
-;; further is the intended escape route; evaluate it before adding any
-;; machinery here.  Rolling our own first was a considered choice, not
-;; ignorance of prior art: this repo's configs are hand-reasoned line by
-;; line, and a framework would own decisions these files currently explain.
+;; RDE EXISTS, AND I KNOW IT -- see WHY IS THIS NOT JUST RDE? in the file
+;; header and README.md's "Why not rde?" for the full answer and the
+;; pre-committed switching triggers.  Evaluate rde before adding machinery
+;; here; rolling our own first was a considered choice, not ignorance of
+;; prior art.
 ;;
 ;; Where the names come from, and where this deliberately differs:
 ;;

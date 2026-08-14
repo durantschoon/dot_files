@@ -27,10 +27,8 @@ The split is by *what decides the contents*, not by which command deploys them:
   Within it, features are organized as *layers* (in the Spacemacs sense —
   espanso, the emacs setup, the gpg ssh-agent…), each bundling its packages,
   services and activation logic, activated per session via declared
-  requirements. See the layer-system notes in `common.scm`, including why it's
-  homegrown rather than [rde](https://git.sr.ht/~abcdw/rde), and the escape
-  route to rde if it ever grows framework-shaped. This is what `make apply` /
-  `make apply-wayland` deploy.
+  requirements. This is what `make apply` / `make apply-wayland` deploy.
+  Before asking why this isn't just rde: see the next section.
 - **`system/`** — host classes, decided by a hardware combination plus the needs
   *any* user has on it (it boots, it reaches a network, it is secure) and
   independent of who is using it. `operating-system` configs named after the host
@@ -45,6 +43,40 @@ not touch the others, and GRUB only lists the system ones. See
 [`GENERATIONS_AND_ROLLBACK.md`](./docs/GENERATIONS_AND_ROLLBACK.md) for which stream
 owns what, and the traps (numbers are not dates; deployed is not the same as in
 your session).
+
+### Why not rde?
+
+The right question, so it gets answered up front rather than discovered in a
+source comment. [rde](https://git.sr.ht/~abcdw/rde)
+(Andrew Tropin) is the mature version of exactly what `home/common.scm`
+homegrows: *features* like `(feature-emacs)` and `(feature-sway)` that
+contribute to Guix Home and Guix System at once, maintained by people who are
+not me. I know it exists, and choosing not to use it (yet) was deliberate:
+
+- **These configs are explanations as much as configuration.** Nearly every
+  line in this repo carries its *why* — which pinentry and the D-Bus reason,
+  why espanso's backend is derived from a compositor fact, why firefox is
+  gated on daemon substitutes. Adopting a framework converts decisions this
+  repo explains into defaults a framework owns; re-excavating them to
+  understand my own machine is the cost I'm not paying while the config is
+  still this small.
+- **The homegrown part is thin.** The layer system is roughly a hundred lines
+  over Guix's own service-extension mechanism — the same substrate rde builds
+  on. Maintaining it is maintaining a config, not a framework, and writing it
+  taught the extension model that debugging *any* Guix setup (rde included)
+  eventually requires.
+- **Scale doesn't demand it.** Two sessions, one user, seven layers. rde
+  earns its weight when you want its feature *library* — whole desktops,
+  mail stacks, dozens of curated features — not when you'd use three.
+
+**When to switch** — the triggers are pre-committed here so the future
+decision doesn't get re-litigated from scratch: (1) the layer machinery in
+`common.scm` starts growing framework-shaped (option parsing, inter-layer
+protocols, more mechanism than layers); (2) needs expand toward what rde
+already ships rather than what this repo uniquely does. The layer contract —
+session facts in, packages + services out — maps cleanly onto rde features,
+so the port is bounded, not a rewrite.
+
 
 `make check` runs both layers' integrity checks:
 
