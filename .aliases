@@ -278,9 +278,66 @@ fi
 #      (espanso among them) silently miss remote edits.  Sync to real disk
 #      instead of mounting when anything is watching the files.
 #
-# No aliases yet -- nothing is configured on this machine.  When rclone lands,
-# it belongs in home/base.scm and home/wayland.scm (both, or check-home-sync
-# fails), and per-remote aliases belong here.
+# CANDIDATE TO EVALUATE: git-annex (Joey Hess), for the backup strategy the
+# migration above forces anyway.
+#
+# What it is: git for files too large for git.  Git tracks a content-hash
+# pointer; the content lives outside history, on any subset of your
+# repos/drives/remotes.  Every clone knows about every file (`git annex
+# whereis`); content is only where you put it.  The feature that earns the
+# evaluation: `git annex drop` REFUSES to delete a local copy unless it can
+# verify `numcopies' other copies exist -- "can I cancel this subscription
+# yet?" becomes a checkable question instead of a feeling.  SSDs, the Mac
+# mini over SSH/tailscale, and Proton Drive (rclone special remote) can all
+# be copy-holding remotes.
+#
+# WHAT IT IS NOT: a backup tool in the snapshot sense.  git-annex manages
+# WHERE current file contents live; it does not give you "the directory as
+# it was last Tuesday" unless you commit that often.  For point-in-time
+# snapshots of changing data the standard answers are restic or borg, and a
+# real backup strategy here likely PAIRS one of them with git-annex rather
+# than choosing between: annex for the large mostly-immutable archive
+# (photos, media, datasets), restic/borg for snapshotting the mutable rest.
+# Evaluate them together, not annex alone.
+#
+# LEARNING CURVE, honestly, so future-me budgets it right:
+#
+#   basics (an afternoon)   add/get/copy/drop/whereis feel like git within
+#                           hours if you already think in git.
+#   the conceptual hump     worktree files are SYMLINKS into
+#                           .git/annex/objects (read-only content by
+#                           design); `git annex unlock' / v7 unlocked files
+#                           exist for tools that must write in place.  This
+#                           is the #1 source of early confusion, and some
+#                           apps (atomic-save editors, some photo managers)
+#                           need unlocked mode to cooperate.
+#   the git-annex branch    location metadata syncs between repos on its own
+#                           branch; `git annex sync' has more moving parts
+#                           than push/pull.  Magic until read about, then
+#                           fine.
+#   special remotes         each backend (rclone, S3, ssh) has its own
+#                           setup, plus an encryption decision
+#                           (shared/hybrid/pubkey) made AT CREATION and
+#                           awkward to change later.
+#   trust-it-with-real-     a weekend of deliberate play: scratch repo +
+#   data threshold          one SSD + one rclone remote, then practice
+#                           numcopies, drop-refusal, `git annex fsck', and
+#                           one full simulated drive loss BEFORE moving
+#                           anything irreplaceable.
+#   the long tail           preferred-content expressions (wanted/group --
+#                           a little declarative language for "laptop wants
+#                           recent, mini wants everything") and the
+#                           assistant daemon.  Optional; ignore until the
+#                           basics are boring.
+#
+# Packaged in Guix (Haskell; the substitute is hefty, the experience fine).
+# When the evaluation happens: scratch repo first per the threshold note,
+# and the fsck routine belongs in the plan from day one, not as an
+# afterthought.
+#
+# No aliases yet -- nothing is configured on this machine.  When rclone (or
+# git-annex) lands, it goes in home/common.scm via `make add-pkg', and
+# per-remote aliases belong here.
 
 ###############################################################################
 # Zsh Aliases
