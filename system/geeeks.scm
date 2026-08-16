@@ -58,7 +58,8 @@
              (gnu packages ssh)        ;openssh
              (gnu packages version-control) ;git
              (gnu services base)       ;udev-service-type, udev-rule
-             (gnu services desktop)    ;%desktop-services, gnome-desktop-service-type
+             (gnu services desktop)    ;%desktop-services, gnome-desktop-service-type,
+                                       ;elogind-service-type, elogind-configuration
              (gnu services linux)      ;kernel-module-loader-service-type
              (gnu services shepherd)   ;shepherd-service, shepherd-root-service-type
              (gnu system nss)
@@ -738,6 +739,39 @@ leftcontrol = capslock
          (extra-special-file "/lib64/ld-linux-x86-64.so.2"
                              (file-append glibc "/lib/ld-linux-x86-64.so.2")))
    (modify-services %desktop-services                               ;[session]
+     ;; elogind: do not suspend on a lid close while plugged in, and never
+     ;; act on idle.
+     ;;
+     ;; Both fields land in /etc/elogind/logind.conf as HandleLidSwitchExternalPower
+     ;; and IdleAction.  Only the first is an actual change:
+     ;;
+     ;;   handle-lid-switch-external-power  defaults to 'suspend, so closing the
+     ;;                                     lid on AC suspends the machine.  This
+     ;;                                     is the behaviour being turned off --
+     ;;                                     lid closed on external power now means
+     ;;                                     "screen off, keep running", which is
+     ;;                                     what a docked/external-display session
+     ;;                                     and any long build or `guix pull' want.
+     ;;   idle-action                       already defaults to 'ignore.  It is
+     ;;                                     written out anyway so the intent is
+     ;;                                     visible here rather than inherited
+     ;;                                     silently, and so an upstream default
+     ;;                                     flip cannot change this machine.
+     ;;
+     ;; handle-lid-switch (on battery) is deliberately NOT touched: it keeps its
+     ;; 'suspend default, so closing the lid unplugged still suspends rather than
+     ;; cooking the laptop in a bag.
+     ;;
+     ;; Caveat worth knowing before debugging this: under GNOME,
+     ;; gnome-settings-daemon takes an elogind inhibitor lock on the lid switch
+     ;; and handles the event itself, so GNOME's own power settings can still win
+     ;; over this.  These settings are what applies on a bare TTY session (the
+     ;; EWM trial, docs/EWM_TRIAL_PLAN.md) and whenever nothing holds an inhibitor.
+     (elogind-service-type
+      config => (elogind-configuration
+                 (inherit config)
+                 (handle-lid-switch-external-power 'ignore)
+                 (idle-action 'ignore)))
      (guix-service-type
       config => (guix-configuration
                  (inherit config)
