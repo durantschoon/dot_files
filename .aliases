@@ -17,6 +17,8 @@
 alias a='alias'
 alias ag='alias | grep'
 alias c2n='tr ":" "\012"'
+alias cs='claude-sessions' # a link to ~/.claude/bin/claude-sessions
+alias cs_size='claude-sessions --sort=size --desc'
 alias cx='chmod +x'
 alias dfh='df -h .'
 alias dm='docker-machine'
