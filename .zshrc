@@ -248,6 +248,18 @@ fi
 # this keeps getting added automatically, so just put it here
 PATH=~/.console-ninja/.bin:$PATH
 
+# Same deal -- installers append these to the bottom of the file, which lands
+# below the final status check. Moved up here; delete the duplicates if an
+# installer re-adds them.
+# Added by Antigravity
+export PATH="/Users/durant/.antigravity/antigravity/bin:$PATH"
+
+# Added by Antigravity IDE
+export PATH="/Users/durant/.antigravity-ide/antigravity-ide/bin:$PATH"
+
+# Added by Antigravity CLI installer
+export PATH="/Users/durant/.local/bin:$PATH"
+
 [[ -s "$HOME/.avn/bin/avn.sh" ]] && source "$HOME/.avn/bin/avn.sh" # load avn
 
 # `ignorespace` is a cool setting that allows you to run a command you don't want to
