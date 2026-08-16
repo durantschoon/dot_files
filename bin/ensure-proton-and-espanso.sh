@@ -3,13 +3,37 @@
 PROTON_APP="Proton Drive"
 ESPANSO_APP="Espanso"
 
-# Proton-backed Espanso config path
-ESPANSO_CONFIG_PATH="$HOME/Library/CloudStorage/ProtonDrive-REDACTED-folder/espanso"
-SENTINEL_FILE="$ESPANSO_CONFIG_PATH/match/base.yml"
-
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') $*"
 }
+
+# Proton-backed Espanso config path.
+#
+# The CloudStorage mount is named ProtonDrive-<account address>-folder, so it
+# is discovered by glob rather than hardcoded -- this repo is public and the
+# account address does not belong in it. Override either of:
+#
+#   ESPANSO_CONFIG_PATH  full path to the espanso config dir
+#   PROTON_DRIVE_DIR     the ProtonDrive-<account>-folder mount root
+#
+# (set them in ~/.shared.zshenv, which is not tracked here).
+find_proton_dir() {
+  local candidate
+  for candidate in "$HOME"/Library/CloudStorage/ProtonDrive-*-folder; do
+    if [[ -d "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -z "${ESPANSO_CONFIG_PATH:-}" ]]; then
+  PROTON_DRIVE_DIR="${PROTON_DRIVE_DIR:-$(find_proton_dir)}"
+  # Empty if no mount was found; handled by the dir check below.
+  ESPANSO_CONFIG_PATH="${PROTON_DRIVE_DIR:+$PROTON_DRIVE_DIR/espanso}"
+fi
+SENTINEL_FILE="${ESPANSO_CONFIG_PATH:+$ESPANSO_CONFIG_PATH/match/base.yml}"
 
 gui_app_running() {
   local app_name="$1"
@@ -23,6 +47,11 @@ if [[ "$(gui_app_running "$PROTON_APP")" != "true" ]]; then
 fi
 
 # 1. Directory exists
+if [[ -z "$ESPANSO_CONFIG_PATH" ]]; then
+    log "No ProtonDrive-*-folder mount found (set PROTON_DRIVE_DIR to override)"
+    exit 0
+fi
+
 if [[ ! -d "$ESPANSO_CONFIG_PATH" ]]; then
     log "Config dir not available yet"
     exit 0
