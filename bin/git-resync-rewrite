@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+#
+# git-resync-rewrite -- bring a clone back in sync after upstream history was
+# rewritten (filter-repo / filter-branch / rebase + force-push).
+#
+# On PATH as `git resync-rewrite` (~/bin -> ~/dot_files/bin).
+#
+#   git resync-rewrite              # detect, report, ask before changing anything
+#   git resync-rewrite --dry-run    # detect and report only
+#   git resync-rewrite --yes        # no prompt
+#   git resync-rewrite --scan PAT   # also report whether PAT survives locally
+#
+# WHY NOT JUST PULL? With pull.rebase=true a plain `git pull` does land on the
+# new history -- rebase sees the local commits as duplicate patches and drops
+# them. But it leaves the pre-rewrite objects in .git, reachable through the
+# reflog, so whatever was scrubbed is still readable locally (verified: both
+# redacted blobs survived a pull and were only removed by the gc below). With
+# real unpushed commits, rebase instead REPLAYS them onto the new history,
+# which can resurrect the very content the rewrite removed.
+#
+# BOOTSTRAPPING A STALE CLONE: this script lives in the repo it fixes, so a
+# stale clone does not have it yet. Fetch the object and run it from /tmp
+# rather than checking it out -- `git show` writes nothing into the worktree,
+# so the dirty-tree guard below does not trip:
+#
+#   cd ~/dot_files
+#   git fetch origin
+#   git show origin/main:bin/git-resync-rewrite > /tmp/resync.sh
+#   bash /tmp/resync.sh
+#
+# DETECTION: a rewrite gives every commit a new SHA, including the root, so
+# `root(local) != root(remote)` is a rewrite and not ordinary divergence --
+# ordinary local commits share the root. Branches that merely diverged, are
+# ahead, or are behind are left alone; only rewritten ones are reset.
+#
+# The reset discards local commits that exist only under the old SHAs, so the
+# script refuses to touch a dirty tree and lists unpushed work before asking.
+
+set -uo pipefail
+
+# Re-exec from a copy of ourselves: this script usually lives inside the repo
+# it is resetting, and bash reads scripts lazily -- a --hard reset that
+# rewrites this file mid-run would corrupt execution.
+if [[ -z "${RESYNC_REEXEC:-}" ]]; then
+    self_copy="$(mktemp -t git-resync-rewrite)" || exit 1
+    cat "$0" > "$self_copy" && chmod +x "$self_copy" || exit 1
+    RESYNC_REEXEC=1 exec "$self_copy" "$@"
+fi
+trap 'rm -f "$0"' EXIT
+
+REMOTE=origin
+ASSUME_YES=0
+DRY_RUN=0
+SCAN_PATTERN=""
+
+die() { printf '%s\n' "$*" >&2; exit 1; }
+say() { printf '%s\n' "$*"; }
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run|-n) DRY_RUN=1 ;;
+        --yes|-y)     ASSUME_YES=1 ;;
+        --remote)     REMOTE="${2:?--remote needs a name}"; shift ;;
+        --scan)       SCAN_PATTERN="${2:?--scan needs a pattern}"; shift ;;
+        -h|--help)    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *)            die "unknown option: $1 (try --help)" ;;
+    esac
+    shift
+done
+
+git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
+cd "$(git rev-parse --show-toplevel)" || die "cannot reach repo root"
+git remote get-url "$REMOTE" >/dev/null 2>&1 || die "no remote named '$REMOTE'"
+
+say "==> fetching $REMOTE"
+git fetch --prune --quiet "$REMOTE" || die "fetch failed"
+
+# --- classify every local branch that tracks this remote ------------------
+rewritten=()   # "branch<TAB>local<TAB>remote" -- root differs, needs reset
+ahead=()       # local commits not on the remote (would be lost)
+normal=0
+
+root_of() { git rev-list --max-parents=0 "$1" 2>/dev/null | tail -1; }
+
+while IFS= read -r branch; do
+    [[ -n "$branch" ]] || continue
+    upstream="$REMOTE/$branch"
+    git show-ref --verify --quiet "refs/remotes/$upstream" || continue
+
+    local_sha=$(git rev-parse "$branch")
+    remote_sha=$(git rev-parse "$upstream")
+
+    if [[ "$local_sha" == "$remote_sha" ]]; then
+        normal=$((normal + 1))
+    elif git merge-base --is-ancestor "$local_sha" "$remote_sha" 2>/dev/null; then
+        normal=$((normal + 1))          # simply behind: a plain pull handles it
+    elif [[ "$(root_of "$branch")" != "$(root_of "$upstream")" ]]; then
+        rewritten+=("$branch	$local_sha	$remote_sha")
+        # NOTE: `$upstream..$branch` is useless here -- after a rewrite the two
+        # histories share no ancestor, so it counts EVERY local commit and
+        # always looks alarming. Compare content instead: identical tip trees
+        # mean the local commits are just old-SHA copies of the same work.
+        if [[ "$(git rev-parse "$branch^{tree}")" != "$(git rev-parse "$upstream^{tree}")" ]]; then
+            ahead+=("$branch")
+        fi
+    else
+        normal=$((normal + 1))          # genuine local work, not a rewrite
+    fi
+done < <(git for-each-ref --format='%(refname:short)' refs/heads)
+
+# --- report ---------------------------------------------------------------
+say ""
+if [[ ${#rewritten[@]} -eq 0 ]]; then
+    say "==> no rewritten branches: this clone is in sync with $REMOTE"
+    say "    ($normal branch(es) checked; nothing to do)"
+    [[ -n "$SCAN_PATTERN" ]] || exit 0
+else
+    say "==> upstream history was REWRITTEN; these branches need resetting:"
+    for entry in "${rewritten[@]}"; do
+        IFS=$'\t' read -r b l r <<< "$entry"
+        printf '      %-28s %s -> %s\n' "$b" "${l:0:9}" "${r:0:9}"
+    done
+    say "    ($normal other branch(es) look normal and will be left alone)"
+fi
+
+dirty=$(git status --porcelain 2>/dev/null)
+if [[ -n "$dirty" ]]; then
+    say ""
+    say "==> WARNING: uncommitted changes present (a hard reset destroys these):"
+    printf '%s\n' "$dirty" | head -10 | sed 's/^/      /'
+fi
+
+if [[ ${#ahead[@]} -gt 0 ]]; then
+    say ""
+    say "==> WARNING: local content differs from upstream on these branches,"
+    say "    so they may hold work that was never pushed:"
+    for b in "${ahead[@]}"; do
+        say "      $b   inspect with: git diff $REMOTE/$b $b"
+    done
+    say "    Save anything real before resetting:"
+    say "      git branch salvage-<name> <branch>   # then rebase onto the new history"
+else
+    say ""
+    say "==> local tip content matches upstream on every rewritten branch"
+    say "    (the local commits are just old-SHA copies -- nothing to salvage)"
+fi
+
+if [[ -n "$SCAN_PATTERN" ]]; then
+    say ""
+    say "==> scanning local objects for: $SCAN_PATTERN"
+    hits=$(git rev-list --all 2>/dev/null \
+        | while read -r c; do git ls-tree -r "$c" 2>/dev/null; done \
+        | awk '{print $3}' | sort -u \
+        | while read -r b; do
+              git cat-file blob "$b" 2>/dev/null | grep -qi -- "$SCAN_PATTERN" && echo "$b"
+          done | wc -l | tr -d ' ')
+    if [[ "$hits" == "0" ]]; then
+        say "    clean: no reachable object contains it"
+    else
+        say "    $hits object(s) still contain it -- the gc below removes the"
+        say "    unreachable ones once branches are reset"
+    fi
+fi
+
+[[ ${#rewritten[@]} -eq 0 ]] && exit 0
+
+# --- act ------------------------------------------------------------------
+say ""
+if [[ $DRY_RUN -eq 1 ]]; then
+    say "==> --dry-run: stopping here, nothing changed"
+    exit 0
+fi
+
+if [[ -n "$dirty" ]]; then
+    die "==> refusing to reset with a dirty tree; commit, stash, or discard first"
+fi
+
+if [[ $ASSUME_YES -eq 0 ]]; then
+    if [[ ! -t 0 ]]; then
+        die "==> not a terminal and --yes not given; re-run with --yes"
+    fi
+    printf '==> reset %d branch(es) to %s and gc? [y/N] ' "${#rewritten[@]}" "$REMOTE"
+    read -r reply
+    [[ "$reply" =~ ^[Yy]$ ]] || { say "aborted"; exit 1; }
+fi
+
+current=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+for entry in "${rewritten[@]}"; do
+    IFS=$'\t' read -r b l r <<< "$entry"
+    if [[ "$b" == "$current" ]]; then
+        git reset --hard "$REMOTE/$b" >/dev/null && say "    reset  $b (checked out)"
+    else
+        git branch -f "$b" "$REMOTE/$b" >/dev/null 2>&1 && say "    moved  $b"
+    fi
+done
+
+say "==> expiring reflog and garbage collecting old objects"
+git reflog expire --expire=now --all >/dev/null 2>&1
+git gc --prune=now --quiet >/dev/null 2>&1
+
+say ""
+say "==> done. Now at: $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))"
+[[ -n "$(git stash list 2>/dev/null)" ]] && \
+    say "    note: $(git stash list | wc -l | tr -d ' ') stash entry(ies) kept, but they predate the rewrite"
+exit 0
