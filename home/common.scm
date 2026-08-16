@@ -401,6 +401,7 @@ installed either way."
     "nss-certs"
     "myrepos"
     "moreutils"
+    "autojump"
     ;; Spell-checking backend for Emacs ispell/flyspell (same profile so
     ;; ASPELL_DICT_DIR resolves the dictionary)
     "aspell" "aspell-dict-en"

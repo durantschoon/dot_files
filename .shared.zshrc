@@ -164,8 +164,11 @@ function chpwd() {
 }
 chpwd
 
-# zsh cd command that learns
+# zsh cd command that learns.  Two install locations, one machine each:
+# Homebrew's profile.d script (mac) and the Guix Home profile's zsh hook
+# (Guix System -- the .zsh variant, for the j function plus completion).
 [ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
+[ -f ~/.guix-home/profile/share/autojump/autojump.zsh ] && . ~/.guix-home/profile/share/autojump/autojump.zsh
 
 # Angular tests
 if type "ng" > /dev/null; then
