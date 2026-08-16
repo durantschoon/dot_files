@@ -154,6 +154,9 @@ help:
 	@echo "  make submodule-push  - Push changes from each submodule"
 	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
+	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
+	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
+	@echo "  make emacs-unserve - Stop the Emacs daemon"
 	@echo "  make wsl           - Show WSL setup instructions"
 	@echo "  make help          - Show this help message"
 	@echo ""
@@ -1280,3 +1283,141 @@ reconfigure: check-system
 	@echo ""
 	@echo "The previous generation stays in the GRUB menu, so a bad boot is a"
 	@echo "reboot away from being undone."
+
+# ---------------------------------------------------------------------------
+# Emacs daemon for remote (ssh) terminal clients
+#
+#   make emacs-serve   - start the daemon here, then print how to attach to it
+#   make emacs-unserve - shut the daemon down
+#
+# Run this on the machine that HOLDS the Emacs session (the main desktop);
+# other machines attach with `ssh -t <host> emacsclient -t`.
+# ---------------------------------------------------------------------------
+.PHONY: emacs-serve emacs-receive-ssh emacs-unserve emacs-attach emacs-connect-ssh
+
+# Host running `make emacs-serve`. Override: make emacs-attach EMACS_HOST=geeeks
+EMACS_HOST ?= minius
+# Use a full path here if ssh's non-interactive shell can't find emacsclient,
+# e.g. make emacs-attach REMOTE_EMACSCLIENT=/opt/homebrew/bin/emacsclient
+REMOTE_EMACSCLIENT ?= emacsclient
+
+# Kept as an alias because "receive ssh" describes the intent.
+emacs-receive-ssh: emacs-serve
+emacs-connect-ssh: emacs-attach
+
+emacs-serve:
+	@EMACS_BIN="$$(command -v emacs 2>/dev/null)"; \
+	if [ -z "$$EMACS_BIN" ] && [ -x /Applications/Emacs.app/Contents/MacOS/Emacs ]; then \
+	  EMACS_BIN=/Applications/Emacs.app/Contents/MacOS/Emacs; \
+	fi; \
+	EMACSCLIENT_BIN="$$(command -v emacsclient 2>/dev/null)"; \
+	SHORT_HOST="$$(hostname -s 2>/dev/null || hostname)"; \
+	TS_BIN="$$(command -v tailscale 2>/dev/null)"; \
+	if [ -z "$$TS_BIN" ] && [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then \
+	  TS_BIN=/Applications/Tailscale.app/Contents/MacOS/Tailscale; \
+	fi; \
+	echo ""; \
+	echo "=== Starting Emacs daemon on $$SHORT_HOST ==="; \
+	if [ -z "$$EMACS_BIN" ]; then \
+	  echo "  ERROR: no emacs binary found (brew install emacs-plus / guix install emacs)"; \
+	  exit 1; \
+	fi; \
+	if [ -n "$$EMACSCLIENT_BIN" ] && "$$EMACSCLIENT_BIN" -a false -e '(emacs-version)' >/dev/null 2>&1; then \
+	  echo "  Daemon already running - leaving it alone."; \
+	else \
+	  echo "  $$EMACS_BIN --daemon"; \
+	  "$$EMACS_BIN" --daemon || { echo "  ERROR: daemon failed to start (see output above)"; exit 1; }; \
+	fi; \
+	echo ""; \
+	echo "=== Requirements ==="; \
+	echo "  [ok] emacs       : $$EMACS_BIN"; \
+	if [ -n "$$EMACSCLIENT_BIN" ]; then \
+	  echo "  [ok] emacsclient : $$EMACSCLIENT_BIN"; \
+	else \
+	  echo "  [--] emacsclient : NOT on PATH (needed on BOTH ends)"; \
+	fi; \
+	SSHD_OK=no; \
+	if command -v nc >/dev/null 2>&1; then \
+	  nc -z -w 1 127.0.0.1 22 >/dev/null 2>&1 && SSHD_OK=yes; \
+	elif command -v ss >/dev/null 2>&1; then \
+	  ss -ltn 2>/dev/null | grep -q ':22 ' && SSHD_OK=yes; \
+	fi; \
+	if [ "$$SSHD_OK" = yes ]; then \
+	  echo "  [ok] sshd        : listening on port 22"; \
+	else \
+	  echo "  [--] sshd        : not listening on port 22 - enable it:"; \
+	  if [ "$(os)" = "$(OS_MAC)" ]; then \
+	    echo "         sudo systemsetup -setremotelogin on"; \
+	    echo "         (or System Settings > General > Sharing > Remote Login)"; \
+	  else \
+	    echo "         sudo systemctl enable --now sshd    # or: herd start sshd"; \
+	  fi; \
+	fi; \
+	TS_HOST=""; TS_FQDN=""; \
+	if [ -n "$$TS_BIN" ]; then \
+	  TS_IP="$$("$$TS_BIN" ip -4 2>/dev/null | head -1)"; \
+	  if [ -n "$$TS_IP" ]; then \
+	    TS_HOST="$$("$$TS_BIN" status 2>/dev/null | awk -v ip="$$TS_IP" '$$1==ip {print $$2; exit}')"; \
+	    TS_FQDN="$$("$$TS_BIN" status --json 2>/dev/null | tr ',' '\n' | grep -m1 '"DNSName"' | sed 's/.*: *"//; s/\.*"$$//')"; \
+	    echo "  [ok] tailscale   : up as $$TS_HOST ($$TS_IP)"; \
+	  else \
+	    echo "  [--] tailscale   : installed but not connected - run: $$TS_BIN up"; \
+	  fi; \
+	else \
+	  echo "  [--] tailscale   : not installed (only needed to reach this box off-LAN)"; \
+	fi; \
+	echo ""; \
+	echo "=== Attach from another machine ==="; \
+	echo "  # Same LAN:"; \
+	echo "  ssh -t $$SHORT_HOST.local emacsclient -t"; \
+	if [ -n "$$TS_HOST" ]; then \
+	  echo ""; \
+	  echo "  # Anywhere, over Tailscale (both machines must be on the tailnet):"; \
+	  echo "  ssh -t $$TS_HOST emacsclient -t"; \
+	  [ -n "$$TS_FQDN" ] && echo "  ssh -t $$TS_FQDN emacsclient -t   # if MagicDNS short names are off"; \
+	fi; \
+	echo ""; \
+	echo "  # Or, from a checkout of this repo on the other machine:"; \
+	echo "  make emacs-attach EMACS_HOST=$${TS_HOST:-$$SHORT_HOST.local}"; \
+	echo ""; \
+	echo "=== Read-only peek (no attaching, no stray keystrokes) ==="; \
+	if [ -n "$$TS_HOST" ]; then TRAMP_HOST="$$TS_HOST"; else TRAMP_HOST="$$SHORT_HOST.local"; fi; \
+	echo "  # From your local Spacemacs, TRAMP into the session logs:"; \
+	echo "  C-x C-f /ssh:$$TRAMP_HOST:~/.claude/projects/"; \
+	echo "  # In dired: 's' then 't' sorts by time -> newest sessions are the active ones."; \
+	echo "  # Open a .jsonl, then M-x auto-revert-tail-mode to follow it live."; \
+	echo "  # If a transcript gets unwieldy: ~/.claude/bin/claude-slim-transcript <file>"; \
+	echo ""; \
+	echo "=== Notes ==="; \
+	echo "  * -t forces a tty; without it emacsclient -t cannot open a terminal frame."; \
+	echo "  * C-x C-c closes the remote frame only; the daemon keeps running."; \
+	echo "  * ssh runs a non-interactive shell, so ~/.zshrc PATH edits may not apply."; \
+	echo "    If 'command not found', use the full path:"; \
+	echo "      ssh -t $$SHORT_HOST.local $$EMACSCLIENT_BIN -t"; \
+	echo "  * The daemon must be started by the SAME user you ssh in as (socket is"; \
+	echo "    per-user under \$$TMPDIR/emacs\$$UID/)."; \
+	echo "  * Stop it with: make emacs-unserve"; \
+	echo ""
+
+# Run this on the machine you are sitting at; it attaches to EMACS_HOST's daemon.
+emacs-attach:
+	@echo ""
+	@echo "=== Attaching to the Emacs daemon on $(EMACS_HOST) ==="
+	@echo ""
+	@echo "  ssh -t $(EMACS_HOST) $(REMOTE_EMACSCLIENT) -t"
+	@echo ""
+	@echo "  ssh -t ......... force a tty, else emacsclient has no terminal to draw in"
+	@echo "  emacsclient -t . open a terminal frame on the existing daemon"
+	@echo "  C-x C-c ........ closes THIS frame only; the daemon keeps running"
+	@echo ""
+	@echo "  Other host?  make emacs-attach EMACS_HOST=geeeks"
+	@echo "  Read-only?   C-x C-f /ssh:$(EMACS_HOST):~/.claude/projects/   (TRAMP, no keystrokes sent)"
+	@echo ""
+	@ssh -t $(EMACS_HOST) $(REMOTE_EMACSCLIENT) -t
+
+emacs-unserve:
+	@if emacsclient -a false -e '(kill-emacs)' >/dev/null 2>&1; then \
+	  echo "Emacs daemon stopped."; \
+	else \
+	  echo "No Emacs daemon was running."; \
+	fi

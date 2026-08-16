@@ -133,6 +133,26 @@ docker exec -it guix-dev sh -c "export PATH=/gnu/store/c5591aalxj45nmfzf0srb83lj
 cd /root && exec bash -l"'
 
 # -----------------------------------------------------------------------------
+# Emacs daemon over ssh  (see `make emacs-serve` on the host machine)
+# -----------------------------------------------------------------------------
+
+# eam = Emacs Attach Minius. Attaches a terminal frame to the Emacs daemon
+# running on minius. The make target echoes the ssh command it runs, so you
+# don't have to remember the two -t flags.
+# Extra args pass straight through to make, e.g.
+#   eam EMACS_HOST=geeeks
+#   eam REMOTE_EMACSCLIENT=/opt/homebrew/bin/emacsclient
+eam() {
+    # NOTE: 'status' is read-only in zsh, hence 'rc'
+    local rc
+    pushd "$HOME/dot_files" > /dev/null || return 1
+    make emacs-attach EMACS_HOST=minius "$@"
+    rc=$?
+    popd > /dev/null
+    return $rc
+}
+
+# -----------------------------------------------------------------------------
 # OS Specific Aliases
 # -----------------------------------------------------------------------------
 
