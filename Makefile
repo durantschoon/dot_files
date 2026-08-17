@@ -804,7 +804,11 @@ GUIX_SYSTEM := $(wildcard /run/current-system)
 # the INVOKING user's guix home profile. Expanding $(HOME) here once produced a
 # dangling /usr/local/bin/keyd -> /root/.guix-home/... and a silent 203/EXEC
 # crash loop that went unnoticed because GNOME's ctrl:swapcaps masked it.
-REAL_HOME := $(shell getent passwd $${SUDO_USER:-$$USER} | cut -d: -f6)
+# Lazy `=`, not `:=`: a simple assignment runs getent at PARSE time, on every
+# make invocation -- and macOS has no getent, so every target printed
+# "getent: command not found" before doing anything. setup-keyd is
+# Linux-only, so defer the lookup until the recipe below expands it.
+REAL_HOME = $(shell getent passwd $${SUDO_USER:-$$USER} 2>/dev/null | cut -d: -f6)
 
 setup-keyd:
 ifneq ($(GUIX_SYSTEM),)
