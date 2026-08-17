@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+#
+# git-safe-to-delete -- can this clone be deleted and re-cloned from origin
+# without losing anything?
+#
+# On PATH as `git safe-to-delete` (~/bin -> ~/dot_files/bin).
+#
+#   git safe-to-delete                  # check the current repo
+#   git safe-to-delete ~/a ~/b ~/c      # check several checkouts at once
+#   git safe-to-delete --no-fetch       # skip the network round trip
+#   git safe-to-delete --quiet          # verdict lines only, for scripting
+#
+# WHY: after upstream history is rewritten, deleting the clone and re-cloning
+# is cleaner than resetting it in place -- a fresh clone never receives the old
+# objects at all, so there is no reflog to expire and no gc to trust. See
+# git-resync-rewrite for the in-place version and why it is harder to get right.
+#
+# But "just re-clone" is only safe if nothing lives ONLY in this directory.
+# Four things routinely do, and `git status` shows none of them by default:
+#
+#   unpushed commits    on any branch, not just the checked-out one
+#   stash entries       invisible to status, destroyed with .git
+#   local-only branches and tags that were never pushed
+#   ignored files       machine-specific config, credentials, env files --
+#                       the ones that matter most in a dotfiles repo, and the
+#                       ones `git status` hides hardest
+#
+# EXIT STATUS
+#   0  safe: re-cloning loses nothing
+#   1  review: something is here that origin does not have
+#   2  usage error, or a path that is not a git repository
+
+set -uo pipefail
+
+FETCH=1
+QUIET=0
+REMOTE=origin
+
+die() { printf '%s\n' "$*" >&2; exit 2; }
+say() { [[ $QUIET -eq 1 ]] || printf '%s\n' "$*"; }
+
+targets=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-fetch)   FETCH=0 ;;
+        --quiet|-q)   QUIET=1 ;;
+        --remote)     REMOTE="${2:?--remote needs a name}"; shift ;;
+        -h|--help)    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*)           die "unknown option: $1 (try --help)" ;;
+        *)            targets+=("$1") ;;
+    esac
+    shift
+done
+[[ ${#targets[@]} -gt 0 ]] || targets=(.)
+
+# Check one repository. Echoes findings, returns 0 if safe.
+#
+# Everything uses `git -C` rather than cd, so a failure partway through cannot
+# leave the caller in a different directory than it started in.
+check_repo() {
+    local dir="$1" problems=0 warnings=0 out root
+
+    git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 \
+        || { printf '%s\n' "  !! not a git repository"; return 2; }
+    root=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)
+
+    # No remote means there is nothing to re-clone FROM -- the most important
+    # check, and the easiest to forget, since such a repo looks perfectly
+    # healthy until the moment it is gone.
+    if ! git -C "$dir" remote get-url "$REMOTE" >/dev/null 2>&1; then
+        say "  !! no remote named '$REMOTE' -- nothing to re-clone from"
+        return 1
+    fi
+
+    if [[ $FETCH -eq 1 ]]; then
+        git -C "$dir" fetch --prune --tags --quiet "$REMOTE" 2>/dev/null \
+            || say "  ?? fetch failed -- results below may be stale"
+    fi
+
+    # Commits on any local branch that no remote-tracking ref contains.
+    # --branches/--not --remotes covers every branch, not just HEAD; a plain
+    # `git status` says nothing about the branch you are not standing on.
+    out=$(git -C "$dir" log --branches --not --remotes --oneline 2>/dev/null | head -20)
+    if [[ -n "$out" ]]; then
+        say "  !! unpushed commits:"
+        printf '%s\n' "$out" | sed 's/^/       /'
+        problems=$((problems + 1))
+    fi
+
+    # Stashes live in refs/stash, are not part of any branch, and are deleted
+    # with the directory. Nothing about `git status` hints they exist.
+    out=$(git -C "$dir" stash list 2>/dev/null)
+    if [[ -n "$out" ]]; then
+        say "  !! stash entries ($(printf '%s\n' "$out" | wc -l | tr -d ' ')):"
+        printf '%s\n' "$out" | head -10 | sed 's/^/       /'
+        problems=$((problems + 1))
+    fi
+
+    # Branches with no upstream. Their commits may well be pushed under some
+    # other ref, so this is not covered by the unpushed-commits check above --
+    # what is lost is the branch NAME and its position.
+    out=$(git -C "$dir" for-each-ref --format='%(refname:short) %(upstream)' refs/heads 2>/dev/null \
+          | awk '$2 == "" { print $1 }')
+    if [[ -n "$out" ]]; then
+        say "  !! branches with no upstream:"
+        printf '%s\n' "$out" | head -10 | sed 's/^/       /'
+        problems=$((problems + 1))
+    fi
+
+    # Tags that exist here but not on the remote. `git push` does not push tags
+    # by default, so local-only tags are common and easy to lose.
+    if [[ $FETCH -eq 1 ]]; then
+        out=$(comm -23 \
+                <(git -C "$dir" tag | sort) \
+                <(git -C "$dir" ls-remote --tags "$REMOTE" 2>/dev/null \
+                  | awk '{print $2}' | sed 's|refs/tags/||; s|\^{}$||' | sort -u) 2>/dev/null)
+        if [[ -n "$out" ]]; then
+            say "  !! tags not on $REMOTE:"
+            printf '%s\n' "$out" | head -10 | sed 's/^/       /'
+            problems=$((problems + 1))
+        fi
+    fi
+
+    # Linked worktrees are separate directories whose administrative files live
+    # in this .git. Deleting this repo breaks them, wherever they are.
+    out=$(git -C "$dir" worktree list 2>/dev/null | tail -n +2)
+    if [[ -n "$out" ]]; then
+        say "  !! linked worktrees (deleting this repo breaks them):"
+        printf '%s\n' "$out" | sed 's/^/       /'
+        problems=$((problems + 1))
+    fi
+
+    # Uncommitted modifications to tracked files.
+    out=$(git -C "$dir" status --porcelain 2>/dev/null | grep -v '^??')
+    if [[ -n "$out" ]]; then
+        say "  !! uncommitted changes:"
+        printf '%s\n' "$out" | head -10 | sed 's/^/       /'
+        problems=$((problems + 1))
+    fi
+
+    # Untracked and ignored files, reported together but only as a warning:
+    # they are frequently build output, and frequently the local config that is
+    # the entire point of the directory. This script cannot tell which, so it
+    # shows them and leaves the judgement to a human. In a dotfiles repo the
+    # ignored list is the one to actually read.
+    out=$(git -C "$dir" status --porcelain -uall --ignored=matching 2>/dev/null \
+          | grep -E '^(\?\?|!!)')
+    if [[ -n "$out" ]]; then
+        say "  ?? untracked/ignored files ($(printf '%s\n' "$out" | wc -l | tr -d ' ')) -- read before deleting:"
+        printf '%s\n' "$out" | head -12 | sed 's/^/       /'
+        [[ $(printf '%s\n' "$out" | wc -l) -gt 12 ]] && say "       ... (git -C $root status --porcelain -uall --ignored=matching)"
+        warnings=$((warnings + 1))
+    fi
+
+    if [[ $problems -gt 0 ]]; then
+        return 1
+    elif [[ $warnings -gt 0 ]]; then
+        return 3          # safe apart from files a human should eyeball
+    fi
+    return 0
+}
+
+overall=0
+for t in "${targets[@]}"; do
+    # A path that does not exist is the same class of caller error as a path
+    # that is not a repository, so it gets exit 2 rather than 1 -- a caller
+    # scripting this must not read "bad path" as "found something unpushed".
+    abs=$(cd "$t" 2>/dev/null && pwd) || { printf '%s\n' "== $t"; printf '%s\n' "  !! no such directory"; overall=2; continue; }
+    say "== $abs"
+    check_repo "$abs"
+    case $? in
+        0) say "  OK   safe to delete and re-clone" ;;
+        3) say "  WARN safe as far as git is concerned; check the files above first"
+           [[ $overall -eq 0 ]] && overall=1 ;;
+        2) overall=2 ;;
+        *) say "  STOP something here is not on $REMOTE"
+           [[ $overall -ne 2 ]] && overall=1 ;;
+    esac
+    say ""
+done
+
+exit $overall
