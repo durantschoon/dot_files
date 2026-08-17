@@ -42,7 +42,11 @@ set -uo pipefail
 # it is resetting, and bash reads scripts lazily -- a --hard reset that
 # rewrites this file mid-run would corrupt execution.
 if [[ -z "${RESYNC_REEXEC:-}" ]]; then
-    self_copy="$(mktemp -t git-resync-rewrite)" || exit 1
+    # NOT `mktemp -t NAME`: -t takes a PREFIX on BSD/macOS (mktemp appends its
+    # own random suffix) but a TEMPLATE on GNU, which rejects a suffix-less name
+    # with "too few X's in template". A full path template means the same thing
+    # to both. Observed failing on Guix while working on the Mac, 2026-08-16.
+    self_copy="$(mktemp "${TMPDIR:-/tmp}/git-resync-rewrite.XXXXXX")" || exit 1
     cat "$0" > "$self_copy" && chmod +x "$self_copy" || exit 1
     RESYNC_REEXEC=1 exec "$self_copy" "$@"
 fi
@@ -96,11 +100,24 @@ while IFS= read -r branch; do
         normal=$((normal + 1))          # simply behind: a plain pull handles it
     elif [[ "$(root_of "$branch")" != "$(root_of "$upstream")" ]]; then
         rewritten+=("$branch	$local_sha	$remote_sha")
-        # NOTE: `$upstream..$branch` is useless here -- after a rewrite the two
+        # Is there REAL unpushed work here, or just old-SHA copies of pushed work?
+        #
+        # NOTE: `$upstream..$branch` is useless -- after a rewrite the two
         # histories share no ancestor, so it counts EVERY local commit and
-        # always looks alarming. Compare content instead: identical tip trees
-        # mean the local commits are just old-SHA copies of the same work.
-        if [[ "$(git rev-parse "$branch^{tree}")" != "$(git rev-parse "$upstream^{tree}")" ]]; then
+        # always looks alarming.
+        #
+        # Comparing tip TREES is worse than useless: a scrubbing rewrite exists
+        # precisely to change the tip, so the trees always differ and every
+        # branch gets flagged as holding unpushed work. That fired on all three
+        # stage-* branches here on 2026-08-16 and sent the salvage advice below
+        # to preserve the very address the rewrite had removed. Reachable refs
+        # are never gc'd, so "salvaging" a scrub actively defeats it.
+        #
+        # `git cherry` compares by PATCH-ID, so a commit reproduced under a new
+        # SHA upstream is recognised as already-pushed and prefixed '-'. Only
+        # '+' lines are patches with no upstream equivalent -- genuine local
+        # work. Redaction-only deltas produce no '+' lines and stay quiet.
+        if [[ -n "$(git cherry "$upstream" "$branch" 2>/dev/null | grep '^+')" ]]; then
             ahead+=("$branch")
         fi
     else
@@ -132,30 +149,53 @@ fi
 
 if [[ ${#ahead[@]} -gt 0 ]]; then
     say ""
-    say "==> WARNING: local content differs from upstream on these branches,"
+    say "==> WARNING: these branches carry commits with no upstream equivalent,"
     say "    so they may hold work that was never pushed:"
+    # Show the actual commits rather than just the branch name. A scrubbing
+    # rewrite ALWAYS produces at least one such commit -- the one whose content
+    # was scrubbed -- so this warning cannot be made quiet for scrubs without
+    # also hiding genuine unpushed work. Printing the subjects lets the reader
+    # settle it at a glance: subjects that match upstream's are the same work
+    # under old SHAs; an unfamiliar subject is real work worth salvaging.
     for b in "${ahead[@]}"; do
-        say "      $b   inspect with: git diff $REMOTE/$b $b"
+        say "      $b"
+        git cherry -v "$REMOTE/$b" "$b" 2>/dev/null | grep '^+' | head -5 \
+            | while read -r _plus sha subject; do
+                  say "          ${sha:0:9}  $subject"
+              done
+        say "          (full list: git cherry -v $REMOTE/$b $b)"
     done
     say "    Save anything real before resetting:"
     say "      git branch salvage-<name> <branch>   # then rebase onto the new history"
+    say "    But if the rewrite was scrubbing a secret, DO NOT salvage blindly:"
+    say "    a salvage branch keeps the old objects reachable, and reachable"
+    say "    objects are never garbage collected -- which defeats the scrub."
 else
     say ""
-    say "==> local tip content matches upstream on every rewritten branch"
+    say "==> every local commit has an upstream equivalent by patch-id"
     say "    (the local commits are just old-SHA copies -- nothing to salvage)"
 fi
 
 if [[ -n "$SCAN_PATTERN" ]]; then
     say ""
     say "==> scanning local objects for: $SCAN_PATTERN"
-    hits=$(git rev-list --all 2>/dev/null \
-        | while read -r c; do git ls-tree -r "$c" 2>/dev/null; done \
-        | awk '{print $3}' | sort -u \
+    # --batch-all-objects, NOT `rev-list --all`. `--all` walks REFS, so it sees
+    # only reachable objects -- and the whole premise of this script (see the
+    # header) is that pre-rewrite objects survive UNREACHABLY via the reflog.
+    # Scanning reachable-only therefore reports "clean" while the scrubbed
+    # content is still sitting in .git and readable with `git cat-file`, which
+    # is the worst possible failure direction for a scrub check. Verified on a
+    # synthetic orphaned-secret repo, 2026-08-16: rev-list --all found nothing,
+    # --batch-all-objects found the blob.
+    #
+    # Also much faster: the old form re-walked every tree of every commit.
+    hits=$(git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype)' 2>/dev/null \
+        | awk '$2 == "blob" { print $1 }' \
         | while read -r b; do
               git cat-file blob "$b" 2>/dev/null | grep -qi -- "$SCAN_PATTERN" && echo "$b"
           done | wc -l | tr -d ' ')
     if [[ "$hits" == "0" ]]; then
-        say "    clean: no reachable object contains it"
+        say "    clean: no object in this repository contains it"
     else
         say "    $hits object(s) still contain it -- the gc below removes the"
         say "    unreachable ones once branches are reset"
