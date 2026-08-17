@@ -28,10 +28,16 @@
 #   git show origin/main:bin/git-resync-rewrite > /tmp/resync.sh
 #   bash /tmp/resync.sh
 #
-# DETECTION: a rewrite gives every commit a new SHA, including the root, so
-# `root(local) != root(remote)` is a rewrite and not ordinary divergence --
-# ordinary local commits share the root. Branches that merely diverged, are
-# ahead, or are behind are left alone; only rewritten ones are reset.
+# DETECTION: a rewrite preserves each commit's author date and subject while
+# changing its SHA, so the diverged span reads identically on both sides under
+# different SHAs. That signature -- or no common ancestor at all -- is a rewrite;
+# differing subjects or counts are ordinary divergence. Branches that merely
+# diverged, are ahead, or are behind are left alone; only rewritten ones reset.
+#
+# Comparing ROOT commits, as this did until 2026-08-16, is not enough: filter-repo
+# re-emits commits from the first modified one onward and leaves earlier ones
+# byte-identical, so a secret introduced late in history leaves the root intact
+# and the whole script silently no-ops. See is_rewritten() below.
 #
 # The reset discards local commits that exist only under the old SHAs, so the
 # script refuses to touch a dirty tree and lists unpushed work before asking.
@@ -84,7 +90,51 @@ rewritten=()   # "branch<TAB>local<TAB>remote" -- root differs, needs reset
 ahead=()       # local commits not on the remote (would be lost)
 normal=0
 
-root_of() { git rev-list --max-parents=0 "$1" 2>/dev/null | tail -1; }
+# Signature of a commit range: author-date + subject per commit, oldest first.
+#
+# This is the part a rewrite PRESERVES. filter-repo and filter-branch keep the
+# author date and the log message and change only the SHAs (committer date and
+# tree/parent links move, author date does not). So the same work, rewritten,
+# produces a byte-identical signature under entirely different SHAs -- which is
+# exactly the thing we need to recognise.
+range_signature() { git log --reverse --format='%at%x09%s' "$1" 2>/dev/null; }
+
+# Was $1 rewritten upstream, as opposed to having ordinarily diverged from $2?
+#
+# The old test compared ROOT commits, on the reasoning that a rewrite renames
+# every commit including the root. That is true only when the rewrite touches
+# the root. filter-repo re-emits commits from the FIRST MODIFIED ONE onward and
+# leaves earlier commits byte-identical, so scrubbing something introduced late
+# in history leaves the root alone -- and the root test then reported "in sync"
+# and did nothing, silently, on precisely the repo it exists to fix.
+#
+# Compare the diverged spans instead:
+#
+#   no merge-base at all      the histories are disjoint, which only a rewrite
+#                             does. (This subsumes the old root test: a rewrite
+#                             from the root leaves no common ancestor.)
+#   signatures equal          same commits, same order, new SHAs => rewritten.
+#   remote sig is a PREFIX    rewritten, and the local branch has genuine extra
+#     of the local sig        commits stacked on the old history. Still needs
+#                             the reset; the salvage warning covers the extras.
+#
+# Anything else -- different subjects, different dates, different counts -- is
+# ordinary divergence and is left alone.
+is_rewritten() {
+    local branch="$1" upstream="$2" mb sig_local sig_remote
+    mb=$(git merge-base "$branch" "$upstream" 2>/dev/null) || return 0
+    [[ -n "$mb" ]] || return 0
+
+    sig_local=$(range_signature "$mb..$branch")
+    sig_remote=$(range_signature "$mb..$upstream")
+
+    # An empty remote span means the local branch is merely ahead, and an empty
+    # local span means it is merely behind. Neither is a rewrite, and without
+    # this guard the prefix test below would match every empty string.
+    [[ -n "$sig_local" && -n "$sig_remote" ]] || return 1
+
+    [[ "$sig_local" == "$sig_remote" || "$sig_local" == "$sig_remote"$'\n'* ]]
+}
 
 while IFS= read -r branch; do
     [[ -n "$branch" ]] || continue
@@ -98,7 +148,7 @@ while IFS= read -r branch; do
         normal=$((normal + 1))
     elif git merge-base --is-ancestor "$local_sha" "$remote_sha" 2>/dev/null; then
         normal=$((normal + 1))          # simply behind: a plain pull handles it
-    elif [[ "$(root_of "$branch")" != "$(root_of "$upstream")" ]]; then
+    elif is_rewritten "$branch" "$upstream"; then
         rewritten+=("$branch	$local_sha	$remote_sha")
         # Is there REAL unpushed work here, or just old-SHA copies of pushed work?
         #
