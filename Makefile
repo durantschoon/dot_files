@@ -64,6 +64,13 @@ endif
 
 # Detect package manager
 PACKAGE_MANAGER := unknown
+# brew is checked FIRST, not last: these are plain assignments, so the LAST
+# matching branch wins. On a Linux box with linuxbrew alongside apt/yum/etc,
+# the native manager below should win; on macOS nothing below matches, so brew
+# survives. Without this, macOS reported "unknown" in `make help`.
+ifneq ($(shell which brew 2>/dev/null),)
+	PACKAGE_MANAGER := brew
+endif
 ifneq ($(shell which guix 2>/dev/null),)
 	PACKAGE_MANAGER := guix
 endif
