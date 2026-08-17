@@ -26,6 +26,29 @@
 #                       the ones that matter most in a dotfiles repo, and the
 #                       ones `git status` hides hardest
 #
+# BOOTSTRAPPING A STALE CLONE: this script lives in the repo it evaluates, so
+# the machine most in need of it is the one whose clone is too old to have it.
+# Do NOT pull to get it -- a pull is a merge, it can conflict, and it dirties
+# the very tree this script is about to judge (a modified file reads as "not on
+# origin" and turns the verdict into STOP). Fetch the blob and read it straight
+# out of the object store instead:
+#
+#   cd ~/dot_files
+#   git fetch origin
+#   git show origin/main:bin/git-safe-to-delete > /tmp/std.sh
+#   bash /tmp/std.sh ~/dot_files
+#
+# `git show` writes nothing into the worktree, so the clone is left exactly as
+# it was found -- which is the point, since its untouched state is the thing
+# being measured. git-resync-rewrite carries the same note for the same reason.
+#
+# NOTE ON STASHES, the finding this most often turns up: a stash cannot be
+# pushed. There is no remote ref for it, so re-cloning loses it however clean
+# everything else is. Carry it across as a patch, or promote it to real history:
+#
+#   git stash show -p stash@{0} > ~/keep.patch     # re-apply after re-cloning
+#   git stash branch salvage-stash stash@{0}       # then push the branch
+#
 # SUBMODULES are checked too, recursively, and are on by default: deleting the
 # superproject deletes their working trees and their .git/modules along with it,
 # so an unpushed commit inside a submodule is lost just as thoroughly as one in
@@ -60,7 +83,9 @@ while [[ $# -gt 0 ]]; do
         --no-recurse|--no-recurse-submodules) RECURSE=0 ;;
         --recurse|--recurse-submodules) RECURSE=1 ;;
         --remote)     REMOTE="${2:?--remote needs a name}"; shift ;;
-        -h|--help)    sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        # Print the whole leading comment block, however long it grows, rather
+        # than a hardcoded line range that silently truncates when it does.
+        -h|--help)    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)           die "unknown option: $1 (try --help)" ;;
         *)            targets+=("$1") ;;
     esac
