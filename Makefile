@@ -801,10 +801,17 @@ submodule-push:
 .PHONY: setup-keyd
 # Guix System detection for setup-keyd.
 #
-# Deliberately NOT PACKAGE_MANAGER: that is set to `guix` whenever `which guix`
-# succeeds, which is true on Pop!_OS too (Guix is installed there as a package
-# manager alongside apt). Gating on it would disable this target on the very
-# machine where it works. /run/current-system exists only on Guix System.
+# Deliberately NOT PACKAGE_MANAGER: that detects an INSTALLED package manager,
+# not the OS, and guix installs happily on top of any distro -- Pop!_OS here.
+#
+# The probe order above happens to save us today: apt is assigned after guix,
+# and last match wins, so a Pop!_OS box with guix installed still reports
+# `apt`. But that is incidental. It relies both on assignment order and on the
+# distro's native manager being one of the ones probed; on a distro using
+# apk/zypper/nix, guix would win and this target would wrongly refuse to run
+# on a machine where it works fine.
+#
+# /run/current-system is a direct test of the OS, so use that instead.
 GUIX_SYSTEM := $(wildcard /run/current-system)
 
 # This target runs under sudo, where HOME=/root -- but the keyd binary lives in
