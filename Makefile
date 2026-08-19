@@ -937,6 +937,26 @@ else
 	@# bootout first: bootstrap on an already-loaded label is an error, not a
 	@# no-op, so without this the target is not idempotent.
 	@sudo launchctl bootout system/$(TAILSCALED_LABEL) 2>/dev/null || true
+	@# ...and then WAIT for it, because bootout is asynchronous.  It returns
+	@# as soon as launchd has signalled the job, not when the job is gone --
+	@# tailscaled still has to tear down its utun interfaces and close its
+	@# DERP connections.  Bootstrapping into that window fails with the
+	@# gloriously unhelpful "Bootstrap failed: 5: Input/output error", and
+	@# leaves the machine OFF the tailnet: the old instance is dead and the
+	@# new one was refused.
+	@n=0; \
+	while launchctl print system/$(TAILSCALED_LABEL) > /dev/null 2>&1; do \
+	  n=$$((n+1)); \
+	  if [ $$n -gt 100 ]; then \
+	    echo ""; \
+	    echo "  *** $(TAILSCALED_LABEL) still loaded after 10s ***"; \
+	    echo "  Something is holding the label.  Inspect it with:"; \
+	    echo "    sudo launchctl print system/$(TAILSCALED_LABEL)"; \
+	    echo ""; \
+	    exit 1; \
+	  fi; \
+	  sleep 0.1; \
+	done
 	@sudo launchctl bootstrap system $(TAILSCALED_PLIST_DST)
 	@echo ""
 	@echo "  tailscaled is running and will come back at boot, before login."
