@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  tailscaled as a system LaunchDaemon -- the ONLY macOS variant that runs
+  before login.
+
+  Both GUI variants (App Store `io.tailscale.ipn.macos', standalone `macsys')
+  are per-user apps: they start at login, stop at logout, and drop the tunnel
+  on fast user switching.  That is by design, not a bug -- see
+  tailscale/tailscale#987 "macOS: run as system (server mode)", open since
+  2020-12-03 with no PR.  This machine advertises a default route (it is an
+  exit node), so a tunnel that only exists while someone is logged in at the
+  console is the wrong shape.  Hence the open-source daemon, which Tailscale
+  documents as "only recommended for unattended installs".
+
+  This file is DEPLOYED BY COPY, not symlinked like keyd.conf and the rest of
+  this repo.  launchd refuses a daemon plist that is a symlink or that is
+  writable by anyone but root, and a plist living in a user-owned git checkout
+  is exactly that.  `make check-tailscale' diffs the installed copy against
+  this one so the copy cannot silently drift.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tailscale.tailscaled</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/tailscaled</string>
+
+    <!--
+      Pin the state path.  tailscaled derives its default state file from
+      $HOME ("Default: /Users/durant/.local/share/tailscale/tailscaled.state"
+      when you read `tailscaled --help' as yourself), and under launchd the
+      daemon's HOME is /var/root -- so leaving this off buries the node's
+      identity key in root's home directory, where nothing backs it up and
+      nobody thinks to look.  /Library is the documented place for state
+      owned by the system rather than by a user.
+    -->
+    <string>--statedir=/Library/Tailscale</string>
+
+    <!--
+      Also the default, but stated explicitly: this is the path `tailscale'
+      (the CLI) connects to, and it is the difference between `tailscale
+      status' working and printing a connection refused.
+    -->
+    <string>--socket=/var/run/tailscaled.socket</string>
+
+    <!--
+      A FIXED WireGuard port, rather than the default 0 ("pick one at
+      random").  An exit node wants a stable inbound port so a router's
+      port-forward / firewall pinhole keeps pointing at it across restarts;
+      41641 is Tailscale's documented default choice for this.
+    -->
+    <string>--port=41641</string>
+  </array>
+
+  <!-- Start at boot, before any user logs in.  This is the whole point. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart it if it ever exits.  Unconditional: there is no exit status
+       from tailscaled that should leave this machine off the tailnet. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/tailscaled.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/tailscaled.log</string>
+</dict>
+</plist>

@@ -161,6 +161,9 @@ help:
 	@echo "  make submodule-push  - Push changes from each submodule"
 	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
+	@echo "  make setup-tailscale - Install tailscaled as a system LaunchDaemon (mac only;"
+	@echo "                       runs at boot before login, unlike the menu-bar app)"
+	@echo "  make check-tailscale - Verify the daemon is deployed, loaded and on the tailnet"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
 	@echo "  make emacs-unserve - Stop the Emacs daemon"
@@ -878,6 +881,139 @@ else
 	@echo "  gsettings set org.gnome.desktop.input-sources xkb-options '[]'"
 endif
 
+.PHONY: setup-tailscale check-tailscale
+
+# Tailscale, as a system daemon rather than a menu-bar app.
+#
+# Deployed by COPY, not by symlink like everything else here: launchd rejects a
+# daemon plist that is a symlink or is writable by a non-root user, and a plist
+# in a user-owned checkout is both.  check-tailscale diffs the two so the copy
+# cannot drift silently -- the same bargain check-keyd-sync makes.
+TAILSCALED_LABEL     := com.tailscale.tailscaled
+TAILSCALED_PLIST_SRC := system/launchd/$(TAILSCALED_LABEL).plist
+TAILSCALED_PLIST_DST := /Library/LaunchDaemons/$(TAILSCALED_LABEL).plist
+TAILSCALED_BIN       := /opt/homebrew/bin/tailscaled
+TAILSCALE_BIN        := /opt/homebrew/bin/tailscale
+
+setup-tailscale:
+ifneq ("$(os)","$(OS_MAC)")
+	@echo ""
+	@echo "  *** setup-tailscale is mac-only (detected $(os)) ***"
+	@echo ""
+	@echo "  launchd, /Library/LaunchDaemons and the utun driver are all"
+	@echo "  Darwin.  On Linux, tailscaled is a distro package with a systemd"
+	@echo "  unit, and on Guix System it belongs in system/<class>.scm as a"
+	@echo "  service alongside keyd -- not in a Makefile target."
+	@echo ""
+	@exit 1
+else
+	@command -v brew > /dev/null 2>&1 || { \
+	  echo "  *** Homebrew not found ***"; \
+	  echo "  The daemon variant comes from the tailscale FORMULA (not the"; \
+	  echo "  cask, which installs the per-user GUI app)."; \
+	  exit 1; \
+	}
+	@# The formula, deliberately: `brew install --cask tailscale' gets you the
+	@# standalone GUI app, which cannot run before login either.
+	@test -x $(TAILSCALED_BIN) || brew install tailscale
+	@# One tailnet client per machine.  The App Store app and this daemon keep
+	@# separate state and would register as two nodes with the same hostname,
+	@# then fight over routes and the default DNS resolver.
+	@if /usr/sbin/scutil --nc list 2>/dev/null | grep -q '^\* (Connected).*io\.tailscale\.ipn\.macos'; then \
+	  echo ""; \
+	  echo "  *** the App Store Tailscale is CONNECTED ***"; \
+	  echo "  Disconnect it before bootstrapping the daemon, or the two will"; \
+	  echo "  register as separate nodes and fight over the default route."; \
+	  echo ""; \
+	  exit 1; \
+	fi
+	@echo "==> /Library/Tailscale (state dir; see the plist for why it is pinned)"
+	@sudo mkdir -p /Library/Tailscale
+	@# 700: tailscaled.state holds this node's private key.
+	@sudo chmod 700 /Library/Tailscale
+	@echo "==> $(TAILSCALED_PLIST_DST) (copy of $(TAILSCALED_PLIST_SRC))"
+	@sudo install -o root -g wheel -m 644 $(TAILSCALED_PLIST_SRC) $(TAILSCALED_PLIST_DST)
+	@echo "==> launchctl bootstrap system"
+	@# bootout first: bootstrap on an already-loaded label is an error, not a
+	@# no-op, so without this the target is not idempotent.
+	@sudo launchctl bootout system/$(TAILSCALED_LABEL) 2>/dev/null || true
+	@sudo launchctl bootstrap system $(TAILSCALED_PLIST_DST)
+	@echo ""
+	@echo "  tailscaled is running and will come back at boot, before login."
+	@echo ""
+	@echo "  It starts LOGGED OUT -- state does not carry over from the App"
+	@echo "  Store app, whose keys live in its own sandbox container.  Auth"
+	@echo "  this node once (opens a browser):"
+	@echo ""
+	@echo "    sudo $(TAILSCALE_BIN) up --advertise-exit-node"
+	@echo ""
+	@echo "  (--advertise-exit-node preserves what this machine already does:"
+	@echo "   it advertises 0.0.0.0/0 and ::/0.  Approve it in the admin"
+	@echo "   console afterwards; re-approval is needed because this is a new"
+	@echo "   node key.)"
+	@echo ""
+	@echo "  Then stop the App Store app from coming back at login: quit it and"
+	@echo "  turn off 'Run at login' in its settings, or delete Tailscale.app."
+	@echo ""
+	@echo "  Verify with: make check-tailscale"
+	@echo ""
+endif
+
+# Answers "is this machine actually on the tailnet, and will it still be after
+# a reboot?" -- which are different questions.  A running daemon that was
+# started by hand satisfies the first and not the second, so the deployed plist
+# is checked as carefully as the process.
+check-tailscale:
+	@echo "==> tailscaled system daemon"
+ifneq ("$(os)","$(OS_MAC)")
+	@echo "    skipped: mac-only (detected $(os))"
+else
+	@rc=0; \
+	prog=$$(sed -n 's|^[[:space:]]*<string>\(/.*tailscaled\)</string>.*|\1|p' $(TAILSCALED_PLIST_SRC) | head -1); \
+	if [ ! -x "$$prog" ]; then \
+	  rc=1; \
+	  echo "    MISSING: $$prog is not executable"; \
+	  echo "             (the plist hardcodes the Apple Silicon brew prefix;"; \
+	  echo "              an Intel Mac puts it under /usr/local)"; \
+	else \
+	  echo "    binary:  $$prog"; \
+	fi; \
+	if [ ! -f $(TAILSCALED_PLIST_DST) ]; then \
+	  rc=1; echo "    NOT DEPLOYED: $(TAILSCALED_PLIST_DST) -- run 'make setup-tailscale'"; \
+	elif ! diff -u $(TAILSCALED_PLIST_SRC) $(TAILSCALED_PLIST_DST) > /dev/null 2>&1; then \
+	  rc=1; \
+	  echo "    DRIFT -- the deployed plist and the repo copy disagree:"; \
+	  diff -u $(TAILSCALED_PLIST_SRC) $(TAILSCALED_PLIST_DST) || true; \
+	else \
+	  echo "    plist:   in sync with $(TAILSCALED_PLIST_SRC)"; \
+	  owner=$$(stat -f '%Su:%Sg %Lp' $(TAILSCALED_PLIST_DST)); \
+	  case "$$owner" in \
+	    "root:wheel 644"|"root:wheel 600") echo "    perms:   $$owner" ;; \
+	    *) rc=1; echo "    BAD PERMS: $$owner (launchd wants root:wheel, not group/world writable)" ;; \
+	  esac; \
+	fi; \
+	if sudo -n launchctl print system/$(TAILSCALED_LABEL) > /dev/null 2>&1; then \
+	  echo "    launchd: loaded"; \
+	elif launchctl print system/$(TAILSCALED_LABEL) > /dev/null 2>&1; then \
+	  echo "    launchd: loaded"; \
+	else \
+	  rc=1; echo "    NOT LOADED: launchctl has no system/$(TAILSCALED_LABEL)"; \
+	fi; \
+	state=$$($(TAILSCALE_BIN) status --json 2>/dev/null \
+	         | sed -n 's/.*"BackendState": *"\([^"]*\)".*/\1/p' | head -1); \
+	case "$$state" in \
+	  Running) echo "    tailnet: Running" ;; \
+	  "")      rc=1; echo "    NO ANSWER from $(TAILSCALE_BIN) (daemon down, or socket path mismatch)" ;; \
+	  *)       rc=1; echo "    BackendState=$$state -- try: sudo $(TAILSCALE_BIN) up --advertise-exit-node" ;; \
+	esac; \
+	if /usr/sbin/scutil --nc list 2>/dev/null | grep -q '^\* (Connected).*io\.tailscale\.ipn\.macos'; then \
+	  rc=1; \
+	  echo "    CONFLICT: the App Store Tailscale is also connected"; \
+	  echo "              (two nodes, same hostname, fighting over routes)"; \
+	fi; \
+	exit $$rc
+endif
+
 update: warn-dotfiles-home
 	@echo "==> guix pull"
 	@guix pull
@@ -1011,7 +1147,7 @@ add-pkg:
 SYSTEM_PINS    := $(wildcard system/channels-*.scm)
 SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 
-check: check-system check-session-coupling
+check: check-system check-session-coupling check-tailscale
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
