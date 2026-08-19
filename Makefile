@@ -963,6 +963,22 @@ endif
 # a reboot?" -- which are different questions.  A running daemon that was
 # started by hand satisfies the first and not the second, so the deployed plist
 # is checked as carefully as the process.
+#
+# It also asserts the NAME, because the name is load-bearing here: EMACS_HOST
+# defaults to `minius' and the `eam' alias hardcodes it, so both reach this
+# machine by its MagicDNS name.  When a node re-registers while its name is
+# still held by another node -- which is exactly what happened moving off the
+# App Store app, since the daemon generates a fresh node key rather than
+# inheriting the app's -- the control plane silently appends -1.  Nothing
+# breaks loudly; `make emacs-attach' just starts dialling a node that no longer
+# answers.  Comparing the registered name against the requested one turns that
+# into a failed check.
+#
+# "Requested" is the daemon's own pref when set -- `tailscale set --hostname'
+# lands in prefs and so survives re-auth, which a rename done in the admin
+# console does not -- and otherwise macOS's LocalHostName, lowercased the way
+# Tailscale would lowercase it.  (LocalHostName, not `uname -n': the latter is
+# MiniUs.local here, and the .local would never match.)
 check-tailscale:
 	@echo "==> tailscaled system daemon"
 ifneq ("$(os)","$(OS_MAC)")
@@ -1006,6 +1022,22 @@ else
 	  "")      rc=1; echo "    NO ANSWER from $(TAILSCALE_BIN) (daemon down, or socket path mismatch)" ;; \
 	  *)       rc=1; echo "    BackendState=$$state -- try: sudo $(TAILSCALE_BIN) up --advertise-exit-node" ;; \
 	esac; \
+	want=$$($(TAILSCALE_BIN) debug prefs 2>/dev/null \
+	        | sed -n 's/.*"Hostname": *"\([^"]*\)".*/\1/p' | head -1); \
+	[ -n "$$want" ] || want=$$(scutil --get LocalHostName 2>/dev/null | tr 'A-Z' 'a-z'); \
+	got=$$($(TAILSCALE_BIN) status --peers=false 2>/dev/null | awk 'NR==1{print $$2}'); \
+	if [ -z "$$got" ]; then \
+	  :; \
+	elif [ "$$got" = "$$want" ]; then \
+	  echo "    name:    $$got"; \
+	else \
+	  rc=1; \
+	  echo "    NAME DRIFT: registered as '$$got', wanted '$$want'"; \
+	  echo "                A node cannot claim a name another node still"; \
+	  echo "                holds, so the control plane appended -N.  Delete"; \
+	  echo "                the stale node in the admin console, then:"; \
+	  echo "                  sudo $(TAILSCALE_BIN) set --hostname=$$want"; \
+	fi; \
 	if /usr/sbin/scutil --nc list 2>/dev/null | grep -q '^\* (Connected).*io\.tailscale\.ipn\.macos'; then \
 	  rc=1; \
 	  echo "    CONFLICT: the App Store Tailscale is also connected"; \
