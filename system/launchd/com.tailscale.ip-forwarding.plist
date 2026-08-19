@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Kernel IP forwarding, for the exit node.
+
+  tailscaled does NOT set this on macOS, and cannot: the darwin build ships
+  the health-check string "Subnet routing is enabled, but IP forwarding is
+  disabled" but contains no reference to net.inet.ip.forwarding anywhere.  It
+  notices and complains; it never fixes.  (On Linux the same daemon writes
+  /proc/sys/net/ipv4/ip_forward itself, which is why the exit-node docs only
+  mention forwarding under Linux -- and why they also say that if you run
+  tailscaled on macOS you should follow the Linux instructions.)
+
+  The GUI variants do not need this because macOS GUI exit nodes are, per
+  Tailscale's docs, "limited to userspace routing" -- they forward packets in
+  userspace and never ask the kernel to.  This daemon uses a real utun, so
+  without the sysctl below the kernel silently drops every packet an exit-node
+  client sends through it.
+
+  A LaunchDaemon rather than /etc/sysctl.conf, which modern macOS does not
+  reliably honour.  On a machine whose whole point is coming up before login,
+  a setting that quietly fails to apply at boot is worse than no setting.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tailscale.ip-forwarding</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/sbin/sysctl</string>
+    <string>-w</string>
+    <string>net.inet.ip.forwarding=1</string>
+    <string>net.inet6.ip6.forwarding=1</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!--
+    Deliberately NO KeepAlive.  This is a one-shot: sysctl sets the values and
+    exits 0, and launchd would read that exit as a crash to be restarted,
+    spinning the job forever.  The job showing "not running" with a 0 exit
+    code is success, which is why check-tailscale asserts the sysctl VALUES
+    rather than the job's state.
+  -->
+
+  <key>StandardOutPath</key>
+  <string>/var/log/tailscaled.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/tailscaled.log</string>
+</dict>
+</plist>

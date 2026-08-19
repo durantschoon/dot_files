@@ -889,7 +889,14 @@ endif
 # daemon plist that is a symlink or is writable by a non-root user, and a plist
 # in a user-owned checkout is both.  check-tailscale diffs the two so the copy
 # cannot drift silently -- the same bargain check-keyd-sync makes.
+#
+# TWO daemons, because the exit node needs kernel IP forwarding and tailscaled
+# will not set it on darwin -- see the header of the ip-forwarding plist.  The
+# label IS the file name in both directions, so every path below derives from
+# it and the loops stay uniform.
 TAILSCALED_LABEL     := com.tailscale.tailscaled
+TAILSCALE_FWD_LABEL  := com.tailscale.ip-forwarding
+TAILSCALE_LABELS     := $(TAILSCALED_LABEL) $(TAILSCALE_FWD_LABEL)
 TAILSCALED_PLIST_SRC := system/launchd/$(TAILSCALED_LABEL).plist
 TAILSCALED_PLIST_DST := /Library/LaunchDaemons/$(TAILSCALED_LABEL).plist
 TAILSCALED_BIN       := /opt/homebrew/bin/tailscaled
@@ -931,33 +938,39 @@ else
 	@sudo mkdir -p /Library/Tailscale
 	@# 700: tailscaled.state holds this node's private key.
 	@sudo chmod 700 /Library/Tailscale
-	@echo "==> $(TAILSCALED_PLIST_DST) (copy of $(TAILSCALED_PLIST_SRC))"
-	@sudo install -o root -g wheel -m 644 $(TAILSCALED_PLIST_SRC) $(TAILSCALED_PLIST_DST)
+	@echo "==> /Library/LaunchDaemons (copies of system/launchd/*.plist)"
+	@for label in $(TAILSCALE_LABELS); do \
+	  echo "    $$label"; \
+	  sudo install -o root -g wheel -m 644 \
+	    system/launchd/$$label.plist /Library/LaunchDaemons/$$label.plist || exit 1; \
+	done
 	@echo "==> launchctl bootstrap system"
 	@# bootout first: bootstrap on an already-loaded label is an error, not a
-	@# no-op, so without this the target is not idempotent.
-	@sudo launchctl bootout system/$(TAILSCALED_LABEL) 2>/dev/null || true
-	@# ...and then WAIT for it, because bootout is asynchronous.  It returns
-	@# as soon as launchd has signalled the job, not when the job is gone --
-	@# tailscaled still has to tear down its utun interfaces and close its
-	@# DERP connections.  Bootstrapping into that window fails with the
-	@# gloriously unhelpful "Bootstrap failed: 5: Input/output error", and
-	@# leaves the machine OFF the tailnet: the old instance is dead and the
-	@# new one was refused.
-	@n=0; \
-	while launchctl print system/$(TAILSCALED_LABEL) > /dev/null 2>&1; do \
-	  n=$$((n+1)); \
-	  if [ $$n -gt 100 ]; then \
-	    echo ""; \
-	    echo "  *** $(TAILSCALED_LABEL) still loaded after 10s ***"; \
-	    echo "  Something is holding the label.  Inspect it with:"; \
-	    echo "    sudo launchctl print system/$(TAILSCALED_LABEL)"; \
-	    echo ""; \
-	    exit 1; \
-	  fi; \
-	  sleep 0.1; \
+	@# no-op, so without this the target is not idempotent.  Then WAIT, because
+	@# bootout is asynchronous: it returns as soon as launchd has signalled the
+	@# job, not when the job is gone, and tailscaled still has to tear down its
+	@# utun interfaces and close its DERP connections.  Bootstrapping into that
+	@# window fails with the gloriously unhelpful "Bootstrap failed: 5:
+	@# Input/output error" and leaves the machine OFF the tailnet -- old
+	@# instance dead, new one refused.
+	@for label in $(TAILSCALE_LABELS); do \
+	  sudo launchctl bootout system/$$label 2>/dev/null || true; \
+	  n=0; \
+	  while launchctl print system/$$label > /dev/null 2>&1; do \
+	    n=$$((n+1)); \
+	    if [ $$n -gt 100 ]; then \
+	      echo ""; \
+	      echo "  *** $$label still loaded after 10s ***"; \
+	      echo "  Something is holding the label.  Inspect it with:"; \
+	      echo "    sudo launchctl print system/$$label"; \
+	      echo ""; \
+	      exit 1; \
+	    fi; \
+	    sleep 0.1; \
+	  done; \
+	  echo "    $$label"; \
+	  sudo launchctl bootstrap system /Library/LaunchDaemons/$$label.plist || exit 1; \
 	done
-	@sudo launchctl bootstrap system $(TAILSCALED_PLIST_DST)
 	@echo ""
 	@echo "  tailscaled is running and will come back at boot, before login."
 	@echo ""
@@ -1014,27 +1027,32 @@ else
 	else \
 	  echo "    binary:  $$prog"; \
 	fi; \
-	if [ ! -f $(TAILSCALED_PLIST_DST) ]; then \
-	  rc=1; echo "    NOT DEPLOYED: $(TAILSCALED_PLIST_DST) -- run 'make setup-tailscale'"; \
-	elif ! diff -u $(TAILSCALED_PLIST_SRC) $(TAILSCALED_PLIST_DST) > /dev/null 2>&1; then \
-	  rc=1; \
-	  echo "    DRIFT -- the deployed plist and the repo copy disagree:"; \
-	  diff -u $(TAILSCALED_PLIST_SRC) $(TAILSCALED_PLIST_DST) || true; \
-	else \
-	  echo "    plist:   in sync with $(TAILSCALED_PLIST_SRC)"; \
-	  owner=$$(stat -f '%Su:%Sg %Lp' $(TAILSCALED_PLIST_DST)); \
+	for label in $(TAILSCALE_LABELS); do \
+	  src=system/launchd/$$label.plist; dst=/Library/LaunchDaemons/$$label.plist; \
+	  if [ ! -f $$dst ]; then \
+	    rc=1; echo "    NOT DEPLOYED: $$dst -- run 'make setup-tailscale'"; \
+	    continue; \
+	  fi; \
+	  if ! diff -u $$src $$dst > /dev/null 2>&1; then \
+	    rc=1; \
+	    echo "    DRIFT in $$label -- deployed copy and repo copy disagree:"; \
+	    diff -u $$src $$dst || true; \
+	    continue; \
+	  fi; \
+	  owner=$$(stat -f '%Su:%Sg %Lp' $$dst); \
 	  case "$$owner" in \
-	    "root:wheel 644"|"root:wheel 600") echo "    perms:   $$owner" ;; \
-	    *) rc=1; echo "    BAD PERMS: $$owner (launchd wants root:wheel, not group/world writable)" ;; \
+	    "root:wheel 644"|"root:wheel 600") ;; \
+	    *) rc=1; \
+	       echo "    BAD PERMS on $$label: $$owner"; \
+	       echo "               (launchd wants root:wheel, not group/world writable)"; \
+	       continue ;; \
 	  esac; \
-	fi; \
-	if sudo -n launchctl print system/$(TAILSCALED_LABEL) > /dev/null 2>&1; then \
-	  echo "    launchd: loaded"; \
-	elif launchctl print system/$(TAILSCALED_LABEL) > /dev/null 2>&1; then \
-	  echo "    launchd: loaded"; \
-	else \
-	  rc=1; echo "    NOT LOADED: launchctl has no system/$(TAILSCALED_LABEL)"; \
-	fi; \
+	  if launchctl print system/$$label > /dev/null 2>&1; then \
+	    echo "    daemon:  $$label (in sync, $$owner, loaded)"; \
+	  else \
+	    rc=1; echo "    NOT LOADED: launchctl has no system/$$label"; \
+	  fi; \
+	done; \
 	state=$$($(TAILSCALE_BIN) status --json 2>/dev/null \
 	         | sed -n 's/.*"BackendState": *"\([^"]*\)".*/\1/p' | head -1); \
 	case "$$state" in \
@@ -1057,6 +1075,19 @@ else
 	  echo "                holds, so the control plane appended -N.  Delete"; \
 	  echo "                the stale node in the admin console, then:"; \
 	  echo "                  sudo $(TAILSCALE_BIN) set --hostname=$$want"; \
+	fi; \
+	v4=$$(sysctl -n net.inet.ip.forwarding 2>/dev/null); \
+	v6=$$(sysctl -n net.inet6.ip6.forwarding 2>/dev/null); \
+	if [ "$$v4" = "1" ] && [ "$$v6" = "1" ]; then \
+	  echo "    forward: ipv4=1 ipv6=1"; \
+	else \
+	  rc=1; \
+	  echo "    IP FORWARDING OFF: ipv4=$$v4 ipv6=$$v6"; \
+	  echo "                Exit-node clients get silently dropped by the"; \
+	  echo "                kernel.  tailscaled warns about this but has no"; \
+	  echo "                code to set it on darwin, which is why"; \
+	  echo "                $(TAILSCALE_FWD_LABEL) exists.  Fix:"; \
+	  echo "                  make setup-tailscale"; \
 	fi; \
 	if /usr/sbin/scutil --nc list 2>/dev/null | grep -q '^\* (Connected).*io\.tailscale\.ipn\.macos'; then \
 	  rc=1; \
