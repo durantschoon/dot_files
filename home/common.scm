@@ -662,8 +662,8 @@ call, so extensions never collide; only genuine double ownership does."
                        (string-append "/bin/"
                                       (session-ref session 'pinentry-binary))))
          (ssh-support? #t)
-         (default-cache-ttl 3600)
-         (max-cache-ttl 28800)
+         (default-cache-ttl 28800)
+         (max-cache-ttl 86400)
          (default-cache-ttl-ssh 3600)
          (max-cache-ttl-ssh 28800)
          ;; Let unlock prompts land in Emacs (M-x pinentry-start) instead of a
