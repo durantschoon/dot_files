@@ -164,6 +164,9 @@ help:
 	@echo "  make setup-tailscale - Install tailscaled as a system LaunchDaemon (mac only;"
 	@echo "                       runs at boot before login, unlike the menu-bar app)"
 	@echo "  make check-tailscale - Verify the daemon is deployed, loaded and on the tailnet"
+	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
+	@echo "                       disables Colima startup and selects the orbstack context)"
+	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
 	@echo "  make emacs-unserve - Stop the Emacs daemon"
@@ -881,7 +884,181 @@ else
 	@echo "  gsettings set org.gnome.desktop.input-sources xkb-options '[]'"
 endif
 
-.PHONY: setup-tailscale check-tailscale
+.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack
+
+# OrbStack as the one macOS container runtime.
+#
+# There are two independent pieces of state to own here.  launchd decides which
+# VM starts at login, while ~/.docker/config.json decides which engine every
+# later `docker' invocation talks to.  Colima can therefore be stopped while
+# Docker still targets its dead socket, or Docker can target OrbStack while a
+# hidden Colima VM starts and consumes resources.  setup-orbstack changes both.
+#
+# This is a user LaunchAgent rather than a system LaunchDaemon: OrbStack belongs
+# to the graphical login session and keeps all VM state under the user's home.
+# The source plist is copied because launchd state should not depend on this
+# checkout being mounted when the user logs in.  check-orbstack catches drift.
+#
+# Deliberately NOT deleted: ~/.colima and any legacy Colima Docker contexts. They
+# may contain the only copies of containers, images, or volumes.  Once their
+# contents are known to be disposable they can be removed as a separate,
+# explicitly destructive cleanup; they are inert after this target.
+ORBSTACK_LABEL     := com.durantschoon.orbstack-start
+ORBSTACK_PLIST_SRC := system/launchd/$(ORBSTACK_LABEL).plist
+ORBSTACK_PLIST_DST := $(HOME)/Library/LaunchAgents/$(ORBSTACK_LABEL).plist
+ORBSTACK_BIN       := /usr/local/bin/orb
+DOCKER_BIN         := /usr/local/bin/docker
+COLIMA_LABEL       := homebrew.mxcl.colima
+DOCKER_DESKTOP_LABELS := com.docker.vmnetd com.docker.socket
+# Prefer the Apple Silicon installation when both Homebrew prefixes exist.
+# Deriving brew from the Colima path matters on this Mac: /usr/local/bin/brew
+# is Intel Homebrew, while the installed Colima service belongs to /opt/homebrew.
+COLIMA_BIN         := $(firstword $(wildcard /opt/homebrew/bin/colima /usr/local/bin/colima))
+COLIMA_BREW        := $(patsubst %/colima,%/brew,$(COLIMA_BIN))
+
+setup-orbstack:
+ifneq ("$(os)","$(OS_MAC)")
+	@echo ""
+	@echo "  *** setup-orbstack is mac-only (detected $(os)) ***"
+	@echo ""
+	@exit 1
+else
+	@test -x $(ORBSTACK_BIN) || { \
+	  echo "  *** OrbStack CLI not found at $(ORBSTACK_BIN) ***"; \
+	  echo "  Install/open OrbStack first, then run this target again."; \
+	  exit 1; \
+	}
+	@test -x $(DOCKER_BIN) || { \
+	  echo "  *** OrbStack Docker CLI not found at $(DOCKER_BIN) ***"; \
+	  echo "  Open OrbStack once so it can install its command-line links."; \
+	  exit 1; \
+	}
+	@echo "==> stopping and disabling Colima's login service"
+	@if [ -x "$(COLIMA_BREW)" ]; then \
+	  "$(COLIMA_BREW)" services stop colima > /dev/null 2>&1 || true; \
+	fi
+	@launchctl bootout gui/$$(id -u)/$(COLIMA_LABEL) 2>/dev/null || true
+	@if [ -x "$(COLIMA_BIN)" ]; then \
+	  "$(COLIMA_BIN)" stop > /dev/null 2>&1 || true; \
+	fi
+	@# Colima 0.9 can leave Lima's shared usernet helper orphaned after its VM
+	@# stops.  Signal only PIDs from Colima's own network pidfiles, and only
+	@# after verifying the live command is limactl usernet rooted in ~/.colima.
+	@for pidfile in "$(HOME)/.colima/_lima/_networks/"*/usernet_*.pid; do \
+	  [ -f "$$pidfile" ] || continue; \
+	  pid=$$(sed -n '1p' "$$pidfile"); \
+	  case "$$pid" in ''|*[!0-9]*) continue ;; esac; \
+	  cmd=$$(ps -p "$$pid" -o command= 2>/dev/null); \
+	  case "$$cmd" in \
+	    *'/limactl usernet '*'.colima/'*) \
+	      echo "    stopping orphaned Colima usernet helper (pid $$pid)"; \
+	      kill -TERM "$$pid" 2>/dev/null || true; \
+	      n=0; \
+	      while kill -0 "$$pid" 2>/dev/null; do \
+	        n=$$((n+1)); \
+	        if [ $$n -gt 50 ]; then \
+	          echo "  *** Colima usernet pid $$pid did not stop after 5s ***"; \
+	          exit 1; \
+	        fi; \
+	        sleep 0.1; \
+	      done ;; \
+	  esac; \
+	done
+	@launchctl disable gui/$$(id -u)/$(COLIMA_LABEL)
+	@echo "==> stopping and disabling Docker Desktop's privileged helpers"
+	@for label in $(DOCKER_DESKTOP_LABELS); do \
+	  sudo launchctl bootout system/$$label 2>/dev/null || true; \
+	  sudo launchctl disable system/$$label || exit 1; \
+	done
+	@echo "==> installing OrbStack login agent"
+	@mkdir -p "$(HOME)/Library/LaunchAgents"
+	@install -m 644 $(ORBSTACK_PLIST_SRC) $(ORBSTACK_PLIST_DST)
+	@launchctl bootout gui/$$(id -u)/$(ORBSTACK_LABEL) 2>/dev/null || true
+	@launchctl bootstrap gui/$$(id -u) $(ORBSTACK_PLIST_DST)
+	@echo "==> starting OrbStack"
+	@$(ORBSTACK_BIN) start
+	@echo "==> selecting Docker context: orbstack"
+	@$(DOCKER_BIN) context inspect orbstack > /dev/null
+	@$(DOCKER_BIN) context use orbstack > /dev/null
+	@echo ""
+	@$(MAKE) --no-print-directory check-orbstack
+endif
+
+check-orbstack:
+	@echo "==> OrbStack container runtime"
+ifneq ("$(os)","$(OS_MAC)")
+	@echo "    skipped: mac-only (detected $(os))"
+else
+	@rc=0; \
+	if [ ! -x $(ORBSTACK_BIN) ]; then \
+	  rc=1; echo "    MISSING: $(ORBSTACK_BIN)"; \
+	else \
+	  echo "    CLI:     $(ORBSTACK_BIN)"; \
+	fi; \
+	if [ ! -f $(ORBSTACK_PLIST_DST) ]; then \
+	  rc=1; echo "    NOT DEPLOYED: $(ORBSTACK_PLIST_DST)"; \
+	elif ! diff -u $(ORBSTACK_PLIST_SRC) $(ORBSTACK_PLIST_DST) > /dev/null 2>&1; then \
+	  rc=1; echo "    DRIFT: deployed OrbStack LaunchAgent differs from the repo"; \
+	  diff -u $(ORBSTACK_PLIST_SRC) $(ORBSTACK_PLIST_DST) || true; \
+	elif launchctl print gui/$$(id -u)/$(ORBSTACK_LABEL) > /dev/null 2>&1; then \
+	  echo "    startup: $(ORBSTACK_LABEL) (in sync, loaded)"; \
+	else \
+	  rc=1; echo "    NOT LOADED: gui/$$(id -u)/$(ORBSTACK_LABEL)"; \
+	fi; \
+	if launchctl print gui/$$(id -u)/$(COLIMA_LABEL) > /dev/null 2>&1; then \
+	  rc=1; echo "    CONFLICT: $(COLIMA_LABEL) is still loaded"; \
+	elif [ ! -x "$(COLIMA_BIN)" ] && [ ! -d "$(HOME)/.colima" ] \
+	     && [ ! -d "$(HOME)/Library/Application Support/colima" ]; then \
+	  echo "    Colima:  not installed"; \
+	elif launchctl print-disabled gui/$$(id -u) 2>/dev/null \
+	     | grep -Eq '"$(COLIMA_LABEL)" => (true|disabled)'; then \
+	  echo "    Colima:  startup disabled"; \
+	else \
+	  rc=1; echo "    Colima:  not loaded, but not persistently disabled"; \
+	fi; \
+	colima_procs=$$(pgrep -fl '(/colima( |$$)|/limactl .*[/]\.colima[/])' 2>/dev/null || true); \
+	if [ -z "$$colima_procs" ]; then \
+	  echo "    process: no Colima/Lima helpers running"; \
+	else \
+	  rc=1; echo "    CONFLICT: Colima-related processes remain:"; \
+	  echo "$$colima_procs" | sed 's/^/              /'; \
+	fi; \
+	for label in $(DOCKER_DESKTOP_LABELS); do \
+	  if launchctl print system/$$label > /dev/null 2>&1; then \
+	    rc=1; echo "    CONFLICT: Docker Desktop helper $$label is loaded"; \
+	  elif launchctl print-disabled system 2>/dev/null \
+	       | grep -Eq "\"$$label\" => (true|disabled)"; then \
+	    echo "    Desktop: $$label disabled"; \
+	  else \
+	    rc=1; echo "    Desktop: $$label is not persistently disabled"; \
+	  fi; \
+	done; \
+	desktop_procs=$$(pgrep -fl '(/Applications/Docker.app/|/Library/PrivilegedHelperTools/com\.docker\.)' 2>/dev/null || true); \
+	if [ -z "$$desktop_procs" ]; then \
+	  echo "    process: no Docker Desktop helpers running"; \
+	else \
+	  rc=1; echo "    CONFLICT: Docker Desktop processes remain:"; \
+	  echo "$$desktop_procs" | sed 's/^/              /'; \
+	fi; \
+	cli=$$(readlink $(DOCKER_BIN) 2>/dev/null); \
+	case "$$cli" in \
+	  *OrbStack.app*) echo "    Docker:  $(DOCKER_BIN) -> $$cli" ;; \
+	  *) rc=1; echo "    WRONG CLI: $(DOCKER_BIN) -> $${cli:-not a symlink}" ;; \
+	esac; \
+	context=$$($(DOCKER_BIN) context show 2>/dev/null); \
+	if [ "$$context" = orbstack ]; then \
+	  echo "    context: orbstack"; \
+	else \
+	  rc=1; echo "    WRONG CONTEXT: $${context:-unavailable} (wanted orbstack)"; \
+	fi; \
+	server=$$($(DOCKER_BIN) version --format '{{.Server.Version}}' 2>/dev/null); \
+	if [ -n "$$server" ]; then \
+	  echo "    engine:  reachable (Docker $$server)"; \
+	else \
+	  rc=1; echo "    ENGINE DOWN: Docker server did not answer"; \
+	fi; \
+	exit $$rc
+endif
 
 # Tailscale, as a system daemon rather than a menu-bar app.
 #
@@ -1039,7 +1216,7 @@ else
 	    diff -u $$src $$dst || true; \
 	    continue; \
 	  fi; \
-	  owner=$$(stat -f '%Su:%Sg %Lp' $$dst); \
+	  owner=$$(/usr/bin/stat -f '%Su:%Sg %Lp' $$dst); \
 	  case "$$owner" in \
 	    "root:wheel 644"|"root:wheel 600") ;; \
 	    *) rc=1; \
@@ -1230,7 +1407,7 @@ add-pkg:
 SYSTEM_PINS    := $(wildcard system/channels-*.scm)
 SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 
-check: check-system check-session-coupling check-tailscale
+check: check-system check-session-coupling check-tailscale check-orbstack
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

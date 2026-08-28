@@ -159,6 +159,21 @@ Guix requires the Linux kernel. To use the full Guix Home experience on macOS, u
 1. Install a VM provider. I am using [OrbStack](https://orbstack.dev/)
 2. [Full instructions as a gist](https://gist.github.com/durantschoon/65abcd122e7928fd62841ac95569445b)
 
+If this Mac previously used Colima, make the runtime choice durable rather
+than relying on whichever tool most recently changed Docker's context:
+
+```sh
+make setup-orbstack
+make check-orbstack
+```
+
+The setup target disables Colima's Homebrew LaunchAgent and Docker Desktop's
+privileged helpers, installs the repo-owned OrbStack login agent, starts
+OrbStack, and selects Docker's `orbstack` context. It intentionally preserves
+`~/.colima`, the old Colima contexts, and Docker Desktop data because they may
+contain containers, images, or volumes; those can be deleted separately after
+their contents are no longer needed.
+
 #### Option B: Native Setup (Without Guix)
 
 If you want to use these dotfiles natively on macOS without Guix:

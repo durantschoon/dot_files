@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.durantschoon.orbstack-start</string>
+
+  <!--
+    `orb start` is idempotent and exits after bringing up OrbStack.  launchd
+    owns *when* it runs; OrbStack owns its long-lived VM and Docker services.
+    Keeping KeepAlive off is deliberate: relaunching this one-shot command is
+    not the same thing as supervising the service it starts.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/orb</string>
+    <string>start</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

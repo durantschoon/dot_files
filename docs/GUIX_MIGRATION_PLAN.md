@@ -63,7 +63,7 @@ The core dotfiles functionality works without curl:
 ### Goals
 
 - Understand Guix Home vs Guix System.
-- Target: reproducible, cross-platform dotfiles (Pop!_OS, WSL, macOS via Docker/Colima).
+- Target: reproducible, cross-platform dotfiles (Pop!_OS, WSL, macOS via Docker/OrbStack).
 - Use a single Git repo as the **source of truth** for all configurations.
 
 ### Key Concepts
@@ -208,7 +208,7 @@ sudo guix archive --authorize < signing-key.pub
 |-----------|-----------|
 | **Pop!_OS** | Native Guix Home with systemd user service. |
 | **WSL** | Disable chroot, start daemon manually. |
-| **macOS (Docker/Colima)** | Run custom image using named volumes `guix-gnu` and `guix-var` for persistent stores. |
+| **macOS (Docker/OrbStack)** | Run the custom image with OrbStack's Docker engine, using named volumes `guix-gnu` and `guix-var` for persistent stores. |
 
 ---
 
@@ -298,13 +298,14 @@ gp -i bat
 
 ## Immediate Next Steps (Claude's Suggestions)
 
-### 1. Start with Colima (Already Running!)
+### 1. Start with OrbStack
 
-Since you already have Colima + Guix running on macOS, **start experimentation there first**:
+Use OrbStack's Docker engine for Guix experimentation on macOS:
 
 ```bash
-# Verify your current Colima setup
-colima status
+# Verify OrbStack and select its Docker context
+orb status
+docker context use orbstack
 docker ps -a | grep guix
 
 # Enter your existing Guix container (or start new one)
@@ -393,7 +394,7 @@ time zsh -ic exit
 
 ### 5. Testing Order (Recommended)
 
-1. ✅ **Colima (macOS)** - Start here, you already have it
+1. ✅ **OrbStack (macOS)** - Start here
 2. **Pop!_OS native** - Best Guix Home experience, do this next
 3. **WSL2** - After comfortable with Guix Home
 4. **Guix System VM** - Optional, only if planning full system migration
@@ -455,7 +456,7 @@ mv ~/dotfiles-pre-guix-*.tar.gz ~/Backups/
 
 #### Option A: Guix everywhere (purist)
 
-- Use Docker/Colima for macOS CLI (container-based workflow)
+- Use Docker/OrbStack for macOS CLI (container-based workflow)
 - All dev work happens in container
 - Pro: True consistency
 - Con: Container overhead, complexity
@@ -475,7 +476,7 @@ mv ~/dotfiles-pre-guix-*.tar.gz ~/Backups/
 **Do this right now** to validate the approach:
 
 ```bash
-# In your existing Colima Guix container
+# In your Guix container on OrbStack
 cd /host-home
 mkdir -p guix-quick-test && cd guix-quick-test
 
@@ -503,7 +504,7 @@ guix home list-generations
 
 **This will immediately reveal:**
 
-- Whether your Colima volume mounts work correctly
+- Whether your OrbStack bind mounts and named volumes work correctly
 - How fast `guix home reconfigure` is
 - Whether the generation/rollback workflow makes sense
 - Any permission or configuration issues
