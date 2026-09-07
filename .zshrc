@@ -164,6 +164,10 @@ prompt_context() {
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 source $HOME/.aliases
 
+# Envelope: create an envelope branch worktree and enter it with
+# `envelope-worktree LOCAL_DIR=...` or `envelope-worktree REPO_URL=...`.
+[[ -f ~/Repos/enveloped/main/scripts/envelope-worktree.zsh ]] && source ~/Repos/enveloped/main/scripts/envelope-worktree.zsh
+
 setopt AUTO_PUSHD
 
 HISTFILE=~/.zsh_history
