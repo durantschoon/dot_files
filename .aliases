@@ -126,24 +126,27 @@ watchf() {
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
-# Enter the persistent Guix container hosted by OrbStack. Resolve zsh from the
-# Guix store at entry time so a Guix upgrade cannot stale this command.
+# Enter the persistent Guix container hosted by OrbStack using profile paths.
 guix-container-shell() {
     local requested_shell="${1:-zsh}"
 
-    if ! docker container inspect guix-dev >/dev/null 2>&1; then
-        echo "guix-dev does not exist; recreate the OrbStack Guix container first." >&2
+    if ! docker --context orbstack container inspect guix-dev >/dev/null 2>&1; then
+        echo "guix-dev does not exist; run make setup-guix-container in ~/dot_files." >&2
         return 1
     fi
 
-    if [[ "$(docker container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
-        docker start guix-dev >/dev/null || return
+    if [[ "$(docker --context orbstack container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
+        docker --context orbstack start guix-dev >/dev/null || return
     fi
 
-    docker exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
+    docker --context orbstack exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
+        GUIX_PROFILE=/root/.guix-profile
+        export GUIX_PROFILE
+        [ ! -f "$GUIX_PROFILE/etc/profile" ] || . "$GUIX_PROFILE/etc/profile"
+        [ ! -f /root/.guix-home/setup-environment ] || . /root/.guix-home/setup-environment
         cd /root/dot_files || exit
         if [ "$GUIX_ENTRY_SHELL" = zsh ]; then
-            shell_path=$(find /gnu/store -maxdepth 3 -type f -path "*/bin/zsh" -print -quit)
+            shell_path=$(command -v zsh)
             if [ -n "$shell_path" ]; then
                 export PATH="$(dirname "$shell_path"):$PATH"
                 exec "$shell_path" -l

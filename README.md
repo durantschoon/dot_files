@@ -150,14 +150,15 @@ guix pull
 make apply
 ```
 
+Bare `make` also runs `apply`. Use `make setup-native` for the traditional
+symlink setup; `make all` remains a compatibility alias for `setup-native`.
+
 ### 2. MacOS
 
-#### Option A: Guix on MacOS (Virtual Machine) -- the shiny, new way
+#### Option A: Guix on macOS through OrbStack
 
-Guix requires the Linux kernel. To use the full Guix Home experience on macOS, use a lightweight VM:
-
-1. Install a VM provider. I am using [OrbStack](https://orbstack.dev/)
-2. [Full instructions as a gist](https://gist.github.com/durantschoon/65abcd122e7928fd62841ac95569445b)
+Guix runs in the `guix-dev` Docker container hosted by OrbStack. Its definition
+is checked in as `compose.guix.yaml`, with an image pinned by digest.
 
 If this Mac previously used Colima, make the runtime choice durable rather
 than relying on whichever tool most recently changed Docker's context:
@@ -173,6 +174,42 @@ OrbStack, and selects Docker's `orbstack` context. It intentionally preserves
 `~/.colima`, the old Colima contexts, and Docker Desktop data because they may
 contain containers, images, or volumes; those can be deleted separately after
 their contents are no longer needed.
+
+Create or reconcile the Guix container, install make/git/zsh/certificates/UTF-8 locales,
+and test a real Guix build from the Mac:
+
+```sh
+make setup-guix-container
+make check-guix-container
+source ~/.aliases
+orb-guix
+```
+
+The shell opens at `/root/dot_files`, which is this Mac checkout. Installed
+packages are loaded from the Guix profile. `exit` returns to macOS. After
+editing shell aliases, source `~/.aliases` again in existing Mac shells.
+
+The existing external volumes `guix-actions-store` and `guix-actions-var`
+hold `/gnu/store` and `/var/guix`; restore them together when migrating. The
+`guix-dev-home` volume preserves `/root`, including home configuration and
+shell history. Compose refuses to create replacement store volumes silently.
+`guix-actions-work` contains separate historical build results.
+
+The container restarts with OrbStack unless explicitly stopped. Its daemon
+runs in the foreground, clears a stale socket at startup, and uses
+`--disable-chroot` for this container environment. Only one daemon may use
+the store/database pair at a time. Seccomp filtering is disabled for this
+container because Docker's default filter blocks the `personality` call
+needed by Guix builders; it is not a privileged container. The verification
+target builds a small derivation so this failure is caught during setup.
+It also checks that `make help` emits no diagnostics. Guix's UTF-8 locale
+data is installed in the persistent profile and exposed through
+`GUIX_LOCPATH`; the base image's locale data alone is insufficient for
+Guix-linked programs.
+
+`make setup-guix-container` prepares the CLI environment. Applying the full
+Guix Home configuration is a separate step inside the container (`make apply`)
+and requires access to the private Claude submodule.
 
 #### Option B: Native Setup (Without Guix)
 
@@ -190,7 +227,7 @@ If you want to use these dotfiles natively on macOS without Guix:
    ```sh
    git clone https://github.com/durantschoon/dot_files.git ~/dot_files
    cd ~/dot_files
-   make all
+   make setup-native
    ```
 
 ### 3. Windows (WSL)

@@ -1,3 +1,6 @@
+# Guix Home is the primary workflow; native symlink setup is opt-in.
+.DEFAULT_GOAL := apply
+
 # Detect OS (modified from example https://stackoverflow.com/a/12099167)
 
 OS_WINDOWS := windows
@@ -96,7 +99,7 @@ ifeq ($(LOGIN_SHELL),)
 	LOGIN_SHELL := /bin/zsh
 endif
 
-.PHONY: set_up_links wsl help guix-root-install warn-dotfiles-home
+.PHONY: all setup-native set_up_links wsl help guix-root-install warn-dotfiles-home
 
 # Makefile and set_up_links assume the repo is at $(HOME)/dot_files (symlink is fine).
 DOTFILES_HOME := $(HOME)/dot_files
@@ -142,11 +145,12 @@ warn-dotfiles-home:
 help:
 	@echo "Available targets:"
 	@echo ""
-	@echo "  make all           - Set up dotfiles (default target; symlinks ~/bin -> ~/dot_files/bin,"
+	@echo "  make setup-native  - Set up native dotfiles (symlinks ~/bin -> ~/dot_files/bin,"
 	@echo "                       then installs Claude Code if missing)"
+	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
-	@echo "  make apply         - Apply Guix Home configuration (reconfigure)"
+	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
 	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
 	@echo "                       roll back with 'guix home roll-back')"
@@ -179,20 +183,20 @@ help:
 	@echo "Platform-specific notes:"
 	@echo "  - Detected OS: $(os) $(arch)"
 	@echo "  - Package manager: $(PACKAGE_MANAGER)"
-	@echo "  - For WSL: Run as 'HOME=/home/durant sudo make all'"
+	@echo "  - For native WSL setup: Run as 'HOME=/home/durant sudo make setup-native'"
 	@echo ""
 
 wsl: 
 	@echo Need a reminder?
 	@echo You should run this command like this:
-	@echo HOME=$(wsl_home) sudo make all
+	@echo HOME=$(wsl_home) sudo make setup-native
 	@echo exiting...
 	@exit 0
 
 guix-root-install:
 	@echo "Installing Guix packages as root..."
 	@echo "This target installs packages that may require root privileges"
-	@echo "Run this first, then run 'make all' as your regular user"
+	@echo "Run this first, then run 'make setup-native' as your regular user"
 ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Checking what packages are already available..."
 	@which zsh && echo "zsh: available" || echo "zsh: not found"
@@ -205,7 +209,9 @@ else
 	@echo "This target is only for Guix systems"
 endif
 
-all: set_up_links install-claude
+all: setup-native
+
+setup-native: set_up_links install-claude
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
 # when `claude` already runs) and handles the Guix System non-FHS case by
@@ -455,7 +461,7 @@ endif
 	else \
 		echo "⚠️  zsh not available - skipping Emacs installation"; \
 		echo "   The install_emacs.zsh script requires zsh."; \
-		echo "   Install zsh first (e.g., via Guix: guix install zsh), then run: make all"; \
+		echo "   Install zsh first (e.g., via Guix: guix install zsh), then run: make setup-native"; \
 		echo "   Or install Emacs manually if needed."; \
 	fi
 endif
@@ -884,7 +890,21 @@ else
 	@echo "  gsettings set org.gnome.desktop.input-sources xkb-options '[]'"
 endif
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack
+.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container
+
+# The external store/database volumes must be restored together when moving
+# machines. Compose deliberately refuses to silently replace a missing store.
+setup-guix-container:
+	 docker --context orbstack volume create guix-dev-home
+	 docker --context orbstack compose -f compose.guix.yaml up -d
+	 docker --context orbstack exec guix-dev sh -lc 'guix package --install make git zsh nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(MAKE) check-guix-container
+
+check-guix-container:
+	 docker --context orbstack compose -f compose.guix.yaml ps
+	 docker --context orbstack exec guix-dev sh -lc 'guix build --no-offload -f build-aux/guix-container-check.scm'
+	 docker --context orbstack exec guix-dev sh -lc 'export GUIX_PROFILE=/root/.guix-profile; . "$$GUIX_PROFILE/etc/profile"; make --version; git --version; zsh --version'
+	 docker --context orbstack exec guix-dev sh -lc 'set -eu; diagnostics=$$(mktemp); trap '\''rm -f "$$diagnostics"'\'' EXIT; make help >/dev/null 2>"$$diagnostics"; if [ -s "$$diagnostics" ]; then cat "$$diagnostics" >&2; exit 1; fi'
 
 # OrbStack as the one macOS container runtime.
 #

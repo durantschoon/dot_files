@@ -1,0 +1,33 @@
+name: dotfiles-guix
+services:
+  guix:
+    image: metacall/guix@sha256:e028ebad915a2ff1e4b91680444600dd6712214cf2c7cb0bcb6ebd5fe8891afe
+    container_name: guix-dev
+    restart: unless-stopped
+    # Both the base image and Guix's glibc-utf8-locales supply this locale.
+    # setup-guix-container installs the latter into the persistent profile.
+    environment:
+      LANG: C.utf8
+      LC_ALL: C.utf8
+      GUIX_LOCPATH: /root/.guix-profile/lib/locale
+    # Guix sets personality when spawning builders. Docker's default filter
+    # rejects it even when a profile only links packages already in the store.
+    security_opt:
+      - seccomp=unconfined
+    working_dir: /root/dot_files
+    entrypoint: ["/bin/bash", "/root/dot_files/build-aux/guix-container-daemon.sh"]
+    volumes:
+      - guix-store:/gnu/store
+      - guix-var:/var/guix
+      - guix-home:/root
+      - .:/root/dot_files
+volumes:
+  guix-store:
+    external: true
+    name: guix-actions-store
+  guix-var:
+    external: true
+    name: guix-actions-var
+  guix-home:
+    external: true
+    name: guix-dev-home
