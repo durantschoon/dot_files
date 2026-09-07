@@ -389,7 +389,6 @@ installed either way."
     "file"
     "go"
     "qemu"
-    "obsidian"
     "direnv"
     "emacs-vterm"
     "cmake"
@@ -432,6 +431,9 @@ installed either way."
 ;; Wayland-session-only packages (make add-pkg PKG=<spec> WAYLAND_ONLY=1).
 (define %wayland-packages
   '("espanso-wayland"
+    ;; Nonguix desktop application. Foreign hosts do not guarantee Nonguix;
+    ;; on macOS, Obsidian runs as a native app outside the Guix container.
+    "obsidian"
     ;; wl-copy/wl-paste: the Wayland clipboard CLI.  Useful on its own for
     ;; piping between a terminal and GUI apps, and required by EWM, which
     ;; shells out to it for clipboard integration.

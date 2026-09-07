@@ -3,7 +3,7 @@
 ;; system/channels-<class>.scm, and the two are deliberately not required to
 ;; match (this file is pulled by the user, that one by root at install time).
 ;;
-;; nonguix is here for exactly one package: firefox.
+;; nonguix supplies desktop packages including firefox and obsidian.
 ;;
 ;; Guix proper cannot ship Firefox -- Mozilla's trademark policy keeps the
 ;; branded build out -- so the packaged alternatives are librewolf and icecat.
