@@ -126,14 +126,36 @@ watchf() {
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
-# Enter Guix Docker container with environments
-alias guix-shell-zsh='\
-docker exec -it guix-dev sh -c "export PATH=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin:/gnu/store/a183bj2y5nj1wdarqrsyab38ynlaaj8r-zsh-5.8.1/bin:\$PATH && \
-cd /root && exec zsh -l" 2>/dev/null'
+# Enter the persistent Guix container hosted by OrbStack. Resolve zsh from the
+# Guix store at entry time so a Guix upgrade cannot stale this command.
+guix-container-shell() {
+    local requested_shell="${1:-zsh}"
 
-alias guix-shell-bash='\
-docker exec -it guix-dev sh -c "export PATH=/gnu/store/c5591aalxj45nmfzf0srb83ljpmlv32f-profile/bin:\$PATH && \
-cd /root && exec bash -l"'
+    if ! docker container inspect guix-dev >/dev/null 2>&1; then
+        echo "guix-dev does not exist; recreate the OrbStack Guix container first." >&2
+        return 1
+    fi
+
+    if [[ "$(docker container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
+        docker start guix-dev >/dev/null || return
+    fi
+
+    docker exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
+        cd /root/dot_files || exit
+        if [ "$GUIX_ENTRY_SHELL" = zsh ]; then
+            shell_path=$(find /gnu/store -maxdepth 3 -type f -path "*/bin/zsh" -print -quit)
+            if [ -n "$shell_path" ]; then
+                export PATH="$(dirname "$shell_path"):$PATH"
+                exec "$shell_path" -l
+            fi
+            echo "zsh is unavailable in the Guix store; using bash." >&2
+        fi
+        exec bash -l
+    '
+}
+
+alias guix-shell-zsh='guix-container-shell zsh'
+alias guix-shell-bash='guix-container-shell bash'
 
 # -----------------------------------------------------------------------------
 # Emacs daemon over ssh  (see `make emacs-serve` on the host machine)
@@ -163,7 +185,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     alias claude="~/.claude/local/claude"
     alias oemacs='open -a /Applications/Emacs.app'
-    alias orb-guix='orb -m guixbox zsh'
+    alias orb-guix='guix-container-shell zsh'
 
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
     alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
