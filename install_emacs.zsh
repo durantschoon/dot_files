@@ -64,9 +64,13 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --mac)
         # Assumes you already have brew and git
-        EMACS_WITH_VERSION='emacs-plus@31'
-        EMACS_ICON='--with-spacemacs-icon'
-		EMACS_PLUS_OPTIONS='--with-imagemagick --with-dbus --with-mailutils'
+        EMACS_WITH_VERSION='emacs-plus@32'
+		# these are default in 32
+		# EMACS_PLUS_OPTIONS='--with-imagemagick --with-dbus --with-mailutils --with-xwidgets'
+		EMACS_PLUS_OPTIONS='--with-imagemagick'
+		# icon gallery
+		# https://github.com/d12frosted/homebrew-emacs-plus/blob/master/community/icons/README.md
+        EMACS_ICON='--liquid-glass' # for tahoe
         EMACS_SERVICE="d12frosted/emacs-plus/${EMACS_WITH_VERSION}"
         # uninstall old
         brew list emacs-plus 2> /dev/null && brew uninstall emacs-plus
@@ -82,7 +86,7 @@ while [[ $# -gt 0 ]]; do
         brew install clojure-lsp
         # install new
         brew tap d12frosted/emacs-plus
-        brew install $EMACS_WITH_VERSION --with-xwidgets $EMACS_ICON
+        brew install $EMACS_WITH_VERSION $EMACS_PLUS_OPTIONS $EMACS_ICON
         brew link --overwrite emacs
         # update link in /Applications in a zsh shell
         [[ -L /Applications/Emacs.app ]] && /bin/rm /Applications/Emacs.app
