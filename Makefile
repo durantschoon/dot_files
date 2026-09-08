@@ -744,7 +744,7 @@ apply: warn-dotfiles-home
 	@echo "it only rescans directories already ON the PATH). Either:"
 	@echo "  source ~/.profile      # fixes PATH in this shell"
 	@echo "or log out and back in   # also starts user services (emacs daemon)"
-	@if [ ! -f /etc/keyd/default.conf ]; then \
+	@if [ "$(flavor)" != orbstack ] && [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \
 		echo "--- NEXT STEP: KEYBINDINGS ---"; \
 		echo "To finish system-wide Emacs keybindings setup, run:"; \
@@ -780,7 +780,7 @@ apply-wayland: warn-dotfiles-home
 	@echo "it only rescans directories already ON the PATH). Either:"
 	@echo "  source ~/.profile      # fixes PATH in this shell"
 	@echo "or log out and back in   # also starts user services (emacs daemon)"
-	@if [ ! -f /etc/keyd/default.conf ]; then \
+	@if [ "$(flavor)" != orbstack ] && [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \
 		echo "--- NEXT STEP: KEYBINDINGS ---"; \
 		echo "To finish system-wide Emacs keybindings setup, run:"; \
@@ -847,6 +847,7 @@ GUIX_SYSTEM := $(wildcard /run/current-system)
 REAL_HOME = $(shell getent passwd $${SUDO_USER:-$$USER} 2>/dev/null | cut -d: -f6)
 
 setup-keyd:
+ifneq ($(flavor),orbstack)
 ifneq ($(GUIX_SYSTEM),)
 	@echo ""
 	@echo "  *** setup-keyd is not for Guix System ***"
@@ -898,6 +899,10 @@ else
 	@echo "If GNOME is also swapping (double-swap = keys look UNswapped), clear"
 	@echo "it as your normal user (gsettings talks to the user session, not root):"
 	@echo "  gsettings set org.gnome.desktop.input-sources xkb-options '[]'"
+endif
+else
+	@echo "OrbStack container detected: keyd cannot control the Mac keyboard here."
+	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
 
 .PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container

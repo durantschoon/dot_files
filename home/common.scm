@@ -715,8 +715,11 @@ call, so extensions never collide; only genuine double ownership does."
                                        "gtk-key-theme" "Emacs")
                               (format #t "session: no gsettings here; GTK key theme not set~%")) ;[session]
 
-                          ;; Check for keyd system-wide config
-                          (unless (file-exists? "/etc/keyd/default.conf")
+                          ;; keyd controls a host's input devices. A foreign
+                          ;; OrbStack container cannot do that, so do not emit
+                          ;; a sudo/setup prompt there.
+                          (unless (or (eq? '#$(session-ref session 'name) 'foreign)
+                                      (file-exists? "/etc/keyd/default.conf"))
                             (format #t "--- KEYD SETUP REQUIRED ---~%")
                             (format #t "To enable system-wide Emacs keys, run:~%")
                             (format #t "  sudo make setup-keyd~%~%"))))
