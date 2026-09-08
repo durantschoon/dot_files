@@ -207,6 +207,11 @@ data is installed in the persistent profile and exposed through
 `GUIX_LOCPATH`; the base image's locale data alone is insufficient for
 Guix-linked programs.
 
+On OrbStack, `make apply` passes `--no-grafts` automatically. The container's
+Guix daemon runs with `--disable-chroot`, and graft rewriting can otherwise
+leave read-only, registered outputs after an interrupted build. Native Guix
+System sessions continue to use Guix's normal graft behavior.
+
 `make setup-guix-container` prepares the CLI environment. Applying the full
 Guix Home configuration is a separate step inside the container (`make apply`)
 and requires access to the private Claude submodule.

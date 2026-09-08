@@ -65,6 +65,16 @@ ifneq ($(ORBSTACK_CHECK),)
 	flavor := orbstack
 endif
 
+# The OrbStack foreign container runs guix-daemon with --disable-chroot.  Guix
+# grafts then try to rewrite read-only store outputs in place and can leave a
+# registered, unusable output after interruption.  The pinned foreign session
+# uses the exact channel revisions, so skip grafts there; native Guix System
+# sessions retain the default graft behavior.
+GUIX_HOME_GRAFT_FLAGS :=
+ifeq ($(flavor),orbstack)
+	GUIX_HOME_GRAFT_FLAGS := --no-grafts
+endif
+
 # Detect package manager
 PACKAGE_MANAGER := unknown
 # brew is checked FIRST, not last: these are plain assignments, so the LAST
@@ -720,7 +730,7 @@ apply: warn-dotfiles-home
 	  guix pull ; \
 	fi
 	@echo "==> guix home reconfigure home/base.scm"
-	@guix home reconfigure --allow-downgrades home/base.scm
+	@guix home reconfigure $(GUIX_HOME_GRAFT_FLAGS) --allow-downgrades home/base.scm
 	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
