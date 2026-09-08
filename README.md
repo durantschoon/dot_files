@@ -216,6 +216,11 @@ System sessions continue to use Guix's normal graft behavior.
 Guix Home configuration is a separate step inside the container (`make apply`)
 and requires access to the private Claude submodule.
 
+The same Compose setup works under WSL with Docker Desktop's WSL integration
+or a Docker Engine in WSL. `make setup-guix-container` selects Docker's
+`default` context on WSL; on macOS it selects OrbStack's `orbstack` context.
+In either environment, `orb-guix` enters the same `guix-dev` container.
+
 #### Option B: Native Setup (Without Guix)
 
 If you want to use these dotfiles natively on macOS without Guix:

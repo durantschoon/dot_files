@@ -129,17 +129,19 @@ watchf() {
 # Enter the persistent Guix container hosted by OrbStack using profile paths.
 guix-container-shell() {
     local requested_shell="${1:-zsh}"
+    local docker_context=""
+    [[ "$(uname -s)" == Darwin ]] && docker_context="--context orbstack"
 
-    if ! docker --context orbstack container inspect guix-dev >/dev/null 2>&1; then
+    if ! docker $docker_context container inspect guix-dev >/dev/null 2>&1; then
         echo "guix-dev does not exist; run make setup-guix-container in ~/dot_files." >&2
         return 1
     fi
 
-    if [[ "$(docker --context orbstack container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
-        docker --context orbstack start guix-dev >/dev/null || return
+    if [[ "$(docker $docker_context container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
+        docker $docker_context start guix-dev >/dev/null || return
     fi
 
-    docker --context orbstack exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
+    docker $docker_context exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
         GUIX_PROFILE=/root/.guix-profile
         export GUIX_PROFILE
         [ ! -f "$GUIX_PROFILE/etc/profile" ] || . "$GUIX_PROFILE/etc/profile"
@@ -188,8 +190,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
 
     alias claude="~/.claude/local/claude"
     alias oemacs='open -a /Applications/Emacs.app'
-    alias orb-guix='guix-container-shell zsh'
-
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
     alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
     alias gitk=git-gui # brew install git-gui
@@ -242,6 +242,10 @@ elif [[ -d /mnt/c/Program\ Files/CMake ]]; then
         alias cdhome='cd ~/wsl_user; ll -L | egrep -v '\''(NTUSER|ntuser)'\'
     fi
 fi
+
+# Enter Guix through the platform's Docker provider. On macOS this uses
+# OrbStack; on WSL it uses Docker's default context.
+alias orb-guix='guix-container-shell zsh'
 
 # -----------------------------------------------------------------------------
 # Private aliases

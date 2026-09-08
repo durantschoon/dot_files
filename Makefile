@@ -75,6 +75,13 @@ ifeq ($(flavor),orbstack)
 	GUIX_HOME_GRAFT_FLAGS := --no-grafts
 endif
 
+# OrbStack is the macOS Docker provider; WSL uses Docker Desktop's default
+# context (or a Docker Engine configured in WSL). Override this variable when
+# a host uses another named context.
+GUIX_DOCKER_CONTEXT ?= $(if $(filter $(OS_MAC),$(os)),orbstack,default)
+GUIX_DOCKER_CONTEXT_ARG := $(if $(filter default,$(GUIX_DOCKER_CONTEXT)),,--context $(GUIX_DOCKER_CONTEXT))
+GUIX_DOCKER := docker $(GUIX_DOCKER_CONTEXT_ARG)
+
 # Detect package manager
 PACKAGE_MANAGER := unknown
 # brew is checked FIRST, not last: these are plain assignments, so the LAST
@@ -744,7 +751,7 @@ apply: warn-dotfiles-home
 	@echo "it only rescans directories already ON the PATH). Either:"
 	@echo "  source ~/.profile      # fixes PATH in this shell"
 	@echo "or log out and back in   # also starts user services (emacs daemon)"
-	@if [ "$(flavor)" != orbstack ] && [ ! -f /etc/keyd/default.conf ]; then \
+	@if [ "$(flavor)" != orbstack ] && [ "$(flavor)" != wsl ] && [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \
 		echo "--- NEXT STEP: KEYBINDINGS ---"; \
 		echo "To finish system-wide Emacs keybindings setup, run:"; \
@@ -780,7 +787,7 @@ apply-wayland: warn-dotfiles-home
 	@echo "it only rescans directories already ON the PATH). Either:"
 	@echo "  source ~/.profile      # fixes PATH in this shell"
 	@echo "or log out and back in   # also starts user services (emacs daemon)"
-	@if [ "$(flavor)" != orbstack ] && [ ! -f /etc/keyd/default.conf ]; then \
+	@if [ "$(flavor)" != orbstack ] && [ "$(flavor)" != wsl ] && [ ! -f /etc/keyd/default.conf ]; then \
 		echo ""; \
 		echo "--- NEXT STEP: KEYBINDINGS ---"; \
 		echo "To finish system-wide Emacs keybindings setup, run:"; \
@@ -847,7 +854,7 @@ GUIX_SYSTEM := $(wildcard /run/current-system)
 REAL_HOME = $(shell getent passwd $${SUDO_USER:-$$USER} 2>/dev/null | cut -d: -f6)
 
 setup-keyd:
-ifneq ($(flavor),orbstack)
+ifeq ($(filter orbstack wsl,$(flavor)),)
 ifneq ($(GUIX_SYSTEM),)
 	@echo ""
 	@echo "  *** setup-keyd is not for Guix System ***"
@@ -910,16 +917,16 @@ endif
 # The external store/database volumes must be restored together when moving
 # machines. Compose deliberately refuses to silently replace a missing store.
 setup-guix-container:
-	 docker --context orbstack volume create guix-dev-home
-	 docker --context orbstack compose -f compose.guix.yaml up -d
-	 docker --context orbstack exec guix-dev sh -lc 'guix package --install make git zsh curl nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(GUIX_DOCKER) volume create guix-dev-home
+	 $(GUIX_DOCKER) compose -f compose.guix.yaml up -d
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh curl nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
 	 $(MAKE) check-guix-container
 
 check-guix-container:
-	 docker --context orbstack compose -f compose.guix.yaml ps
-	 docker --context orbstack exec guix-dev sh -lc 'guix build --no-offload -f build-aux/guix-container-check.scm'
-	 docker --context orbstack exec guix-dev sh -lc 'export GUIX_PROFILE=/root/.guix-profile; . "$$GUIX_PROFILE/etc/profile"; make --version; git --version; zsh --version'
-	 docker --context orbstack exec guix-dev sh -lc 'set -eu; diagnostics=$$(mktemp); trap '\''rm -f "$$diagnostics"'\'' EXIT; make help >/dev/null 2>"$$diagnostics"; if [ -s "$$diagnostics" ]; then cat "$$diagnostics" >&2; exit 1; fi'
+	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix build --no-offload -f build-aux/guix-container-check.scm'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'export GUIX_PROFILE=/root/.guix-profile; . "$$GUIX_PROFILE/etc/profile"; make --version; git --version; zsh --version'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'set -eu; diagnostics=$$(mktemp); trap '\''rm -f "$$diagnostics"'\'' EXIT; make help >/dev/null 2>"$$diagnostics"; if [ -s "$$diagnostics" ]; then cat "$$diagnostics" >&2; exit 1; fi'
 
 # OrbStack as the one macOS container runtime.
 #
