@@ -907,7 +907,7 @@ endif
 setup-guix-container:
 	 docker --context orbstack volume create guix-dev-home
 	 docker --context orbstack compose -f compose.guix.yaml up -d
-	 docker --context orbstack exec guix-dev sh -lc 'guix package --install make git zsh nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 docker --context orbstack exec guix-dev sh -lc 'guix package --install make git zsh curl nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
 	 $(MAKE) check-guix-container
 
 check-guix-container:
