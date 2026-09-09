@@ -175,7 +175,7 @@ OrbStack, and selects Docker's `orbstack` context. It intentionally preserves
 contain containers, images, or volumes; those can be deleted separately after
 their contents are no longer needed.
 
-Create or reconcile the Guix container, install make/git/zsh/curl/openssh/certificates/UTF-8 locales,
+Create or reconcile the Guix container, install make/git/zsh/curl/openssh/guile/certificates/UTF-8 locales,
 and test a real Guix build from the Mac:
 
 ```sh

@@ -919,13 +919,13 @@ endif
 setup-guix-container:
 	 $(GUIX_DOCKER) volume create guix-dev-home
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml up -d
-	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh curl openssh nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh curl openssh guile nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
 	 $(MAKE) check-guix-container
 
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
 	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix build --no-offload -f build-aux/guix-container-check.scm'
-	 $(GUIX_DOCKER) exec guix-dev sh -lc 'export GUIX_PROFILE=/root/.guix-profile; . "$$GUIX_PROFILE/etc/profile"; make --version; git --version; ssh -V; zsh --version'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'export GUIX_PROFILE=/root/.guix-profile; . "$$GUIX_PROFILE/etc/profile"; make --version; git --version; ssh -V; guile --version | head -1; zsh --version'
 	 $(GUIX_DOCKER) exec guix-dev sh -lc 'set -eu; diagnostics=$$(mktemp); trap '\''rm -f "$$diagnostics"'\'' EXIT; make help >/dev/null 2>"$$diagnostics"; if [ -s "$$diagnostics" ]; then cat "$$diagnostics" >&2; exit 1; fi'
 
 # OrbStack as the one macOS container runtime.
