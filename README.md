@@ -224,6 +224,13 @@ Compose mounts `${HOME}/.ssh` read-only at `/root/.ssh`, so Git SSH remotes
 use the host identities and SSH config. Add host keys on the Mac/WSL side
 (`ssh-keyscan github.com >> ~/.ssh/known_hosts`) before cloning when needed;
 the container cannot write back to the read-only mount.
+For repeated operations with a passphrase-protected key, start a container-local
+agent in the `orb-guix` shell:
+
+```sh
+eval "$(ssh-agent -a /tmp/guix-ssh-agent.sock -s)"
+ssh-add ~/.ssh/id_ed25519_ds
+```
 
 #### Option B: Native Setup (Without Guix)
 

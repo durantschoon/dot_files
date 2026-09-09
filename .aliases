@@ -137,13 +137,18 @@ guix-container-shell() {
         return 1
     fi
 
-    if [[ "$(docker "${docker_context[@]}" container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
+    local running
+    running=$(docker "${docker_context[@]}" container inspect -f '{{.State.Running}}' guix-dev) || return
+    if [[ "$running" != true ]]; then
         docker "${docker_context[@]}" start guix-dev >/dev/null || return
     fi
 
     docker "${docker_context[@]}" exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
         GUIX_PROFILE=/root/.guix-profile
         export GUIX_PROFILE
+        # Keep the agent socket in writable container storage; ~/.ssh is a
+        # read-only mount of host identities.
+        export SSH_AUTH_SOCK=/tmp/guix-ssh-agent.sock
         [ ! -f "$GUIX_PROFILE/etc/profile" ] || . "$GUIX_PROFILE/etc/profile"
         [ ! -f /root/.guix-home/setup-environment ] || . /root/.guix-home/setup-environment
         cd /root/dot_files || exit
