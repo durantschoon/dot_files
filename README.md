@@ -220,6 +220,10 @@ The same Compose setup works under WSL with Docker Desktop's WSL integration
 or a Docker Engine in WSL. `make setup-guix-container` selects Docker's
 `default` context on WSL; on macOS it selects OrbStack's `orbstack` context.
 In either environment, `orb-guix` enters the same `guix-dev` container.
+Compose mounts `${HOME}/.ssh` read-only at `/root/.ssh`, so Git SSH remotes
+use the host identities and SSH config. Add host keys on the Mac/WSL side
+(`ssh-keyscan github.com >> ~/.ssh/known_hosts`) before cloning when needed;
+the container cannot write back to the read-only mount.
 
 #### Option B: Native Setup (Without Guix)
 

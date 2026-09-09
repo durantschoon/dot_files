@@ -10,6 +10,7 @@ services:
       LANG: C.utf8
       LC_ALL: C.utf8
       GUIX_LOCPATH: /root/.guix-profile/lib/locale
+      SSH_AUTH_SOCK: /agent.sock
     # Guix sets personality when spawning builders. Docker's default filter
     # rejects it even when a profile only links packages already in the store.
     security_opt:
@@ -21,6 +22,10 @@ services:
       - guix-var:/var/guix
       - guix-home:/root
       - .:/root/dot_files
+      # Pass the host's SSH identities and host configuration through for Git
+      # remotes. Read-only prevents the container from changing host keys.
+      - ${HOME}/.ssh:/root/.ssh:ro
+      - /run/host-services/ssh-auth.sock:/agent.sock
 volumes:
   guix-store:
     external: true
