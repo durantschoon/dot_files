@@ -7,6 +7,39 @@ log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') $*"
 }
 
+# Force-hydrate a possibly-dataless Proton Drive file and echo its contents.
+#
+# Proton Drive (like iCloud) can leave a synced file as a metadata-only
+# placeholder whose reads return empty until the FileProvider downloads it on
+# demand. Reading the file is what triggers materialization, so retry a few
+# times to give the download a chance to complete before giving up. Returns
+# non-zero (and echoes nothing) if the file is still empty after retries.
+read_hydrated() {
+    local file="$1" content i
+    for i in 1 2 3 4 5; do
+        content="$(cat "$file" 2>/dev/null)"
+        if [[ -n "$content" ]]; then
+            printf '%s' "$content"
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+# Lightweight YAML sanity check. Prints nothing and returns 0 when the file
+# parses cleanly; prints the parser's error and returns non-zero otherwise.
+# Uses the system Ruby, which is always present and independent of the user's
+# PATH (important under launchd); passes silently if no parser is available.
+validate_yaml() {
+    local file="$1"
+    if [[ -x /usr/bin/ruby ]]; then
+        /usr/bin/ruby -ryaml -e 'begin; YAML.load_file(ARGV[0]); rescue => e; STDERR.puts e.message; exit 1; end' "$file" 2>&1
+        return $?
+    fi
+    return 0
+}
+
 # Proton-backed Espanso config path.
 #
 # The CloudStorage mount is named ProtonDrive-<account address>-folder, so it
@@ -77,12 +110,25 @@ fi
 
 # 5. Ensure Espanso is running
 if ! pgrep -x espanso >/dev/null 2>&1; then
-    if [[ -z "$(head "$HOME/.espanso_config_link/match/base.yml" 2>/dev/null)" ]]; then
-        log "Config link base.yml not ready yet"
-    else
-        log "Launching Espanso"
-        open -a "$ESPANSO_APP"
+    config_link_base="$HOME/.espanso_config_link/match/base.yml"
+
+    # Force-hydrate the config before trusting the readiness check: a dataless
+    # Proton placeholder reads as empty and would otherwise block startup forever.
+    if ! read_hydrated "$config_link_base" >/dev/null; then
+        log "Config link base.yml not ready yet (empty or dataless placeholder)"
+        exit 0
     fi
+
+    # Catch a bad edit early: a YAML error makes espanso silently skip the whole
+    # match group (0 matches). Warn loudly but still launch so any other valid
+    # configs continue to load.
+    if ! yaml_error="$(validate_yaml "$config_link_base")"; then
+        log "WARNING: base.yml has invalid YAML; espanso will skip it (0 matches from it):"
+        log "  ${yaml_error}"
+    fi
+
+    log "Launching Espanso"
+    open -a "$ESPANSO_APP"
 else
     log "Espanso already running"
 fi
