@@ -129,19 +129,19 @@ watchf() {
 # Enter the persistent Guix container hosted by OrbStack using profile paths.
 guix-container-shell() {
     local requested_shell="${1:-zsh}"
-    local docker_context=""
-    [[ "$(uname -s)" == Darwin ]] && docker_context="--context orbstack"
+    local -a docker_context=()
+    [[ "$(uname -s)" == Darwin ]] && docker_context=(--context orbstack)
 
-    if ! docker $docker_context container inspect guix-dev >/dev/null 2>&1; then
-        echo "guix-dev does not exist; run make setup-guix-container in ~/dot_files." >&2
+    if ! docker "${docker_context[@]}" container inspect guix-dev >/dev/null; then
+        echo "Cannot inspect guix-dev; see Docker's error above. If missing, run make setup-guix-container in ~/dot_files." >&2
         return 1
     fi
 
-    if [[ "$(docker $docker_context container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
-        docker $docker_context start guix-dev >/dev/null || return
+    if [[ "$(docker "${docker_context[@]}" container inspect -f '{{.State.Running}}' guix-dev)" != true ]]; then
+        docker "${docker_context[@]}" start guix-dev >/dev/null || return
     fi
 
-    docker $docker_context exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
+    docker "${docker_context[@]}" exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
         GUIX_PROFILE=/root/.guix-profile
         export GUIX_PROFILE
         [ ! -f "$GUIX_PROFILE/etc/profile" ] || . "$GUIX_PROFILE/etc/profile"
