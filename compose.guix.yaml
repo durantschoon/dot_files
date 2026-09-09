@@ -1,6 +1,7 @@
 name: dotfiles-guix
 services:
   guix:
+    platform: linux/amd64
     image: metacall/guix@sha256:e028ebad915a2ff1e4b91680444600dd6712214cf2c7cb0bcb6ebd5fe8891afe
     container_name: guix-dev
     restart: unless-stopped
@@ -10,6 +11,7 @@ services:
       LANG: C.utf8
       LC_ALL: C.utf8
       GUIX_LOCPATH: /root/.guix-profile/lib/locale
+      XDG_RUNTIME_DIR: /tmp/xdg-runtime-root
     # Guix sets personality when spawning builders. Docker's default filter
     # rejects it even when a profile only links packages already in the store.
     security_opt:
