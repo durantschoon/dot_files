@@ -188,6 +188,7 @@ help:
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
+	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
 	@echo "  make emacs-unserve - Stop the Emacs daemon"
@@ -912,7 +913,7 @@ else
 	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container
+.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key
 
 # The external store/database volumes must be restored together when moving
 # machines. Compose deliberately refuses to silently replace a missing store.
@@ -921,6 +922,11 @@ setup-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml up -d
 	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh curl openssh guile nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
 	 $(MAKE) check-guix-container
+
+# Create a key that belongs only to the persistent Guix container volume.  The
+# private key never comes from the host and is never checked into this repo.
+setup-guix-github-key: setup-guix-container
+	 $(GUIX_DOCKER) exec -it guix-dev /root/dot_files/build-aux/setup-guix-github-key.sh
 
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps

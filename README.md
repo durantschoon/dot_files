@@ -216,21 +216,26 @@ System sessions continue to use Guix's normal graft behavior.
 Guix Home configuration is a separate step inside the container (`make apply`)
 and requires access to the private Claude submodule.
 
+The container does not mount the host's `~/.ssh` and does not inherit host
+private keys. To create a dedicated key stored in the persistent `guix-dev-home`
+volume, run:
+
+```sh
+make setup-guix-github-key
+```
+
+Add the printed public key under GitHub Settings → SSH keys, then test it from
+the container with `docker --context orbstack exec guix-dev ssh -T git@github.com`.
+The key is named `github_orbstack_guix`, is used only for `github.com`, and is
+never written to this repository. On WSL, omit `--context orbstack` from the
+test command (or use the context selected by `GUIX_DOCKER_CONTEXT`).
+
 The same Compose setup works under WSL with Docker Desktop's WSL integration
 or a Docker Engine in WSL. `make setup-guix-container` selects Docker's
 `default` context on WSL; on macOS it selects OrbStack's `orbstack` context.
 In either environment, `orb-guix` enters the same `guix-dev` container.
-Compose mounts `${HOME}/.ssh` read-only at `/root/.ssh`, so Git SSH remotes
-use the host identities and SSH config. Add host keys on the Mac/WSL side
-(`ssh-keyscan github.com >> ~/.ssh/known_hosts`) before cloning when needed;
-the container cannot write back to the read-only mount.
-For repeated operations with a passphrase-protected key, start a container-local
-agent in the `orb-guix` shell:
-
-```sh
-eval "$(ssh-agent -a /tmp/guix-ssh-agent.sock -s)"
-ssh-add ~/.ssh/id_ed25519_ds
-```
+Run `ssh-keyscan github.com >> /root/.ssh/known_hosts` inside the container
+after verifying GitHub's published host fingerprint if `known_hosts` is absent.
 
 #### Option B: Native Setup (Without Guix)
 

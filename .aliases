@@ -146,9 +146,6 @@ guix-container-shell() {
     docker "${docker_context[@]}" exec -it -e GUIX_ENTRY_SHELL="$requested_shell" guix-dev sh -lc '
         GUIX_PROFILE=/root/.guix-profile
         export GUIX_PROFILE
-        # Keep the agent socket in writable container storage; ~/.ssh is a
-        # read-only mount of host identities.
-        export SSH_AUTH_SOCK=/tmp/guix-ssh-agent.sock
         [ ! -f "$GUIX_PROFILE/etc/profile" ] || . "$GUIX_PROFILE/etc/profile"
         [ ! -f /root/.guix-home/setup-environment ] || . /root/.guix-home/setup-environment
         cd /root/dot_files || exit
