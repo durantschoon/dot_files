@@ -78,7 +78,6 @@ matches:
     replace: "November"
   - trigger: "Dxx"
     replace: "December"
-
   - trigger: ttime
     replace: '%1I:%M %p'
   - trigger: ddate
@@ -94,55 +93,25 @@ matches:
     replace: <a href="" target="_blank"></a>
   - trigger: namexx
     replace: durantschoon
+  - trigger: "namexx"
+    replace: durantschoon
   - trigger: npxx
     replace: No problem!
   - trigger: ywxx
     replace: You're welcome!
-  # - trigger: mtgctx
-  #   replace: 'Could the meeting owner provide an agenda, and more context about this
-  #     meeting? Specifically: What outcome would make this meeting a success, and how
-  #     are participants expected to contribute to that outcome? I just want to make
-  #     sure I can contribute before I accept this invitation.'
   - trigger: 2jsxx
     replace: "// -*- mode: js2; js2-basic-offset: 2; -*-\n\n"
   - trigger: webixx
     replace: "<!-- mode: web; web-mode-markup-indent-offset: 2; -->"
-  # - trigger: 1pmNxx
-  #   replace: 'I put %filltext:name=NumberLunches:default=2:width=2% lunches in the
-  #     fridge today if anyone is looking for them. Please write SAVE on them if you
-  #     want them. Otherwise it''s open season (after 5PM?) and someone should take
-  #     them. '
-  # - trigger: 1pm1xx
-  #   replace: 'I put one lunch in the fridge today if you''re looking for it. Please
-  #     write SAVE on it if you want it. Otherwise it''s open season (after 5PM?) and
-  #     someone should take it. '
-  # - trigger: vrdrivexx
-  #   replace: "Hey %filltext:name=Student%! Do you think you\u2019d be able to upload\
-  #     \ your project to a google drive or dropbox folder and send me the link? Or\
-  #     \ you could zip it up and send it to me here in slack.\n\nCurrently, for our\
-  #     \ project submissions, it\u2019s best to submit a README.md or README.txt file\
-  #     \ containing the link to this external resource. If you do it this way (or send\
-  #     \ me a zip in slack), just write that up in the notes for your project submission.\n\
-  #     \nWe have a pinned item in #vrnd-beta-testers with this info: \n\nFor anyone\
-  #     \ submitting a project, we found the magic that allows you to send us an \u201C\
-  #     empty\u201D submission. If you send us a markdown file, like one named \u201C\
-  #     README.md\u201D, that will work (you can even put the link to your file in that\
-  #     \ markdown file, but don\u2019t need to). I updated the submission instructions\
-  #     \ for the first project.\n"
   - trigger: dbxx
     replace: a Google Drive or DropBox folder
+  - trigger: csharpxx
+    replace: '```csharp
+
+
+      ```'
   - trigger: i18n
     replace: internationalization
-  # - trigger: 1v1m
-  #   replace: "Hi {STUDENT},\n\nWere you able to get help with your project submission?\
-  #     \ Unfortunately the reviewers are not able to help you resolve these problems,\
-  #     \ but we do have people who can! You can get live help with a 1-on-1 appointment\
-  #     \ (once a week for half an hour if you need it). A mentor can look at your project\
-  #     \ with you and help you take your next steps so you can submit a complete project.\
-  #     \ I will include a screenshot of where you can make this appointment from the\
-  #     \ classroom. The direct link to make an appointment is: https://calendly.com/vrnd-1-1\n\
-  #     \nPlease let me know if I can help you set up that appointment. \n\nBest,\n\
-  #     Durant\n"
   - trigger: chxx
     replace: "\u2705 "
   - trigger: xxx
@@ -193,6 +162,8 @@ matches:
     replace: "#raspberry_\U0001D6D1"
   - trigger: tpxx
     replace: "Turing \U0001D6D1"
+  - trigger: degxx
+    replace: "\xB0"
   - trigger: rfwxx
     replace: robotframework
   - trigger: _xx
@@ -214,6 +185,8 @@ matches:
     replace: import sys; sys.exit()
   - trigger: cbbxx
     replace: could be better
+  - trigger: 4oxx
+    replace: ChatGPT-4o
   - trigger: clxx
     replace: "\u23F0"
   - trigger: gptxx
@@ -224,6 +197,8 @@ matches:
     replace: "\u2753"
   - trigger: pooxx
     replace: "\U0001F4A9"
+  - trigger: o1xx
+    replace: ChatGPT-o1
   - trigger: nuxx
     replace: NOT-USED-
   - trigger: tdwxx
@@ -237,6 +212,30 @@ matches:
   - trigger: mcxx
     # more context
     replace: "Ignorable for most situations, but here's more context:"
+  - trigger: unixx
+    replace: University
+  - trigger: gpu_hidexx
+    replace: |
+      if (window.location.href.includes("microcenter.com/search/search_results")) { 
+        const liElements = document.querySelectorAll('li[id^="pwrapper_"]');
+        liElements.forEach(li => {
+            if (li.textContent.includes('SOLD OUT')) {
+                li.style.display = 'none';
+            }
+        });
+      }
+  - trigger: gpu_showxx
+    replace: |
+      if (window.location.href.includes("microcenter.com/search/search_results")) {
+        const liElements = document.querySelectorAll('li[id^="pwrapper_"]');
+        liElements.forEach(li => {
+          li.style.display = 'block';
+        });
+      }
+  - trigger: folxx
+    replace: Future of Life
+  - trigger: folxx
+    replace: Future of Life Institute
   - trigger: "wkxx"
     replace: Give me my weekly update for the week beginning Sunday, {{most_recent_sunday}}.
     vars:
@@ -260,6 +259,10 @@ matches:
         format: "%B %d, %Y"
   - trigger: "degxx"
     replace: "°"
+  - trigger: "pkxx"
+    replace: "Personal Knowledge"
+  - trigger: "pkmxx"
+    replace: "Personal Knowledge Management"
   # The zsh global alias for 2>&1, defined in .aliases -- merges stderr into
   # stdout.  It has to be typed with the real arrow: `err->out' parses as a
   # redirection and `err-\>out' is a quoted word, which zsh will not
@@ -269,7 +272,3 @@ matches:
   # trigger for the same character.
   - trigger: "e2oxx"
     replace: "err→out"
-  - trigger: "pkxx"
-    replace: "Personal Knowledge"
-  - trigger: "pkmxx"
-    replace: "Personal Knowledge Management"
