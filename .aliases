@@ -965,3 +965,25 @@ alias glo='git log --oneline --decorate'
 alias dglo='git log-compact'
 alias dglog='git log-compact --graph'
 alias dgloga='git log-compact --graph --all'
+
+# -----------------------------------------------------------------------------
+# Remote Access (School / Web Shell)
+# -----------------------------------------------------------------------------
+
+school-shell-start() {
+  echo "Starting ttyd on 127.0.0.1:7681 (tmux session: 'school')..."
+  ttyd -W -i 127.0.0.1 -p 7681 tmux new-session -A -s school &
+  local ttyd_pid=$!
+
+  cleanup() {
+    echo -e "\nShutting down remote school shell..."
+    kill "$ttyd_pid" 2>/dev/null
+    wait "$ttyd_pid" 2>/dev/null
+  }
+  trap cleanup INT TERM EXIT
+
+  echo "Starting Cloudflare Tunnel 'home-shell'..."
+  cloudflared tunnel run home-shell
+}
+alias school-shell='school-shell-start'
+
