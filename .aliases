@@ -972,7 +972,9 @@ alias dgloga='git log-compact --graph --all'
 
 school-shell-start() {
   echo "Starting ttyd on 127.0.0.1:7681 (tmux session: 'school')..."
-  ttyd -W -i 127.0.0.1 -p 7681 tmux new-session -A -s school &
+  # Credential is user:password for ttyd basic-auth; kept out of this PUBLIC
+  # repo. Set SCHOOL_SHELL_CRED in ~/.secrets.env (see .secrets.env.example).
+  ttyd -c "${SCHOOL_SHELL_CRED:?set SCHOOL_SHELL_CRED in ~/.secrets.env (see .secrets.env.example)}" -W -i 127.0.0.1 -p 7681 tmux new-session -A -s school &
   local ttyd_pid=$!
 
   cleanup() {

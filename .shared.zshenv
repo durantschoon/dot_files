@@ -14,6 +14,30 @@ else
     RPROMPT="%{$fg[green]%}[(!%h) %* on %D]%{$reset_color%}"
 fi
 ###############################################################################
+# Secrets (untracked) + required-variable check
+#
+# This repo is PUBLIC, so credentials never live in it.  Real values live in
+# ~/.secrets.env, which is not tracked (see .secrets.env.example for the
+# template and .gitignore for the exclusion).  Sourced here, before anything
+# that might need a secret, for every shell.
+[[ -f ~/.secrets.env ]] && source ~/.secrets.env
+
+# Warn -- interactively only, so scripts are not spammed -- about any required
+# secret that is unset.  The required set is exactly the `export VAR=' names in
+# the tracked template, so adding a line there automatically arms the check.
+if [[ -o interactive ]]; then
+    _secrets_template="${HOME}/dot_files/.secrets.env.example"
+    if [[ -r "$_secrets_template" ]]; then
+        _missing_secrets=()
+        for _var in ${(f)"$(sed -nE 's/^[[:space:]]*export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' "$_secrets_template")"}; do
+            [[ -z "${(P)_var}" ]] && _missing_secrets+=("$_var")
+        done
+        (( ${#_missing_secrets} )) && print -P "%F{yellow}⚠ unset secrets:%f ${_missing_secrets[*]} %F{yellow}— set them in ~/.secrets.env (see .secrets.env.example)%f" >&2
+        unset _secrets_template _missing_secrets _var
+    fi
+fi
+
+###############################################################################
 # Paths
 
 # unique paths

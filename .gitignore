@@ -16,3 +16,8 @@ espanso/match/private.yml
 # Claude Code per-machine permission approvals (accumulates as prompts are
 # approved; /gnu/store paths in it are generation-specific anyway)
 .claude/settings.local.json
+
+# Local secrets. Real values live in ~/.secrets.env (untracked); the tracked
+# template documenting required names is .secrets.env.example. This entry is a
+# safety net in case a .secrets.env is ever created inside the repo dir.
+.secrets.env
