@@ -93,8 +93,6 @@ matches:
     replace: <a href="" target="_blank"></a>
   - trigger: namexx
     replace: durantschoon
-  - trigger: "namexx"
-    replace: durantschoon
   - trigger: npxx
     replace: No problem!
   - trigger: ywxx
@@ -162,8 +160,6 @@ matches:
     replace: "#raspberry_\U0001D6D1"
   - trigger: tpxx
     replace: "Turing \U0001D6D1"
-  - trigger: degxx
-    replace: "\xB0"
   - trigger: rfwxx
     replace: robotframework
   - trigger: _xx
@@ -232,8 +228,6 @@ matches:
           li.style.display = 'block';
         });
       }
-  - trigger: folxx
-    replace: Future of Life
   - trigger: folxx
     replace: Future of Life Institute
   - trigger: "wkxx"
