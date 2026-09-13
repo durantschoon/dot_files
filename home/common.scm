@@ -426,7 +426,8 @@ installed either way."
     "xdg-utils"
     ;; gpg CLI, matching the gpg-agent the gpg-ssh-agent layer runs
     "gnupg"
-    "perl"))
+    "perl"
+    "tree"))
 
 ;; Wayland-session-only packages (make add-pkg PKG=<spec> WAYLAND_ONLY=1).
 (define %wayland-packages
