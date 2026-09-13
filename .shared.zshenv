@@ -82,3 +82,6 @@ add_to_front_of_path "$PNPM_HOME"
 
 # command-line fuzzy finder ... should get this on all systems
 [ -f /usr/local/bin/fzf ] && eval "$(/usr/local/bin/fzf --zsh)"
+
+# pixi is for ros2 on macos
+add_to_front_of_path "/Users/durant/.pixi/bin:$PATH"
