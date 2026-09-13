@@ -23,6 +23,8 @@ services:
       - guix-var:/var/guix
       - guix-home:/root
       - .:/root/dot_files
+      - ~/Repos:/root/Repos
+      - ~/lim_docs:/root/lim_docs
 volumes:
   guix-store:
     external: true
