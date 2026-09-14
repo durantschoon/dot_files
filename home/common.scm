@@ -440,6 +440,9 @@ installed either way."
     ;; piping between a terminal and GUI apps, and required by EWM, which
     ;; shells out to it for clipboard integration.
     "wl-clipboard"
+    ;; Permit explicitly authorized rootless containers to display GUI apps
+    ;; through the GNOME session's XWayland server.
+    "xhost"
     ;; emacs-guix: M-x guix, the Emacs front-end for Guix itself.  Wayland
     ;; session because that IS the Guix System box; the foreign session's
     ;; hosts have no local guix daemon to drive.  From Guix and NOT from
