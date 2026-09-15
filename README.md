@@ -336,7 +336,22 @@ job-logs build -l                    # every log file for a task, newest first
 
 Knobs: `JOB_DOCKER_IMAGE` (default image), `JOB_DOCKER_ARGS` (zsh array of
 extra `docker run` flags, e.g. `-e FOO=1`), `JOB_LAUNCHD_PREFIX` (default
-`local.job`).
+`local.job`), and `JOB_CONTAINER_CLI` — the container CLI the `docker-*` verbs
+drive, defaulting to `docker` if it is on `PATH`, else `podman`, else nothing
+(the verbs then fail naming the value they tried). The verb names do not change
+with it: `docker-run` means "the container runner", and keeping the names fixed
+is what lets a task move between runners without renaming its logs.
+
+Podman caveat: rootless Podman has no daemon, so `--restart` only applies while
+a `podman` process is supervising the container and does **not** survive a
+reboot. Enable `podman-restart.service` or write a Quadlet unit if you need a
+job back after a restart.
+
+`make check-jobs` runs the end-to-end test in
+[`tests/jobs/smoke.zsh`](./tests/jobs/smoke.zsh). It is deliberately not part
+of `make check`: it starts two tmux servers, a container and a launchd agent
+(all inside a scratch `$TMPDIR` its exit trap removes), while everything in
+`make check` only reads files.
 
 ### Across machines (phone → Mac)
 
@@ -349,9 +364,24 @@ that name identifies one session wherever it runs: `tmux-go claude` attaches to
 first); `JOB_HOST` is where a *new* session goes when `--on HOST` is not given
 (default `local`). A host that is this machine, or that `tailscale status`
 reports offline, is skipped — so one `JOB_HOSTS` can be checked in and used
-from every device. Remotely the repo is assumed at the same path relative to
-`$HOME`; `tmux-new` falls back to the remote home if it is not there. Only
-`tmux-*` is host-aware: `launchd-*` and `docker-*` act on this machine.
+from every device. Without the `tailscale` CLI nothing can tell which hosts are
+asleep, so filtering is off and every unreachable host costs the ssh connect
+timeout; you get one warning per shell saying so, rather than silence and a
+slow prompt. Only `tmux-*` is host-aware: `launchd-*` and `docker-*` act on
+this machine, and `job-ls` labels those two `(this machine)`.
+
+Two things fail loudly rather than guessing:
+
+- **The repo must be at the same path relative to `$HOME` on both ends.** Before
+  creating anything, `tmux-new` and `tmux-run` check that `$HOME/<that path>`
+  exists on the target host and stop with the expected path if it does not.
+  (tmux does not error on a missing `-c` directory — it just starts the pane in
+  `$HOME` — so without the check a session silently appears in the wrong place.)
+  A repo root that is not under `$HOME` at all has no such relative path, and is
+  refused for the same reason.
+- **`--on HOST` is never overridden.** If the session already lives on another
+  host, `tmux-new`, `tmux-go` and `tmux-run` stop and name both hosts. Drop
+  `--on` to follow the session wherever it is — that is the default.
 
 ```sh
 export JOB_HOSTS=(mac)               # in ~/.zshrc on the phone
@@ -379,11 +409,15 @@ echo 'source ~/dot_files/.jobs.zsh' >> ~/.zshrc
 Host mac
     HostName mac.tailnet-name.ts.net
     User durant
-    ControlMaster auto
-    ControlPath ~/.ssh/cm-%r@%h:%p
-    ControlPersist 10m
 ```
 
-The `Control*` lines make list-then-attach reuse one TCP+auth connection, so
-`tmux-ls` followed by `tmux-go` costs one handshake instead of two. On the Mac:
-System Settings → General → Sharing → **Remote Login** on.
+Connection reuse is built into `.jobs.zsh` — no `Control*` lines needed. Every
+ssh it runs, the interactive attach included, passes
+`ControlMaster=auto`, `ControlPath ~/.ssh/job-cm-%C` and `ControlPersist=10m`,
+so `tmux-ls` followed by `tmux-go` costs one TCP+auth handshake instead of two
+or three. `%C` is a hash rather than `%r@%h:%p` on purpose: a Unix socket path
+is capped at 104 bytes and Termux's `$HOME` already spends 32 of them. The
+options are computed when the file is sourced and omitted entirely when
+`~/.ssh` does not exist, since ssh will not create `ControlPath`'s directory.
+
+On the Mac: System Settings → General → Sharing → **Remote Login** on.

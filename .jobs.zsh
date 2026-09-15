@@ -159,11 +159,13 @@ _job_parse_run() {
   (( $#_job_run_cmd )) || { print -u2 "$caller: no command given"; print -u2 "$usage"; return 64; }
 }
 
-# Everything this repo has on every runner.
+# Everything this repo has on every runner.  Only tmux is surveyed across
+# hosts; the other two headers say "this machine" so the output cannot be read
+# as a claim about the whole tailnet.
 job-ls() {
   print -P "%B# tmux%b  (hosts: ${(j:, :)$(_job_hosts)})"; tmux-ls
-  print -P "\n%B# launchd%b"; launchd-ls
-  print -P "\n%B# docker%b";  docker-ls
+  print -P "\n%B# launchd (this machine)%b"; launchd-ls
+  print -P "\n%B# docker (this machine)%b";  docker-ls
 }
 
 # Where does TASK currently live? One line per runner.
@@ -187,11 +189,45 @@ job-status() {
 # Only tmux is host-aware for now; launchd-* and docker-* act on this machine.
 (( ${+JOB_HOSTS} )) || typeset -ga JOB_HOSTS=(minius)
 : ${JOB_HOST:=local}
-typeset -ga _JOB_SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=3 -o LogLevel=ERROR)
+typeset -g _JOB_SSH_CONNECT_TIMEOUT=3
+# Connection reuse, shared by every ssh this file runs: one master per
+# (local host, remote host, port, user), so `tmux-ls` followed by `tmux-go`
+# costs ONE handshake instead of two or three.  Kept in its own array because
+# the interactive attach wants these options but NOT BatchMode/ConnectTimeout.
+#
+#   %C  a hash of those four fields.  Deliberately not `%r@%h:%p': a Unix
+#       socket path is capped at 104 bytes on macOS, and Termux's $HOME
+#       (/data/data/com.termux/files/home) spends 32 of them before ~/.ssh.
+#
+# Computed once, at source time.  When ~/.ssh does not exist all three options
+# are omitted: ssh does not create ControlPath's parent directory, and a
+# ControlPath that cannot be opened fails the connection outright.
+typeset -g  _JOB_SSH_CONTROL_PATH=""
+typeset -ga _JOB_SSH_CONTROL_OPTS=()
+if [[ -d $HOME/.ssh ]]; then
+  _JOB_SSH_CONTROL_PATH=$HOME/.ssh/job-cm-%C
+  _JOB_SSH_CONTROL_OPTS=(-o ControlMaster=auto -o ControlPath="$_JOB_SSH_CONTROL_PATH" -o ControlPersist=10m)
+fi
+typeset -ga _JOB_SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=$_JOB_SSH_CONNECT_TIMEOUT
+                           -o LogLevel=ERROR "${_JOB_SSH_CONTROL_OPTS[@]}")
 zmodload zsh/datetime 2>/dev/null
 
 # `tailscale status` output, cached for 10s (several helpers ask per command).
+#
+# Without the CLI nothing can say which of JOB_HOSTS are asleep, so every one
+# of them is probed over ssh and each unreachable one costs the connect
+# timeout.  That is a real cost on a phone, and it used to be paid in silence:
+# say so once per shell rather than swallowing a command-not-found.
 _job_ts_status() {
+  if ! command -v tailscale >/dev/null 2>&1; then
+    if (( ! ${_job_ts_warned:-0} )); then
+      typeset -g _job_ts_warned=1
+      print -u2 "job: tailscale is not on PATH -- offline-host filtering is disabled;" \
+                "each unreachable host in JOB_HOSTS now costs the ssh connect timeout" \
+                "(${_JOB_SSH_CONNECT_TIMEOUT}s) on every lookup. (warned once per shell)"
+    fi
+    return 0
+  fi
   if (( EPOCHSECONDS - ${_job_ts_at:-0} > 10 )); then
     typeset -g _job_ts_out=$(tailscale status 2>/dev/null) _job_ts_at=$EPOCHSECONDS
   fi
@@ -208,7 +244,14 @@ _job_host_offline() {
   _job_ts_status | awk -v h="${1:l}" 'NR > 1 && tolower($2) == h && /offline/ { f = 1 } END { exit !f }'
 }
 # Hosts worth asking: local first, then reachable JOB_HOSTS.
+#
+# The first line primes the cache -- and, with no tailscale, emits the warning
+# -- in THIS shell. The checks below reach _job_ts_status only through `$( )`
+# and pipelines, i.e. from subshells, whose assignments to the cache and to the
+# warned-once guard are discarded on return; doing it once here is what makes
+# either of them stick for the length of a call.
 _job_hosts() {
+  _job_ts_status >/dev/null
   print -r -- local
   local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || print -r -- "$h"; done
 }
@@ -223,15 +266,37 @@ _job_sh() {
   if [[ $host == local ]]; then sh -c "$*"; else ssh "${_JOB_SSH_OPTS[@]}" "$host" "$*"; fi
 }
 # Repo root relative to $HOME, the path assumed for the same checkout elsewhere.
-_job_rel_root() { local root; root=$(job-root); print -r -- "${root#$HOME/}"; }
+# A root outside $HOME has no such relative form: `${root#$HOME/}' would leave
+# the path absolute, the remote `cd "$HOME/<that>"' would fail, and the session
+# would quietly start somewhere else.  Refuse instead of guessing.
+_job_rel_root() {
+  local root; root=$(job-root)
+  if [[ $root != $HOME/* ]]; then
+    print -u2 "job: repo root '$root' is not under \$HOME ($HOME), so the path of the same checkout on another host cannot be derived"
+    return 1
+  fi
+  print -r -- "${root#$HOME/}"
+}
+# Does HOST hold this checkout at $HOME/REL?  Asked BEFORE anything is created:
+# tmux 3.7c does not fail `new-session -c <missing dir>' (measured in stage 04,
+# rc=0 with the pane in $HOME), so a missing remote root is otherwise invisible.
+# The remote expands $HOME itself, so the message can name the real path.
+_job_remote_root_ok() {
+  local host=$1 rel=$2 rpath caller=${funcstack[2]:-job}
+  rpath=$(_job_sh "$host" "printf '%s\n' \"\$HOME/$rel\"; test -d \"\$HOME/$rel\"") && return 0
+  print -u2 "$caller: $host has no directory '${rpath:-\$HOME/$rel}' -- the same checkout must exist there; creating nothing"
+  return 1
+}
 # Interactive attach on HOST. -d detaches other clients so the window fits this screen.
+# Carries the same ControlPath as _JOB_SSH_OPTS, so the list that found the
+# session and this attach share one connection.
 _job_tmux_attach() {
   local host=$1 name=$2
   if [[ $host == local ]]; then
     if [[ -n $TMUX ]]; then tmux switch-client -t "=$name"; else tmux attach-session -d -t "=$name"; fi
   else
     [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the remote one)"
-    ssh -t -o LogLevel=ERROR "$host" "tmux attach-session -d -t ${(qq):-=$name}"
+    ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session -d -t ${(qq):-=$name}"
   fi
 }
 # Relative time from an epoch.
@@ -287,18 +352,35 @@ _tmux_args() {
   done
 }
 
+# An explicit --on that disagrees with where the session already lives is a
+# contradiction, not a preference to be dropped: the caller named a host and
+# would otherwise be sent elsewhere without being told.  Fails when they
+# disagree; silent when --on was not given (following the session is the point).
+_tmux_check_on() {
+  local caller=$1 name=$2 want=$3 have=$4
+  [[ -z $want || $want == $have ]] && return 0
+  print -u2 "$caller: session '$name' lives on $have, but --on says $want; refusing (drop --on to follow the session, or use a different task name)"
+  return 1
+}
+
 # tmux-new [TASK] [--on HOST]: create a detached session rooted at the repo.
-# No-op if the name exists on any host (one namespace). Remotely, the repo is
-# assumed at the same path relative to $HOME; falls back to the home directory.
+# No-op if the name exists on any host (one namespace). Remotely, the repo must
+# already exist at the same path relative to $HOME, and is checked before
+# anything is created.
 tmux-new() {
   _tmux_args "$@" || return
-  local name host; name=$(job-name "$_tmux_arg_task") || return
-  if host=$(_tmux_where "$name"); then print -u2 "tmux-new: session '$name' already exists on $host"; return 0; fi
+  local name host rel; name=$(job-name "$_tmux_arg_task") || return
+  if host=$(_tmux_where "$name"); then
+    _tmux_check_on tmux-new "$name" "$_tmux_arg_on" "$host" || return 1
+    print -u2 "tmux-new: session '$name' already exists on $host"; return 0
+  fi
   host=${_tmux_arg_on:-$JOB_HOST}
   if [[ $host == local ]]; then
     tmux new-session -d -s "$name" -c "$(job-root)"
   else
-    _job_sh "$host" "cd \"\$HOME/$(_job_rel_root)\" 2>/dev/null || cd; tmux new-session -d -s ${(qq)name}"
+    rel=$(_job_rel_root) || return
+    _job_remote_root_ok "$host" "$rel" || return
+    _job_sh "$host" "cd \"\$HOME/$rel\" && tmux new-session -d -s ${(qq)name}"
   fi && print -u2 "tmux-new: created session '$name' on $host"
 }
 
@@ -307,7 +389,9 @@ tmux-new() {
 tmux-go() {
   _tmux_args "$@" || return
   local name host; name=$(job-name "$_tmux_arg_task") || return
-  if ! host=$(_tmux_where "$name"); then
+  if host=$(_tmux_where "$name"); then
+    _tmux_check_on tmux-go "$name" "$_tmux_arg_on" "$host" || return 1
+  else
     tmux-new "$@" || return
     host=$(_tmux_where "$name") || { print -u2 "tmux-go: cannot find '$name' after creating it"; return 1; }
   fi
@@ -349,9 +433,13 @@ tmux-dash() { tmux-pick --all; }
 # tmux does not supervise.
 tmux-run() {
   _job_parse_run tmux-run "$@" || return
-  local task=$_job_run_task name host
+  local task=$_job_run_task name host rel
   name=$(job-name "$task") || return
-  host=$(_tmux_where "$name") || host=${_job_run_on:-$JOB_HOST}
+  if host=$(_tmux_where "$name"); then
+    _tmux_check_on tmux-run "$name" "$_job_run_on" "$host" || return 1
+  else
+    host=${_job_run_on:-$JOB_HOST}
+  fi
   # Quote each argument for the sh -c tmux uses. Done outside double quotes:
   # inside them zsh would join the array into one word before (qq) applies.
   local quoted_cmd=${(j: :)${(qq)_job_run_cmd}} tmux_bin root tee
@@ -361,8 +449,11 @@ tmux-run() {
     tmux_bin=${(qq):-$(command -v tmux)}; tee=${(qq):-$(_job_tee)} || return; root=${(qq):-$(job-root)}
     cflag=(-c "$(job-root)")
   else
-    # Remote: rely on PATH for tmux/job-tee and on the same path under $HOME.
-    tmux_bin=tmux; tee=job-tee; root="\"\$HOME/$(_job_rel_root)\""
+    # Remote: rely on PATH for tmux/job-tee and on the same path under $HOME,
+    # which must already be there -- checked before any window is opened.
+    rel=$(_job_rel_root) || return
+    _job_remote_root_ok "$host" "$rel" || return
+    tmux_bin=tmux; tee=job-tee; root="\"\$HOME/$rel\""
   fi
   # The pane pins remain-on-exit on itself first (targeting $TMUX_PANE, since
   # a -d window is not the session's current window), then runs the job.
@@ -566,12 +657,34 @@ launchd-rm() {
 }
 
 # ---------------------------------------------------------------------------
-# Docker: isolated jobs with restart policies (Docker Desktop)
+# Docker: isolated jobs with restart policies (any docker-compatible CLI)
 # ---------------------------------------------------------------------------
+# Caveat for rootless Podman: it has no daemon, so `--restart' is honoured only
+# while a container is supervised by a running podman process -- it does not
+# survive a reboot unless podman-restart.service or a Quadlet unit is enabled.
 
-_docker_guard() { command -v docker >/dev/null 2>&1 || { print -u2 "docker-*: docker not found"; return 1; }; }
-_docker_exists() { docker container inspect "$1" >/dev/null 2>&1; }
-_docker_running() { [[ $(docker container inspect -f '{{.State.Running}}' "$1" 2>/dev/null) == true ]]; }
+# Which container CLI the docker-* verbs drive.  The verb names do NOT change
+# with it: the naming contract is what lets a task move between runners, and
+# `docker-run' means "the container runner" here, not the Docker product.
+# Rootless Podman takes every flag used below with the same meaning.
+# Default: docker if present, else podman, else nothing (the guard then says so).
+if (( ! ${+JOB_CONTAINER_CLI} )); then
+  if   command -v docker >/dev/null 2>&1; then typeset -g JOB_CONTAINER_CLI=docker
+  elif command -v podman >/dev/null 2>&1; then typeset -g JOB_CONTAINER_CLI=podman
+  else                                         typeset -g JOB_CONTAINER_CLI=""
+  fi
+fi
+# The single reader of the knob: every container-CLI invocation goes through it.
+_job_ctr() { command "$JOB_CONTAINER_CLI" "$@"; }
+
+_docker_guard() {
+  [[ -n $JOB_CONTAINER_CLI ]] \
+    || { print -u2 "docker-*: no container CLI found (tried docker, then podman); set JOB_CONTAINER_CLI"; return 1; }
+  command -v -- "$JOB_CONTAINER_CLI" >/dev/null 2>&1 \
+    || { print -u2 "docker-*: container CLI '$JOB_CONTAINER_CLI' is not executable (JOB_CONTAINER_CLI)"; return 1; }
+}
+_docker_exists() { _job_ctr container inspect "$1" >/dev/null 2>&1; }
+_docker_running() { [[ $(_job_ctr container inspect -f '{{.State.Running}}' "$1" 2>/dev/null) == true ]]; }
 _docker_repo_filter() { print -r -- "label=job.repo=$(job-repo)"; }
 
 # docker-run TASK [--image IMG] [--restart no|on-failure|always] [--] CMD...
@@ -597,9 +710,9 @@ docker-run() {
       print -u2 "docker-run: container '$name' is running (docker-status $task); stop it first"; return 1
     fi
     print -u2 "docker-run: replacing exited container '$name'"
-    docker rm "$name" >/dev/null || return
+    _job_ctr rm "$name" >/dev/null || return
   fi
-  docker run -d --init --name "$name" \
+  _job_ctr run -d --init --name "$name" \
     --label "job.repo=$(job-repo)" --label "job.task=$task" --label "job.root=$root" \
     --restart "$policy" \
     -v "$root:/work" -w /work \
@@ -613,7 +726,7 @@ docker-run() {
 # docker-ls: this repo's job containers, running or not.
 docker-ls() {
   _docker_guard || return
-  docker ps -a --filter "$(_docker_repo_filter)" \
+  _job_ctr ps -a --filter "$(_docker_repo_filter)" \
     --format 'table {{.Names}}\t{{.Label "job.task"}}\t{{.Status}}\t{{.Image}}' | tail -n +2
 }
 
@@ -622,7 +735,7 @@ docker-status() {
   _docker_guard || return
   local task name; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
   if ! _docker_exists "$name"; then print "docker:  no container '$name'"; return 1; fi
-  docker container inspect -f \
+  _job_ctr container inspect -f \
     'docker:  container {{.Name}} {{.State.Status}}{{if .State.Running}} (pid {{.State.Pid}}) since {{.State.StartedAt}}{{else}}, exit {{.State.ExitCode}} at {{.State.FinishedAt}}{{end}}
          image {{.Config.Image}}, restart {{.HostConfig.RestartPolicy.Name}}, restarts {{.RestartCount}}' "$name" | sed 's#container /#container #'
 }
@@ -632,7 +745,7 @@ docker-logs() {
   if [[ $1 == --raw || $2 == --raw ]]; then
     _docker_guard || return
     local task name; task=$(_job_task "${${@:#--raw}[1]}") || return; name=$(job-name "$task") || return
-    docker logs -f --tail 40 "$name"
+    _job_ctr logs -f --tail 40 "$name"
   else
     job-logs "$@"
   fi
@@ -644,7 +757,7 @@ docker-stop() {
   local task name; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
   _docker_exists "$name" || { print -u2 "docker-stop: no container '$name'"; return 0; }
   _docker_running "$name" || { print -u2 "docker-stop: '$name' is not running"; return 0; }
-  docker stop "$name" >/dev/null && print -u2 "docker-stop: stopped '$name'"
+  _job_ctr stop "$name" >/dev/null && print -u2 "docker-stop: stopped '$name'"
 }
 
 # docker-start [TASK]: start a stopped container again (same command and mounts).
@@ -653,7 +766,7 @@ docker-start() {
   local task name; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
   _docker_exists "$name" || { print -u2 "docker-start: no container '$name' (docker-run first)"; return 1; }
   _docker_running "$name" && { print -u2 "docker-start: '$name' is already running"; return 0; }
-  docker start "$name" >/dev/null && print -u2 "docker-start: started '$name'"
+  _job_ctr start "$name" >/dev/null && print -u2 "docker-start: started '$name'"
 }
 
 # docker-rm [TASK|--all]: stop (gracefully) and remove the container(s).
@@ -661,22 +774,22 @@ docker-rm() {
   _docker_guard || return
   local -a names
   if [[ $1 == --all ]]; then
-    names=($(docker ps -a --filter "$(_docker_repo_filter)" --format '{{.Names}}'))
+    names=($(_job_ctr ps -a --filter "$(_docker_repo_filter)" --format '{{.Names}}'))
   else
     names=("$(job-name "$1")") || return
   fi
   local n
   for n in "${names[@]}"; do
     _docker_exists "$n" || { print -u2 "docker-rm: no container '$n'"; continue; }
-    _docker_running "$n" && docker stop "$n" >/dev/null
-    docker rm "$n" >/dev/null && print -u2 "docker-rm: removed '$n'"
+    _docker_running "$n" && _job_ctr stop "$n" >/dev/null
+    _job_ctr rm "$n" >/dev/null && print -u2 "docker-rm: removed '$n'"
   done
 }
 
 # docker-clean: remove this repo's exited job containers (running ones untouched).
 docker-clean() {
   _docker_guard || return
-  local -a names; names=($(docker ps -a --filter "$(_docker_repo_filter)" --filter status=exited --format '{{.Names}}'))
+  local -a names; names=($(_job_ctr ps -a --filter "$(_docker_repo_filter)" --filter status=exited --format '{{.Names}}'))
   (( $#names )) || { print -u2 "docker-clean: nothing to clean"; return 0; }
-  docker rm "${names[@]}" >/dev/null && print -u2 "docker-clean: removed ${(j:, :)names}"
+  _job_ctr rm "${names[@]}" >/dev/null && print -u2 "docker-clean: removed ${(j:, :)names}"
 }

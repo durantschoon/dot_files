@@ -15,16 +15,22 @@
 # second tmux server with a second $HOME holding the same checkout at the same
 # path relative to $HOME -- which is the whole premise of the host layer.
 # `tailscale` is shadowed with a fixed status table, `fzf` with a `sed -n Np`,
-# and `_job_tmux_attach` with a printer, so no assertion needs a tty.
+# `podman` with a scratch-dir script that records its argv, and
+# `_job_tmux_attach` with a printer, so no assertion needs a tty.
+#
+# $HOME is a scratch directory, so `$HOME/.ssh` (which decides whether the
+# ControlMaster options exist) is created and removed inside the scratch tree:
+# the developer's real ~/.ssh is never read, listed or written.
 #
 # Everything the run creates carries the per-run token jobsmoke-<pid> (tmux
 # servers under $TMPDIR/jobsmoke-<pid>/, the scratch homes, the scratch repo
-# Repos/Job_Smoke.<pid> whose slug is job-smoke-<pid>, and hence every session,
-# container and launchd label derived from it). The EXIT trap removes all of
-# it, on success and on the first failing assertion alike.
+# Repos/Job_Smoke.<pid> whose slug is job-smoke-<pid>, a second checkout
+# OUTSIDE those homes for the "root not under $HOME" case, and hence every
+# session, container and launchd label derived from them). The EXIT trap
+# removes all of it, on success and on the first failing assertion alike.
 #
 # Real, not simulated: the local tmux binary (on a private server), docker,
-# and launchctl for one assertion.
+# launchctl for one assertion, and `make -n` for the check-jobs wiring.
 
 emulate -L zsh
 setopt no_nomatch
@@ -52,13 +58,17 @@ typeset -g REPO=$HOME_LOCAL/$REPO_REL
 typeset -g REPO_REMOTE=$HOME_REMOTE/$REPO_REL
 typeset -g SLUG=job-smoke-$$              # what _job_slugify makes of the above
 typeset -g FZF_CAPTURE=$BASE/fzf-input.txt
+typeset -g OUTSIDE=$BASE/elsewhere/repo   # a checkout that is NOT under $HOME
+typeset -g OUTSIDE_SLUG=repo              # _job_slugify of the above
+typeset -g CTR_ARGV=$BASE/podman-argv.txt # the fake podman's recorded argv
 
 mkdir -p -- "$REPO" "$REPO_REMOTE" "$TMUX_LOCAL" "$TMUX_REMOTE" "$PATHBIN" \
-            "$HOME_LOCAL/Library/LaunchAgents" || exit 1
+            "$OUTSIDE" "$HOME_LOCAL/Library/LaunchAgents" || exit 1
 
 # The scratch checkouts. Same basename on both sides, so both agree on the slug.
 git init -q -- "$REPO" 2>/dev/null || { print -u2 "smoke: git init failed"; exit 1 }
 git init -q -- "$REPO_REMOTE" 2>/dev/null || { print -u2 "smoke: git init failed"; exit 1 }
+git init -q -- "$OUTSIDE" 2>/dev/null || { print -u2 "smoke: git init failed"; exit 1 }
 
 # A PATH with no fzf on it, for the numbered-menu branch of tmux-pick.
 local b
@@ -66,10 +76,15 @@ for b in tmux docker git; do
   [[ -x ${commands[$b]} ]] && ln -sfn -- "${commands[$b]}" "$PATHBIN/$b"
 done
 
+# The developer's real $HOME, kept only to report what the ControlPath would
+# expand to in daily use ($HOME below is the scratch one). Nothing reads ~/.ssh.
+typeset -g REAL_HOME=$HOME
+
 export HOME=$HOME_LOCAL
 export TMUX_TMPDIR=$TMUX_LOCAL
 export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 export SHELL=/bin/sh                      # deterministic pane shell
+typeset -g FULL_PATH=$PATH
 typeset -g NOFZF_PATH=$WT/bin:$PATHBIN:/usr/bin:/bin:/usr/sbin:/sbin
 unset TMUX TMUX_PANE GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE JOB_DOCKER_ARGS
 unset JOB_LAUNCHD_PREFIX JOB_DOCKER_IMAGE
@@ -116,6 +131,9 @@ fail() {
 eq()  { [[ $2 == $3 ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
 has() { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
 hasnt() { [[ $2 != *$3* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
+starts() { [[ $2 == $3* ]] && ok "$1" || fail "$1" "expected to start with: [$3]" "actual: [$2]" }
+# Non-zero exit, whatever the value: several new paths only promise "not 0".
+nonzero() { (( $2 != 0 )) && ok "$1 (rc=$2)" || fail "$1" "expected a non-zero exit, got 0" "${@:3}" }
 # poll CMD... until it succeeds, up to 10s in 0.5s steps (pane shells are slow).
 waitfor() { local i; for i in {1..20}; do "$@" >/dev/null 2>&1 && return 0; sleep 0.5; done; return 1 }
 
@@ -157,6 +175,16 @@ ssh() {
 # No assertion may need a terminal.
 _job_tmux_attach() { print -r -- "attach $1 $2" }
 fzf() { command tee -- "$FZF_CAPTURE" | command sed -n "${SMOKE_PICK}p" }
+
+# Re-source the file under test and put the shadows back. Sourcing redefines
+# _job_tmux_attach (the only shadow that .jobs.zsh itself owns); `tailscale`,
+# `ssh` and `fzf` are ours alone and survive. Needed wherever an assertion
+# changes something .jobs.zsh reads only at source time -- $HOME/.ssh for the
+# ControlPath options, $PATH for the container CLI.
+smoke_reload() {
+  source "$JOBS_ZSH" || { print -u2 "smoke: re-sourcing $JOBS_ZSH failed"; exit 1 }
+  _job_tmux_attach() { print -r -- "attach $1 $2" }
+}
 
 # Convenience wrappers over the two tmux servers, for independent verification.
 ltmux() { TMUX_TMPDIR=$TMUX_LOCAL  command tmux "$@" }
@@ -211,6 +239,71 @@ eq "2c a second job-init changes nothing" "$(cksum < "$REPO/.gitignore")" "$befo
 
 eq "3  _job_hosts drops self, own \$HOST and offline peers" \
    "$(_job_hosts)" "$(print -l -- local fakehost)"
+
+# --------------------------------------------------------------------------
+# N1. A repo root outside $HOME is refused, loudly  (stage 05 assertion 1)
+# --------------------------------------------------------------------------
+# $HOME/<rel> is the whole premise of the host layer. For a root outside $HOME
+# there is no such <rel>: the old code handed back the ABSOLUTE path and the
+# remote cd silently missed. Nothing may be created on a guess.
+
+cd -- "$OUTSIDE" || exit 1
+typeset -g OUTSIDE_ROOT="$(job-root)" OUTSIDE_NAME="$(job-name x)"
+out=$(_job_rel_root 2>/dev/null); rc=$?
+nonzero "N1a _job_rel_root fails for a root outside \$HOME" "$rc" "printed: [$out]"
+eq "N1a ... and prints nothing on stdout" "$out" ""
+err=$(_job_rel_root 2>&1 >/dev/null)
+has "N1a ... its stderr names \$HOME" "$err" "$HOME"
+has "N1a ... and the offending root" "$err" "$OUTSIDE_ROOT"
+
+out=$(tmux-new x --on fakehost 2>&1); rc=$?
+nonzero "N1b tmux-new from outside \$HOME fails" "$rc" "$out"
+eq "N1b ... no such session on the local server" \
+   "$(ltmux has-session -t "=$OUTSIDE_NAME" 2>/dev/null && print yes)" ""
+eq "N1b ... nor on the remote one" \
+   "$(rtmux has-session -t "=$OUTSIDE_NAME" 2>/dev/null && print yes)" ""
+cd -- "$REPO" || exit 1
+
+# --------------------------------------------------------------------------
+# N5. ssh connection reuse  (stage 05 assertion 5)
+# --------------------------------------------------------------------------
+# The options are computed at source time from $HOME/.ssh, so each half needs
+# its own re-source. The scratch $HOME decides; nothing touches the real ~/.ssh.
+# This leaves them switched ON, so every remote assertion after this point also
+# exercises the ssh shim against the longer flag list.
+
+command rm -rf -- "$HOME/.ssh"
+smoke_reload
+typeset -g SSHOPTS="${(j: :)_JOB_SSH_OPTS}"
+hasnt "N5a no \$HOME/.ssh: _JOB_SSH_OPTS has no ControlMaster"  "$SSHOPTS" "ControlMaster"
+hasnt "N5a ... no ControlPath"                                  "$SSHOPTS" "ControlPath"
+hasnt "N5a ... no ControlPersist"                               "$SSHOPTS" "ControlPersist"
+eq    "N5a ... and the attach carries none either" "$#_JOB_SSH_CONTROL_OPTS" "0"
+has   "N5a ... while the rest of the options stay" "$SSHOPTS" "BatchMode=yes"
+
+mkdir -p -- "$HOME/.ssh"
+smoke_reload
+SSHOPTS="${(j: :)_JOB_SSH_OPTS}"
+has "N5b with \$HOME/.ssh: ControlMaster=auto" "$SSHOPTS" "ControlMaster=auto"
+has "N5b ... ControlPersist=10m"               "$SSHOPTS" "ControlPersist=10m"
+has "N5b ... a ControlPath built on the %C hash" "$SSHOPTS" "ControlPath=$HOME/.ssh/job-cm-%C"
+has "N5b ... and the attach reuses that exact path" \
+    "${(j: :)_JOB_SSH_CONTROL_OPTS}" "ControlPath=$HOME/.ssh/job-cm-%C"
+
+# A Unix socket path is capped at 104 bytes. %C is OpenSSH's hash of
+# %l%h%p%r -- a 40-character SHA-1 hex digest -- so the expanded length is
+# (prefix without the two-character "%C") + 40.
+typeset -g TERMUX_HOME=/data/data/com.termux/files/home
+typeset -g CP_TAIL=/.ssh/job-cm-
+typeset -g CP_LEN=$(( ${#_JOB_SSH_CONTROL_PATH} - 2 + 40 ))
+typeset -g CP_LEN_REAL=$(( ${#REAL_HOME} + ${#CP_TAIL} + 40 ))
+typeset -g CP_LEN_TERMUX=$(( ${#TERMUX_HOME} + ${#CP_TAIL} + 40 ))
+note "Q1 ControlPath template: [$_JOB_SSH_CONTROL_PATH]"
+note "Q1 expanded length: $CP_LEN B here (scratch \$HOME), $CP_LEN_REAL B under the real \$HOME, $CP_LEN_TERMUX B under Termux's. Cap 104."
+(( CP_LEN < 104 && CP_LEN_REAL < 104 && CP_LEN_TERMUX < 104 )) \
+  && ok "N5c every expanded ControlPath fits in 104 bytes" \
+  || fail "N5c a ControlPath would overflow the 104-byte socket cap" \
+          "scratch=$CP_LEN real=$CP_LEN_REAL termux=$CP_LEN_TERMUX"
 
 # --------------------------------------------------------------------------
 # 4. Remote quoting survives one ssh hop (sh, then zsh)
@@ -327,16 +420,69 @@ fi
 waitfor _rclaude_dead || fail "7d the respawned remote claude pane never exited" ""
 
 # --------------------------------------------------------------------------
-# 8. Remote root fallback
+# N3. --on that contradicts where the session lives  (stage 05 assertion 3)
 # --------------------------------------------------------------------------
+# Without --on, following the session is the whole point of the namespace.
+# With it, the caller named a host; overriding that silently is the same class
+# of bug as the silent remote-root fallback.
+
+typeset -g RWIN_BEFORE="$(rtmux list-windows -t "=$SLUG-claude" -F '#W' | wc -l | tr -d ' ')"
+
+out=$(tmux-new claude --on local 2>&1); rc=$?
+eq  "N3a tmux-new claude --on local is refused with 1" "$rc" "1"
+has "N3a ... naming both hosts" "$out" "lives on fakehost, but --on says local"
+eq  "N3a ... and the local server has no such session" \
+    "$(ltmux has-session -t "=$SLUG-claude" 2>/dev/null && print yes)" ""
+
+out=$(tmux-run claude --on local -- true 2>&1); rc=$?
+eq  "N3b tmux-run claude --on local is refused with 1" "$rc" "1"
+has "N3b ... naming both hosts" "$out" "lives on fakehost, but --on says local"
+eq  "N3b ... the remote session gained no window" \
+    "$(rtmux list-windows -t "=$SLUG-claude" -F '#W' | wc -l | tr -d ' ')" "$RWIN_BEFORE"
+eq  "N3b ... and nothing appeared locally" \
+    "$(ltmux has-session -t "=$SLUG-claude" 2>/dev/null && print yes)" ""
+
+out=$(tmux-go claude --on local 2>&1); rc=$?
+eq  "N3c tmux-go claude --on local is refused with 1" "$rc" "1"
+has "N3c ... naming both hosts" "$out" "lives on fakehost, but --on says local"
+
+eq  "N3d tmux-go with no --on still follows the session" \
+    "$(tmux-go claude 2>/dev/null)" "attach fakehost $SLUG-claude"
+
+# --------------------------------------------------------------------------
+# 8. A missing remote root is an error, not a silent fallback
+# --------------------------------------------------------------------------
+# Stage 04's assertion 8 measured the OLD behaviour: the session appeared in
+# the remote $HOME and nothing said so. Stage 05 item 1 replaces it. tmux 3.7c
+# still does not fail on `new-session -c <missing dir>' (see the Q3 note at the
+# end), so the directory has to be checked before tmux is asked for anything.
 
 command mv -- "$REPO_REMOTE" "$REPO_REMOTE.hidden"
+
 out=$(tmux-new nohome --on fakehost 2>&1); rc=$?
+eq  "8a tmux-new exits 1 when the remote checkout is missing" "$rc" "1"
+has "8a ... the message names the expected remote path" "$out" "$REPO_REMOTE"
+eq  "8a ... no session on the remote server" \
+    "$(rtmux has-session -t "=$SLUG-nohome" 2>/dev/null && print yes)" ""
+eq  "8a ... nor on the local one" \
+    "$(ltmux has-session -t "=$SLUG-nohome" 2>/dev/null && print yes)" ""
+
+out=$(tmux-run nohome --on fakehost -- true 2>&1); rc=$?
+eq  "8b tmux-run exits 1 likewise" "$rc" "1"
+has "8b ... the message names the expected remote path" "$out" "$REPO_REMOTE"
+eq  "8b ... no session on the remote server" \
+    "$(rtmux has-session -t "=$SLUG-nohome" 2>/dev/null && print yes)" ""
+eq  "8b ... nor on the local one" \
+    "$(ltmux has-session -t "=$SLUG-nohome" 2>/dev/null && print yes)" ""
+
 command mv -- "$REPO_REMOTE.hidden" "$REPO_REMOTE"
-eq "8  tmux-new falls back to the remote \$HOME" "$rc" "0"
-typeset -g NOHOME_PATH="$(rsess_path "$SLUG-nohome")"
-eq "8  ... #{session_path} is the remote home" "$NOHOME_PATH" "$HOME_REMOTE"
-note "Q-8 #{session_path} of the fallback session: [$NOHOME_PATH]"
+
+out=$(tmux-new nohome --on fakehost 2>&1); rc=$?
+eq "8c with the checkout back, tmux-new succeeds" "$rc" "0"
+eq "8c ... and #{session_path} is the remote checkout, not the remote home" \
+   "$(rsess_path "$SLUG-nohome")" "$REPO_REMOTE"
+out=$(tmux-run nohome --on fakehost -- true 2>&1); rc=$?
+eq "8d ... and tmux-run succeeds too" "$rc" "0"
 
 # --------------------------------------------------------------------------
 # 9. Picker
@@ -407,6 +553,112 @@ docker-rm --all >/dev/null 2>&1
 eq "12c docker-rm --all removes it" \
    "$(docker container inspect "$SLUG-t1" >/dev/null 2>&1 && print yes)" ""
 eq "12c docker-ls prints nothing" "$(docker-ls 2>/dev/null)" ""
+
+# --------------------------------------------------------------------------
+# N6. JOB_CONTAINER_CLI  (stage 05 assertion 6)
+# --------------------------------------------------------------------------
+# (a) is section 12 above: it ran on the default. Assert what that default was
+# rather than assuming it, so a machine without docker reports honestly.
+
+eq "N6a the default CLI is docker while docker is on PATH" "$JOB_CONTAINER_CLI" "docker"
+
+typeset -g CLI_SAVED=$JOB_CONTAINER_CLI
+JOB_CONTAINER_CLI=/nonexistent/ctr
+out=$(docker-ls 2>&1); rc=$?
+nonzero "N6b docker-ls with an unusable JOB_CONTAINER_CLI fails" "$rc" "$out"
+has "N6b ... and the message names the value it tried" "$out" "/nonexistent/ctr"
+JOB_CONTAINER_CLI=$CLI_SAVED
+
+# (c) docker off PATH, a fake podman that records its argv. A script, not a
+# shell function: _job_ctr goes through `command', as it must for a real CLI.
+print -r -- '#!/bin/sh'                                    >  "$PATHBIN/podman"
+print -r -- "printf '%s\\n' \"\$*\" >> ${(qq)CTR_ARGV}"    >> "$PATHBIN/podman"
+chmod +x "$PATHBIN/podman"                 # BSD chmod has no `--'
+command rm -f -- "$PATHBIN/docker"        # the symlink made at start-up
+PATH=$NOFZF_PATH                          # no /usr/local/bin, no /opt/homebrew/bin
+eq "N6c docker really is off this PATH" "$(command -v docker)" ""
+unset JOB_CONTAINER_CLI
+smoke_reload
+eq "N6c sourcing with no docker selects podman" "$JOB_CONTAINER_CLI" "podman"
+command rm -f -- "$CTR_ARGV"
+docker-ls >/dev/null 2>&1
+typeset -g CTR_LINE="$(command head -n 1 -- "$CTR_ARGV" 2>/dev/null)"
+starts "N6c docker-ls drives podman with the expected argv" \
+       "$CTR_LINE" "ps -a --filter label=job.repo=$SLUG"
+
+command rm -f -- "$PATHBIN/podman"
+PATH=$FULL_PATH
+unset JOB_CONTAINER_CLI
+smoke_reload
+eq "N6c ... and with docker back on PATH the default is docker again" \
+   "$JOB_CONTAINER_CLI" "docker"
+
+# --------------------------------------------------------------------------
+# N7. job-ls says which runners are local-only  (stage 05 assertion 7)
+# --------------------------------------------------------------------------
+
+typeset -g JOBLS="$(job-ls 2>&1)"
+has "N7 job-ls labels launchd as this machine only" "$JOBLS" "launchd (this machine)"
+has "N7 job-ls labels docker as this machine only"  "$JOBLS" "docker (this machine)"
+
+# --------------------------------------------------------------------------
+# N8. make check-jobs is wired up, and is NOT part of make check
+# --------------------------------------------------------------------------
+# Dry runs only: `make check-jobs' would re-enter this script, and `make check'
+# reaches out to tailscaled and the container engine. Both are run for real as
+# gates, from the worktree root, outside this file.
+
+typeset -g MK_HELP="$(command make -C "$WT" help 2>&1)"
+has "N8a make help lists check-jobs" "$MK_HELP" "make check-jobs"
+typeset -g MK_JOBS_DRY="$(command make -C "$WT" -n check-jobs 2>&1)"
+has "N8b make check-jobs runs this script" "$MK_JOBS_DRY" "./tests/jobs/smoke.zsh"
+typeset -g MK_CHECK_DRY="$(command make -C "$WT" -n check 2>&1)"
+hasnt "N8c make check does not run it" "$MK_CHECK_DRY" "smoke.zsh"
+
+# --------------------------------------------------------------------------
+# N4. No tailscale: filtering is off, and it says so once  (assertion 4)
+# --------------------------------------------------------------------------
+# Left until last on purpose: without the shadow, _job_hosts stops filtering,
+# and every later lookup would probe the extra hosts through the ssh shim.
+
+unfunction tailscale
+PATH=$NOFZF_PATH                          # $PATHBIN holds tmux/git/docker only
+command rm -f -- "$PATHBIN/tailscale"
+unset _job_ts_warned _job_ts_out _job_ts_at
+eq "N4a tailscale really is off this PATH" "$(command -v tailscale)" ""
+
+typeset -g TS_ERR1=$BASE/ts-err1.txt TS_ERR2=$BASE/ts-err2.txt
+typeset -g TS_FD1=$BASE/ts-out1.txt TS_FD2=$BASE/ts-out2.txt
+# Redirected to files, NOT captured with `$( )': a command substitution is a
+# subshell, and the warned-once guard a subshell sets is thrown away on return.
+# "Once per shell" can only be observed from the shell that owns the variable,
+# which is also the only place a user ever benefits from it.
+_job_hosts >"$TS_FD1" 2>"$TS_ERR1"
+_job_hosts >"$TS_FD2" 2>"$TS_ERR2"
+typeset -g TS_OUT1="$(command cat "$TS_FD1")" TS_OUT2="$(command cat "$TS_FD2")"
+# `sleepy' was the offline peer and `selfnode' this machine's tailnet name:
+# both were tailscale's to know, so both now survive. Only the plain $HOST
+# match still filters, and it needs no CLI.
+eq "N4b _job_hosts now lists everything nothing can filter" \
+   "$TS_OUT1" "$(print -l -- local fakehost sleepy selfnode)"
+eq "N4b ... and a second call agrees" "$TS_OUT2" "$TS_OUT1"
+has "N4c the first call warns that filtering is disabled" \
+    "$(command cat "$TS_ERR1")" "tailscale is not on PATH"
+has "N4c ... and says what each unreachable host now costs" \
+    "$(command cat "$TS_ERR1")" "ssh connect timeout"
+eq "N4c ... exactly one warning in the first call" \
+   "$(command grep -c 'tailscale is not on PATH' "$TS_ERR1")" "1"
+eq "N4d ... and the second call is silent" "$(command cat "$TS_ERR2")" ""
+
+# Put the machine back the way the remaining code expects it.
+PATH=$FULL_PATH
+tailscale() {
+  [[ $1 == status ]] || return 0
+  print -r -- "100.64.0.1      selfnode              durant@      macOS    -"
+  print -r -- "100.64.0.2      fakehost              durant@      macOS    -"
+  print -r -- "100.64.0.3      sleepy                durant@      linux    offline"
+}
+unset _job_ts_warned _job_ts_out _job_ts_at
 
 # --------------------------------------------------------------------------
 # 13(b). Measurement for question 3 -- not a pass/fail assertion
