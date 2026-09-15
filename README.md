@@ -337,3 +337,53 @@ job-logs build -l                    # every log file for a task, newest first
 Knobs: `JOB_DOCKER_IMAGE` (default image), `JOB_DOCKER_ARGS` (zsh array of
 extra `docker run` flags, e.g. `-e FOO=1`), `JOB_LAUNCHD_PREFIX` (default
 `local.job`).
+
+### Across machines (phone → Mac)
+
+tmux sessions form **one namespace** across machines. The name comes from the
+repo directory, so the same checkout on a phone and on the Mac agree on it, and
+that name identifies one session wherever it runs: `tmux-go claude` attaches to
+`myproj-claude` on whichever host already has it instead of creating a twin.
+
+`JOB_HOSTS` is the list of ssh host names to look on (local is always checked
+first); `JOB_HOST` is where a *new* session goes when `--on HOST` is not given
+(default `local`). A host that is this machine, or that `tailscale status`
+reports offline, is skipped — so one `JOB_HOSTS` can be checked in and used
+from every device. Remotely the repo is assumed at the same path relative to
+`$HOME`; `tmux-new` falls back to the remote home if it is not there. Only
+`tmux-*` is host-aware: `launchd-*` and `docker-*` act on this machine.
+
+```sh
+export JOB_HOSTS=(mac)               # in ~/.zshrc on the phone
+tmux-ls                              # this repo's sessions, here and on mac
+tmux-new claude --on mac             # create it over there
+tmux-go claude                       # attach to it wherever it lives
+tmux-run build --on mac -- make all  # run over there, log in mac's ./logs/
+tmux-pick                            # pick one of this repo's sessions (fzf, else a menu)
+tmux-dash                            # pick from every session on every host
+tmux-stop claude; tmux-rm --all      # act on the host that holds it
+```
+
+Termux setup (phone side):
+
+```sh
+pkg install openssh zsh git tmux fzf
+git clone https://github.com/durantschoon/dot_files ~/dot_files
+mkdir -p ~/Repos && git clone <your repo> ~/Repos/myproj   # same path under $HOME as on the Mac
+echo 'source ~/dot_files/.jobs.zsh' >> ~/.zshrc
+```
+
+`~/.ssh/config` on the phone:
+
+```ssh-config
+Host mac
+    HostName mac.tailnet-name.ts.net
+    User durant
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 10m
+```
+
+The `Control*` lines make list-then-attach reuse one TCP+auth connection, so
+`tmux-ls` followed by `tmux-go` costs one handshake instead of two. On the Mac:
+System Settings → General → Sharing → **Remote Login** on.
