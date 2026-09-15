@@ -115,6 +115,14 @@ smoke_cleanup() {
   TMUX_TMPDIR=$TMUX_REMOTE tmux kill-server >/dev/null 2>&1
   launchctl bootout "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1
   command rm -f -- "$LD_PLIST"
+  # Since stage 07 a promotion can load an agent for any task, so the label is
+  # no longer known in advance. `rm -rf $BASE' below takes the plists (they are
+  # inside the scratch $HOME), but only launchd can unload what launchd holds,
+  # so every agent of THIS run's slug is booted out by name first.
+  local l
+  for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$SLUG.*.plist(N); do
+    launchctl bootout "gui/$(id -u)/${${l:t}%.plist}" >/dev/null 2>&1
+  done
   local c
   for c in ${(f)"$(docker ps -aq --filter "label=job.repo=$SLUG" 2>/dev/null)"}; do
     docker rm -f -- "$c" >/dev/null 2>&1
@@ -181,6 +189,11 @@ fail() {
   exit 1
 }
 eq()  { [[ $2 == $3 ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
+# eq's right-hand side is a zsh PATTERN, which is what most assertions here
+# want. It is exactly wrong for the record round trip, where the expected
+# value is deliberately full of backslashes: `back\slash' as a pattern means
+# the five letters "backslash". Quoting the right-hand side makes it literal.
+eqlit() { [[ $2 == "$3" ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
 has() { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
 hasnt() { [[ $2 != *$3* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
 starts() { [[ $2 == $3* ]] && ok "$1" || fail "$1" "expected to start with: [$3]" "actual: [$2]" }
@@ -781,6 +794,359 @@ command rm -f -- "$PATHBIN/docker" "$PATHBIN/podman"
 PATH=$FULL_PATH
 unset JOB_CONTAINER_CLI
 eq "N10 the fakes are gone again" "$(command -v podman)" ""
+
+# --------------------------------------------------------------------------
+# An engine that remembers its containers  (for N13 and N14)
+# --------------------------------------------------------------------------
+# N9's fake answers every `container inspect' with 0, which is fine when the
+# question is "which CLI got driven" but useless here: it would make every task
+# look like it already had a container, and so make every promotion ambiguous.
+# This one keeps one marker file per container name -- line 1 its Running
+# flag, line 2 its exit code -- so "does it exist", "is it running" and "what
+# did it exit with" are three questions the test sets and job-promote reads.
+# Its paths arrive through the environment, so the script itself can be a
+# quoted heredoc with nothing interpolated into it.
+
+typeset -g P_REC=$BASE/promote-ctr.txt        # "<argv>" per invocation
+typeset -g P_RUNW=$BASE/promote-run-words.txt # the LAST `run' argv, one word per line
+typeset -g P_STATE=$BASE/ctr-state            # one marker file per container
+
+smoke_promote_engine() {
+  mkdir -p -- "$P_STATE" || return
+  export SMOKE_CTR_REC=$P_REC SMOKE_CTR_RUNW=$P_RUNW SMOKE_CTR_STATE=$P_STATE
+  cat > "$PATHBIN/docker" <<'FAKE'
+#!/bin/sh
+printf '%s\n' "$*" >> "$SMOKE_CTR_REC"
+[ "$1" = info ] && exit 0
+if [ "$1" = container ] && [ "$2" = inspect ]; then
+  if [ "$3" = -f ]; then fmt=$4; name=$5; else fmt=''; name=$3; fi
+  [ -f "$SMOKE_CTR_STATE/$name" ] || exit 1
+  case $fmt in
+    '{{.State.Running}}')  sed -n 1p "$SMOKE_CTR_STATE/$name" ;;
+    '{{.State.ExitCode}}') sed -n 2p "$SMOKE_CTR_STATE/$name" ;;
+  esac
+  exit 0
+fi
+if [ "$1" = run ]; then
+  : > "$SMOKE_CTR_RUNW"
+  name=''; prev=''
+  for a in "$@"; do
+    printf '%s\n' "$a" >> "$SMOKE_CTR_RUNW"
+    [ "$prev" = --name ] && name=$a
+    prev=$a
+  done
+  [ -n "$name" ] && printf 'true\n0\n' > "$SMOKE_CTR_STATE/$name"
+  exit 0
+fi
+if [ "$1" = rm ] || [ "$1" = stop ]; then
+  op=$1; shift
+  for a in "$@"; do
+    case $a in -*) continue ;; esac
+    if [ "$op" = rm ]; then rm -f -- "$SMOKE_CTR_STATE/$a"
+    elif [ -f "$SMOKE_CTR_STATE/$a" ]; then printf 'false\n0\n' > "$SMOKE_CTR_STATE/$a"
+    fi
+  done
+  exit 0
+fi
+exit 0
+FAKE
+  chmod +x "$PATHBIN/docker"                  # BSD chmod has no `--'
+}
+
+# Mark a container as existing but exited, without going through the engine.
+smoke_ctr_mark() { print -r -- "${2:-false}" > "$P_STATE/$1"; print -r -- "${3:-0}" >> "$P_STATE/$1" }
+# The words of the fake's last `run', in `reply'.
+smoke_run_words() { typeset -ga reply; reply=("${(f)$(command cat "$P_RUNW" 2>/dev/null)}") }
+
+smoke_promote_engine || fail "N13 could not install the promote engine" ""
+PATH=$NOFZF_PATH                              # the fake is the only docker here
+unset JOB_CONTAINER_CLI
+eq "N13 the container engine for this section is the fake" \
+   "$(command -v docker)" "$PATHBIN/docker"
+
+# --------------------------------------------------------------------------
+# N13. The per-task record logs/<task>.job  (stage 07 item 1)
+# --------------------------------------------------------------------------
+# job-tee's `== cmd' header prints "$*", so `sh -c 'echo "a b"; exit 0'` reads
+# back as five words that no longer mean what they meant. A promoter that
+# believed that header would re-run something else. Hence a second, quoted
+# record of the argv -- and the command below is chosen to break the header:
+# a space inside a quoted word, and a `;' that would split it.
+
+typeset -g CMD_A='echo "a b"; exit 0'
+typeset -g REC_T1=$REPO/logs/t1.job
+
+out=$(tmux-run t1 -- sh -c "$CMD_A" 2>&1); rc=$?
+eq "N13a tmux-run t1 starts" "$rc" "0"
+waitfor _t1_dead || fail "N13a the t1 pane never died" "$(tmux-status t1 2>&1)"
+eq "N13a it wrote a record"                  "$([[ -f $REC_T1 ]] && print yes)" "yes"
+eq "N13a the latest runner is tmux"          "$(_job_record_get t1 runner)" "tmux"
+eq "N13a root= is the scratch repo"          "$(_job_record_get t1 root)" "$REPO"
+eq "N13a at= is an ISO-8601 local stamp"     \
+   "$([[ $(_job_record_get t1 at) == <->-<->-<->T<->:<->:<->[-+]<-> ]] && print yes)" "yes"
+eq "N13a every line of the record is a key=value" \
+   "$(command grep -cv '^[a-z][a-z]*=' "$REC_T1")" "0"
+
+_job_record_cmd t1 || fail "N13b _job_record_cmd t1 found no cmd" "$(command cat "$REC_T1")"
+typeset -ga REC_CMD; REC_CMD=("${reply[@]}")
+eq "N13b the recorded argv is three words" "$#REC_CMD" "3"
+eq "N13b ... and all three came back as given" \
+   "${(j:|:)REC_CMD}" "sh|-c|$CMD_A"
+# The loss this record exists to end, measured rather than remembered.
+note "Q1 job-tee's header for the same argv: [$(command sed -n 's/^== cmd  *//p' "$REPO/logs/t1.latest.log")]"
+note "Q1 the record's cmd= for it:           [$(_job_record_get t1 cmd)]"
+
+# job-record: the latest value of every key, plus how many starts.
+typeset -g JR="$(job-record t1 2>&1)"
+has "N13c job-record t1 prints the latest runner" "$JR" "runner=tmux"
+has "N13c ... a cmd= line"                        "$JR" "cmd="
+has "N13c ... a root= line"                       "$JR" "root=$REPO"
+has "N13c ... and the block count"                "$JR" "blocks="
+eq  "N13c ... exactly one line per key, latest wins" \
+    "$(print -r -- "$JR" | command grep -c '^runner=')" "1"
+out=$(job-record nosuchtask 2>&1); rc=$?
+nonzero "N13c job-record for an unknown task fails" "$rc" "$out"
+has "N13c ... naming the file it looked for" "$out" "logs/nosuchtask.job"
+
+# The same contract from launchd ...
+out=$(launchd-run t1 --restart no -- sh -c "$CMD_A" 2>&1); rc=$?
+eq "N13d launchd-run t1 loads the agent" "$rc" "0"
+eq "N13d the latest runner is launchd"   "$(_job_record_get t1 runner)" "launchd"
+eq "N13d ... with restart=no"            "$(_job_record_get t1 restart)" "no"
+_job_record_cmd t1; REC_CMD=("${reply[@]}")
+eq "N13d ... and the same three-word argv" "${(j:|:)REC_CMD}" "sh|-c|$CMD_A"
+launchd-rm t1 >/dev/null 2>&1
+
+# ... and from Docker, which adds the two keys only it has.
+out=$(docker-run t1 --image alpine --restart always -- sh -c "$CMD_A" 2>&1); rc=$?
+eq "N13e docker-run t1 starts under the fake engine" "$rc" "0"
+eq "N13e the latest runner is docker"  "$(_job_record_get t1 runner)" "docker"
+eq "N13e ... image= is what was resolved" "$(_job_record_get t1 image)" "alpine"
+# `always' reaches the engine as `unless-stopped', but a record that said so
+# could not be fed back: _job_parse_run rejects it. The user's spelling is kept.
+eq "N13e ... restart= keeps the spelling --restart accepts" \
+   "$(_job_record_get t1 restart)" "always"
+_job_record_cmd t1; REC_CMD=("${reply[@]}")
+eq "N13e ... and the argv is still intact" "${(j:|:)REC_CMD}" "sh|-c|$CMD_A"
+docker-rm t1 >/dev/null 2>&1
+
+# Report question 1, asserted rather than reasoned about: the nastiest argv
+# the record can be asked to hold, written to a real file and read back from
+# it. The newline is the one that decides the FORMAT -- (qq) would leave it
+# literal and the single `cmd=' line would silently become two, which is the
+# same loss the record exists to end (see _job_quote_argv).
+typeset -ga NASTY
+NASTY=( 'plain' $'nl\nhere' $'tab\there' 'back\slash' '' "sq'uote" 'a b' )
+_job_record nasty "at=$(_job_now)" runner=tmux "root=$REPO" \
+            "cmd=$(_job_quote_argv "${NASTY[@]}")"
+eq "N13f a newline in the argv still leaves one line per key" \
+   "$(command grep -cv '^[a-z][a-z]*=' "$REPO/logs/nasty.job")" "0"
+_job_record_cmd nasty || fail "N13f _job_record_cmd nasty failed" \
+   "$(command cat "$REPO/logs/nasty.job")"
+eq "N13f ... and every word came back" "$#reply" "$#NASTY"
+eqlit "N13f ... byte for byte, empty string and all" \
+      "${(j:@:)reply}" "${(j:@:)NASTY}"
+# The regression that guards: written inline inside double quotes the splice
+# emitted literal backslashes instead of an escape, and (z) then read FOUR
+# words where seven had been written -- a silently wrong command to re-run.
+_job_record nlonly "at=$(_job_now)" runner=tmux "root=$REPO" \
+            "cmd=$(_job_quote_argv a $'b\nc' d)"
+_job_record_cmd nlonly || fail "N13f the newline-only record did not read back" \
+   "$(command cat "$REPO/logs/nlonly.job")"
+eq    "N13f a word containing a newline stays ONE word" "$#reply" "3"
+eqlit "N13f ... with the newline still in it"           "$reply[2]" $'b\nc'
+
+# --------------------------------------------------------------------------
+# N14. job-promote  (stage 07 items 2 and 3)
+# --------------------------------------------------------------------------
+# Promotion is a RESTART: stop the task where it is, start the same command
+# under the target with the same name and the same logs.
+
+sleep 1                                       # a fresh log stamp for the re-run
+tmux-run t1 -- sh -c "$CMD_A" >/dev/null 2>&1
+waitfor _t1_dead || fail "N14a t1 did not finish before the promotion" "$(tmux-status t1 2>&1)"
+command rm -f -- "$P_RUNW"
+out=$(job-promote t1 2>&1); rc=$?
+eq  "N14a job-promote t1 (finished tmux -> docker) succeeds" "$rc" "0"
+has "N14a the trail names both runners"           "$out" "promoted tmux -> docker"
+has "N14a ... and the source's last exit status"  "$out" "source last exit status 0"
+has "N14a ... and where the logs continue"        "$out" "logs/t1.latest.log"
+eq  "N14a the tmux window is gone" \
+    "$(ltmux list-windows -t "=$SLUG-t1" -F '#W' 2>/dev/null | command grep -cx t1)" "0"
+eq  "N14a logs/t1.latest.log still resolves" \
+    "$([[ -e $REPO/logs/t1.latest.log ]] && print yes)" "yes"
+eq  "N14a the record's latest runner is docker" "$(_job_record_get t1 runner)" "docker"
+smoke_run_words
+eq  "N14b the engine's run argv ends with the recorded command, word for word" \
+    "${(j:|:)reply[-5,-1]}" "job-tee|t1|sh|-c|$CMD_A"
+# The note is written BEFORE the block it explains, so the file reads as
+# history: what happened, then what was started because of it.
+typeset -g NOTE_LN="$(command awk '/^note=promoted tmux->docker$/ { n = NR } END { print n + 0 }' "$REC_T1")"
+typeset -g AT_LN="$(command awk '/^at=/ { n = NR } END { print n + 0 }' "$REC_T1")"
+(( NOTE_LN > 0 && NOTE_LN < AT_LN )) \
+  && ok "N14b the promotion note precedes the docker block it explains" \
+  || fail "N14b the note does not precede the last block" \
+          "note line=$NOTE_LN, last at= line=$AT_LN" "$(command cat "$REC_T1")"
+
+# A running source is not promoted without being told to: the in-flight work
+# is lost, and nothing else in this file loses work without being asked.
+out=$(tmux-run t2 -- sh -c 'sleep 30' 2>&1); rc=$?
+eq "N14c tmux-run t2 starts a long job" "$rc" "0"
+_t2_alive() { [[ $(ltmux display-message -p -t "=$SLUG-t2:t2" '#{pane_dead}' 2>/dev/null) == 0 ]] }
+waitfor _t2_alive || fail "N14c t2 never came up" "$(tmux-status t2 2>&1)"
+out=$(job-promote t2 2>&1); rc=$?
+eq  "N14c job-promote of a running task exits 1" "$rc" "1"
+has "N14c ... saying the command is restarted from scratch" "$out" "restarts the command from scratch"
+has "N14c ... and naming the flag that consents"            "$out" "--now"
+eq  "N14c ... the window is still alive" \
+    "$(ltmux display-message -p -t "=$SLUG-t2:t2" '#{pane_dead}' 2>/dev/null)" "0"
+eq  "N14c ... and the record still says tmux" "$(_job_record_get t2 runner)" "tmux"
+
+command rm -f -- "$P_RUNW"
+out=$(job-promote t2 --now 2>&1); rc=$?
+eq "N14d job-promote t2 --now succeeds" "$rc" "0"
+eq "N14d ... the window is gone" \
+   "$(ltmux list-windows -t "=$SLUG-t2" -F '#W' 2>/dev/null | command grep -cx t2)" "0"
+smoke_run_words
+eq "N14d ... and the engine recorded the run" \
+   "${(j:|:)reply[-5,-1]}" "job-tee|t2|sh|-c|sleep 30"
+eq "N14d ... with the record following it" "$(_job_record_get t2 runner)" "docker"
+
+# Image precedence, all three branches: the flag, then the record, then the
+# engine-appropriate default.
+typeset -g Q3_TASK
+_q3_dead() { [[ $(ltmux display-message -p -t "=$SLUG-$Q3_TASK:$Q3_TASK" '#{pane_dead}' 2>/dev/null) == 1 ]] }
+smoke_wait_dead() { Q3_TASK=$1; waitfor _q3_dead }
+
+tmux-run t3 -- sh -c "$CMD_A" >/dev/null 2>&1
+smoke_wait_dead t3 || fail "N14e t3 never finished" "$(tmux-status t3 2>&1)"
+out=$(job-promote t3 2>&1); rc=$?
+eq "N14e no --image and no docker block yet: the built-in default is used" "$rc" "0"
+eq "N14e ... and recorded" "$(_job_record_get t3 image)" "debian:stable-slim"
+
+job-promote t3 --to tmux --now >/dev/null 2>&1
+smoke_wait_dead t3 || fail "N14f t3 never finished after the demotion" "$(tmux-status t3 2>&1)"
+out=$(job-promote t3 --image busybox 2>&1); rc=$?
+eq "N14f --image wins over the record" "$rc" "0"
+eq "N14f ... and is what gets recorded" "$(_job_record_get t3 image)" "busybox"
+
+job-promote t3 --to tmux --now >/dev/null 2>&1
+smoke_wait_dead t3 || fail "N14g t3 never finished after the second demotion" "$(tmux-status t3 2>&1)"
+command rm -f -- "$P_RUNW"
+out=$(job-promote t3 2>&1); rc=$?
+eq "N14g with no --image the record's own image is reused" "$rc" "0"
+eq "N14g ... it is still busybox"  "$(_job_record_get t3 image)" "busybox"
+smoke_run_words
+eq "N14g ... and busybox is what the engine was handed" \
+   "$reply[$(( ${reply[(i)job-tee]} - 1 ))]" "busybox"
+
+# The four refusals.
+out=$(job-promote norecord 2>&1); rc=$?
+eq  "N14h a task with no record exits 1" "$rc" "1"
+has "N14h ... naming the file it needed" "$out" "logs/norecord.job"
+
+tmux-run t4 -- sh -c "$CMD_A" >/dev/null 2>&1
+smoke_wait_dead t4 || fail "N14i t4 never finished" "$(tmux-status t4 2>&1)"
+out=$(job-promote t4 --to tmux 2>&1); rc=$?
+eq  "N14i promoting to the runner it already lives on exits 1" "$rc" "1"
+has "N14i ... and says so" "$out" "already on tmux"
+
+# A record written here, a session living on fakehost. The logs the record
+# belongs to are on the other machine, so this machine must not promote it.
+tmux-run claude -- sh -c "$CMD_A" >/dev/null 2>&1
+smoke_wait_dead claude || fail "N14j the local claude run never finished" "$(tmux-status claude 2>&1)"
+eq "N14j a local run wrote the record" "$(_job_record_get claude runner)" "tmux"
+tmux-rm claude >/dev/null 2>&1
+tmux-run claude --on fakehost -- sh -c "$CMD_A" >/dev/null 2>&1
+_rem_claude() { rtmux list-windows -t "=$SLUG-claude" -F '#W' 2>/dev/null | command grep -qx claude }
+waitfor _rem_claude || fail "N14j the remote claude window never appeared" \
+  "$(rtmux list-sessions -F '#S' 2>&1)"
+out=$(job-promote claude 2>&1); rc=$?
+eq  "N14j a task living in tmux on another host exits 1" "$rc" "1"
+has "N14j ... naming that host"  "$out" "fakehost"
+has "N14j ... and saying why"    "$out" "promote where the task's logs are"
+eq  "N14j ... and the remote window is untouched" \
+    "$(rtmux list-windows -t "=$SLUG-claude" -F '#W' 2>/dev/null | command grep -cx claude)" "1"
+# A remote run writes no record of its own, by design (stage 07 open question).
+eq  "N14j a remote tmux-run adds no block" \
+    "$(_job_record_get claude root)" "$REPO"
+
+# Two definitions, one name: the promoter must not choose for the user.
+tmux-run amb -- sh -c "$CMD_A" >/dev/null 2>&1
+smoke_wait_dead amb || fail "N14k amb never finished" "$(tmux-status amb 2>&1)"
+smoke_ctr_mark "$SLUG-amb" false 0
+out=$(job-promote amb 2>&1); rc=$?
+eq  "N14k a task on two runners at once exits 1" "$rc" "1"
+has "N14k ... calling it ambiguous" "$out" "ambiguous"
+has "N14k ... naming tmux"          "$out" "tmux"
+has "N14k ... naming docker"        "$out" "docker"
+eq  "N14k ... and the tmux window is untouched" \
+    "$(ltmux list-windows -t "=$SLUG-amb" -F '#W' 2>/dev/null | command grep -cx amb)" "1"
+command rm -f -- "$P_STATE/$SLUG-amb"
+
+# Promotion to launchd, through the real launchctl under the scratch $HOME.
+typeset -g LD_T5_LABEL=local.job.$SLUG.t5
+typeset -g LD_T5=$HOME_LOCAL/Library/LaunchAgents/$LD_T5_LABEL.plist
+tmux-run t5 -- sh -c "$CMD_A" >/dev/null 2>&1
+smoke_wait_dead t5 || fail "N14l t5 never finished" "$(tmux-status t5 2>&1)"
+out=$(job-promote t5 --to launchd 2>&1); rc=$?
+eq "N14l job-promote t5 --to launchd succeeds" "$rc" "0"
+eq "N14l ... the plist was written" "$([[ -f $LD_T5 ]] && print yes)" "yes"
+eq "N14l ... the record follows"    "$(_job_record_get t5 runner)" "launchd"
+typeset -ga PA
+PA=("${(f)$(command sed -n '/<key>ProgramArguments<\/key>/,/<\/array>/p' "$LD_T5" \
+            | command sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')}")
+eq "N14l ... and ProgramArguments ends in the recorded argv" \
+   "${(j:|:)PA[-3,-1]}" "sh|-c|$CMD_A"
+eq "N14l ... wrapped in job-tee under the task name" \
+   "${(j:|:)PA[-5,-4]}" "$WT/bin/job-tee|t5"
+out=$(launchd-rm t5 2>&1); rc=$?
+eq "N14m launchd-rm cleans the promoted agent" "$rc" "0"
+eq "N14m ... the plist is gone" "$([[ -e $LD_T5 ]] && print yes)" ""
+eq "N14m ... and it is unloaded" \
+   "$(launchctl print "gui/$(id -u)/$LD_T5_LABEL" >/dev/null 2>&1 && print loaded)" ""
+
+# --------------------------------------------------------------------------
+# Q2/Q3. Measurements behind the trail -- notes, not pass/fail
+# --------------------------------------------------------------------------
+# job-promote --now stops a running tmux task with tmux-stop, so what that
+# delivers to the job is part of the promise. A child that traps all three
+# writes down which one arrived.
+
+typeset -g SIGFILE=$REPO/logs/sigprobe.txt
+command rm -f -- "$SIGFILE"
+tmux-run sigp -- sh -c "trap 'echo HUP >> $SIGFILE; exit 0' HUP; trap 'echo TERM >> $SIGFILE; exit 0' TERM; trap 'echo INT >> $SIGFILE; exit 0' INT; echo up; while :; do sleep 0.2; done" >/dev/null 2>&1
+_sigp_up() { [[ -s $REPO/logs/sigp.latest.log ]] }
+waitfor _sigp_up || note "Q2 the sigp job never produced a log"
+tmux-stop sigp >/dev/null 2>&1
+_sigp_gone() { (( $(ltmux list-windows -t "=$SLUG-sigp" -F '#W' 2>/dev/null | command grep -cx sigp) == 0 )) }
+waitfor _sigp_gone || note "Q2 the sigp window outlived tmux-stop"
+sleep 1                                       # let any trap handler finish
+note "Q2 what the trapping child caught from tmux kill-window: [$(command cat "$SIGFILE" 2>/dev/null)] (empty = no catchable signal reached it)"
+note "Q2 job-tee's exit footer in that run's log: [$(command sed -n 's/^== job-tee exit  *//p' "$REPO/logs/sigp.latest.log" 2>/dev/null)] (empty = the footer was never written)"
+
+# job-promote reads #{pane_dead_status} for a tmux source: it is the runner's
+# own account and it survives a log that was never written. The footer is the
+# other candidate; both are sampled for the same runs.
+smoke_q3() {
+  local task=$1 cmdstr=$2 pds foot
+  tmux-run "$task" -- sh -c "$cmdstr" >/dev/null 2>&1
+  smoke_wait_dead "$task" || { note "Q3 $task never finished"; return }
+  pds="$(ltmux display-message -p -t "=$SLUG-$task:$task" '#{pane_dead_status}' 2>/dev/null)"
+  foot="$(command sed -n 's/^== job-tee exit  *\([0-9][0-9]*\).*/\1/p' "$REPO/logs/$task.latest.log" 2>/dev/null | command tail -n 1)"
+  note "Q3 $task [$cmdstr]: pane_dead_status=[$pds] footer=[$foot] $( [[ $pds == $foot ]] && print agree || print DISAGREE )"
+}
+smoke_q3 q3a 'exit 0'
+smoke_q3 q3b 'exit 7'
+smoke_q3 q3c 'kill -TERM $$'
+
+# Put the real world back for the sections that use it.
+command rm -f -- "$PATHBIN/docker"
+PATH=$FULL_PATH
+unset JOB_CONTAINER_CLI SMOKE_CTR_REC SMOKE_CTR_RUNW SMOKE_CTR_STATE
+hasnt "N14 the promote engine is off PATH again" "$(command -v docker)" "$PATHBIN"
+eq    "N14 ... and a real engine answers again" \
+      "$(command docker info >/dev/null 2>&1 && print yes)" "yes"
 
 # --------------------------------------------------------------------------
 # N7. job-ls says which runners are local-only  (stage 05 assertion 7)

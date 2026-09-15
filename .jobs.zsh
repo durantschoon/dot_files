@@ -8,9 +8,9 @@
 #   Docker    isolated env, restart policies    it needs a pinned environment
 #
 # A job is a TASK inside the current git repo. The same task name yields the
-# same runner name and the same log files whichever runner is used, so a
-# future `job-promote TASK` can move a task (say tmux -> Docker) with nothing
-# renamed and no logs relocated.
+# same runner name and the same log files whichever runner is used, so
+# `job-promote TASK` can move a task (say tmux -> Docker) with nothing renamed
+# and no logs relocated.
 #
 #   repo slug       basename of the git toplevel, lowercased, [^a-z0-9] -> "-"
 #   task            [A-Za-z0-9_-]+, default "main"
@@ -19,6 +19,8 @@
 #   launchd label   local.job.<repo>.<task>  -> ~/Library/LaunchAgents/<label>.plist
 #   logs            ./logs/<task>.<YYYYmmdd-HHMMSS>.log  (+ <task>.latest.log symlink)
 #                   written by bin/job-tee, which every runner wraps around CMD
+#   record          ./logs/<task>.job   append-only key=value, latest key wins
+#                   one block per start; what job-promote re-runs (see below)
 #
 # Verbs are the same across runners (prefixes tmux- / launchd- / docker-):
 #
@@ -33,7 +35,13 @@
 #
 # plus tmux-new / tmux-go for plain interactive sessions, tmux-pick /
 # tmux-dash to choose one interactively, docker-clean for exited containers,
-# and job-* for the runner-independent pieces.
+# and job-* for the runner-independent pieces:
+#
+#   job-record [TASK]    the latest value of every key in ./logs/<task>.job
+#   job-promote TASK [--to tmux|launchd|docker] [--image IMG]
+#                        [--restart POLICY] [--now]
+#                        stop TASK where it is and start the SAME command
+#                        under another runner, same name, same logs
 #
 # tmux sessions form ONE namespace across machines: see "Hosts" below.
 #
@@ -129,6 +137,115 @@ job-logs() {
   [[ -n $file ]] || { print -u2 "job-logs: no logs for task '$task' in $(job-root)/logs"; return 1; }
   print -u2 "==> $file"
   if (( follow )); then tail -n "$lines" -f "$file"; else tail -n "$lines" "$file"; fi
+}
+
+# ---------------------------------------------------------------------------
+# The per-task record: ./logs/<task>.job
+# ---------------------------------------------------------------------------
+# What a runner was ASKED to do, kept next to what it produced.  job-tee's
+# `== cmd' header line is a display of the argv, not a record of it: it prints
+# "$*", so `sh -c 'echo "a b"; exit 0'` comes back as three words that no
+# longer mean what they meant.  A promoter reading that would re-run something
+# else, so the argv is recorded separately, quoted, and read back mechanically.
+#
+# Format: append-only `key=value' lines, one block per start, the latest value
+# of a key winning.  Append-only because a record is history -- a promotion
+# adds a `note=' line rather than editing the block that is no longer true.
+# A block is opened by its `at=' line, which is what job-record counts.
+#
+#   at       ISO-8601 local time of the start
+#   runner   tmux | launchd | docker
+#   root     absolute repo root the runner was given
+#   cmd      the argv, zsh-quoted, one line (see _job_quote_argv)
+#   image    docker only: the image that was actually resolved
+#   restart  docker and launchd only: the policy as the USER spells it
+#   note     free text, written between blocks (job-promote's trail)
+
+_job_record_file() {
+  local task; task=$(_job_task "$1") || return
+  print -r -- "$(job-root)/logs/$task.job"
+}
+
+# ISO-8601 local time. `date', not strftime: zsh/datetime is loaded with its
+# failure swallowed above, and a missing module must not cost a record.
+_job_now() { command date '+%Y-%m-%dT%H:%M:%S%z' }
+
+# The argv as one line of zsh-quoted words.
+#
+# (qq) alone is not enough.  It quotes with SINGLE quotes, so an argument
+# containing a newline keeps that newline literal and the one `cmd=' line
+# silently becomes two -- the same class of loss this record exists to end.
+# Each literal newline is therefore closed out of the quotes and spliced back
+# in as $'\n', which `(z)' still reads as one word and `(Q)' still unquotes to
+# the same bytes.  Measured in stage 07 (question 1): lossless for a newline,
+# a tab, a backslash, an embedded single quote and the empty string.
+_job_quote_argv() {
+  local -a words; words=("$@")
+  local line=${(j: :)${(qq)words}}
+  # The replacement is the seven characters  ' $ ' \ n ' '  -- close the single
+  # quote (qq) opened, splice in $'\n', reopen it. Built from a variable
+  # holding the quote character rather than written inline: the backslash
+  # rules differ inside and outside double quotes, and getting that wrong
+  # silently emits literal backslashes instead of an escape (measured).
+  local sq=\'
+  local esc=$sq'$'$sq'\n'$sq$sq
+  line=${line//$'\n'/$esc}
+  print -r -- "$line"
+}
+
+# _job_record TASK key=value... -- append lines to the task's record.
+# The single writer: every runner that starts a task goes through it, so the
+# format has exactly one place that can drift.
+_job_record() {
+  local task; task=$(_job_task "$1") || return; shift
+  local root file kv; root=$(job-root); file=$root/logs/$task.job
+  mkdir -p -- "$root/logs" || return
+  for kv in "$@"; do
+    [[ $kv == [A-Za-z]*=* ]] || { print -u2 "_job_record: not a key=value: '$kv'"; return 64; }
+    print -r -- "$kv" >> "$file" || return
+  done
+}
+
+# _job_record_get TASK KEY -- the LAST value of KEY on stdout, or failure.
+# Found-but-empty and absent are different answers, so awk reports which
+# through its exit status rather than through an empty string.
+_job_record_get() {
+  local file out; file=$(_job_record_file "$1") || return
+  [[ -f $file ]] || return 1
+  out=$(command awk -v k="$2" '
+      index($0, k "=") == 1 { v = substr($0, length(k) + 2); found = 1 }
+      END { if (!found) exit 1; print v }' "$file") || return 1
+  print -r -- "$out"
+}
+
+# _job_record_cmd TASK -- the recorded argv in `reply', as it was given.
+# No eval anywhere: (z) splits the line into words the way the shell would,
+# (Q) strips one level of quoting from each. The @ matters -- without it an
+# empty argument would be dropped instead of round-tripping.
+_job_record_cmd() {
+  local line; line=$(_job_record_get "$1" cmd) || return 1
+  [[ -n $line ]] || return 1
+  typeset -ga reply; reply=("${(Q@)${(z)line}}")
+  (( $#reply ))
+}
+
+# job-record [TASK]: the latest value of every key, in the order the keys were
+# first seen, plus how many starts the file has recorded.
+job-record() {
+  local task file; task=$(_job_task "$1") || return
+  file=$(_job_record_file "$task") || return
+  [[ -f $file ]] || {
+    print -u2 "job-record: no record for task '$task' -- expected $file (written by the first tmux-run/launchd-run/docker-run of the task)"
+    return 1
+  }
+  command awk '
+    { eq = index($0, "="); if (eq < 2) next
+      k = substr($0, 1, eq - 1)
+      if (!(k in seen)) { seen[k] = 1; order[++n] = k }
+      val[k] = substr($0, eq + 1)
+      if (k == "at") blocks++ }
+    END { for (i = 1; i <= n; i++) printf "%s=%s\n", order[i], val[order[i]]
+          printf "blocks=%d\n", blocks + 0 }' "$file"
 }
 
 # Parse "TASK [--restart ...] [--image IMG] [--on HOST] [--] CMD..." into
@@ -502,7 +619,14 @@ tmux-run() {
     _job_tmux "$host" new-window -d -t "=$name:" -n "$task" "${cflag[@]}" "$shcmd"
   else
     _job_tmux "$host" new-session -d -s "$name" -n "$task" "${cflag[@]}" "$shcmd"
-  fi && print -u2 "tmux-run: started '$task' in session '$name' on $host  (tmux-go $task to watch, tmux-logs $task to tail)"
+  fi || return
+  # A remote run writes NO record. The record belongs beside the logs, and the
+  # logs are in the OTHER host's checkout; writing it here would claim a task
+  # this machine cannot promote (job-promote refuses a non-local tmux host for
+  # the same reason). Reaching over ssh to write it there is a later stage.
+  [[ $host == local ]] && _job_record "$task" "at=$(_job_now)" runner=tmux \
+    "root=$(job-root)" "cmd=$(_job_quote_argv "${_job_run_cmd[@]}")"
+  print -u2 "tmux-run: started '$task' in session '$name' on $host  (tmux-go $task to watch, tmux-logs $task to tail)"
 }
 
 # tmux-ls: this repo's sessions on every reachable host.
@@ -642,8 +766,10 @@ ${keepalive}	<key>StandardOutPath</key>
 </plist>
 PLIST
   plutil -lint -s "$plist" || return
-  launchctl bootstrap "$(_launchd_domain)" "$plist" \
-    && print -u2 "launchd-run: loaded $label  (launchd-status $task, launchd-logs $task)"
+  launchctl bootstrap "$(_launchd_domain)" "$plist" || return
+  _job_record "$task" "at=$(_job_now)" runner=launchd "root=$root" \
+    "restart=$_job_run_restart" "cmd=$(_job_quote_argv "${_job_run_cmd[@]}")"
+  print -u2 "launchd-run: loaded $label  (launchd-status $task, launchd-logs $task)"
 }
 
 # launchd-ls: this repo's agents (from the plist files) and their state.
@@ -809,8 +935,15 @@ docker-run() {
     -v "${tee:A}:/usr/local/bin/job-tee:ro" \
     -e JOB_RUNNER=docker \
     "${extra[@]}" \
-    "$image" job-tee "$task" "${_job_run_cmd[@]}" >/dev/null \
-    && print -u2 "docker-run: started '$name' from $image  (docker-status $task, docker-logs $task)"
+    "$image" job-tee "$task" "${_job_run_cmd[@]}" >/dev/null || return
+  # `restart' records the policy as the USER spells it, not $policy: `always'
+  # becomes `unless-stopped' on the command line, and feeding that back to a
+  # later docker-run would be rejected by _job_parse_run. `image' records what
+  # was RESOLVED, so a promotion without --image reproduces this run exactly.
+  _job_record "$task" "at=$(_job_now)" runner=docker "root=$root" \
+    "image=$image" "restart=$_job_run_restart" \
+    "cmd=$(_job_quote_argv "${_job_run_cmd[@]}")"
+  print -u2 "docker-run: started '$name' from $image  (docker-status $task, docker-logs $task)"
 }
 
 # docker-ls: this repo's job containers, running or not.
@@ -882,4 +1015,161 @@ docker-clean() {
   local -a names; names=($(_job_ctr ps -a --filter "$(_docker_repo_filter)" --filter status=exited --format '{{.Names}}'))
   (( $#names )) || { print -u2 "docker-clean: nothing to clean"; return 0; }
   _job_ctr rm "${names[@]}" >/dev/null && print -u2 "docker-clean: removed ${(j:, :)names}"
+}
+
+# ---------------------------------------------------------------------------
+# job-promote: the same task, a different runner
+# ---------------------------------------------------------------------------
+# A promotion is a RESTART, not a migration. A live process cannot be moved
+# into a container on macOS, so "promote" means: stop the task where it is,
+# start the SAME command under the target runner with the SAME task name, and
+# keep appending to the same ./logs/. The naming contract is what makes that
+# free -- nothing renamed, no log relocated -- and the per-task record above is
+# what makes it possible at all, because it is the only place the argv
+# survives verbatim.
+#
+# Where the task is NOW is read from live state, never from the record. The
+# record says where the task was last STARTED; a user who stopped it by hand,
+# or started it a second way, would otherwise have their real situation
+# overruled by a stale line in a file.
+
+# Which runners hold TASK right now, in `reply'; the tmux host, when tmux is
+# one of them, in _job_promote_tmux_host.
+_job_promote_sources() {
+  local task=$1 name host label plist
+  name=$(job-name "$task") || return
+  typeset -g _job_promote_tmux_host=""
+  typeset -ga reply; reply=()
+  # tmux counts only when the session holds a WINDOW named TASK: a plain
+  # interactive session that happens to share the name is not a job, and
+  # promoting must not kill it.
+  if _tmux_where "$name"; then
+    host=$reply[1]
+    _tmux_has_window "$host" "$name" "$task" && _job_promote_tmux_host=$host
+  fi
+  reply=()
+  [[ -n $_job_promote_tmux_host ]] && reply+=(tmux)
+  if [[ $OSTYPE == darwin* ]]; then
+    label=$(launchd-label "$task") && plist=$(_launchd_plist "$label")
+    { [[ -f $plist ]] || _launchd_loaded "$label" } && reply+=(launchd)
+  fi
+  # No engine is not the same as no container: stay quiet and report nothing
+  # rather than failing a tmux->launchd promotion over an unrelated daemon.
+  # When docker is the TARGET, docker-run raises the engine error itself.
+  _docker_guard 2>/dev/null && _docker_exists "$name" && reply+=(docker)
+  return 0
+}
+
+# Is TASK still running on RUNNER? This is what --now is the answer to.
+_job_promote_running() {
+  local runner=$1 task=$2 name; name=$(job-name "$task") || return 1
+  case $runner in
+    tmux)    [[ $(_job_tmux "$_job_promote_tmux_host" display-message -p \
+                    -t "=$name:$task" '#{pane_dead}' 2>/dev/null) == 0 ]] ;;
+    launchd) [[ -n $(launchctl print "$(_launchd_domain)/$(launchd-label "$task")" 2>/dev/null \
+                    | awk '/^\tpid = /{print $3}') ]] ;;
+    docker)  _docker_running "$name" ;;
+    *)       return 1 ;;
+  esac
+}
+
+# The source's last exit status, when its runner knows one; empty otherwise.
+# Empty is reported as "unknown" rather than as a 0 nobody measured.
+_job_promote_exit() {
+  local runner=$1 task=$2 name s; name=$(job-name "$task") || return
+  case $runner in
+    tmux)    s=$(_job_tmux "$_job_promote_tmux_host" display-message -p \
+                   -t "=$name:$task" '#{pane_dead_status}' 2>/dev/null) ;;
+    launchd) s=$(launchctl print "$(_launchd_domain)/$(launchd-label "$task")" 2>/dev/null \
+                   | awk '/last exit code = /{print $NF}') ;;
+    docker)  s=$(_job_ctr container inspect -f '{{.State.ExitCode}}' "$name" 2>/dev/null) ;;
+  esac
+  [[ $s == <-> ]] && print -r -- "$s"
+}
+
+# job-promote TASK [--to tmux|launchd|docker] [--image IMG] [--restart POLICY] [--now]
+job-promote() {
+  local usage="usage: job-promote TASK [--to tmux|launchd|docker] [--image IMG] [--restart POLICY] [--now]"
+  local task to=docker image="" restart="" now=0
+  [[ $# -gt 0 && $1 != -* ]] || { print -u2 "$usage"; return 64; }
+  task=$(_job_task "$1") || return; shift
+  while (( $# )); do
+    case $1 in
+      --to)      to=$2; shift 2 ;;
+      --image)   image=$2; shift 2 ;;
+      --restart) restart=$2; shift 2 ;;
+      --now)     now=1; shift ;;
+      *) print -u2 "job-promote: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
+    esac
+  done
+  case $to in
+    tmux|launchd|docker) ;;
+    *) print -u2 "job-promote: --to must be tmux, launchd or docker, got '$to'"; return 64 ;;
+  esac
+
+  # 1. The record -- the only thing that knows what to re-run.
+  local file; file=$(_job_record_file "$task") || return
+  [[ -f $file ]] || {
+    print -u2 "job-promote: no record for task '$task' -- expected $file; nothing here knows what command to re-run (start it once with tmux-run/launchd-run/docker-run first)"
+    return 1
+  }
+  local -a cmd
+  _job_record_cmd "$task" || {
+    print -u2 "job-promote: $file has no usable cmd= line -- cannot reconstruct the command"
+    return 1
+  }
+  cmd=("${reply[@]}")
+
+  # 2. Where the task actually is.
+  _job_promote_sources "$task" || return
+  local -a srcs; srcs=("${reply[@]}")
+  local src=${srcs[1]:-none}
+  if (( $#srcs > 1 )); then
+    print -u2 "job-promote: task '$task' is on more than one runner (${(j:, :)srcs}) -- ambiguous; stop or remove all but one first (job-status $task)"
+    return 1
+  fi
+  if [[ $src == $to ]]; then
+    print -u2 "job-promote: task '$task' is already on $to (job-status $task)"
+    return 1
+  fi
+  if [[ $src == tmux && $_job_promote_tmux_host != local ]]; then
+    print -u2 "job-promote: task '$task' runs in tmux on $_job_promote_tmux_host, not on this machine -- promote where the task's logs are (ssh $_job_promote_tmux_host, then job-promote there)"
+    return 1
+  fi
+
+  # 3. Stop the source. Its last status is read BEFORE it is taken away.
+  local last=""
+  if [[ $src != none ]]; then
+    last=$(_job_promote_exit "$src" "$task")
+    if _job_promote_running "$src" "$task" && (( ! now )); then
+      print -u2 "job-promote: task '$task' is still running on $src. Promotion restarts the command from scratch under $to -- whatever this copy has in flight is lost, not carried over. Re-run with --now to stop it first."
+      return 1
+    fi
+    # Running or already finished, the definition goes the same way: the
+    # target is about to claim the name, and two definitions for one task is
+    # exactly the ambiguity refused above.
+    case $src in
+      tmux)    tmux-stop  "$task" || return ;;
+      launchd) launchd-rm "$task" || return ;;
+      docker)  docker-rm  "$task" || return ;;
+    esac
+  fi
+
+  # 4. Record the move, then start through the target's OWN verb, so a
+  #    promotion has no second copy of the start logic to drift from.
+  _job_record "$task" "note=promoted $src->$to" || return
+  local -a start; start=("$task")
+  if [[ $to == docker ]]; then
+    # --image wins over the record, which wins over _docker_image's default.
+    [[ -z $image ]] && image=$(_job_record_get "$task" image 2>/dev/null)
+    [[ -n $image ]] && start+=(--image "$image")
+  fi
+  [[ -z $restart ]] && restart=$(_job_record_get "$task" restart 2>/dev/null)
+  [[ -n $restart ]] && start+=(--restart "$restart")
+  start+=(-- "${cmd[@]}")
+  "$to-run" "${start[@]}" || return
+
+  # 5. The trail: what was where, what it left behind, where to look now.
+  print -u2 "job-promote: '$task' promoted $src -> $to (source last exit status ${last:-unknown})"
+  print -u2 "             logs continue at logs/$task.latest.log"
 }
