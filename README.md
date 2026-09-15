@@ -262,3 +262,78 @@ See the **Guix (Linux / WSL)** section above.
 
 - **Tip**: Do not rely on `setxkbmap` in WSL; use PowerToys on Windows for key remapping.
 - **Tip**: Ensure you define `HOME` correctly if using `sudo make` manually, but `make apply` (via Guix) handles this automatically for the current user.
+
+## Long-running local jobs (tmux / launchd / Docker)
+
+[`.jobs.zsh`](./.jobs.zsh) (sourced from `.aliases`) gives one convention for
+work that outlives a terminal, on three runners with the same verbs:
+
+| runner    | lifetime                        | reach for it when                     |
+|-----------|---------------------------------|---------------------------------------|
+| `tmux-*`  | an interactive session          | you want to watch or poke at it       |
+| `launchd-*` | survives logout, macOS restarts it | it should just keep running        |
+| `docker-*` | isolated env, restart policies | it needs a pinned environment         |
+
+A job is a **task** inside the current git repo. The task name decides every
+name and path, identically on each runner, so a future `job-promote <task>`
+can move a task between runners without renaming anything:
+
+| thing          | value                                                      |
+|----------------|------------------------------------------------------------|
+| repo slug      | basename of the git toplevel, lowercased, `[^a-z0-9]` → `-` |
+| task           | `[A-Za-z0-9_-]+`, default `main`                            |
+| tmux session / Docker container | `<repo>-<task>` (bare `<repo>` for `main`) |
+| launchd label  | `local.job.<repo>.<task>` → `~/Library/LaunchAgents/<label>.plist` |
+| logs           | `./logs/<task>.<YYYYmmdd-HHMMSS>.log` + `<task>.latest.log` symlink |
+
+Every runner wraps the command in [`bin/job-tee`](./bin/job-tee), a POSIX
+script that tees stdout+stderr into that log with a start header and exit
+footer (Docker bind-mounts the same file), so logs are byte-for-byte the same
+format wherever the task ran. `job-init` creates `logs/` and appends `logs/`
+to the repo's `.gitignore` only if git does not already ignore it; every
+`*-run` calls it.
+
+Verbs, with `<r>` one of `tmux`, `launchd`, `docker`:
+
+```sh
+<r>-run TASK [--restart no|on-failure|always] [--image IMG] [--] CMD...
+<r>-ls                 # this repo's jobs on that runner
+<r>-status [TASK]      # running? since when? last exit?
+<r>-logs [TASK] [-n N] # tail the latest log (same file for every runner)
+<r>-stop [TASK]        # stop, keep the definition
+<r>-start [TASK]       # launchd / docker: start a stopped definition again
+<r>-rm [TASK|--all]    # stop and remove the definition
+job-ls / job-status [TASK]   # all runners at once
+```
+
+`--restart` maps to launchd `KeepAlive` (`on-failure` → `SuccessfulExit=false`)
+and to Docker restart policies (`always` → `unless-stopped` so `docker-stop`
+sticks). tmux accepts it for symmetry and ignores it.
+
+Examples:
+
+```sh
+cd ~/Repos/myproj
+tmux-go                              # attach to session "myproj" (created if needed)
+tmux-run build -- make -j8 all       # session "myproj-build", window "build", logs/build.*.log
+tmux-logs build                      # tail -f logs/build.latest.log
+tmux-stop build                      # close the window; tmux-rm build kills the session
+
+launchd-run sync --restart always -- ./scripts/sync.sh
+launchd-status sync                  # local.job.myproj.sync -> running (pid ...)
+launchd-stop sync; launchd-start sync
+launchd-rm sync                      # unload + delete the plist
+
+docker-run train --image pytorch/pytorch -- python train.py   # repo at /work
+docker-status train; docker-logs train
+docker-stop train; docker-start train
+docker-clean                         # drop this repo's exited job containers
+docker-rm --all                      # stop + remove every job container of this repo
+
+job-ls                               # everything this repo has, on all three
+job-logs build -l                    # every log file for a task, newest first
+```
+
+Knobs: `JOB_DOCKER_IMAGE` (default image), `JOB_DOCKER_ARGS` (zsh array of
+extra `docker run` flags, e.g. `-e FOO=1`), `JOB_LAUNCHD_PREFIX` (default
+`local.job`).

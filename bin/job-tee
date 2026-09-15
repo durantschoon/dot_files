@@ -1,0 +1,48 @@
+#!/bin/sh
+# job-tee -- run a command, teeing stdout+stderr to ./logs/<task>.<timestamp>.log
+#
+# Usage: job-tee TASK CMD [ARGS...]
+#
+# The single log writer behind tmux-run, launchd-run and docker-run (see
+# ~/dot_files/.jobs.zsh). Docker bind-mounts this same file read-only into the
+# container, so a task's logs look identical whichever runner produced them.
+# That is what lets a future `job-promote TASK` move a task between runners
+# without renaming it or relocating its logs.
+#
+# Layout, relative to the working directory (the repo root):
+#   logs/TASK.YYYYmmdd-HHMMSS.log   one file per run: header, output, exit footer
+#   logs/TASK.latest.log            relative symlink to the newest run
+#
+# Deliberately POSIX sh: it has to run under /bin/sh in minimal images.
+set -u
+
+usage() { echo "usage: job-tee TASK CMD [ARGS...]" >&2; exit 64; }
+[ $# -ge 2 ] || usage
+task=$1; shift
+case $task in
+  ''|*[!A-Za-z0-9_-]*) echo "job-tee: task must match [A-Za-z0-9_-]+, got '$task'" >&2; exit 64 ;;
+esac
+
+log_dir=${JOB_LOG_DIR:-logs}
+mkdir -p "$log_dir" || exit 1
+stamp=$(date +%Y%m%d-%H%M%S)
+log="$log_dir/$task.$stamp.log"
+ln -sfn "$task.$stamp.log" "$log_dir/$task.latest.log"
+
+# A POSIX pipeline exits with tee's status, so the command's real status
+# travels through a side file. It is only created once the command has
+# finished and lives outside logs/, so a killed job leaves nothing behind.
+rc_file="${TMPDIR:-/tmp}/job-tee.$$.rc"
+trap 'rm -f "$rc_file"' EXIT
+{
+  printf '== job-tee start  %s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
+  printf '== task           %s\n' "$task"
+  printf '== runner         %s\n' "${JOB_RUNNER:-shell}"
+  printf '== cwd            %s\n' "$PWD"
+  printf '== cmd            %s\n\n' "$*"
+  "$@"
+  echo $? > "$rc_file"
+  printf '\n== job-tee exit   %s at %s\n' "$(cat "$rc_file")" "$(date '+%Y-%m-%d %H:%M:%S %z')"
+} 2>&1 | tee -a "$log"
+rc=$(cat "$rc_file" 2>/dev/null || echo 1)
+exit "$rc"

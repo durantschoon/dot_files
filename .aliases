@@ -990,3 +990,10 @@ local ttyd_pid=$!
 }
 alias school-shell='school-shell-start'
 
+alias ebn-lab='ebn-lab-start'
+
+# -----------------------------------------------------------------------------
+# Long-running local work: tmux / launchd / Docker job helpers
+# -----------------------------------------------------------------------------
+# job-*, tmux-*, launchd-*, docker-* -- see .jobs.zsh and README "Long-running local jobs".
+[[ -n "$ZSH_VERSION" && -f ~/dot_files/.jobs.zsh ]] && source ~/dot_files/.jobs.zsh
