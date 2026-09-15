@@ -82,3 +82,10 @@ degraded.
 - **Report evidence is captured after the final commit**, not mid-way (stage 02
   item 5 recorded a `git status` from before `git add`). Gate outputs quoted in a
   report come from a run on the committed tree.
+- **One writer to `main` at a time.** Stage 06's merge failed to fast-forward because
+  a second interactive Claude session had committed to `main` in the same checkout
+  minutes earlier, and a `cmd | tail && next` chain kept going on `tail`'s exit
+  status. Coordinator rules: (a) `git merge --ff-only` never sits in a pipeline;
+  check its status directly; (b) before merging, `ListAgents` and message any other
+  session working in this repo about the files in flight; (c) a merge that cannot
+  fast-forward is inspected (`git log main..`), never pushed through.

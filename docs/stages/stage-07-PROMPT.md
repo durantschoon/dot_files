@@ -146,3 +146,13 @@ final commit; tool versions; **Deviations**; **Open questions**; explicit answer
 Stop work; write the report with a **Blocked** section (full error text, what you
 tried, what you would need); commit report only, with the blocked-case message
 above; end your final message with one line stating the block.
+
+## Base correction (coordinator, after authoring)
+
+Main moved while this prompt was being committed: a second Claude session landed
+`053a9e7` (`claude-run`, new file `.claude-jobs.zsh` + `tests/jobs/claude-smoke.zsh`,
+wired into `make check-jobs`) directly on main, and stage 06 was then merged as
+`ebdba20`. **Your base is the commit that carries this correction**, whose parent
+is `ebdba20`. `make check-jobs` now runs both smoke tests; both must stay green.
+`.claude-jobs.zsh` and `tests/jobs/claude-smoke.zsh` are not in your whitelist —
+do not edit them; if `job-promote` needs anything from them, STOP (Blocked).
