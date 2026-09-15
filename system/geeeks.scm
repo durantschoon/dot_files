@@ -58,6 +58,7 @@
              (gnu packages ssh)        ;openssh
              (gnu packages version-control) ;git
              (gnu services base)       ;udev-service-type, udev-rule
+             (gnu services containers) ;rootless-podman-service-type
              (gnu services desktop)    ;%desktop-services, gnome-desktop-service-type,
                                        ;elogind-service-type, elogind-configuration
              (gnu services linux)      ;kernel-module-loader-service-type
@@ -497,6 +498,12 @@ leftcontrol = capslock
    ;; itself changes neither -- EWM runs from a TTY on its own VT while GNOME
    ;; keeps this service).
    (list (service gnome-desktop-service-type)                       ;[session]
+
+         ;; Rootless OCI containers for development environments whose native
+         ;; dependency stacks are not packaged by Guix (notably ROS 2).  The
+         ;; service installs Podman and configures subordinate UID/GID ranges;
+         ;; log out and back in after the first reconfigure.
+         (service rootless-podman-service-type)
 
          ;; keyd, as a SYSTEM service.
          ;;
