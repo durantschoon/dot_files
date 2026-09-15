@@ -135,10 +135,14 @@ job-logs() {
 # _job_run_task / _job_run_restart / _job_run_image / _job_run_on /
 # _job_run_cmd (zsh functions cannot return arrays). The first argument not
 # starting with "--" begins the command; use "--" if the command itself does.
+#
+# _job_run_image stays EMPTY unless --image said otherwise: the default image
+# depends on which container CLI was resolved, which is not known until the
+# guard has run, so docker-run decides it (see _docker_image).
 _job_parse_run() {
   local caller=$1; shift
   local usage="usage: $caller TASK [--restart no|on-failure|always] [--image IMG] [--on HOST] [--] CMD..."
-  typeset -g _job_run_task _job_run_restart=on-failure _job_run_image=${JOB_DOCKER_IMAGE:-debian:stable-slim} _job_run_on=""
+  typeset -g _job_run_task _job_run_restart=on-failure _job_run_image="" _job_run_on=""
   typeset -ga _job_run_cmd; _job_run_cmd=()
   [[ $# -gt 0 && $1 != -* ]] || { print -u2 "$usage"; return 64; }
   _job_run_task=$(_job_task "$1") || return; shift
@@ -163,7 +167,8 @@ _job_parse_run() {
 # hosts; the other two headers say "this machine" so the output cannot be read
 # as a claim about the whole tailnet.
 job-ls() {
-  print -P "%B# tmux%b  (hosts: ${(j:, :)$(_job_hosts)})"; tmux-ls
+  _job_hosts
+  print -P "%B# tmux%b  (hosts: ${(j:, :)reply})"; tmux-ls
   print -P "\n%B# launchd (this machine)%b"; launchd-ls
   print -P "\n%B# docker (this machine)%b";  docker-ls
 }
@@ -245,15 +250,21 @@ _job_host_offline() {
 }
 # Hosts worth asking: local first, then reachable JOB_HOSTS.
 #
+# The answer comes back in the zsh `reply' array, NOT on stdout, and every
+# caller invokes this function directly rather than through `$( )'. That is
+# what makes "warned once per shell" true: the priming call below is the only
+# place _job_ts_status runs outside a subshell, and a `$(_job_hosts)' caller
+# would put even that one in a subshell, so the cache and the warned-once
+# guard it sets would be discarded on return -- which is exactly how the
+# warning used to fire on every single lookup.
+#
 # The first line primes the cache -- and, with no tailscale, emits the warning
-# -- in THIS shell. The checks below reach _job_ts_status only through `$( )`
-# and pipelines, i.e. from subshells, whose assignments to the cache and to the
-# warned-once guard are discarded on return; doing it once here is what makes
-# either of them stick for the length of a call.
+# -- in THIS shell. The checks below still reach _job_ts_status only through
+# `$( )' and pipelines, so they can set neither.
 _job_hosts() {
   _job_ts_status >/dev/null
-  print -r -- local
-  local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || print -r -- "$h"; done
+  typeset -ga reply; reply=(local)
+  local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || reply+=("$h"); done
 }
 # Run tmux on HOST, arguments quoted for the remote shell.
 _job_tmux() {
@@ -318,12 +329,23 @@ _tmux_rows() {
     | awk -F'|' -v h="$host" -v re="$re" '$1 ~ re { print h "|" $0 }'
 }
 # This repo's sessions (<repo> and <repo>-*) on every host, most recent first.
+#
+# Like _job_hosts, the rows come back in `reply' rather than on stdout: a
+# `$(_tmux_repo_rows)' caller would run the _job_hosts call inside it in a
+# subshell, and the warned-once guard would not stick. The host walk itself
+# still runs in a `$( )' -- by then _job_ts_status has already been primed in
+# the caller's shell, so there is nothing left for a subshell to lose.
 _tmux_repo_rows() {
   local h re="^$(job-repo)(-|$)"
-  for h in $(_job_hosts); do _tmux_rows "$h" "$re"; done | sort -t'|' -k5,5nr
+  _job_hosts; local -a hosts=("${reply[@]}")
+  reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h" "$re"; done | sort -t'|' -k5,5nr)"})
 }
-# Every session on every host, most recent first.
-_tmux_all_rows() { local h; for h in $(_job_hosts); do _tmux_rows "$h"; done | sort -t'|' -k5,5nr; }
+# Every session on every host, most recent first. Also answers in `reply'.
+_tmux_all_rows() {
+  local h
+  _job_hosts; local -a hosts=("${reply[@]}")
+  reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h"; done | sort -t'|' -k5,5nr)"})
+}
 # One display line for a row; $2=1 adds the repo column (dashboard).
 _tmux_label() {
   local -a f; f=("${(@s:|:)1}")
@@ -331,12 +353,16 @@ _tmux_label() {
   printf '%-8s %s%-28s %2s win  %-8s %s' "$f[1]" "$repo" "$f[2]" "$f[3]" \
     "$( (( f[4] )) && print attached || print detached )" "$(_job_ago "$f[5]")"
 }
-# Host holding session NAME (local preferred), or failure.
+# Host holding session NAME (local preferred), in reply[1]; failure if none.
+# Answers in `reply' for the same reason _job_hosts does: `host=$(_tmux_where
+# ...)' would hide every host lookup a verb makes inside a subshell.
 _tmux_where() {
   local name=$1 h
-  for h in $(_job_hosts); do
-    _job_tmux "$h" has-session -t "=$name" 2>/dev/null && { print -r -- "$h"; return 0; }
+  _job_hosts; local -a hosts=("${reply[@]}")
+  for h in "${hosts[@]}"; do
+    _job_tmux "$h" has-session -t "=$name" 2>/dev/null && { reply=("$h"); return 0; }
   done
+  reply=()
   return 1
 }
 _tmux_has_window() { _job_tmux "$1" list-windows -t "=$2" -F '#{window_name}' 2>/dev/null | grep -qx -- "$3"; }
@@ -370,7 +396,8 @@ _tmux_check_on() {
 tmux-new() {
   _tmux_args "$@" || return
   local name host rel; name=$(job-name "$_tmux_arg_task") || return
-  if host=$(_tmux_where "$name"); then
+  if _tmux_where "$name"; then
+    host=$reply[1]
     _tmux_check_on tmux-new "$name" "$_tmux_arg_on" "$host" || return 1
     print -u2 "tmux-new: session '$name' already exists on $host"; return 0
   fi
@@ -389,11 +416,13 @@ tmux-new() {
 tmux-go() {
   _tmux_args "$@" || return
   local name host; name=$(job-name "$_tmux_arg_task") || return
-  if host=$(_tmux_where "$name"); then
+  if _tmux_where "$name"; then
+    host=$reply[1]
     _tmux_check_on tmux-go "$name" "$_tmux_arg_on" "$host" || return 1
   else
     tmux-new "$@" || return
-    host=$(_tmux_where "$name") || { print -u2 "tmux-go: cannot find '$name' after creating it"; return 1; }
+    _tmux_where "$name" || { print -u2 "tmux-go: cannot find '$name' after creating it"; return 1; }
+    host=$reply[1]
   fi
   _job_tmux_attach "$host" "$name"
 }
@@ -404,12 +433,13 @@ tmux-go() {
 tmux-pick() {
   local all=0; [[ $1 == --all || $1 == -a ]] && all=1
   local -a rows keys labels; local r
-  if (( all )); then rows=(${(f)"$(_tmux_all_rows)"}); else rows=(${(f)"$(_tmux_repo_rows)"}); fi
+  if (( all )); then _tmux_all_rows; else _tmux_repo_rows; fi
+  rows=("${reply[@]}")
   for r in "${rows[@]}"; do
     keys+=("${${(s:|:)r}[1]}|${${(s:|:)r}[2]}"); labels+=("$(_tmux_label "$r" $all)")
   done
   (( all )) || { keys+=(new); labels+=("new session '$(job-name)' on $JOB_HOST"); }
-  (( $#keys )) || { print -u2 "tmux-pick: no sessions on ${(j:, :)$(_job_hosts)}"; return 1; }
+  (( $#keys )) || { _job_hosts; print -u2 "tmux-pick: no sessions on ${(j:, :)reply}"; return 1; }
   local choice
   if command -v fzf >/dev/null 2>&1; then
     choice=$(paste <(print -l -- "${keys[@]}") <(print -l -- "${labels[@]}") \
@@ -435,7 +465,8 @@ tmux-run() {
   _job_parse_run tmux-run "$@" || return
   local task=$_job_run_task name host rel
   name=$(job-name "$task") || return
-  if host=$(_tmux_where "$name"); then
+  if _tmux_where "$name"; then
+    host=$reply[1]
     _tmux_check_on tmux-run "$name" "$_job_run_on" "$host" || return 1
   else
     host=${_job_run_on:-$JOB_HOST}
@@ -475,12 +506,15 @@ tmux-run() {
 }
 
 # tmux-ls: this repo's sessions on every reachable host.
-tmux-ls() { local r; for r in ${(f)"$(_tmux_repo_rows)"}; do _tmux_label "$r"; print; done; }
+tmux-ls() { local r; local -a rows; _tmux_repo_rows; rows=("${reply[@]}"); for r in "${rows[@]}"; do _tmux_label "$r"; print; done; }
 
 # tmux-status [TASK]: which host, and per-window state.
 tmux-status() {
   local task name host; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
-  if ! host=$(_tmux_where "$name"); then print "tmux:    no session '$name' on ${(j:, :)$(_job_hosts)}"; return 1; fi
+  if ! _tmux_where "$name"; then
+    _job_hosts; print "tmux:    no session '$name' on ${(j:, :)reply}"; return 1
+  fi
+  host=$reply[1]
   print "tmux:    session '$name' on $host"
   _job_tmux "$host" list-windows -t "=$name" -F '#{window_name}|#{pane_dead}|#{pane_dead_status}|#{pane_current_command}|#{pane_pid}' \
     | awk -F'|' '{ state = ($2 == 1) ? "exited " ($3 == "" ? "?" : $3) : "running " $4 " (pid " $5 ")"; printf "         window %-20s %s\n", $1, state }'
@@ -492,7 +526,8 @@ tmux-logs() { job-logs "$@"; }
 # no window named TASK, i.e. a plain interactive session), wherever it lives.
 tmux-stop() {
   local task name host; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
-  host=$(_tmux_where "$name") || { print -u2 "tmux-stop: no session '$name'"; return 0; }
+  _tmux_where "$name" || { print -u2 "tmux-stop: no session '$name'"; return 0; }
+  host=$reply[1]
   if _tmux_has_window "$host" "$name" "$task"; then
     _job_tmux "$host" kill-window -t "=$name:$task" && print -u2 "tmux-stop: closed window '$task' in '$name' on $host"
   else
@@ -504,14 +539,16 @@ tmux-stop() {
 tmux-rm() {
   local host name
   if [[ $1 == --all ]]; then
-    local r; for r in ${(f)"$(_tmux_repo_rows)"}; do
+    local r; local -a rows; _tmux_repo_rows; rows=("${reply[@]}")
+    for r in "${rows[@]}"; do
       host=${r%%|*}; name=${${(s:|:)r}[2]}
       _job_tmux "$host" kill-session -t "=$name" && print -u2 "tmux-rm: killed session '$name' on $host"
     done
     return 0
   fi
   name=$(job-name "$1") || return
-  host=$(_tmux_where "$name") || { print -u2 "tmux-rm: no session '$name'"; return 0; }
+  _tmux_where "$name" || { print -u2 "tmux-rm: no session '$name'"; return 0; }
+  host=$reply[1]
   _job_tmux "$host" kill-session -t "=$name" && print -u2 "tmux-rm: killed session '$name' on $host"
 }
 
@@ -667,37 +704,90 @@ launchd-rm() {
 # with it: the naming contract is what lets a task move between runners, and
 # `docker-run' means "the container runner" here, not the Docker product.
 # Rootless Podman takes every flag used below with the same meaning.
-# Default: docker if present, else podman, else nothing (the guard then says so).
-if (( ! ${+JOB_CONTAINER_CLI} )); then
-  if   command -v docker >/dev/null 2>&1; then typeset -g JOB_CONTAINER_CLI=docker
-  elif command -v podman >/dev/null 2>&1; then typeset -g JOB_CONTAINER_CLI=podman
-  else                                         typeset -g JOB_CONTAINER_CLI=""
-  fi
-fi
+#
+# The candidates, in preference order, for the lazy probe below.
+typeset -ga _JOB_CTR_CANDIDATES=(docker podman)
 # The single reader of the knob: every container-CLI invocation goes through it.
 _job_ctr() { command "$JOB_CONTAINER_CLI" "$@"; }
 
+# Resolve JOB_CONTAINER_CLI by REACHABILITY, lazily, once per shell.
+#
+# A present binary is not a working engine: a laptop with the docker CLI and no
+# daemon running fails every docker-* verb with an engine error while a perfectly
+# good podman sits unused two lines away.  So the test is not `command -v' but
+# `<cli> info', which is the cheapest question that only a live engine can
+# answer (measured on this Mac: ~90ms warm with OrbStack up, ~70ms to fail
+# against an unreachable DOCKER_HOST -- cheap enough to pay once per shell).
+#
+# Three properties this buys, in order of how easy they are to lose:
+#   - Sourcing .jobs.zsh runs NEITHER engine.  Probing at source time would put
+#     an engine round-trip in the start-up path of every interactive shell.
+#   - An explicitly set JOB_CONTAINER_CLI is authority and is never probed: the
+#     user who pinned it has already answered the question.
+#   - A failed probe is NOT cached.  Starting the engine and re-running the verb
+#     must work in the same shell, so only success is remembered.
 _docker_guard() {
-  [[ -n $JOB_CONTAINER_CLI ]] \
-    || { print -u2 "docker-*: no container CLI found (tried docker, then podman); set JOB_CONTAINER_CLI"; return 1; }
-  command -v -- "$JOB_CONTAINER_CLI" >/dev/null 2>&1 \
-    || { print -u2 "docker-*: container CLI '$JOB_CONTAINER_CLI' is not executable (JOB_CONTAINER_CLI)"; return 1; }
+  if [[ -n ${JOB_CONTAINER_CLI-} ]]; then
+    command -v -- "$JOB_CONTAINER_CLI" >/dev/null 2>&1 \
+      || { print -u2 "docker-*: container CLI '$JOB_CONTAINER_CLI' is not executable (JOB_CONTAINER_CLI)"; return 1; }
+    return 0
+  fi
+  local c; local -a why
+  for c in "${_JOB_CTR_CANDIDATES[@]}"; do
+    if ! command -v -- "$c" >/dev/null 2>&1; then
+      why+=("$c: not on PATH"); continue
+    fi
+    if command "$c" info >/dev/null 2>&1; then
+      typeset -g JOB_CONTAINER_CLI=$c; return 0
+    fi
+    why+=("$c: on PATH but its engine did not answer \`$c info'")
+  done
+  print -u2 "docker-*: no working container engine -- ${(j:; :)why}." \
+            "Start one, then run this again (nothing is cached until a probe succeeds)," \
+            "or set JOB_CONTAINER_CLI to the CLI to use."
+  return 1
 }
 _docker_exists() { _job_ctr container inspect "$1" >/dev/null 2>&1; }
 _docker_running() { [[ $(_job_ctr container inspect -f '{{.State.Running}}' "$1" 2>/dev/null) == true ]]; }
 _docker_repo_filter() { print -r -- "label=job.repo=$(job-repo)"; }
 
+# The image docker-run should use, decided AFTER the guard, because the default
+# depends on which engine won the probe.
+#
+#   --image IMG        a user-supplied image is never rewritten, not even to
+#                      qualify it: the user named a reference, that is the
+#                      reference.  Highest precedence for the same reason.
+#   $JOB_DOCKER_IMAGE  the per-machine/per-repo default.
+#   built-in default   debian:stable-slim under Docker, and the SAME image
+#                      fully qualified under Podman.
+#
+# The qualification is not cosmetic.  Podman enforces short-name resolution: an
+# unqualified `debian:stable-slim' asks which registry to pull from, and in the
+# detached `run -d' below there is no TTY to answer on, so the job dies on its
+# first line.  docker.io/library/... is what the prompt would have resolved to.
+_docker_image() {
+  if [[ -n $_job_run_image ]]; then print -r -- "$_job_run_image"; return 0; fi
+  if [[ -n ${JOB_DOCKER_IMAGE-} ]]; then print -r -- "$JOB_DOCKER_IMAGE"; return 0; fi
+  if [[ ${JOB_CONTAINER_CLI:t} == podman* ]]; then
+    print -r -- docker.io/library/debian:stable-slim
+  else
+    print -r -- debian:stable-slim
+  fi
+}
+
 # docker-run TASK [--image IMG] [--restart no|on-failure|always] [--] CMD...
 # Run CMD in a detached container named <repo>-<task>: repo mounted at /work
 # (so ./logs is the same directory on both sides), job-tee bind-mounted
 # read-only, --init so stop signals reach CMD. --restart always becomes
-# unless-stopped so docker-stop sticks. Default image: $JOB_DOCKER_IMAGE or
-# debian:stable-slim. Extra `docker run` flags: array JOB_DOCKER_ARGS.
+# unless-stopped so docker-stop sticks. Image: --image, else $JOB_DOCKER_IMAGE,
+# else the engine-appropriate default (see _docker_image).
+# Extra `docker run` flags: array JOB_DOCKER_ARGS.
 # Idempotent: an exited container of the same name is replaced; a running one
 # is left alone (stop it first).
 docker-run() {
   _docker_guard || return
   _job_parse_run docker-run "$@" || return
+  local image; image=$(_docker_image) || return
   local task=$_job_run_task name root tee policy=$_job_run_restart
   name=$(job-name "$task") || return; root=$(job-root); tee=$(_job_tee) || return
   [[ -n $_job_run_on ]] && { print -u2 "docker-run: --on is tmux-only for now"; return 64; }
@@ -719,8 +809,8 @@ docker-run() {
     -v "${tee:A}:/usr/local/bin/job-tee:ro" \
     -e JOB_RUNNER=docker \
     "${extra[@]}" \
-    "$_job_run_image" job-tee "$task" "${_job_run_cmd[@]}" >/dev/null \
-    && print -u2 "docker-run: started '$name' from $_job_run_image  (docker-status $task, docker-logs $task)"
+    "$image" job-tee "$task" "${_job_run_cmd[@]}" >/dev/null \
+    && print -u2 "docker-run: started '$name' from $image  (docker-status $task, docker-logs $task)"
 }
 
 # docker-ls: this repo's job containers, running or not.
