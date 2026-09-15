@@ -188,7 +188,7 @@ help:
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
-	@echo "  make check-jobs    - Run the .jobs.zsh smoke test (not part of 'make check': it starts containers)"
+	@echo "  make check-jobs    - Run the .jobs.zsh and .claude-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
@@ -1470,6 +1470,7 @@ check-system: check-system-hosts check-keyd-sync check-channels-sync check-syste
 .PHONY: check-jobs
 check-jobs:
 	@./tests/jobs/smoke.zsh
+	@./tests/jobs/claude-smoke.zsh
 
 # The file name IS the host class, and a machine of that class takes the class
 # name as its host name -- so you pick a config to reconfigure with by reading

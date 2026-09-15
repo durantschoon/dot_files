@@ -353,6 +353,44 @@ of `make check`: it starts two tmux servers, a container and a launchd agent
 (all inside a scratch `$TMPDIR` its exit trap removes), while everything in
 `make check` only reads files.
 
+### A Claude Code session as a job (`claude-run`)
+
+[`.claude-jobs.zsh`](./.claude-jobs.zsh) adds one verb family on top of the
+tmux and launchd runners for the case "an interactive Claude session that
+outlives this terminal, that I can attach to from the phone, and that comes
+back after a reboot":
+
+```sh
+cd ~/Repos/myproj
+claude-run stage-24 "Read docs/HANDOFF.md, then run stage 24 unattended."
+claude-status stage-24          # tmux-status + launchd-status
+tmux-go stage-24                # attach, from here or from the phone
+claude-run stage-24             # re-attach; or recreate after a reboot if the agent missed it
+claude-rm stage-24              # tmux-rm + launchd-rm; the transcript stays
+```
+
+`claude-run` starts `claude --permission-mode $CLAUDE_JOB_MODE PROMPT` in tmux
+session `myproj-stage-24` at the repo root, then loads
+`local.job.myproj.stage-24` — a RunAtLoad agent that at every login recreates
+that session with `claude … --continue` unless it already exists — and
+attaches. It never starts a second Claude in the same checkout: a `claude-run`
+for a running task refuses a new prompt and just attaches.
+
+What survives the reboot is the transcript, not tmux. `--continue` resumes the
+most recent conversation whose cwd is the repo root, so keep one Claude job
+per checkout. The agent runs only after login, so the Mac must log you in on
+its own (System Settings → Users & Groups → "Automatically log in as"; FileVault
+must be off for that). After the Mac comes back, `tmux-go` and type `continue`.
+
+The vocabulary is skill-agnostic on purpose: `TASK` is whatever the repo's own
+workflow calls a unit of work (a numbered stage under one person's stage skill,
+something else under someone else's) and `PROMPT` is what starts it. A repo's
+`MODELS.md` is the place to record which words it uses.
+
+`make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
+test: a scratch `$HOME`, a private tmux server, a fake `claude` that records
+its argv, and one real launchd agent that the exit trap removes.
+
 ### Across machines (phone → Mac)
 
 tmux sessions form **one namespace** across machines. The name comes from the
