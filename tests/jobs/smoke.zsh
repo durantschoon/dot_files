@@ -15,7 +15,8 @@
 # second tmux server with a second $HOME holding the same checkout at the same
 # path relative to $HOME -- which is the whole premise of the host layer.
 # `tailscale` is shadowed with a fixed status table, `fzf` with a `sed -n Np`,
-# `podman` with a scratch-dir script that records its argv, and
+# `docker` and `podman` with scratch-dir scripts that record their argv and
+# answer `info` with a status the test flips between calls, and
 # `_job_tmux_attach` with a printer, so no assertion needs a tty.
 #
 # $HOME is a scratch directory, so `$HOME/.ssh` (which decides whether the
@@ -26,8 +27,11 @@
 # servers under $TMPDIR/jobsmoke-<pid>/, the scratch homes, the scratch repo
 # Repos/Job_Smoke.<pid> whose slug is job-smoke-<pid>, a second checkout
 # OUTSIDE those homes for the "root not under $HOME" case, and hence every
-# session, container and launchd label derived from them). The EXIT trap
-# removes all of it, on success and on the first failing assertion alike.
+# session, container and launchd label derived from them). The traps remove all
+# of it -- on success, on the first failing assertion, and on INT/TERM/HUP/PIPE
+# alike, the last of which an EXIT trap alone does not cover in zsh 5.9.
+# One assertion re-runs this script as a child in --signal-self-test mode; that
+# child owns the token jobsmoke-<its own pid> and cleans up after itself.
 #
 # Real, not simulated: the local tmux binary (on a private server), docker,
 # launchctl for one assertion, and `make -n` for the check-jobs wiring.
@@ -101,8 +105,12 @@ typeset -g LD_PLIST=$HOME_LOCAL/Library/LaunchAgents/$LD_LABEL.plist
 # Cleanup: everything the run created, on every exit path
 # --------------------------------------------------------------------------
 
+typeset -g SMOKE_CLEANED=0
+
 smoke_cleanup() {
   local rc=$?
+  (( SMOKE_CLEANED )) && return $rc      # exactly once, whichever path got here
+  SMOKE_CLEANED=1
   TMUX_TMPDIR=$TMUX_LOCAL  tmux kill-server >/dev/null 2>&1
   TMUX_TMPDIR=$TMUX_REMOTE tmux kill-server >/dev/null 2>&1
   launchctl bootout "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1
@@ -114,7 +122,51 @@ smoke_cleanup() {
   command rm -rf -- "$BASE"
   return $rc
 }
+
+# An EXIT trap alone is not enough. Measured on this machine (stage 06 Q2):
+#
+#   zsh 5.9, script with only `trap ... EXIT', killed with TERM  -> exit 143,
+#     the EXIT trap never ran; same script SIGPIPE'd  -> exit 141, never ran.
+#
+# which is exactly how stage 05 leaked a scratch tree and two tmux servers to a
+# SIGPIPE'd run. So each signal is trapped by name and routed through the same
+# cleanup: clean up once, restore the signal's DEFAULT disposition, then
+# re-raise it on ourselves. Re-raising rather than `exit 143' is what makes the
+# status honest -- the script really does die of the signal, so `128+signal'
+# is the kernel's account of it and not a number we made up, and a caller
+# using WIFSIGNALED sees the truth.
+#
+# HUP is the one exception, and it is zsh's, not ours: zsh handles SIGHUP
+# itself and leaves a script with status 1 -- measured the same way, a child
+# that traps NOTHING and is killed with HUP also exits 1, never 129. So HUP
+# cleans up and exits non-zero like the rest, and that is all it can promise.
+smoke_on_signal() {
+  local sig=$1
+  smoke_cleanup
+  trap - INT TERM HUP PIPE EXIT
+  kill -s "$sig" $$
+}
 trap smoke_cleanup EXIT
+trap 'smoke_on_signal INT'  INT
+trap 'smoke_on_signal TERM' TERM
+trap 'smoke_on_signal HUP'  HUP
+trap 'smoke_on_signal PIPE' PIPE
+
+# --------------------------------------------------------------------------
+# Signal self-test mode: this script, re-run as its own child
+# --------------------------------------------------------------------------
+# `./tests/jobs/smoke.zsh --signal-self-test READYFILE' builds the same scratch
+# tree under its OWN token (jobsmoke-<childpid>), reports where it is, and then
+# does nothing until it is killed. The parent kills it and checks both halves
+# of the contract: the 128+signal status, and an empty $TMPDIR afterwards.
+# Nothing below this point runs in that mode, so the child starts no tmux
+# server, no container and no launchd agent.
+if [[ $1 == --signal-self-test ]]; then
+  [[ -n $2 ]] || { print -u2 "smoke: --signal-self-test needs a ready-file path"; exit 64 }
+  print -r -- "$BASE" > "$2"
+  sleep 45                                # a live trap fires long before this
+  exit 0                                  # reached only if the signal was lost
+fi
 
 # --------------------------------------------------------------------------
 # Assertion plumbing: one ok/FAIL line each, stop at the first failure
@@ -237,8 +289,10 @@ eq "2c a second job-init changes nothing" "$(cksum < "$REPO/.gitignore")" "$befo
 # 3. Host filtering
 # --------------------------------------------------------------------------
 
+_job_hosts
 eq "3  _job_hosts drops self, own \$HOST and offline peers" \
-   "$(_job_hosts)" "$(print -l -- local fakehost)"
+   "${(j: :)reply}" "local fakehost"
+eq "3  ... and answers in \$reply, printing nothing on stdout" "$(_job_hosts)" ""
 
 # --------------------------------------------------------------------------
 # N1. A repo root outside $HOME is refused, loudly  (stage 05 assertion 1)
@@ -488,7 +542,7 @@ eq "8d ... and tmux-run succeeds too" "$rc" "0"
 # 9. Picker
 # --------------------------------------------------------------------------
 
-rows=(${(f)"$(_tmux_repo_rows)"})
+_tmux_repo_rows; rows=("${reply[@]}")
 (( $#rows >= 2 )) || fail "9  fewer than two rows to pick from" "${rows[@]}"
 want1="${${(s:|:)rows[1]}[1]} ${${(s:|:)rows[1]}[2]}"
 want2="${${(s:|:)rows[2]}[1]} ${${(s:|:)rows[2]}[2]}"
@@ -579,9 +633,14 @@ PATH=$NOFZF_PATH                          # no /usr/local/bin, no /opt/homebrew/
 eq "N6c docker really is off this PATH" "$(command -v docker)" ""
 unset JOB_CONTAINER_CLI
 smoke_reload
-eq "N6c sourcing with no docker selects podman" "$JOB_CONTAINER_CLI" "podman"
-command rm -f -- "$CTR_ARGV"
+# Stage 06 item 1 moved this decision out of source time: sourcing no longer
+# picks a CLI at all (assertion N9a below measures that directly). The first
+# verb picks podman, because it is the only candidate whose `info' answers.
+eq "N6c sourcing picks no CLI any more" "${JOB_CONTAINER_CLI-unset}" "unset"
 docker-ls >/dev/null 2>&1
+eq "N6c the first verb selects podman by reachability" "$JOB_CONTAINER_CLI" "podman"
+command rm -f -- "$CTR_ARGV"
+docker-ls >/dev/null 2>&1                 # the CLI is cached now: no probe line
 typeset -g CTR_LINE="$(command head -n 1 -- "$CTR_ARGV" 2>/dev/null)"
 starts "N6c docker-ls drives podman with the expected argv" \
        "$CTR_LINE" "ps -a --filter label=job.repo=$SLUG"
@@ -590,8 +649,138 @@ command rm -f -- "$PATHBIN/podman"
 PATH=$FULL_PATH
 unset JOB_CONTAINER_CLI
 smoke_reload
-eq "N6c ... and with docker back on PATH the default is docker again" \
+docker-ls >/dev/null 2>&1
+eq "N6c ... and with the real docker back on PATH the choice is docker again" \
    "$JOB_CONTAINER_CLI" "docker"
+
+# --------------------------------------------------------------------------
+# N9. The container CLI is resolved by REACHABILITY, lazily  (stage 06 item 1)
+# --------------------------------------------------------------------------
+# Two fake engines, both on PATH, each recording its argv and each answering
+# `info' with an exit status the test can flip between calls. That separates
+# the two things the old code conflated: a binary being present, and its engine
+# being up. A shell function will not do -- _job_ctr goes through `command'.
+#
+# Every verb below is run in THIS shell (stderr to a file) rather than through
+# `$( )': whether the answer got cached is half of what is being measured, and
+# a subshell would throw the cache away and hide it.
+
+typeset -g CTR_REC=$BASE/ctr-record.txt   # "<cli> <argv>" per invocation
+typeset -g N9_ERR=$BASE/n9-err.txt
+
+smoke_fake_ctr() {                        # $1: install $PATHBIN/$1 as a fake
+  local name=$1 f=$PATHBIN/$1
+  print -r -- '#!/bin/sh'                                                    >  "$f"
+  print -r -- "printf '%s %s\\n' ${(qq)name} \"\$*\" >> ${(qq)CTR_REC}"      >> "$f"
+  print -r -- "[ \"\$1\" = info ] && exit \"\$(cat ${(qq)BASE}/info-$name)\"" >> "$f"
+  print -r -- 'exit 0'                                                       >> "$f"
+  chmod +x "$f"                           # BSD chmod has no `--'
+}
+smoke_ctr_info() { print -r -- "$2" > "$BASE/info-$1" }   # $1 cli, $2 info's rc
+smoke_ctr_reset() { command rm -f -- "$CTR_REC"; : > "$CTR_REC" }
+
+smoke_fake_ctr docker; smoke_fake_ctr podman
+PATH=$NOFZF_PATH                          # only $PATHBIN's fakes are reachable
+eq "N9  both engines on PATH are the fakes" \
+   "$(command -v docker):$(command -v podman)" "$PATHBIN/docker:$PATHBIN/podman"
+
+# (a) Sourcing must not run an engine: this is in the start-up path of every
+#     interactive shell, and an engine round-trip does not belong there.
+smoke_ctr_info docker 0; smoke_ctr_info podman 0
+unset JOB_CONTAINER_CLI
+smoke_ctr_reset
+smoke_reload
+eq "N9a sourcing .jobs.zsh runs neither engine" "$(command cat "$CTR_REC")" ""
+eq "N9a ... and leaves JOB_CONTAINER_CLI unset" "${JOB_CONTAINER_CLI-unset}" "unset"
+
+# (b) A present-but-dead docker loses to a live podman -- the whole point.
+smoke_ctr_info docker 1; smoke_ctr_info podman 0
+unset JOB_CONTAINER_CLI
+smoke_ctr_reset
+docker-ls >/dev/null 2>"$N9_ERR"
+eq "N9b an unreachable docker loses to a reachable podman" "$JOB_CONTAINER_CLI" "podman"
+typeset -ga N9_LINES; N9_LINES=(${(f)"$(command cat "$CTR_REC")"})
+eq "N9b ... docker was asked first" "$N9_LINES[1]" "docker info"
+eq "N9b ... then podman"            "$N9_LINES[2]" "podman info"
+starts "N9b ... and then podman did the work" \
+       "$N9_LINES[3]" "podman ps -a --filter label=job.repo=$SLUG"
+eq "N9b ... and nothing else was run" "$#N9_LINES" "3"
+smoke_ctr_reset
+docker-ls >/dev/null 2>"$N9_ERR"
+eq "N9b a second verb in the same shell re-probes nothing" \
+   "$(command grep -c ' info$' "$CTR_REC")" "0"
+
+# (c) An explicit knob is authority: the user already answered the question.
+smoke_ctr_info docker 1                   # would fail the probe, never asked
+JOB_CONTAINER_CLI=docker
+smoke_ctr_reset
+docker-ls >/dev/null 2>"$N9_ERR"; rc=$?
+eq "N9c an explicit JOB_CONTAINER_CLI is used as-is" "$rc" "0"
+typeset -g N9C="$(command cat "$CTR_REC")"
+hasnt "N9c ... with no probe at all" "$N9C" "info"
+starts "N9c ... it just drove docker" "$N9C" "docker ps -a --filter label=job.repo=$SLUG"
+
+# (d) Neither engine answers: fail loudly, name both, and cache NOTHING.
+smoke_ctr_info docker 1; smoke_ctr_info podman 1
+unset JOB_CONTAINER_CLI
+smoke_ctr_reset
+docker-ls >/dev/null 2>"$N9_ERR"; rc=$?
+typeset -g N9D="$(command cat "$N9_ERR")"
+nonzero "N9d docker-ls fails when no engine answers" "$rc" "$N9D"
+has "N9d ... the message names docker and why" "$N9D" "docker: on PATH but its engine did not answer"
+has "N9d ... and podman and why"               "$N9D" "podman: on PATH but its engine did not answer"
+eq  "N9d ... and JOB_CONTAINER_CLI stays unset" "${JOB_CONTAINER_CLI-unset}" "unset"
+
+# (e) ... so starting an engine and retrying works in the SAME shell. A cached
+#     negative would have made the user open a new terminal to recover.
+smoke_ctr_info podman 0
+docker-ls >/dev/null 2>"$N9_ERR"; rc=$?
+eq "N9e starting an engine and retrying succeeds (no negative cache)" "$rc" "0"
+eq "N9e ... and podman is what got cached" "$JOB_CONTAINER_CLI" "podman"
+
+# --------------------------------------------------------------------------
+# N10. The default image follows the engine  (stage 06 item 2)
+# --------------------------------------------------------------------------
+# Podman enforces short-name resolution: an unqualified `debian:stable-slim'
+# asks which registry to pull from, and `run -d' has no TTY to answer on. The
+# image is therefore decided after the guard, by the CLI that won.
+
+# The image is the argv word just before `job-tee' on the recorded `run' line.
+smoke_run_image() {
+  smoke_ctr_reset
+  docker-run "$@" >/dev/null 2>&1
+  command awk '$2 == "run" { for (i = 3; i <= NF; i++) if ($i == "job-tee") { print $(i-1); exit } }' \
+    "$CTR_REC"
+}
+
+smoke_ctr_info docker 1; smoke_ctr_info podman 0
+unset JOB_CONTAINER_CLI
+docker-ls >/dev/null 2>"$N9_ERR"
+eq "N10 podman is the engine for this section" "$JOB_CONTAINER_CLI" "podman"
+
+eq "N10a under podman the default image is fully qualified" \
+   "$(smoke_run_image t1 --restart no -- true)" "docker.io/library/debian:stable-slim"
+JOB_DOCKER_IMAGE=alpine
+eq "N10b JOB_DOCKER_IMAGE replaces the built-in default" \
+   "$(smoke_run_image t1 --restart no -- true)" "alpine"
+eq "N10c --image wins over JOB_DOCKER_IMAGE" \
+   "$(smoke_run_image t1 --image busybox --restart no -- true)" "busybox"
+unset JOB_DOCKER_IMAGE
+eq "N10c ... and a user's image is never qualified for them" \
+   "$(smoke_run_image t1 --image busybox --restart no -- true)" "busybox"
+
+smoke_ctr_info docker 0
+unset JOB_CONTAINER_CLI
+docker-ls >/dev/null 2>"$N9_ERR"
+eq "N10d docker is the engine now" "$JOB_CONTAINER_CLI" "docker"
+eq "N10d under docker the default image stays the short name" \
+   "$(smoke_run_image t1 --restart no -- true)" "debian:stable-slim"
+
+# Put the real world back for the sections that use it.
+command rm -f -- "$PATHBIN/docker" "$PATHBIN/podman"
+PATH=$FULL_PATH
+unset JOB_CONTAINER_CLI
+eq "N10 the fakes are gone again" "$(command -v podman)" ""
 
 # --------------------------------------------------------------------------
 # N7. job-ls says which runners are local-only  (stage 05 assertion 7)
@@ -629,19 +818,21 @@ eq "N4a tailscale really is off this PATH" "$(command -v tailscale)" ""
 
 typeset -g TS_ERR1=$BASE/ts-err1.txt TS_ERR2=$BASE/ts-err2.txt
 typeset -g TS_FD1=$BASE/ts-out1.txt TS_FD2=$BASE/ts-out2.txt
-# Redirected to files, NOT captured with `$( )': a command substitution is a
-# subshell, and the warned-once guard a subshell sets is thrown away on return.
-# "Once per shell" can only be observed from the shell that owns the variable,
-# which is also the only place a user ever benefits from it.
-_job_hosts >"$TS_FD1" 2>"$TS_ERR1"
-_job_hosts >"$TS_FD2" 2>"$TS_ERR2"
-typeset -g TS_OUT1="$(command cat "$TS_FD1")" TS_OUT2="$(command cat "$TS_FD2")"
+# Called directly, NOT through `$( )': a command substitution is a subshell,
+# and the warned-once guard a subshell sets is thrown away on return. That is
+# why _job_hosts answers in `reply' now -- "once per shell" can only be
+# observed from the shell that owns the variable, which is also the only place
+# a user ever benefits from it. Only stdout/stderr are redirected to files.
+_job_hosts >"$TS_FD1" 2>"$TS_ERR1"; typeset -ga TS_REPLY1=("${reply[@]}")
+_job_hosts >"$TS_FD2" 2>"$TS_ERR2"; typeset -ga TS_REPLY2=("${reply[@]}")
 # `sleepy' was the offline peer and `selfnode' this machine's tailnet name:
 # both were tailscale's to know, so both now survive. Only the plain $HOST
 # match still filters, and it needs no CLI.
 eq "N4b _job_hosts now lists everything nothing can filter" \
-   "$TS_OUT1" "$(print -l -- local fakehost sleepy selfnode)"
-eq "N4b ... and a second call agrees" "$TS_OUT2" "$TS_OUT1"
+   "${(j: :)TS_REPLY1}" "local fakehost sleepy selfnode"
+eq "N4b ... and a second call agrees" "${(j: :)TS_REPLY2}" "${(j: :)TS_REPLY1}"
+eq "N4b ... and neither call printed anything on stdout" \
+   "$(command cat "$TS_FD1")$(command cat "$TS_FD2")" ""
 has "N4c the first call warns that filtering is disabled" \
     "$(command cat "$TS_ERR1")" "tailscale is not on PATH"
 has "N4c ... and says what each unreachable host now costs" \
@@ -649,6 +840,24 @@ has "N4c ... and says what each unreachable host now costs" \
 eq "N4c ... exactly one warning in the first call" \
    "$(command grep -c 'tailscale is not on PATH' "$TS_ERR1")" "1"
 eq "N4d ... and the second call is silent" "$(command cat "$TS_ERR2")" ""
+
+# --------------------------------------------------------------------------
+# N11. Once per shell means once per SHELL, not once per subshell (item 4)
+# --------------------------------------------------------------------------
+# The regression this guards: while _job_hosts printed its answer, every caller
+# reached it through `$( )', so _job_ts_warned was set in a subshell and thrown
+# away -- a phone without the tailscale CLI got the paragraph above on every
+# single tmux-ls. tmux-ls is the end-to-end version of the N4c/N4d pair: it is
+# three call layers above _job_ts_status, and none of them may be a subshell.
+
+typeset -g W_ERR1=$BASE/warn-err1.txt W_ERR2=$BASE/warn-err2.txt
+unset _job_ts_warned _job_ts_out _job_ts_at
+tmux-ls >/dev/null 2>"$W_ERR1"
+tmux-ls >/dev/null 2>"$W_ERR2"
+eq "N11a the first tmux-ls warns exactly once" \
+   "$(command grep -c 'tailscale is not on PATH' "$W_ERR1")" "1"
+eq "N11b a second tmux-ls in the same shell does not warn again" \
+   "$(command grep -c 'tailscale is not on PATH' "$W_ERR2")" "0"
 
 # Put the machine back the way the remaining code expects it.
 PATH=$FULL_PATH
@@ -659,6 +868,72 @@ tailscale() {
   print -r -- "100.64.0.3      sleepy                durant@      linux    offline"
 }
 unset _job_ts_warned _job_ts_out _job_ts_at
+
+# --------------------------------------------------------------------------
+# N12. Cleanup survives signals, not just a clean exit  (stage 06 item 3)
+# --------------------------------------------------------------------------
+# Stage 05 open question 1: a SIGPIPE'd run leaked a scratch tree and two tmux
+# servers that had to be removed by hand, because zsh 5.9 runs no EXIT trap
+# when the script dies of an uncaught signal (measured, stage 06 Q2: TERM ->
+# 143 and PIPE -> 141, trap never entered). Asserted, not assumed: a CHILD copy
+# of this very script builds its own scratch tree under its own token
+# (jobsmoke-<childpid>) and waits to be killed.
+
+typeset -g SIG_READY=$BASE/selftest-base.txt
+typeset -g SIG_BASE SIG_RC
+
+# Start a self-test child, wait until it says where its tree is, kill it with
+# $1 and leave the status in SIG_RC and the tree path in SIG_BASE.
+smoke_sig_run() {
+  local sig=$1 child
+  command rm -f -- "$SIG_READY"
+  "$SMOKE_SELF" --signal-self-test "$SIG_READY" >/dev/null 2>&1 &
+  child=$!
+  _sig_ready() { [[ -s $SIG_READY ]] }
+  waitfor _sig_ready || fail "N12 the $sig self-test child never reported its tree" \
+    "child pid $child"
+  SIG_BASE="$(command cat "$SIG_READY")"
+  [[ -d $SIG_BASE ]] || fail "N12 the $sig child's tree was not there to begin with" "$SIG_BASE"
+  kill -s "$sig" "$child"
+  wait "$child"; SIG_RC=$?
+}
+
+smoke_sig_run TERM
+starts "N12a the child built a scratch tree under its own token" "${SIG_BASE:t}" "jobsmoke-"
+eq "N12a ... which is not this run's tree" "$([[ $SIG_BASE == $BASE ]] && print same)" ""
+eq "N12b TERM yields the conventional 128+15" "$SIG_RC" "143"
+eq "N12b ... and the child's scratch tree is gone" \
+   "$([[ -e $SIG_BASE ]] && print left-behind)" ""
+
+# The other three, fired for real rather than reasoned about. INT and PIPE give
+# 128+signal like TERM; HUP does not, and cannot: zsh handles SIGHUP itself and
+# leaves a script with status 1 even when the script traps nothing at all
+# (measured, stage 06 -- an untrapped child killed with HUP also exits 1, not
+# 129). What matters either way is that the tree is cleaned and the status is
+# not success, and both hold.
+smoke_sig_run INT
+eq "N12c INT yields the conventional 128+2" "$SIG_RC" "130"
+eq "N12c ... and cleans up" "$([[ -e $SIG_BASE ]] && print left-behind)" ""
+
+smoke_sig_run PIPE
+eq "N12c PIPE yields the conventional 128+13" "$SIG_RC" "141"
+eq "N12c ... and cleans up" "$([[ -e $SIG_BASE ]] && print left-behind)" ""
+
+smoke_sig_run HUP
+nonzero "N12c HUP exits non-zero" "$SIG_RC"
+note "Q2 HUP gives exit $SIG_RC, not 129: zsh exits 1 on SIGHUP whether or not the script traps it"
+eq "N12c ... and cleans up" "$([[ -e $SIG_BASE ]] && print left-behind)" ""
+
+# That all four reach the SAME handler is a property of the source, so it is
+# read from the source rather than inferred from four exit statuses.
+typeset -g SIG_SRC="$(command cat "$SMOKE_SELF")"
+has "N12e INT is trapped to the shared handler"  "$SIG_SRC" "trap 'smoke_on_signal INT'  INT"
+has "N12e HUP is trapped to the shared handler"  "$SIG_SRC" "trap 'smoke_on_signal HUP'  HUP"
+has "N12e PIPE is trapped to the shared handler" "$SIG_SRC" "trap 'smoke_on_signal PIPE' PIPE"
+has "N12e ... and that handler cleans up, then re-raises" \
+    "$SIG_SRC" "smoke_cleanup"$'\n'"  trap - INT TERM HUP PIPE EXIT"
+has "N12e and cleanup is guarded, so no path can run it twice" \
+    "$SIG_SRC" "(( SMOKE_CLEANED )) && return"
 
 # --------------------------------------------------------------------------
 # 13(b). Measurement for question 3 -- not a pass/fail assertion

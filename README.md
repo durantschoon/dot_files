@@ -337,10 +337,25 @@ job-logs build -l                    # every log file for a task, newest first
 Knobs: `JOB_DOCKER_IMAGE` (default image), `JOB_DOCKER_ARGS` (zsh array of
 extra `docker run` flags, e.g. `-e FOO=1`), `JOB_LAUNCHD_PREFIX` (default
 `local.job`), and `JOB_CONTAINER_CLI` — the container CLI the `docker-*` verbs
-drive, defaulting to `docker` if it is on `PATH`, else `podman`, else nothing
-(the verbs then fail naming the value they tried). The verb names do not change
-with it: `docker-run` means "the container runner", and keeping the names fixed
-is what lets a task move between runners without renaming its logs.
+drive. It is **resolved on first use, by which engine actually answers
+`info`**, not by which binary happens to be on `PATH`: sourcing `.jobs.zsh`
+runs neither engine, and the first `docker-*` verb of a shell tries `docker`
+then `podman` and caches the first one whose `info` succeeds. A CLI that is
+installed but whose daemon is down therefore loses to one that works, and if
+neither answers, the verb fails naming each candidate and why (absent, or
+engine unreachable) — without caching, so starting the engine and re-running
+works in the same shell. Setting `JOB_CONTAINER_CLI` yourself skips the probe
+entirely and is used as-is; on a machine that has **both** engines, pin it in
+that machine's zshenv (`.linux.zshenv` / `.mac.zshenv`) rather than paying a
+probe and letting preference order decide. The verb names do not change with
+it: `docker-run` means "the container runner", and keeping the names fixed is
+what lets a task move between runners without renaming its logs.
+
+The built-in default image follows the engine: `debian:stable-slim` under
+Docker, and the fully qualified `docker.io/library/debian:stable-slim` under
+Podman, whose short-name resolution would otherwise prompt for a registry —
+fatal in a detached `run -d` with no TTY. An image you name yourself, via
+`--image` or `JOB_DOCKER_IMAGE`, is never rewritten.
 
 Podman caveat: rootless Podman has no daemon, so `--restart` only applies while
 a `podman` process is supervising the container and does **not** survive a
