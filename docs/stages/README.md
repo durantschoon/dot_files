@@ -62,3 +62,23 @@ degraded.
 - Retro every 5 stages (before authoring stage NN where NN % 5 == 0): re-read the
   last five REPORTs' Deviations and Open-questions sections, fix systemic patterns in
   this README in the same commit as the new prompt.
+
+### Added at the stage 05 retro (reports 01–04)
+
+- **Out-of-worktree grants name what the code will actually produce.** Stage 03's
+  grant said `~/src/ewm` and the executor had to create `~/src` too; stage 04's grant
+  spelled artefacts `jobsmoke-<pid>` while the slug rule in the code produces
+  `job-smoke-<pid>`, and granted a real `~/Library/LaunchAgents` write the test never
+  needed. Derive grant names from the contract in the code (cite the function), and
+  list every parent directory that will be created.
+- **Executable gate scripts, never `zsh -f FILE` in a prompt.** The harness refuses
+  the literal form ("runs zsh in a plain command… Refusing", stage 04 D1). Test
+  scripts carry `#!/bin/zsh -f` and the exec bit; prompts and reports invoke them as
+  `./path/to/script`.
+- **Executors verify their base before touching anything.** Stage 04's worktree was
+  handed over on an unrelated commit (D10). First action: `git rev-parse HEAD` equals
+  the base named in the prompt; if not and the tree is clean, `git reset --hard
+  <base>` and disclose it; if the tree is dirty, STOP.
+- **Report evidence is captured after the final commit**, not mid-way (stage 02
+  item 5 recorded a `git status` from before `git add`). Gate outputs quoted in a
+  report come from a run on the committed tree.
