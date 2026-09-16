@@ -275,8 +275,8 @@ work that outlives a terminal, on three runners with the same verbs:
 | `docker-*` | isolated env, restart policies | it needs a pinned environment         |
 
 A job is a **task** inside the current git repo. The task name decides every
-name and path, identically on each runner, so a future `job-promote <task>`
-can move a task between runners without renaming anything:
+name and path, identically on each runner, so `job-promote <task>` can move a
+task between runners without renaming anything:
 
 | thing          | value                                                      |
 |----------------|------------------------------------------------------------|
@@ -367,6 +367,40 @@ job back after a restart.
 of `make check`: it starts two tmux servers, a container and a launchd agent
 (all inside a scratch `$TMPDIR` its exit trap removes), while everything in
 `make check` only reads files.
+
+### Promoting a task
+
+Every successful local `tmux-run`, `launchd-run` and `docker-run` appends a
+block to a per-task record, `./logs/<task>.job`:
+
+- append-only `key=value` lines, one block per start, the **latest** value of
+  a key winning; a block is opened by its `at=` line.
+- keys: `at` (ISO-8601 local time), `runner`, `root`, `cmd`, plus `image` and
+  `restart` for Docker, `restart` for launchd, and free-text `note` lines.
+- `cmd` is the argv as zsh-quoted words on one line, so `sh -c 'echo "a b"'`
+  reads back as two words — unlike job-tee's `== cmd` header, which prints
+  `"$*"` and loses the quoting. `job-record [TASK]` prints the latest value of
+  every key and the block count.
+
+```sh
+job-promote TASK [--to tmux|launchd|docker] [--image IMG] [--restart POLICY] [--now]
+```
+
+**A promotion is a restart, not a migration.** A live process cannot be moved
+into a container, so `job-promote` stops the task where it is and starts the
+*same recorded command* under the target runner, with the same task name and
+the same `logs/`; anything the old copy had in flight is lost. It therefore
+refuses a source that is still running unless you pass `--now`, and refuses
+outright when the task is on two runners at once, is already on the target, or
+lives in tmux on another host (promote where the task's logs are). `--image`
+and `--restart` beat the record's values, which beat the defaults.
+
+```sh
+tmux-run train -- python train.py        # started in tmux, records the argv
+job-promote train --image pytorch/pytorch --restart always --now
+# stops the tmux window, then: docker-run train --image pytorch/pytorch \
+#   --restart always -- python train.py   (same name, same logs/train.*.log)
+```
 
 ### A Claude Code session as a job (`claude-run`)
 
