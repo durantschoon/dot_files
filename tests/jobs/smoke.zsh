@@ -238,7 +238,7 @@ ssh() {
 }
 
 # No assertion may need a terminal.
-_job_tmux_attach() { print -r -- "attach $1 $2" }
+_job_tmux_attach() { print -r -- "attach $1 $2${3:+ $3}" }
 fzf() { command tee -- "$FZF_CAPTURE" | command sed -n "${SMOKE_PICK}p" }
 
 # Re-source the file under test and put the shadows back. Sourcing redefines
@@ -248,7 +248,7 @@ fzf() { command tee -- "$FZF_CAPTURE" | command sed -n "${SMOKE_PICK}p" }
 # ControlPath options, $PATH for the container CLI.
 smoke_reload() {
   source "$JOBS_ZSH" || { print -u2 "smoke: re-sourcing $JOBS_ZSH failed"; exit 1 }
-  _job_tmux_attach() { print -r -- "attach $1 $2" }
+  _job_tmux_attach() { print -r -- "attach $1 $2${3:+ $3}" }
 }
 
 # Convenience wrappers over the two tmux servers, for independent verification.
@@ -573,6 +573,10 @@ menu=$(cat "$FZF_CAPTURE")
 has "9c tmux-dash lists local sessions"    "$menu" "local|$SLUG-t1"
 has "9c tmux-dash lists remote sessions"   "$menu" "fakehost|$SLUG-claude"
 has "9d tmux-dash labels carry the repo column" "$menu" "$SLUG "
+eq "9e tmux-peek attaches a detached session in take-over mode (no third arg)" \
+   "$(tmux-peek t1 2>/dev/null)" "attach local $SLUG-t1"
+eq "9f tmux-peek never creates: unknown task is refused" \
+   "$(tmux-peek nosuch 2>/dev/null; print rc=$?)" "rc=1"
 
 # --------------------------------------------------------------------------
 # 10. Stop and rm across hosts

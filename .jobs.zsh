@@ -415,16 +415,36 @@ _job_remote_root_ok() {
   print -u2 "$caller: $host has no directory '${rpath:-\$HOME/$rel}' -- the same checkout must exist there; creating nothing"
   return 1
 }
-# Interactive attach on HOST. -d detaches other clients so the window fits this screen.
+# Interactive attach on HOST, in one of two modes:
+#   take (default)  -d: detaches other clients so the window fits this screen
+#   ro              -r: read-only, and the other clients KEEP the session -- for
+#                   glancing at a running job from a phone without kicking the
+#                   desk off it or feeding it a stray keystroke
 # Carries the same ControlPath as _JOB_SSH_OPTS, so the list that found the
 # session and this attach share one connection.
 _job_tmux_attach() {
-  local host=$1 name=$2
+  local host=$1 name=$2 mode=${3:-take} flag=-d
+  [[ $mode == ro ]] && flag=-r
   if [[ $host == local ]]; then
-    if [[ -n $TMUX ]]; then tmux switch-client -t "=$name"; else tmux attach-session -d -t "=$name"; fi
+    if [[ -n $TMUX ]]; then tmux switch-client -t "=$name"; else tmux attach-session $flag -t "=$name"; fi
   else
     [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the remote one)"
-    ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session -d -t ${(qq):-=$name}"
+    ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session $flag -t ${(qq):-=$name}"
+  fi
+}
+# The polite attach: read-only if another client already holds the session
+# (it keeps it, and says how to take over), a normal take-over if it is
+# detached (nobody to disturb). tmux-pick, tmux-dash and tmux-peek use this;
+# tmux-go stays the explicit take-over.
+_job_tmux_attach_polite() {
+  local host=$1 name=$2 n
+  n=$(_job_tmux "$host" display-message -p -t "=$name" '#{session_attached}' 2>/dev/null)
+  if (( ${n:-0} > 0 )); then
+    print -u2 "$name is attached elsewhere ($n client(s)) -- attaching READ-ONLY; that screen keeps it."
+    print -u2 "(to take it over instead: tmux-go <task> from the repo, or: tmux attach -d -t $name on $host)"
+    _job_tmux_attach "$host" "$name" ro
+  else
+    _job_tmux_attach "$host" "$name"
   fi
 }
 # Relative time from an epoch.
@@ -567,7 +587,17 @@ tmux-pick() {
     select choice in "${labels[@]}"; do [[ -n $choice ]] && { choice=$keys[$REPLY]; break; }; done
     [[ -n $choice ]] || return 1
   fi
-  if [[ $choice == new ]]; then tmux-go; else _job_tmux_attach "${choice%%|*}" "${choice#*|}"; fi
+  if [[ $choice == new ]]; then tmux-go; else _job_tmux_attach_polite "${choice%%|*}" "${choice#*|}"; fi
+}
+# Look at TASK's session wherever it lives without disturbing whoever has it:
+# read-only if attached elsewhere, a normal attach if detached. Never creates
+# anything (tmux-go does that).
+tmux-peek() {
+  _tmux_args "$@" || return
+  local name host; name=$(job-name "$_tmux_arg_task") || return
+  _tmux_where "$name" || { _job_hosts; print -u2 "tmux-peek: no session '$name' on ${(j:, :)reply} (tmux-go $_tmux_arg_task creates one)"; return 1; }
+  host=$reply[1]
+  _job_tmux_attach_polite "$host" "$name"
 }
 # tmux-dash: every session on every host, grouped by recency; pick one to attach.
 tmux-dash() { tmux-pick --all; }

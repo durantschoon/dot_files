@@ -474,12 +474,23 @@ Two things fail loudly rather than guessing:
 export JOB_HOSTS=(mac)               # in ~/.zshrc on the phone
 tmux-ls                              # this repo's sessions, here and on mac
 tmux-new claude --on mac             # create it over there
-tmux-go claude                       # attach to it wherever it lives
+tmux-go claude                       # attach to it wherever it lives (takes it over: other screens are detached)
+tmux-peek claude                     # look without disturbing: read-only if another screen has it, normal attach if not
 tmux-run build --on mac -- make all  # run over there, log in mac's ./logs/
-tmux-pick                            # pick one of this repo's sessions (fzf, else a menu)
-tmux-dash                            # pick from every session on every host
+tmux-pick                            # pick one of this repo's sessions (fzf, else a menu); polite attach
+tmux-dash                            # pick from every session on every host (any directory); polite attach
 tmux-stop claude; tmux-rm --all      # act on the host that holds it
 ```
+
+**Polite attach.** The pickers and `tmux-peek` attach read-only (`tmux attach -r`)
+when another client already holds the session, and say so; that client keeps
+the session and no phone keystroke reaches the job. A detached session is
+attached normally. `tmux-go` is the explicit take-over (`attach -d`). Two
+clients on one session resize the window to whichever acted last
+(`window-size latest`), read-only ones included.
+
+From the phone the whole round trip is: `tmux-dash`, pick the row (the label
+says attached or detached), read.
 
 Termux setup (phone side):
 
