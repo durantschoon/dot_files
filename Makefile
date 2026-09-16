@@ -116,7 +116,7 @@ ifeq ($(LOGIN_SHELL),)
 	LOGIN_SHELL := /bin/zsh
 endif
 
-.PHONY: all setup-native set_up_links wsl help guix-root-install warn-dotfiles-home
+.PHONY: all setup-native set_up_links wsl help guix-root-install warn-dotfiles-home guard-native-over-guix
 
 # Makefile and set_up_links assume the repo is at $(HOME)/dot_files (symlink is fine).
 DOTFILES_HOME := $(HOME)/dot_files
@@ -253,7 +253,45 @@ endif
 dot_file_root_dir := $(wildcard ~/dot_files)
 current_dir := $(shell $(PWD_CMD))
 
-set_up_links: warn-dotfiles-home 
+# Refuse, rather than warn, when Guix Home already owns this account's dotfiles.
+#
+# The two setups claim nearly the same paths (.zshrc, .zshenv, .aliases, .mg,
+# .wayland.zshenv, bin, and -- via home-zsh-service-type -- .zprofile), so the
+# one that ran last simply wins.  What makes that worth an abort instead of a
+# notice is that the two links MEAN different things:
+#
+#   native:  ~/.aliases -> ~/dot_files/.aliases       live; edit, open a shell
+#   guix:    ~/.aliases -> /gnu/store/...-aliases     read-only SNAPSHOT
+#
+# Going guix -> native is therefore not a visible break; it is a silent revert
+# to whatever the store snapshot predates, and the failure shows up later as
+# "my edit did nothing" with no obvious cause.  A warning printed among the
+# dozens of lines set_up_links emits would not be read in time to matter.
+#
+# ~/.guix-home is the right probe: `guix home reconfigure' creates it as the
+# symlink to the activated generation, so it exists if and only if a home
+# generation has actually been activated for this user.  Merely having the guix
+# BINARY installed (as on a box where guix is being trialled) does not create
+# it, which is exactly the distinction we want -- trialling guix should not
+# lock you out of the native path.
+guard-native-over-guix:
+	@if [ -e "$$HOME/.guix-home" ] && [ -z "$(FORCE_NATIVE)" ]; then \
+	  echo ""; \
+	  echo "  *** refusing to run set_up_links: Guix Home owns this account ***"; \
+	  echo "  $$HOME/.guix-home exists, so a home generation is active and already"; \
+	  echo "  owns .zshrc, .zshenv, .zprofile, .aliases, .mg, .wayland.zshenv and bin."; \
+	  echo "  Overwriting them with native symlinks would revert your shell to"; \
+	  echo "  whatever the store snapshot holds, silently."; \
+	  echo ""; \
+	  echo "  To change dotfiles, edit the repo and run:  make apply"; \
+	  echo "  To see who owns what right now:             make check-home-ownership"; \
+	  echo "  To go native anyway (you will want to remove the guix home first):"; \
+	  echo "                                              make set_up_links FORCE_NATIVE=1"; \
+	  echo ""; \
+	  exit 1; \
+	fi
+
+set_up_links: warn-dotfiles-home guard-native-over-guix
 	@echo OS detected as $(os) $(arch)
 	@echo ------------------------------
 ifneq ("","$(unix_family)")
@@ -298,7 +336,11 @@ ifeq ("$(os)","$(OS_LINUX)")
 # you already installed git to get this far
 ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt-get update && sudo apt-get dist-upgrade -y
+	@# fastfetch is not packaged before Ubuntu 24.04, so ask for it but fall
+	@# back to neofetch; .aliases defines a fastfetch shim when only neofetch
+	@# is present, so the command name is the same on every machine.
 	sudo apt-get install build-essential cmake curl file -y
+	sudo apt-get install fastfetch -y || sudo apt-get install neofetch -y
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
@@ -373,7 +415,20 @@ endif
 # DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
-	[ -f $(wildcard "~/dot_files/.$(os).zshenv") ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
+	@# $(wildcard) is a make function: it does not expand ~ (a shell thing) and
+	@# the quotes were literal pattern characters, so the pattern never matched
+	@# and the guard collapsed to `[ -f  ]' -- one-argument test, which is TRUE
+	@# for the non-empty string "-f".  The link was therefore made unconditionally
+	@# and only worked because .linux.zshenv happens to exist.  Test the real path
+	@# in the shell instead, and do not abort the recipe when it is absent.
+	@if [ ! -f "$(CURDIR)/.$(os).zshenv" ]; then \
+	  echo "NOTE: no .$(os).zshenv in this repo; leaving ~/.zshenv alone"; \
+	elif [ -e ~/.zshenv ] && [ ! -L ~/.zshenv ]; then \
+	  echo "NOTE: ~/.zshenv is a real file, not a symlink. Move it aside, then run make set_up_links again."; \
+	else \
+	  ln -sfn "$(CURDIR)/.$(os).zshenv" ~/.zshenv; \
+	  echo "linked ~/.zshenv -> .$(os).zshenv"; \
+	fi
 ifeq ("$(os)","$(OS_LINUX)")
 	ln -si ~/dot_files/.wayland.zshenv ~/.wayland.zshenv || echo
 endif
@@ -1459,7 +1514,68 @@ add-pkg:
 SYSTEM_PINS    := $(wildcard system/channels-*.scm)
 SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 
-check: check-system check-session-coupling check-tailscale check-orbstack
+.PHONY: check-home-ownership
+
+# Who actually owns each dotfile in $$HOME: Guix Home, the native symlinks, or
+# neither.  The point is to make a half-migrated account visible, because that
+# state is otherwise silent -- both kinds of link are just symlinks, and `ls'
+# does not tell you which system intends to manage them.
+#
+# The claimed set is DERIVED, not restated, so this cannot drift as the config
+# grows.  It comes from two places because guix home claims paths two ways:
+#
+#   home-files-service-type  entries appear literally in home/common.scm as
+#                            `(".aliases" ,(local-file ...)) -- greppable.
+#   home-zsh-service-type    SYNTHESISES .zshrc/.zshenv/.zprofile out of its
+#                            zshrc/zshenv/zprofile field lists.  Those names
+#                            appear nowhere in the file as strings, so they are
+#                            named below.  That list is fixed by the service
+#                            type itself, not by our config, so naming it here
+#                            is a constant rather than a duplicated fact.
+GUIX_ZSH_OWNED := .zshrc .zshenv .zprofile
+
+check-home-ownership:
+	@echo "==> \$$HOME dotfiles: Guix Home vs native symlinks"
+	@claimed="$(GUIX_ZSH_OWNED) $$(grep -oE '`\("[^"]+"' home/common.scm \
+	          | sed 's/^`("//; s/"$$//' | sort -u)"; \
+	guix_home=0; [ -e "$$HOME/.guix-home" ] && guix_home=1; \
+	dfroot="$$(cd "$(DOTFILES_HOME)" 2>/dev/null && pwd -P)"; \
+	rc=0; conflicts=0; \
+	for p in $$claimed; do \
+	  t="$$HOME/$$p"; \
+	  if [ ! -e "$$t" ] && [ ! -L "$$t" ]; then \
+	    owner="absent"; \
+	  elif [ -L "$$t" ]; then \
+	    dest="$$(readlink -f "$$t" 2>/dev/null)"; \
+	    case "$$dest" in \
+	      /gnu/store/*) owner="guix" ;; \
+	      "$$dfroot"/*) owner="native" ;; \
+	      *) owner="other -> $$dest" ;; \
+	    esac; \
+	  else \
+	    owner="real file (unmanaged)"; \
+	  fi; \
+	  case "$$guix_home:$$owner" in \
+	    1:native) \
+	      printf '    %-28s %s\n' "$$p" "CONFLICT: native symlink, but Guix Home is active"; \
+	      conflicts=1; rc=1 ;; \
+	    1:"real file (unmanaged)") \
+	      printf '    %-28s %s\n' "$$p" "CONFLICT: real file shadowing Guix Home"; \
+	      conflicts=1; rc=1 ;; \
+	    *) printf '    %-28s %s\n' "$$p" "$$owner" ;; \
+	  esac; \
+	done; \
+	if [ $$guix_home -eq 0 ]; then \
+	  echo "    (no ~/.guix-home: no home generation active, so native ownership is expected)"; \
+	elif [ $$conflicts -eq 1 ]; then \
+	  echo ""; \
+	  echo "    A path above is claimed by Guix Home but currently points elsewhere."; \
+	  echo "    Guix Home will not see your repo edits for it.  Run: make apply"; \
+	  echo "    (or remove the stale path and re-run) to hand ownership back."; \
+	fi; \
+	exit $$rc
+
+check: check-system check-session-coupling check-tailscale check-orbstack check-home-ownership
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

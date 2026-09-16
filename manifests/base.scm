@@ -38,7 +38,7 @@ releases and other GitHub features to the terminal.")
    '(
      ;; core
      "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain" "cmake"
-     "ripgrep" "fd" "fzf" "eza" "jq"
+     "ripgrep" "fd" "fzf" "eza" "jq" "fastfetch"
 
      ;; editor stack for Spacemacs (holy-mode)
      "emacs" "aspell" "aspell-dict-en"

@@ -270,6 +270,22 @@ if [ -e ~/.HOME ]; then
 fi
 
 # -----------------------------------------------------------------------------
+# fastfetch -- one command name on every machine
+# -----------------------------------------------------------------------------
+# fastfetch is the system-info tool we actually want, but Ubuntu only started
+# packaging it in 24.04, so jammy and friends can offer neofetch alone.  Rather
+# than remember which box has which, define a fastfetch shim -- ONLY when no
+# real fastfetch is on PATH, so a machine that has the real thing is never
+# shadowed by this.  A function, not a plain alias, so "$@" reaches neofetch and
+# the notice goes to stderr where it cannot pollute a pipe.
+if ! command -v fastfetch >/dev/null 2>&1 && command -v neofetch >/dev/null 2>&1; then
+    fastfetch() {
+        echo "fastfetch is not installed here; running neofetch instead." >&2
+        command neofetch "$@"
+    }
+fi
+
+# -----------------------------------------------------------------------------
 # Aliases for work (private repo to protect employer)
 # -----------------------------------------------------------------------------
 
@@ -532,7 +548,7 @@ if [ -n "$ZSH_VERSION" ]; then
 
     # nr () { echo "npm run $*" ; npm run $* }
 
-    [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
+    [[ -f "$HOME/.pyenv/shims/python" ]] && alias python3="$HOME/.pyenv/shims/python"
 
     alias heroku_logs='heroku logs --force-colors --tail --app'
 

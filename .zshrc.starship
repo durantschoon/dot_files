@@ -66,7 +66,13 @@ fi
 export GPG_TTY=$(tty)
 
 # Console ninja (if available)
-PATH=~/.console-ninja/.bin:$PATH
+# Re-added defensively: guix home's .zprofile runs `emulate sh -c ". /etc/profile"',
+# which can rebuild PATH after .zshenv ran.  Use add_to_front_of_path rather than
+# a raw PATH= assignment -- `typeset -U path' enforces uniqueness only when the
+# ARRAY is assigned, so "PATH=dir:$PATH" silently bypasses it and stacks a second
+# copy of dir every time.  (That is what put .console-ninja/.bin at both position
+# 1 and position 4.)  The array form is idempotent, so re-adding costs nothing.
+add_to_front_of_path "$HOME/.console-ninja/.bin"
 
 # AVN (if available)
 [[ -s "$HOME/.avn/bin/avn.sh" ]] && source "$HOME/.avn/bin/avn.sh"

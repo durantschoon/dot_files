@@ -29,6 +29,13 @@ export CPATH="/opt/homebrew/opt/gcc/include"
 # Suggested by Antigravity
 add_to_front_of_path /Users/durant/.antigravity/antigravity/bin
 
+# pixi is for ros2 on macos.  This lived in .shared.zshenv, where it was both
+# macOS-only and miscalled as add_to_front_of_path "<dir>:$PATH" -- the function
+# takes a single directory, so the colon-joined string never passed [ -d ] and
+# the line had been a silent no-op.  It only became visible under WSL, where
+# $PATH carries "Program Files (x86)" and the glob blew up.
+add_to_front_of_path "$HOME/.pixi/bin"
+
 # for brew (Intel Mac)
 # add_to_front_of_path /usr/local/opt
 # add_to_front_of_path /usr/local/sbin
