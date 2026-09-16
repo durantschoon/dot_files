@@ -63,6 +63,7 @@
                                        ;elogind-service-type, elogind-configuration
              (gnu services linux)      ;kernel-module-loader-service-type
              (gnu services shepherd)   ;shepherd-service, shepherd-root-service-type
+             (gnu system accounts)     ;subid-range, for rootless Podman
              (gnu system nss)
              (guix build-system copy)  ;copy-build-system, for the tailscale tarball
              (guix channels)           ;channel, make-channel-introduction
@@ -501,9 +502,14 @@ leftcontrol = capslock
 
          ;; Rootless OCI containers for development environments whose native
          ;; dependency stacks are not packaged by Guix (notably ROS 2).  The
-         ;; service installs Podman and configures subordinate UID/GID ranges;
-         ;; log out and back in after the first reconfigure.
-         (service rootless-podman-service-type)
+         ;; service installs Podman; the subid ranges below let multi-UID
+         ;; images unpack in durant's user namespace (the bare service only
+         ;; allocates a range for root).  Log out and back in after the first
+         ;; reconfigure, then run `podman system migrate' once.
+         (service rootless-podman-service-type
+                  (rootless-podman-configuration
+                   (subuids (list (subid-range (name "durant"))))
+                   (subgids (list (subid-range (name "durant"))))))
 
          ;; keyd, as a SYSTEM service.
          ;;
