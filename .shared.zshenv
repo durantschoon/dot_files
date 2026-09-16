@@ -40,8 +40,12 @@ fi
 ###############################################################################
 # Paths
 
-# unique paths
-typeset -U path
+# unique paths. -g is load-bearing: this file is also sourced from inside a
+# function (`s.zall` goes through `_source_if`), and a bare `typeset -U path`
+# there declares a function-LOCAL path that shadows the real one until the
+# function returns -- every external command sourced after it (grep in
+# virtualenvwrapper, find in sdkman-init) was "not found" for exactly that reason.
+typeset -gU path
 
 # ${~1} forces tilde expansion, so quoted "~/foo" args work too
 add_to_front_of_path () {
