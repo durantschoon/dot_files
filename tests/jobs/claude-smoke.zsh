@@ -53,6 +53,10 @@ pass() { (( N++ )); print "  ok   $1" }
 fail() { (( N++, FAILS++ )); print "  FAIL $1"; (( $# > 1 )) && print "       $2" }
 assert() { local msg=$1; shift; if "$@" >/dev/null 2>&1; then pass "$msg"; else fail "$msg"; fi }
 refute() { local msg=$1; shift; if "$@" >/dev/null 2>&1; then fail "$msg"; else pass "$msg"; fi }
+# Pane shells take up to about a second to start, so the fake claude's argv
+# record lands some time AFTER the tmux session exists. Poll for the line,
+# bounded (10 s in 0.5 s steps); never a fixed sleep.
+wait_for_argv() { local pat=$1 i; for i in {1..20}; do grep -qx -- "$pat" "$ARGV_FILE" 2>/dev/null && return 0; sleep 0.5; done; return 1 }
 
 cleanup() {
   cd "$REPO" 2>/dev/null && claude-rm t1 >/dev/null 2>&1
@@ -74,7 +78,7 @@ print "claude-smoke: $SLUG in $BASE"
 claude-run t1 "first prompt" 2>"$BASE/run1.err"; typeset -g RC=$?
 assert "claude-run exits 0" test $RC -eq 0
 assert "tmux session $SLUG-t1 exists" tmux has-session -t "=$SLUG-t1"
-sleep 1
+assert "fake claude started (argv recorded)" wait_for_argv "pwd=$REPO"
 assert "claude runs at the repo root" grep -qx -- "pwd=$REPO" "$ARGV_FILE"
 assert "claude got --permission-mode auto" grep -qx -- '--permission-mode' "$ARGV_FILE"
 assert "claude got the prompt as an argument" grep -qx -- 'first prompt' "$ARGV_FILE"
@@ -101,8 +105,7 @@ refute "session gone before relaunch" tmux has-session -t "=$SLUG-t1"
 launchctl kickstart "gui/$(id -u)/local.job.$SLUG.t1"
 typeset -i i; for i in {1..20}; do tmux has-session -t "=$SLUG-t1" 2>/dev/null && break; sleep 0.5; done
 assert "relaunch recreated the session" tmux has-session -t "=$SLUG-t1"
-sleep 1
-assert "relaunched claude got --continue" grep -qx -- '--continue' "$ARGV_FILE"
+assert "relaunched claude got --continue" wait_for_argv '--continue'
 assert "relaunched claude did not get the old prompt" test "$(grep -cx -- 'first prompt' "$ARGV_FILE")" -eq 1
 
 # 4. claude-status runs; claude-rm removes both halves.
