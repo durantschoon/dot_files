@@ -977,10 +977,31 @@ docker-run() {
 }
 
 # docker-ls: this repo's job containers, running or not.
+#
+# The task column is DERIVED from the container name rather than asked of the
+# engine.  `{{.Label "job.task"}}' is a Docker-only template method; Podman's
+# `ps' refuses a method with arguments outright (measured, podman 6.0.1):
+#
+#   $ podman ps -a --filter label=job.repo=X --format 'table {{.Names}}\t{{.Label "job.task"}}'
+#   NAMESError: template: ps:1:24: executing "ps" at <.Label>: Label is not a
+#   method but has arguments                                        [exit 125]
+#
+# and `{{index .Labels "k"}}' fares no better there, so the two engines share no
+# spelling for "one label".  The old pipeline ended in `tail', which took that
+# 125 and handed the caller a 0 with an empty listing -- under the very engine
+# this file qualifies its default image for.  Both halves are fixed here: the
+# engine's status is now the function's status, and the task comes from the
+# naming contract (<repo>-<task>, bare <repo> for the default task), which both
+# engines agree about because .jobs.zsh is the thing that wrote the name.
 docker-ls() {
   _docker_guard || return
-  _job_ctr ps -a --filter "$(_docker_repo_filter)" \
-    --format 'table {{.Names}}\t{{.Label "job.task"}}\t{{.Status}}\t{{.Image}}' | tail -n +2
+  local repo out; repo=$(job-repo)
+  out=$(_job_ctr ps -a --filter "$(_docker_repo_filter)" \
+          --format '{{.Names}}\t{{.Status}}\t{{.Image}}') || return
+  [[ -n $out ]] || return 0
+  print -r -- "$out" | command awk -F'\t' -v repo="$repo" '
+    { task = ($1 == repo) ? "main" : substr($1, length(repo) + 2)
+      printf "%-30s  %-10s  %-24s  %s\n", $1, task, $2, $3 }'
 }
 
 # docker-status [TASK]

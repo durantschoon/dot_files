@@ -189,6 +189,8 @@ help:
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
 	@echo "  make check-jobs    - Run the .jobs.zsh and .claude-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
+	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
+	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
@@ -1471,6 +1473,18 @@ check-system: check-system-hosts check-keyd-sync check-channels-sync check-syste
 check-jobs:
 	@./tests/jobs/smoke.zsh
 	@./tests/jobs/claude-smoke.zsh
+
+# The container half of .jobs.zsh against a REAL engine -- the one thing
+# check-jobs above cannot do, because its `docker' and `podman' are scratch-dir
+# scripts that record argv and so can only prove what was ASKED, never what was
+# ANSWERED.  Needs a live container engine (podman or docker); without one the
+# script prints one SKIP line and exits 0, so it is safe to invoke anywhere.
+# Like check-jobs, deliberately NOT a prerequisite of `check': it starts real
+# containers, and `check' must stay something you can run on any machine at any
+# time without side effects.
+.PHONY: check-jobs-live
+check-jobs-live:
+	@./tests/jobs/podman-live.zsh
 
 # The file name IS the host class, and a machine of that class takes the class
 # name as its host name -- so you pick a config to reconfigure with by reading
