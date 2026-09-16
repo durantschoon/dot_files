@@ -394,6 +394,10 @@ installed either way."
     "qemu"
     "direnv"
     "emacs-vterm"
+    ;; mg: the microscopic Emacs clone, for edits too small to wake the
+    ;; Spacemacs daemon for.  It writes foo~ backups next to the file, which is
+    ;; what `clean' in .aliases sweeps.
+    "mg"
     "cmake"
     "glibc-locales"
     "keyd"
@@ -583,6 +587,11 @@ call, so extensions never collide; only genuine double ownership does."
      (list
       (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                     ;; mg's startup file: backup-to-home-directory, so mg's
+                     ;; foo~ backups land in ~/.mg.d rather than beside the
+                     ;; file.  Emacs needs no counterpart -- .spacemacs.d sets
+                     ;; backup-directory-alist itself.
+                     `(".mg" ,(local-file "../.mg" "mg"))
                      `(".config/direnv/direnvrc" ,(local-file "../direnv/direnvrc" "direnvrc"))
                      ;; Git identity (name/email) comes up declaratively with
                      ;; the system.  Deployed as a read-only store symlink, so

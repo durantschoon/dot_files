@@ -336,10 +336,16 @@ ifeq ("$(os)","$(OS_LINUX)")
 # you already installed git to get this far
 ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt-get update && sudo apt-get dist-upgrade -y
+	@# mg rides along on this line rather than getting its own: unlike fastfetch
+	@# below it has been in Debian/Ubuntu for years, so there is no fallback to
+	@# arrange and no reason to let it fail separately.  It belongs on the apt
+	@# path at all because set_up_links installs ~/.mg on EVERY platform, and a
+	@# startup file for an editor that is not there is just a dangling symlink.
+	@# The guix side gets mg from manifests/base.scm and home/common.scm.
+	sudo apt-get install build-essential cmake curl file mg -y
 	@# fastfetch is not packaged before Ubuntu 24.04, so ask for it but fall
 	@# back to neofetch; .aliases defines a fastfetch shim when only neofetch
 	@# is present, so the command name is the same on every machine.
-	sudo apt-get install build-essential cmake curl file -y
 	sudo apt-get install fastfetch -y || sudo apt-get install neofetch -y
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
 else ifeq ($(PACKAGE_MANAGER),guix)
@@ -415,6 +421,9 @@ endif
 # DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
+	@# mg's startup file. Sets backup-to-home-directory so mg's foo~ backups land
+	@# in ~/.mg.d instead of beside the file being edited.
+	ln -si ~/dot_files/.mg ~/.mg || echo
 	@# $(wildcard) is a make function: it does not expand ~ (a shell thing) and
 	@# the quotes were literal pattern characters, so the pattern never matched
 	@# and the guard collapsed to `[ -f  ]' -- one-argument test, which is TRUE
