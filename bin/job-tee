@@ -6,14 +6,34 @@
 # The single log writer behind tmux-run, launchd-run and docker-run (see
 # ~/dot_files/.jobs.zsh). Docker bind-mounts this same file read-only into the
 # container, so a task's logs look identical whichever runner produced them.
-# That is what lets a future `job-promote TASK` move a task between runners
-# without renaming it or relocating its logs.
+# That is what lets `job-promote TASK` move a task between runners without
+# renaming it or relocating its logs.
 #
 # Layout, relative to the working directory (the repo root):
 #   logs/TASK.YYYYmmdd-HHMMSS.log   one file per run: header, output, exit footer
 #   logs/TASK.latest.log            relative symlink to the newest run
 #
-# Deliberately POSIX sh: it has to run under /bin/sh in minimal images.
+# Two promises beyond "tee the output", both of them about never losing the
+# record of a run. Stage 08 measured both of them broken against a real engine
+# (docs/stages/stage-08-REPORT.md, Q3 and Q2):
+#
+#   * Every run that starts gets an exit footer -- including one ended by
+#     TERM, INT or HUP. The signal is forwarded to the command, the command is
+#     waited for, and the footer records 128+signal: the same number the
+#     runner's own accounting reports (podman `inspect .State.ExitCode',
+#     tmux `#{pane_dead_status}'). Before this, a `docker-stop' left a log with
+#     a beginning and no end and the job's 143 lived only in the engine.
+#     SIGKILL remains the documented exception -- nothing can trap it.
+#
+#   * A run that cannot be recorded does not happen. The log file and the
+#     `latest' symlink are proved writable BEFORE the command starts; if they
+#     are not, job-tee names the path and the uid on stderr and exits 1 having
+#     run nothing. Before this, a container promoted to a non-root USER ran the
+#     command, wrote no log, and reported 0 all the way out -- a job that
+#     looked perfect and kept no evidence of having happened.
+#
+# Deliberately POSIX sh: it has to run under /bin/sh in minimal images
+# (debian:stable-slim's is dash).
 set -u
 
 usage() { echo "usage: job-tee TASK CMD [ARGS...]" >&2; exit 64; }
@@ -22,27 +42,162 @@ task=$1; shift
 case $task in
   ''|*[!A-Za-z0-9_-]*) echo "job-tee: task must match [A-Za-z0-9_-]+, got '$task'" >&2; exit 64 ;;
 esac
+cmdstr=$*
+uid=$(id -u 2>/dev/null) || uid='?'
+
+# ---------------------------------------------------------------------------
+# Refuse to run unrecorded
+# ---------------------------------------------------------------------------
+# One line, on the real stderr, naming the path that could not be written and
+# the uid that could not write it -- those two facts together are the whole
+# diagnosis, and the uid is the one that is impossible to guess from outside a
+# container. Exit 1 rather than proceeding: the runner verbs exist to produce
+# accountable jobs, and an exit 1 is visible in `docker-status' /
+# `podman inspect .State.ExitCode' where the silent 0 was not.
+
+refuse() {
+  printf 'job-tee: cannot write %s (uid %s): refusing to run unrecorded: %s\n' \
+    "$1" "$uid" "$cmdstr" >&2
+  exit 1
+}
 
 log_dir=${JOB_LOG_DIR:-logs}
-mkdir -p "$log_dir" || exit 1
+mkdir -p "$log_dir" 2>/dev/null || refuse "$log_dir"
 stamp=$(date +%Y%m%d-%H%M%S)
 log="$log_dir/$task.$stamp.log"
-ln -sfn "$task.$stamp.log" "$log_dir/$task.latest.log"
+latest="$log_dir/$task.latest.log"
 
-# A POSIX pipeline exits with tee's status, so the command's real status
-# travels through a side file. It is only created once the command has
-# finished and lives outside logs/, so a killed job leaves nothing behind.
-rc_file="${TMPDIR:-/tmp}/job-tee.$$.rc"
-trap 'rm -f "$rc_file"' EXIT
-{
-  printf '== job-tee start  %s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
-  printf '== task           %s\n' "$task"
-  printf '== runner         %s\n' "${JOB_RUNNER:-shell}"
-  printf '== cwd            %s\n' "$PWD"
-  printf '== cmd            %s\n\n' "$*"
-  "$@"
-  echo $? > "$rc_file"
-  printf '\n== job-tee exit   %s at %s\n' "$(cat "$rc_file")" "$(date '+%Y-%m-%d %H:%M:%S %z')"
-} 2>&1 | tee -a "$log"
-rc=$(cat "$rc_file" 2>/dev/null || echo 1)
-exit "$rc"
+# The probes are the real operations, not guesses about them: an append to the
+# log file and the symlink itself. `: >>' runs in a subshell because a
+# redirection error on a special built-in exits the shell it happens in, which
+# would take the diagnostic with it.
+( : >>"$log" ) 2>/dev/null || refuse "$log"
+ln -sfn "$task.$stamp.log" "$latest" 2>/dev/null || refuse "$latest"
+
+# ---------------------------------------------------------------------------
+# The recording channel
+# ---------------------------------------------------------------------------
+# The old shape was `{ header; "$@"; footer; } | tee -a "$log"'. The command
+# ran inside a pipeline subshell, so this shell could neither learn its pid nor
+# reach it with a signal, and a TERM killed that subshell where it stood --
+# taking the footer with it. A fifo moves tee off the pipeline: this shell's
+# own stdout and stderr become the log channel, the command becomes a
+# background job of THIS shell, and a trap here can therefore forward a signal
+# to the command AND still be alive afterwards to write the footer.
+#
+# The two opens rendezvous: tee's `<"$fifo"' blocks until a writer appears and
+# the `exec >"$fifo"' blocks until a reader does. Neither can hang alone, and
+# tee cannot die early for lack of a writable log because that was just proved
+# above.
+
+fifo="${TMPDIR:-/tmp}/job-tee.$$.fifo"
+rm -f "$fifo" 2>/dev/null
+mkfifo -m 600 "$fifo" 2>/dev/null || refuse "$fifo"
+trap 'rm -f "$fifo"' EXIT
+
+exec 3>&1 4>&2                       # the real stdout/stderr, kept for the exit
+tee -a "$log" <"$fifo" &
+tee_pid=$!
+exec >"$fifo" 2>&1
+
+# The footer format is a parser contract, not cosmetics: tests/jobs/smoke.zsh
+# scrapes `^== job-tee exit <spaces><digits>' and tests/jobs/podman-live.zsh
+# asserts the literal prefix `== job-tee exit   0 at '. Status and timestamp
+# therefore keep their exact columns and any extra detail goes in a trailing
+# annotation, where a parser that does not know about it reads past it.
+footer() { printf '\n== job-tee exit   %s at %s%s\n' "$1" "$(date '+%Y-%m-%d %H:%M:%S %z')" "$2"; }
+
+# Closing this shell's write end is what tells tee the log is finished, so it
+# has to happen before the exit, and tee has to be waited for: exiting first
+# would race the last lines of the log out of existence.
+finish() {
+  exec >&3 2>&4
+  wait "$tee_pid" 2>/dev/null
+  rm -f "$fifo" 2>/dev/null
+  exit "$1"
+}
+
+# ---------------------------------------------------------------------------
+# Signals
+# ---------------------------------------------------------------------------
+# Forward, wait, record, exit -- in that order. Waiting is the point: the
+# command may have its own TERM handler with cleanup to do, and a footer
+# written before it finished would be a lie about when the job ended.
+#
+# The status recorded is 128+signal, because that is what the runner above
+# reports for the same event and the two accounts have to agree. When the
+# command answered the signal with an exit status of its own (a trap that
+# exits 5) that number would otherwise be lost, so it rides along in the
+# annotation instead of replacing anything.
+
+signalled=0
+
+on_signal() {
+  name=$1
+  num=$2
+  [ "$signalled" -eq 0 ] || return 0
+  signalled=1
+  status=$(( 128 + num ))
+  cmd_status=$status
+  if [ -n "${cmd_pid:-}" ]; then
+    kill -s "$name" "$cmd_pid" 2>/dev/null
+    wait "$cmd_pid" 2>/dev/null
+    cmd_status=$?
+  fi
+  if [ "$cmd_status" -eq "$status" ]; then
+    footer "$status" " (SIG$name)"
+  else
+    footer "$status" " (SIG$name; command exited $cmd_status)"
+  fi
+  finish "$status"
+}
+
+trap 'on_signal TERM 15' TERM
+trap 'on_signal INT 2'   INT
+trap 'on_signal HUP 1'   HUP
+
+printf '== job-tee start  %s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
+printf '== task           %s\n' "$task"
+printf '== runner         %s\n' "${JOB_RUNNER:-shell}"
+printf '== cwd            %s\n' "$PWD"
+printf '== cmd            %s\n\n' "$cmdstr"
+
+# Two things in this line exist only because the command is started
+# asynchronously, which POSIX gives a signal environment of its own:
+#
+#   * `trap - INT QUIT' -- a shell without job control sets SIGINT and SIGQUIT
+#     to SIG_IGN in the children of an asynchronous list. Without the reset the
+#     command IGNORES a forwarded INT, the handler below waits for a death that
+#     never comes, and job-tee hangs where it used to die. Measured under this
+#     host's sh (bash 5.2.37 as sh), before the reset:
+#       $ sh -c 'sh -c "trap -p" & wait' | grep INT
+#       trap -- '' INT
+#     and after it, in the same async subshell: `trap -- - INT'. The subshell
+#     exists purely to hold the reset; `exec' then puts the real command in its
+#     place, so $! is still the command's own pid and no shell is left over it.
+#
+#     It does NOT work everywhere, and the difference is measured, not assumed.
+#     dash -- debian:stable-slim's /bin/sh, so the shell for every docker job --
+#     enforces the POSIX rule that an ignored signal cannot be un-ignored:
+#       # in debian:stable-slim
+#       mode=plain     -> INT IGNORED (child survived)
+#       mode=subshell  -> INT IGNORED (child survived)
+#     So under dash a forwarded INT reaches a command that cannot act on it.
+#     TERM and HUP -- what docker-stop, launchd and `tmux kill-window' actually
+#     send -- are not in POSIX's ignore set and are unaffected; and a Ctrl-C in
+#     a tmux pane is delivered by the kernel to the whole foreground process
+#     group, so the command gets it directly whatever job-tee does. What is
+#     left uncovered is a deliberate `kill -INT <job-tee-pid>' under dash, where
+#     job-tee now waits for the runner's own grace timer (podman: 10 s, then
+#     SIGKILL) instead of dying at once. tests/jobs/tee-smoke.zsh assertion 5
+#     fails loudly on any host whose /bin/sh behaves this way.
+#
+#   * `<&0' -- POSIX assigns /dev/null to the standard input of an asynchronous
+#     list unless the redirection is explicit, and a job that could read its
+#     caller's stdin before this change should still be able to.
+( trap - INT QUIT; exec "$@" ) <&0 &
+cmd_pid=$!
+wait "$cmd_pid"
+rc=$?
+footer "$rc" ""
+finish "$rc"

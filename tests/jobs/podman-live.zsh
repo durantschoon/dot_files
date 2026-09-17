@@ -321,18 +321,35 @@ eqlit "7  ... and the engine says it is not running" "$(ctr_state "$SLUG-t2")" "
 
 # ---- question 3, measured here while t2 is stopped but not yet restarted ----
 # docker-stop is `stop', so the engine sends SIGTERM to pid 1 -- which is the
-# --init process, not job-tee.  Whether job-tee's exit footer survives that is
-# the question, and so is whether the number in the footer (if any) is the same
-# number inspect reports.
+# --init process, not job-tee.  Stage 08 measured what that used to cost: the
+# container exited 143 in 87 ms, and the log ended at `== cmd sleep 300' with
+# no footer, so the job's own status existed nowhere but the engine's records.
+# job-tee now traps the signal, forwards it to the command, waits, and writes
+# the footer before it goes -- so there are two independent accounts of the
+# same death here and the point of this block is that they agree.
 typeset -g Q3_EXIT; Q3_EXIT=$(xctr container inspect -f '{{.State.ExitCode}}' "$SLUG-t2" 2>&1)
 typeset -g Q3_LOG;  Q3_LOG=$(job-logfile t2)
 typeset -g Q3_TXT;  Q3_TXT=$(command cat -- "$Q3_LOG" 2>/dev/null)
 typeset -g Q3_FOOT
 Q3_FOOT=$(print -r -- "$Q3_TXT" | command awk '/^== job-tee exit/ { print; f = 1 } END { if (!f) print "(no exit footer in the log)" }')
+typeset -g Q3_LAST; Q3_LAST=$(print -r -- "$Q3_TXT" | command awk 'NF { l = $0 } END { print l }')
+typeset -g Q3_PREFIX="== job-tee exit   143 at "
+
+eqlit "Q3 the engine's account of the stopped container is 143" "$Q3_EXIT" "143"
+has   "Q3 the host log now ends with a footer recording that same 143" "$Q3_TXT" "$Q3_PREFIX"
+has   "Q3 ... naming the signal that ended it" "$Q3_TXT" "(SIGTERM)"
+eqlit "Q3 ... and that footer is the log's last line, so the log has an end" \
+      "${Q3_LAST[1,${#Q3_PREFIX}]}" "$Q3_PREFIX"
+# The footer is only worth anything if it was written on the graceful path.
+# Past 10 s podman stops asking and sends SIGKILL, which nothing can trap; a
+# stop that took that long would have proved the opposite of the point.
+(( T2_STOP_MS < 5000 )) \
+  && ok   "Q3 ... written on the graceful path, well inside podman's 10 s grace" \
+  || fail "Q3 ... written on the graceful path, well inside podman's 10 s grace" \
+          "docker-stop took ${T2_STOP_MS} ms"
 note "Q3 docker-stop t2 took ${T2_STOP_MS} ms (podman's default stop timeout is 10 s, then SIGKILL)"
-note "Q3 inspect .State.ExitCode after the stop: [$Q3_EXIT]"
-note "Q3 job-tee footer in ${Q3_LOG:t}: [$(oneline "$Q3_FOOT")]"
-note "Q3 last non-empty log line: [$(print -r -- "$Q3_TXT" | command awk 'NF { l = $0 } END { print l }')]"
+note "Q3 footer in ${Q3_LOG:t}: [$(oneline "$Q3_FOOT")]"
+note "Q3 stage 08 measured this same line as [(no exit footer in the log)], the log ending at [== cmd            sleep 300]"
 
 out=$(docker-start t2 2>&1); rc=$?
 rc0 "7  docker-start t2 exits 0" "$rc" "$out"
@@ -394,28 +411,56 @@ eqlit "9  ... running the image the record named" \
 # job-init -- so the interesting question is not ownership of what it writes
 # but whether it gets to write anything.  Measured with --user 1000:1000 on a
 # throwaway task, removed by the same label filter as the rest.
+#
+# Stage 08 measured the whole chain reporting success over an empty logs/: ln
+# and tee each said `Permission denied' into the engine's ring buffer, the
+# command ran anyway, and docker-run, the container and job-tee's own footer
+# all said 0.  A job promoted to a non-root USER would have looked perfect and
+# kept no evidence of having run.  job-tee now proves it can write the log
+# BEFORE running anything, so the same setup fails loudly instead -- which is
+# what is asserted here.  The one thing that has NOT changed is docker-run's
+# own status: it starts a detached container and reports on the start, not on
+# what the container later decides.
 
 note "Q2 logs/ on the host is owned by uid [$(owner_uid "$REPO/logs")]; this user is [$UID]"
 note "Q2 t1's log file is owned by uid [$(owner_uid "$LOG")] (container ran as its own root)"
 JOB_DOCKER_ARGS=(--user 1000:1000)
 out=$(docker-run t4 --restart no -- sh -c 'echo from-a-non-root-user' 2>&1); rc=$?
 JOB_DOCKER_ARGS=()
-note "Q2 docker-run t4 with JOB_DOCKER_ARGS=(--user 1000:1000): rc=$rc"
-note "Q2 ... it said: [$(oneline "$out")]"
-if ctr_exists "$SLUG-t4"; then
-  waitfor ctr_stopped "$SLUG-t4"
-  note "Q2 ... inspect .State.ExitCode: [$(xctr container inspect -f '{{.State.ExitCode}}' "$SLUG-t4" 2>&1)]"
-  note "Q2 ... the engine's own view of its output: [$(oneline "$(xctr logs "$SLUG-t4" 2>&1)")]"
-  typeset -g Q2_LOG; Q2_LOG=$(job-logfile t4)
-  if [[ -n $Q2_LOG && -f $Q2_LOG ]]; then
-    note "Q2 ... a host log DID appear at ${Q2_LOG:t}, owned by uid [$(owner_uid "$Q2_LOG")]"
-    note "Q2 ... containing: [$(oneline "$(command cat -- "$Q2_LOG")")]"
-  else
-    note "Q2 ... NO host log file was produced for t4 (job-logfile: [${Q2_LOG:-nothing}])"
-  fi
-else
-  note "Q2 ... no container was created at all"
-fi
+rc0 "Q2 docker-run t4 --user 1000:1000 still exits 0 -- it only reports the START" "$rc" "$out"
+ctr_exists "$SLUG-t4" || fail "Q2 the engine created a container for t4" "$(oneline "$out")"
+ok "Q2 ... and a container really was created"
+waitfor ctr_stopped "$SLUG-t4" \
+  || fail "Q2 t4's container finished within 30 s" "state: [$(ctr_state "$SLUG-t4")]"
+
+typeset -g Q2_EXIT;   Q2_EXIT=$(xctr container inspect -f '{{.State.ExitCode}}' "$SLUG-t4" 2>&1)
+typeset -g Q2_ENGLOG; Q2_ENGLOG=$(xctr logs "$SLUG-t4" 2>&1)
+
+eqlit "Q2 the container exits 1 where stage 08 measured a silent 0" "$Q2_EXIT" "1"
+has   "Q2 ... and job-tee's refusal names the log path it could not write" "$Q2_ENGLOG" "logs/t4."
+has   "Q2 ... and the uid it ran as, which nothing outside the container could guess" \
+      "$Q2_ENGLOG" "(uid 1000)"
+has   "Q2 ... and says plainly that it refused" "$Q2_ENGLOG" "refusing to run unrecorded"
+# The refusal is only worth anything if the command really did not run: its
+# output would be in the engine's ring buffer even with logs/ unwritable, which
+# is exactly how stage 08 saw `from-a-non-root-user' there over an empty logs/.
+# The test is a WHOLE-LINE match, not a substring: the refusal quotes the
+# command it is refusing, so `*from-a-non-root-user*' matches job-tee's own
+# diagnostic and proves nothing. (It did, on this block's first run.)
+eq    "Q2 ... and the command never ran at all" \
+      "$(print -r -- "$Q2_ENGLOG" | command awk '{ sub(/\r$/, "") } $0 == "from-a-non-root-user" { print "it-ran"; exit }')" ""
+eq    "Q2 ... having stopped before it wrote even a log header" \
+      "$([[ $Q2_ENGLOG == *"== job-tee start"* ]] && print started)" ""
+# Specifically no LOG. logs/t4.job is there and should be: the per-task record
+# is written on the HOST by docker-run before any container exists, so it says
+# what was asked for, while the missing t4.*.log says the container never got
+# to answer. Globbing logs/t4.* instead would conflate the two.
+eq    "Q2 ... while logs/ gains no log file for t4" "$(print -r -- $REPO/logs/t4.*.log(N))" ""
+eqlit "Q2 ... though the host-written task record is there, as it always is" \
+      "$(print -r -- $REPO/logs/t4.job(N:t))" "t4.job"
+note  "Q2 docker-run said: [$(oneline "$out")]"
+note  "Q2 the engine's view of the container's output: [$(oneline "$Q2_ENGLOG")]"
+note  "Q2 job-logfile t4: [$(job-logfile t4 2>/dev/null || print nothing)]"
 
 # --------------------------------------------------------------------------
 # Question 1, second half: `podman info' once everything above has warmed it

@@ -188,7 +188,8 @@ help:
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
-	@echo "  make check-jobs    - Run the .jobs.zsh and .claude-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
+	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .claude-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
+	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
 	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
@@ -1469,8 +1470,14 @@ check-system: check-system-hosts check-keyd-sync check-channels-sync check-syste
 # one starts two tmux servers, a container and a launchd agent (all under a
 # per-run scratch $TMPDIR that its EXIT trap removes).  `check' must stay
 # something you can run on any machine at any time without side effects.
+# tee-smoke.zsh goes first because it is the only one of the three that runs
+# ANYWHERE: bin/job-tee needs a scratch directory, a real /bin/sh and a signal,
+# none of which are a machine's to refuse, while the two below need tmux and
+# launchd. It is also the layer underneath them, so a failure there explains
+# failures in the others rather than being explained by them.
 .PHONY: check-jobs
 check-jobs:
+	@./tests/jobs/tee-smoke.zsh
 	@./tests/jobs/smoke.zsh
 	@./tests/jobs/claude-smoke.zsh
 
