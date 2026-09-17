@@ -16,10 +16,10 @@
 # Make sure /usr/local/bin is at the front of path before ~/.pyenv/shims
 
 # for git and other things
-add_to_front_of_path /usr/local/bin
+add_to_front_of_path /opt/homebrew/bin
 
 # For GNU ls for emacs
-add_to_front_of_path /usr/local/opt/coreutils/libexec/gnubin
+add_to_front_of_path /opt/homebrew/opt/coreutils/libexec/gnubin
 add_to_front_of_path /opt/homebrew/opt/gcc/bin
 export CC=gcc-15
 export CXX=g++-15
@@ -40,11 +40,13 @@ add_to_front_of_path "$HOME/.pixi/bin"
 # add_to_front_of_path /usr/local/opt
 # add_to_front_of_path /usr/local/sbin
 
-# mysql
-add_to_front_of_path /usr/local/opt/mysql-client/bin
-export LDFLAGS="-L/usr/local/opt/mysql-client/lib"
-export CPPFLAGS="-I/usr/local/opt/mysql-client/include"
-export PKG_CONFIG_PATH="/usr/local/opt/mysql-client/lib/pkgconfig"
+# mysql (only if the ARM mysql-client formula is installed)
+if [ -d /opt/homebrew/opt/mysql-client ]; then
+  add_to_front_of_path /opt/homebrew/opt/mysql-client/bin
+  export LDFLAGS="-L/opt/homebrew/opt/mysql-client/lib"
+  export CPPFLAGS="-I/opt/homebrew/opt/mysql-client/include"
+  export PKG_CONFIG_PATH="/opt/homebrew/opt/mysql-client/lib/pkgconfig"
+fi
 
 # This is code that was added to my ~/.bash_profile, probably from scripts
 # In general move anything in that file here and delete that file
@@ -118,10 +120,10 @@ if [ -f /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.in
 fi
 
 # openssl
-[ -d "/usr/local/opt/openssl@1.1/bin" ] && path=(/usr/local/opt/openssl@1.1/bin "$path[@]")
+[ -d "/opt/homebrew/opt/openssl@3/bin" ] && path=(/opt/homebrew/opt/openssl@3/bin "$path[@]")
 
 # gettext
-[ -d "/usr/local/opt/gettext/bin" ] && path=(/usr/local/opt/gettext/bin "$path[@]")
+[ -d "/opt/homebrew/opt/gettext/bin" ] && path=(/opt/homebrew/opt/gettext/bin "$path[@]")
 
 # vscode
 [ -d "/Applications/Visual Studio Code.app/Contents/Resources/app/bin" ] && path=("/Applications/Visual Studio Code.app/Contents/Resources/app/bin" "$path[@]")
@@ -131,14 +133,14 @@ fi
 
 # python's virtualenvwrapper
 
-[ -f /usr/local/bin/virtualenvwrapper.sh ] && source /usr/local/bin/virtualenvwrapper.sh
+[ -f /opt/homebrew/bin/virtualenvwrapper.sh ] && source /opt/homebrew/bin/virtualenvwrapper.sh
 
 # poetry
 
 [ -d "$HOME/.poetry/bin" ] && path=("$HOME/.poetry/bin" "$path[@]")
 
 # postgres 15
-add_to_front_of_path '/usr/local/opt/postgresql@15/bin'
+add_to_front_of_path '/opt/homebrew/opt/postgresql@15/bin'
 
 # bun completions
 [ -s "~/.bun/_bun" ] && source "~/.bun/_bun"
