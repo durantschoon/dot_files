@@ -981,7 +981,77 @@ else
 	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key
+.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-protondrive check-protondrive
+
+
+# Proton Drive, the sync layer that replaced Dropbox.
+#
+# On WSL the installer is a WINDOWS program: the Drive client syncs for the
+# Windows user, and the Linux side sees the result through /mnt/c.  There is no
+# Linux Proton Drive client to install here, so this target reaches across the
+# interop boundary and drives winget -- the first place in this Makefile that
+# does, which is why the powershell invocation is spelled out rather than
+# assumed.
+#
+#   -NoProfile              the user's PowerShell profile is irrelevant and slow
+#   --accept-source-agreements   winget otherwise blocks on the msstore terms
+#                                prompt and dies with 0x8a150042 under a pipe
+#   --disable-interactivity      no TTY across the interop boundary
+#
+# Idempotent: winget list is the probe, so a second run reports and exits 0.
+WIN_POWERSHELL := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+PROTONDRIVE_WINGET_ID := Proton.ProtonDrive
+
+setup-protondrive:
+ifeq ($(flavor),wsl)
+	@test -x $(WIN_POWERSHELL) || { \
+	  echo "  *** no Windows PowerShell at $(WIN_POWERSHELL) ***"; \
+	  echo "  Is /mnt/c mounted and WSL interop enabled?"; exit 1; }
+	@if $(WIN_POWERSHELL) -NoProfile -Command \
+	    "winget list --id $(PROTONDRIVE_WINGET_ID) --accept-source-agreements --disable-interactivity" \
+	    2>/dev/null | grep -q '$(PROTONDRIVE_WINGET_ID)'; then \
+	  echo "Proton Drive already installed (winget id $(PROTONDRIVE_WINGET_ID))"; \
+	else \
+	  echo "==> installing Proton Drive via winget"; \
+	  $(WIN_POWERSHELL) -NoProfile -Command \
+	    "winget install --id $(PROTONDRIVE_WINGET_ID) --accept-source-agreements --accept-package-agreements --disable-interactivity"; \
+	fi
+	@echo ""
+	@echo "--- NEXT STEP: sign in and let it sync ---"
+	@echo "Proton Drive is a GUI app: launch it on Windows, sign in, and wait for"
+	@echo "the first sync.  Until then the folder below does not exist."
+	@echo "Then run: make check-protondrive"
+else ifeq ($(os),$(OS_MAC))
+	@echo "macOS: Proton Drive is installed from the app, not winget."
+	@echo "Startup and the espanso handoff are already owned by:"
+	@echo "  bin/protondrive-ensure-running.sh"
+	@echo "  bin/ensure-proton-and-espanso.sh"
+else
+	@echo "No Proton Drive setup for this platform ($(os)/$(flavor))."
+endif
+
+# Report where Proton Drive actually landed.  The Windows client syncs to a
+# per-user folder whose name it decides; probe rather than hardcode, and print
+# the path so the espanso handoff can be pointed at it.
+check-protondrive:
+ifeq ($(flavor),wsl)
+	@found=0; \
+	for d in /mnt/c/Users/*/"Proton Drive" /mnt/c/Users/*/ProtonDrive; do \
+	  if [ -d "$$d" ]; then echo "    sync folder: $$d"; found=1; fi; \
+	done; \
+	if [ "$$found" = 0 ]; then \
+	  echo "    no Proton Drive sync folder yet -- sign in on Windows first"; \
+	fi
+	@if $(WIN_POWERSHELL) -NoProfile -Command \
+	    "winget list --id $(PROTONDRIVE_WINGET_ID) --accept-source-agreements --disable-interactivity" \
+	    2>/dev/null | grep -q '$(PROTONDRIVE_WINGET_ID)'; then \
+	  echo "    winget:      $(PROTONDRIVE_WINGET_ID) installed"; \
+	else \
+	  echo "    winget:      NOT installed (run: make setup-protondrive)"; \
+	fi
+else
+	@echo "check-protondrive: WSL only ($(os)/$(flavor) here)."
+endif
 
 # The external store/database volumes must be restored together when moving
 # machines. Compose deliberately refuses to silently replace a missing store.
@@ -1584,7 +1654,13 @@ check-home-ownership:
 	fi; \
 	exit $$rc
 
-check: check-system check-session-coupling check-tailscale check-orbstack check-home-ownership
+# check-protondrive earns its place here for the same reason check-tailscale
+# does: it only probes.  `winget list' and a few [ -d ] tests read state and
+# change none of it, so the no-side-effects contract below still holds, and off
+# WSL the target degrades to a single printed line.  (check-guix-container is
+# absent by contrast because it needs a running container, not because reaching
+# across to Windows is itself disqualifying.)
+check: check-system check-session-coupling check-tailscale check-orbstack check-protondrive check-home-ownership
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
