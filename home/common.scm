@@ -401,6 +401,9 @@ installed either way."
     "myrepos"
     "moreutils"
     "autojump"
+    ;; The tmux- runner verbs in .jobs.zsh and their smoke test need it on
+    ;; every machine, not just the Mac (stage 08 found this host without it).
+    "tmux"
     ;; Spell-checking backend for Emacs ispell/flyspell (same profile so
     ;; ASPELL_DICT_DIR resolves the dictionary)
     "aspell" "aspell-dict-en"
