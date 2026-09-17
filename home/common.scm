@@ -65,6 +65,7 @@
              (gnu home services shells)
              (gnu home services shepherd)
              (gnu packages)
+             (gnu packages glib)
              (gnu services)            ;service-kind, service-type-name -- for
                                        ;the layer ownership check
              (guix download)
@@ -306,6 +307,9 @@ field below follows this file's convention of not importing
 ;;                        call is best-effort -- on a truly headless host it
 ;;                        fails without aborting activation, which is the
 ;;                        historical behavior, preserved.
+;;   never-suspend-on-ac? Disable GNOME's automatic AC suspend policy.  This
+;;                        is true only for the managed GNOME session; battery
+;;                        suspend and explicit user-requested suspend remain.
 ;;   wlr-data-control?    The compositor implements the wlr-data-control
 ;;                        protocol.  THE espanso fact: without it espanso's
 ;;                        clipboard backend silently pastes stale clipboard
@@ -329,6 +333,7 @@ field below follows this file's convention of not importing
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
     (has-gsettings?       . #t)                                     ;[session]
+    (never-suspend-on-ac? . #t)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
     (wayland-display      . "wayland-0")))
 
@@ -343,6 +348,7 @@ field below follows this file's convention of not importing
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
     (has-gsettings?       . #t)                                     ;[session]
+    (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
     (wayland-display      . "wayland-0")))
 
@@ -392,6 +398,7 @@ field below follows this file's convention of not importing
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
     (has-gsettings?       . #f)                                     ;[session]
+    (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
     (wayland-display      . "wayland-1")))
 
@@ -646,6 +653,34 @@ call, so extensions never collide; only genuine double ownership does."
 ;; ---------------------------------------------------------------------------
 ;; The layers
 
+;; power: keep long-running work alive whenever the managed GNOME laptop is
+;; plugged in.  elogind handles the AC lid switch at the system layer; GNOME's
+;; own idle policy lives in dconf and must be set in the user's live session.
+;; Battery policy and the explicit Suspend action are deliberately untouched.
+(define %power-layer
+  (layer
+   #:name 'power
+   #:synopsis "disable automatic suspend on AC power"
+   #:requires '(has-gsettings? never-suspend-on-ac?)                 ;[session]
+   #:services
+   (lambda (session)
+     (list
+      (simple-service 'power-policy-activation home-activation-service-type
+                      #~(begin
+                          (use-modules (ice-9 format))
+                          (let ((schema "org.gnome.settings-daemon.plugins.power")) ;[session]
+                            (unless (zero? (system* (string-append #$glib:bin "/bin/gsettings") ;[session]
+                                                    "set" schema
+                                                    "sleep-inactive-ac-type"
+                                                    "nothing"))
+                              (error "failed to disable GNOME AC suspend")) ;[session]
+                            (unless (zero? (system* (string-append #$glib:bin "/bin/gsettings") ;[session]
+                                                    "set" schema
+                                                    "sleep-inactive-ac-timeout"
+                                                    "0"))
+                              (error "failed to clear GNOME AC suspend timeout")) ;[session]
+                            (format #t "power: automatic suspend on AC disabled; battery policy unchanged~%"))))))))
+
 ;; dotfiles: baseline packages and the core dotfile symlinks.  Owns the
 ;; home-files instance; other layers extend it via simple-service.
 (define %dotfiles-layer
@@ -810,7 +845,8 @@ call, so extensions never collide; only genuine double ownership does."
                           (use-modules (ice-9 format))
                           (if #$(session-ref session 'has-gsettings?)     ;[session]
                               ;; Set GTK key theme to Emacs
-                              (system* "gsettings" "set"                  ;[session]
+                              (system* (string-append #$glib:bin "/bin/gsettings") ;[session]
+                                       "set"
                                        "org.gnome.desktop.interface"      ;[session]
                                        "gtk-key-theme" "Emacs")
                               (format #t "session: no gsettings here; GTK key theme not set~%")) ;[session]
@@ -1172,7 +1208,8 @@ call, so extensions never collide; only genuine double ownership does."
 ;; Enabled layers, in service order.  A machine wanting a subset passes its
 ;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
 (define %default-layers
-  (list %dotfiles-layer
+  (list %power-layer
+        %dotfiles-layer
         %zsh-layer
         %gpg-ssh-agent-layer
         %emacs-layer
