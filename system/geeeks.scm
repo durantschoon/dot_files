@@ -329,6 +329,14 @@ leftcontrol = capslock
           (flags '(no-atime)))
          %base-file-systems))
 
+ ;; Prefer compressed RAM under memory pressure, then spill to the existing
+ ;; on-disk swap partition for large Guix builds instead of invoking the OOM
+ ;; killer.  The priorities keep the much faster zram device ahead of disk.
+ (swap-devices
+  (list (swap-space
+         (target (file-system-label "SWAP"))
+         (priority 10))))
+
  (users (cons* (user-account
                 (name "durant")
                 (comment "Durant Schoon")
@@ -499,6 +507,13 @@ leftcontrol = capslock
    ;; itself changes neither -- EWM runs from a TTY on its own VT while GNOME
    ;; keeps this service).
    (list (service gnome-desktop-service-type)                       ;[session]
+
+         (service zram-device-service-type
+                  (zram-device-configuration
+                   (size "8G")
+                   (compression-algorithm 'zstd)
+                   (memory-limit "6G")
+                   (priority 100)))
 
          ;; Rootless OCI containers for development environments whose native
          ;; dependency stacks are not packaged by Guix (notably ROS 2).  The
