@@ -107,6 +107,14 @@ degraded.
   stages 05 (D1) and 07 (D1) after the stage 05 retro rule was written; the rule
   caught it both times. Launch messages therefore always carry the base SHA
   explicitly, in addition to the prompt naming its branch.
+  *Addendum after stage 10 (D1 — the fourth occurrence in ten stages):* the likely
+  source is the harness, not chance. Claude Code's worktree tool documents its base as
+  governed by the `worktree.baseRef` setting, whose default `fresh` branches from
+  `origin/<default-branch>` — so any prompt committed locally but not yet pushed is
+  never on an executor's base. Stage 10 arrived on `bed0782`, which was exactly
+  `origin/main`. Setting `worktree.baseRef` to `head` should remove the handover
+  mismatch at the source; that is a user settings decision and is untested here, so
+  the verify-then-reset rule stays either way.
 - **A background coordinator does not write to `main`.** When the coordinating session
   is a background job, prompts land on an integration branch named in the launch
   message, stage branches merge into that, and the human merges the integration
