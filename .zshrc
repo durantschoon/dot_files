@@ -250,19 +250,28 @@ fi
 # sudo chown -R root:staff /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
 
 # this keeps getting added automatically, so just put it here
-PATH=~/.console-ninja/.bin:$PATH
+# Re-added defensively: guix home's .zprofile runs `emulate sh -c ". /etc/profile"',
+# which can rebuild PATH after .zshenv ran.  Use add_to_front_of_path rather than
+# a raw PATH= assignment -- `typeset -U path' enforces uniqueness only when the
+# ARRAY is assigned, so "PATH=dir:$PATH" silently bypasses it and stacks a second
+# copy of dir every time.  (That is what put .console-ninja/.bin at both position
+# 1 and position 4.)  The array form is idempotent, so re-adding costs nothing.
+add_to_front_of_path "$HOME/.console-ninja/.bin"
 
 # Same deal -- installers append these to the bottom of the file, which lands
 # below the final status check. Moved up here; delete the duplicates if an
-# installer re-adds them.
+# installer re-adds them.  Rewritten from the installers' hardcoded
+# /Users/durant + raw PATH= form: this file is read on Linux and WSL too, where
+# those directories do not exist, and add_to_front_of_path both honours $HOME
+# and skips a directory that is not there.
 # Added by Antigravity
-export PATH="/Users/durant/.antigravity/antigravity/bin:$PATH"
+add_to_front_of_path "$HOME/.antigravity/antigravity/bin"
 
 # Added by Antigravity IDE
-export PATH="/Users/durant/.antigravity-ide/antigravity-ide/bin:$PATH"
+add_to_front_of_path "$HOME/.antigravity-ide/antigravity-ide/bin"
 
 # Added by Antigravity CLI installer
-export PATH="/Users/durant/.local/bin:$PATH"
+add_to_front_of_path "$HOME/.local/bin"
 
 [[ -s "$HOME/.avn/bin/avn.sh" ]] && source "$HOME/.avn/bin/avn.sh" # load avn
 

@@ -116,7 +116,7 @@ ifeq ($(LOGIN_SHELL),)
 	LOGIN_SHELL := /bin/zsh
 endif
 
-.PHONY: all setup-native set_up_links wsl help guix-root-install warn-dotfiles-home
+.PHONY: all setup-native set_up_links wsl help guix-root-install warn-dotfiles-home guard-native-over-guix
 
 # Makefile and set_up_links assume the repo is at $(HOME)/dot_files (symlink is fine).
 DOTFILES_HOME := $(HOME)/dot_files
@@ -253,7 +253,48 @@ endif
 dot_file_root_dir := $(wildcard ~/dot_files)
 current_dir := $(shell $(PWD_CMD))
 
-set_up_links: warn-dotfiles-home 
+# Refuse, rather than warn, when Guix Home already owns this account's dotfiles.
+#
+# The two setups claim overlapping paths (.zshenv, .aliases, .mg,
+# .wayland.zshenv, bin), so the one that ran last simply wins.  .zshenv is the
+# sharpest case: under guix it is a two-line stub that sets ZDOTDIR to
+# ~/.config/zsh, where the real .zshrc/.zprofile live, so overwriting it cuts
+# off the ENTIRE guix zsh setup, not one file.  What makes all of this worth an
+# abort instead of a notice is that the two kinds of link MEAN different things:
+#
+#   native:  ~/.aliases -> ~/dot_files/.aliases       live; edit, open a shell
+#   guix:    ~/.aliases -> /gnu/store/...-aliases     read-only SNAPSHOT
+#
+# Going guix -> native is therefore not a visible break; it is a silent revert
+# to whatever the store snapshot predates, and the failure shows up later as
+# "my edit did nothing" with no obvious cause.  A warning printed among the
+# dozens of lines set_up_links emits would not be read in time to matter.
+#
+# ~/.guix-home is the right probe: `guix home reconfigure' creates it as the
+# symlink to the activated generation, so it exists if and only if a home
+# generation has actually been activated for this user.  Merely having the guix
+# BINARY installed (as on a box where guix is being trialled) does not create
+# it, which is exactly the distinction we want -- trialling guix should not
+# lock you out of the native path.
+guard-native-over-guix:
+	@if [ -e "$$HOME/.guix-home" ] && [ -z "$(FORCE_NATIVE)" ]; then \
+	  echo ""; \
+	  echo "  *** refusing to run set_up_links: Guix Home owns this account ***"; \
+	  echo "  $$HOME/.guix-home exists, so a home generation is active and already"; \
+	  echo "  owns .zshenv (and through ZDOTDIR, ~/.config/zsh), .aliases, .mg,"; \
+	  echo "  .wayland.zshenv and bin."; \
+	  echo "  Overwriting them with native symlinks would revert your shell to"; \
+	  echo "  whatever the store snapshot holds, silently."; \
+	  echo ""; \
+	  echo "  To change dotfiles, edit the repo and run:  make apply"; \
+	  echo "  To see who owns what right now:             make check-home-ownership"; \
+	  echo "  To go native anyway (you will want to remove the guix home first):"; \
+	  echo "                                              make set_up_links FORCE_NATIVE=1"; \
+	  echo ""; \
+	  exit 1; \
+	fi
+
+set_up_links: warn-dotfiles-home guard-native-over-guix
 	@echo OS detected as $(os) $(arch)
 	@echo ------------------------------
 ifneq ("","$(unix_family)")
@@ -298,7 +339,17 @@ ifeq ("$(os)","$(OS_LINUX)")
 # you already installed git to get this far
 ifeq ($(PACKAGE_MANAGER),apt)
 	sudo apt-get update && sudo apt-get dist-upgrade -y
-	sudo apt-get install build-essential cmake curl file -y
+	@# mg rides along on this line rather than getting its own: unlike fastfetch
+	@# below it has been in Debian/Ubuntu for years, so there is no fallback to
+	@# arrange and no reason to let it fail separately.  It belongs on the apt
+	@# path at all because set_up_links installs ~/.mg on EVERY platform, and a
+	@# startup file for an editor that is not there is just a dangling symlink.
+	@# The guix side gets mg from manifests/base.scm and home/common.scm.
+	sudo apt-get install build-essential cmake curl file mg -y
+	@# fastfetch is not packaged before Ubuntu 24.04, so ask for it but fall
+	@# back to neofetch; .aliases defines a fastfetch shim when only neofetch
+	@# is present, so the command name is the same on every machine.
+	sudo apt-get install fastfetch -y || sudo apt-get install neofetch -y
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
@@ -373,7 +424,23 @@ endif
 # DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
-	[ -f $(wildcard "~/dot_files/.$(os).zshenv") ] && ln -si ~/dot_files/.$(os).zshenv ~/.zshenv
+	@# mg's startup file. Sets backup-to-home-directory so mg's foo~ backups land
+	@# in ~/.mg.d instead of beside the file being edited.
+	ln -si ~/dot_files/.mg ~/.mg || echo
+	@# $(wildcard) is a make function: it does not expand ~ (a shell thing) and
+	@# the quotes were literal pattern characters, so the pattern never matched
+	@# and the guard collapsed to `[ -f  ]' -- one-argument test, which is TRUE
+	@# for the non-empty string "-f".  The link was therefore made unconditionally
+	@# and only worked because .linux.zshenv happens to exist.  Test the real path
+	@# in the shell instead, and do not abort the recipe when it is absent.
+	@if [ ! -f "$(CURDIR)/.$(os).zshenv" ]; then \
+	  echo "NOTE: no .$(os).zshenv in this repo; leaving ~/.zshenv alone"; \
+	elif [ -e ~/.zshenv ] && [ ! -L ~/.zshenv ]; then \
+	  echo "NOTE: ~/.zshenv is a real file, not a symlink. Move it aside, then run make set_up_links again."; \
+	else \
+	  ln -sfn "$(CURDIR)/.$(os).zshenv" ~/.zshenv; \
+	  echo "linked ~/.zshenv -> .$(os).zshenv"; \
+	fi
 ifeq ("$(os)","$(OS_LINUX)")
 	ln -si ~/dot_files/.wayland.zshenv ~/.wayland.zshenv || echo
 endif
@@ -727,6 +794,26 @@ restart-gpg-agent:
 	@herd restart gpg-agent 2>/dev/null \
 	  || echo "    (skipped: no user shepherd -- the agent will pick this up at next login)"
 
+# The guix to run AFTER a `guix pull': the one the pull just produced.
+#
+# `guix pull' installs into ~/.config/guix/current and does nothing else; it
+# cannot change which guix a bare `guix' means.  That is decided by PATH, and
+# on a foreign distro set up by guix-install.sh PATH reaches
+# /usr/local/bin/guix -- ROOT's profile -- unless the login shell has already
+# sourced ~/.config/guix/current/etc/profile.  On a machine where Guix Home
+# has never been applied, nothing has arranged that yet, so the recipe pulled
+# the revisions pinned in channels.scm and then built the home with root's
+# unrelated guix: the pin silently ignored, and no nonguix channel at all.  The
+# only trace was the `hint: Consider setting the necessary environment
+# variables' that guix pull prints, which reads as boilerplate.
+#
+# So name the pulled guix outright instead of trusting PATH.  Resolved in the
+# recipe's shell, at the moment of use, because on a first run the file does
+# not exist until the `guix pull' a few lines earlier has finished -- a make
+# variable expanded at parse time would miss it.  Falls back to PATH's guix
+# where there is no per-user pull at all (Guix System before the first pull).
+PULLED_GUIX = $$( g="$$HOME/.config/guix/current/bin/guix"; [ -x "$$g" ] && echo "$$g" || echo guix )
+
 apply: warn-dotfiles-home
 	@echo "==> git submodule update --init claude"
 	@# home/base.scm reads ../claude/* via local-file, so an uninitialized
@@ -735,14 +822,19 @@ apply: warn-dotfiles-home
 	@# a missing SSH key should stop here with git's own message rather than
 	@# surface later as a Guix error.
 	@git submodule update --init claude
+	@# Before the (slow) pull, and long before the activation: refuse while $$HOME
+	@# holds something the symlink manager would walk through or choke on.  See
+	@# check-home-ownership -- PREFLIGHT=1 fails on hazards only, never on a plain
+	@# conflict, since resolving conflicts is what this target is for.
+	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
 	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
 	else \
 	  guix pull ; \
 	fi
-	@echo "==> guix home reconfigure home/base.scm"
-	@guix home reconfigure $(GUIX_HOME_GRAFT_FLAGS) --allow-downgrades home/base.scm
+	@echo "==> guix home reconfigure home/base.scm  (guix: $(PULLED_GUIX))"
+	@$(PULLED_GUIX) home reconfigure $(GUIX_HOME_GRAFT_FLAGS) --allow-downgrades home/base.scm
 	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
@@ -765,6 +857,7 @@ apply: warn-dotfiles-home
 	fi
 
 apply-wayland: warn-dotfiles-home
+	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
 	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
@@ -777,8 +870,8 @@ apply-wayland: warn-dotfiles-home
 	@# Unlike espanso/private this is NOT optional: home/wayland.scm reads
 	@# ../claude/* unconditionally, so let git's error stop the build.
 	@git submodule update --init claude
-	@echo "==> guix home reconfigure home/wayland.scm"
-	@guix home reconfigure --allow-downgrades home/wayland.scm
+	@echo "==> guix home reconfigure home/wayland.scm  (guix: $(PULLED_GUIX))"
+	@$(PULLED_GUIX) home reconfigure --allow-downgrades home/wayland.scm
 	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
@@ -812,8 +905,9 @@ apply-wayland: warn-dotfiles-home
 apply-ewm: warn-dotfiles-home
 	@echo "==> git submodule update --init claude"
 	@git submodule update --init claude
-	@echo "==> guix home reconfigure home/ewm.scm"
-	@guix home reconfigure --allow-downgrades home/ewm.scm
+	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
+	@echo "==> guix home reconfigure home/ewm.scm  (guix: $(PULLED_GUIX))"
+	@$(PULLED_GUIX) home reconfigure --allow-downgrades home/ewm.scm
 	@echo "==> done (EWM trial generation deployed)"
 	@echo ""
 	@echo "    GNOME keeps running on its VT; launch EWM from a fresh TTY"
@@ -917,7 +1011,77 @@ else
 	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key
+.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-protondrive check-protondrive
+
+
+# Proton Drive, the sync layer that replaced Dropbox.
+#
+# On WSL the installer is a WINDOWS program: the Drive client syncs for the
+# Windows user, and the Linux side sees the result through /mnt/c.  There is no
+# Linux Proton Drive client to install here, so this target reaches across the
+# interop boundary and drives winget -- the first place in this Makefile that
+# does, which is why the powershell invocation is spelled out rather than
+# assumed.
+#
+#   -NoProfile              the user's PowerShell profile is irrelevant and slow
+#   --accept-source-agreements   winget otherwise blocks on the msstore terms
+#                                prompt and dies with 0x8a150042 under a pipe
+#   --disable-interactivity      no TTY across the interop boundary
+#
+# Idempotent: winget list is the probe, so a second run reports and exits 0.
+WIN_POWERSHELL := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+PROTONDRIVE_WINGET_ID := Proton.ProtonDrive
+
+setup-protondrive:
+ifeq ($(flavor),wsl)
+	@test -x $(WIN_POWERSHELL) || { \
+	  echo "  *** no Windows PowerShell at $(WIN_POWERSHELL) ***"; \
+	  echo "  Is /mnt/c mounted and WSL interop enabled?"; exit 1; }
+	@if $(WIN_POWERSHELL) -NoProfile -Command \
+	    "winget list --id $(PROTONDRIVE_WINGET_ID) --accept-source-agreements --disable-interactivity" \
+	    2>/dev/null | grep -q '$(PROTONDRIVE_WINGET_ID)'; then \
+	  echo "Proton Drive already installed (winget id $(PROTONDRIVE_WINGET_ID))"; \
+	else \
+	  echo "==> installing Proton Drive via winget"; \
+	  $(WIN_POWERSHELL) -NoProfile -Command \
+	    "winget install --id $(PROTONDRIVE_WINGET_ID) --accept-source-agreements --accept-package-agreements --disable-interactivity"; \
+	fi
+	@echo ""
+	@echo "--- NEXT STEP: sign in and let it sync ---"
+	@echo "Proton Drive is a GUI app: launch it on Windows, sign in, and wait for"
+	@echo "the first sync.  Until then the folder below does not exist."
+	@echo "Then run: make check-protondrive"
+else ifeq ($(os),$(OS_MAC))
+	@echo "macOS: Proton Drive is installed from the app, not winget."
+	@echo "Startup and the espanso handoff are already owned by:"
+	@echo "  bin/protondrive-ensure-running.sh"
+	@echo "  bin/ensure-proton-and-espanso.sh"
+else
+	@echo "No Proton Drive setup for this platform ($(os)/$(flavor))."
+endif
+
+# Report where Proton Drive actually landed.  The Windows client syncs to a
+# per-user folder whose name it decides; probe rather than hardcode, and print
+# the path so the espanso handoff can be pointed at it.
+check-protondrive:
+ifeq ($(flavor),wsl)
+	@found=0; \
+	for d in /mnt/c/Users/*/"Proton Drive" /mnt/c/Users/*/ProtonDrive; do \
+	  if [ -d "$$d" ]; then echo "    sync folder: $$d"; found=1; fi; \
+	done; \
+	if [ "$$found" = 0 ]; then \
+	  echo "    no Proton Drive sync folder yet -- sign in on Windows first"; \
+	fi
+	@if $(WIN_POWERSHELL) -NoProfile -Command \
+	    "winget list --id $(PROTONDRIVE_WINGET_ID) --accept-source-agreements --disable-interactivity" \
+	    2>/dev/null | grep -q '$(PROTONDRIVE_WINGET_ID)'; then \
+	  echo "    winget:      $(PROTONDRIVE_WINGET_ID) installed"; \
+	else \
+	  echo "    winget:      NOT installed (run: make setup-protondrive)"; \
+	fi
+else
+	@echo "check-protondrive: WSL only ($(os)/$(flavor) here)."
+endif
 
 # The external store/database volumes must be restored together when moving
 # machines. Compose deliberately refuses to silently replace a missing store.
@@ -1330,9 +1494,11 @@ update: warn-dotfiles-home
 	@echo "==> guix pull"
 	@guix pull
 	@echo "==> pin channels.scm"
-	@guix describe --format=channels > channels.scm
-	@echo "==> guix home reconfigure"
-	@guix home reconfigure home/base.scm
+	@# `guix describe' reports the guix that RUNS it, so this must be the
+	@# pulled one: PATH's guix would pin root's revision, not the pull's.
+	@$(PULLED_GUIX) describe --format=channels > channels.scm
+	@echo "==> guix home reconfigure  (guix: $(PULLED_GUIX))"
+	@$(PULLED_GUIX) home reconfigure home/base.scm
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent; re-patches if broken)"
@@ -1459,7 +1625,220 @@ add-pkg:
 SYSTEM_PINS    := $(wildcard system/channels-*.scm)
 SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 
-check: check-system check-session-coupling check-tailscale check-orbstack
+.PHONY: setup-espanso-windows check-espanso-windows
+
+# espanso on a WSL machine runs on the WINDOWS side -- a Linux espanso cannot
+# see keystrokes typed into Windows apps, which is why the espanso layer is
+# off in %foreign-session and check-home-ownership reports its files as
+# "absent -- OK".  The config is the one Proton Drive already syncs (the same
+# folder bin/ensure-proton-and-espanso.sh points the Mac at), so all that is
+# needed is to make Windows espanso read it instead of its own private copy in
+# AppData\Roaming\espanso: ESPANSO_CONFIG_DIR, persisted with setx.
+#
+# Three things learned the hard way, each load-bearing below:
+#   - cd /mnt/c first.  Windows programs inherit the cwd, a WSL cwd is a
+#     \\wsl.localhost UNC path, and cmd.exe (espanso.cmd is a cmd script)
+#     refuses UNC: "UNC paths are not supported".
+#   - the restart is a detached Start-Process, never `espanso restart' in a
+#     pipeline.  The daemon it spawns inherits the pipe and holds it open, so
+#     the recipe would hang long after the restart itself had finished.
+#   - the PowerShell lives in build-aux/*.ps1 and is fed on stdin
+#     (-Command -).  Inlined in a recipe, make's backslash-newlines survive
+#     inside the shell's single quotes and PowerShell chokes on every one;
+#     -File is no better, since the script's path would be a UNC path too.
+#   - setx only affects processes started LATER, so the variable is also set
+#     in the PowerShell session that does the restart; otherwise the new
+#     daemon would come up still reading the old directory until next login.
+#
+# The Proton folder is found by glob (Proton Drive\<account>\My files\espanso):
+# this repo is public and the account name does not belong in it.
+setup-espanso-windows:
+ifeq ($(flavor),wsl)
+	@cd /mnt/c && $(WIN_POWERSHELL) -NoProfile -Command - \
+	  < "$(CURDIR)/build-aux/espanso-windows-setup.ps1"
+	@$(MAKE) --no-print-directory check-espanso-windows
+else
+	@echo "setup-espanso-windows: WSL only ($(os)/$(flavor) here)."
+endif
+
+check-espanso-windows:
+ifeq ($(flavor),wsl)
+	@echo "==> espanso on the Windows side"
+	@cd /mnt/c && $(WIN_POWERSHELL) -NoProfile -Command - \
+	  < "$(CURDIR)/build-aux/espanso-windows-check.ps1"
+else
+	@echo "check-espanso-windows: WSL only ($(os)/$(flavor) here)."
+endif
+
+.PHONY: check-home-ownership
+
+# Who actually owns each dotfile in $$HOME: Guix Home, the native symlinks, or
+# neither.  The point is to make a half-migrated account visible, because that
+# state is otherwise silent -- both kinds of link are just symlinks, and `ls'
+# does not tell you which system intends to manage them.
+#
+# The claimed set is DERIVED, not restated, so this cannot drift as the config
+# grows.  It is the union of three sources, because no single one is complete:
+#
+#   home/common.scm, grepped  home-files-service-type entries written as
+#                            `(".aliases" ,(local-file ...)).  Works BEFORE the
+#                            first apply, which is when it matters most, but
+#                            misses any entry whose name is computed (the
+#                            per-skill .claude/skills/<name> entries are).
+#   ~/.guix-home/files       what the active generation really deployed: exact,
+#                            computed entries included, but only exists once a
+#                            generation has been activated.
+#   GUIX_ZSH_OWNED           home-zsh-service-type SYNTHESISES its files out of
+#                            the zshrc/zshenv/zprofile field lists, so before
+#                            an apply they appear nowhere.  Note WHERE they
+#                            land: under ~/.config/zsh, with only a
+#                            ZDOTDIR-setting stub at ~/.zshenv.  ~/.zshrc is
+#                            NOT claimed -- with ZDOTDIR set, zsh never reads
+#                            it, so a leftover native ~/.zshrc is dead weight,
+#                            not a conflict.  That layout is fixed by the
+#                            service type, not by our config, so naming it here
+#                            is a constant rather than a duplicated fact.
+#
+# Beyond ownership it reports two HAZARDS.  Both are states in which `guix home
+# reconfigure' does damage or dies, both come from the symlink manager's backup
+# step (gnu/home/services/symlink-manager.scm), and both were found the hard
+# way on the first WSL apply:
+#
+#   symlinked ancestor   ~/.ipython -> ~/dot_files/.ipython, guix claims
+#                        .ipython/profile_default/startup/x.py.  The manager
+#                        backs up a colliding path only when it is NOT a
+#                        directory, and it asks with file-is-directory?, which
+#                        FOLLOWS symlinks.  So the symlink is kept, mkdir's
+#                        EEXIST is swallowed, and the walk continues through it
+#                        -- deleting the real files on the far side and leaving
+#                        /gnu/store symlinks INSIDE THE GIT REPO.
+#   real directory       guix wants a symlink where a real directory stands.
+#                        The backup is a copy-file, which cannot copy a
+#                        directory: "sendfile: Is a directory", and the
+#                        activation aborts half-done, before ~/.guix-home
+#                        exists, with some paths already switched over.
+#
+# An ABSENT path gets one more distinction once a generation is active: if
+# common.scm declares it but ~/.guix-home/files does not contain it, its layer
+# is simply off for this session (espanso under %foreign-session, say), and the
+# report says so instead of leaving a bare "absent" that reads like a fault.
+# That is derived from the generation, not from a list of layers kept here.
+#
+# The path column is coloured (cyan) so the two columns stay apart even where a
+# long path overruns its 28 characters and the padding disappears.  Only on a
+# terminal, and never with NO_COLOR set or TERM=dumb: piped into a file, a
+# pager or `grep', the output stays plain text with no escape codes in it.
+#
+# Exit status.  Normally: non-zero only when a generation is active and
+# something is wrong, so `make check' stays green on a native-only machine
+# where none of this applies.  With PREFLIGHT=1 (how `apply' calls it):
+# non-zero iff a hazard exists, active generation or not -- and conflicts are
+# NOT fatal there, because applying is precisely what resolves a conflict.
+GUIX_ZSH_OWNED := .zshenv .config/zsh/.zshenv .config/zsh/.zshrc .config/zsh/.zprofile
+
+check-home-ownership:
+	@echo "==> \$$HOME dotfiles: Guix Home vs native symlinks"
+	@guix_home=0; [ -e "$$HOME/.guix-home" ] && guix_home=1; \
+	deployed=""; \
+	if [ $$guix_home -eq 1 ]; then \
+	  deployed="$$(cd "$$HOME/.guix-home/files/" 2>/dev/null && find . -mindepth 1 ! -type d | sed 's|^\./||')"; \
+	fi; \
+	claimed="$$( { printf '%s\n' $(GUIX_ZSH_OWNED) $$deployed; \
+	              grep -oE '`\("[^"]+"' home/common.scm | sed 's/^`("//; s/"$$//'; } | sort -u)"; \
+	dfroot="$$(cd "$(DOTFILES_HOME)" 2>/dev/null && pwd -P)"; \
+	[ -n "$$dfroot" ] || dfroot="/nonexistent"; \
+	conflicts=0; hazards=0; inactive=0; espanso_off=0; \
+	c1=""; c0=""; \
+	if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
+	  c1="$$(printf '\033[36m')"; c0="$$(printf '\033[0m')"; \
+	fi; \
+	for p in $$claimed; do \
+	  t="$$HOME/$$p"; \
+	  anc=""; rest="$$p"; via=""; \
+	  while case "$$rest" in */*) true ;; *) false ;; esac; do \
+	    anc="$${anc:+$$anc/}$${rest%%/*}"; rest="$${rest#*/}"; \
+	    if [ -L "$$HOME/$$anc" ]; then via="$$anc"; break; fi; \
+	  done; \
+	  if [ -n "$$via" ]; then \
+	    printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
+	    hazards=1; continue; \
+	  fi; \
+	  if [ ! -e "$$t" ] && [ ! -L "$$t" ]; then \
+	    owner="absent"; \
+	    if [ $$guix_home -eq 1 ] && ! printf '%s\n' $$deployed | grep -qxF "$$p"; then \
+	      owner="absent -- OK: not part of this session"; inactive=1; \
+	      case "$$p" in .config/espanso/*) espanso_off=1 ;; esac; \
+	    fi; \
+	  elif [ -L "$$t" ]; then \
+	    dest="$$(readlink -f "$$t" 2>/dev/null)"; \
+	    case "$$dest" in \
+	      /gnu/store/*) owner="guix" ;; \
+	      "$$dfroot"/*) owner="native" ;; \
+	      *) owner="other -> $$dest" ;; \
+	    esac; \
+	  elif [ -d "$$t" ]; then \
+	    owner="real directory"; \
+	  else \
+	    owner="real file"; \
+	  fi; \
+	  case "$$owner" in \
+	    "real directory") \
+	      printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: real directory where guix wants a symlink"; \
+	      hazards=1 ;; \
+	    native|"real file") \
+	      if [ $$guix_home -eq 1 ]; then \
+	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "CONFLICT: $$owner, but Guix Home is active"; \
+	        conflicts=1; \
+	      else \
+	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
+	      fi ;; \
+	    *) printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
+	  esac; \
+	done; \
+	if [ $$guix_home -eq 0 ]; then \
+	  echo "    (no ~/.guix-home: no home generation active, so native ownership is expected)"; \
+	fi; \
+	if [ $$inactive -eq 1 ]; then \
+	  echo ""; \
+	  echo "    \"absent -- OK\" = home/common.scm declares the path, but the ACTIVE generation"; \
+	  echo "    does not deploy it: its layer is switched off for this session (the apply"; \
+	  echo "    output says which, as \"inactive (unmet session facts)\").  Wanted, not broken."; \
+	  if [ $$espanso_off -eq 1 ] && [ "$(flavor)" = wsl ]; then \
+	    echo "    espanso in particular: this is guix inside WSL, and we want it this way --"; \
+	    echo "    a Linux espanso cannot see keystrokes typed into Windows apps, so espanso"; \
+	    echo "    runs on the WINDOWS side, reading the same config out of Proton Drive."; \
+	    echo "    See: make check-espanso-windows"; \
+	  fi; \
+	fi; \
+	if [ $$hazards -eq 1 ]; then \
+	  echo ""; \
+	  echo "    HAZARD = \`guix home reconfigure' will do damage or abort half-done here."; \
+	  echo "      symlinked ancestor: guix walks THROUGH it and replaces the files on the"; \
+	  echo "        far side (your git repo) with store symlinks.  Fix: rm the symlink --"; \
+	  echo "        only the link; guix then makes a real directory in its place."; \
+	  echo "      real directory: guix backs up with copy-file, which cannot copy a"; \
+	  echo "        directory (\"sendfile: Is a directory\").  Fix: mv it aside, e.g. to"; \
+	  echo "        <name>.native_BAK, and move any contents you need back afterwards."; \
+	fi; \
+	if [ $$conflicts -eq 1 ]; then \
+	  echo ""; \
+	  echo "    CONFLICT = claimed by Guix Home but currently something else, so Guix Home"; \
+	  echo "    will not see your repo edits for it.  Run: make apply  (guix backs up a"; \
+	  echo "    colliding FILE by itself, into ~/<timestamp>-guix-home-legacy-configs-backup)."; \
+	fi; \
+	if [ -n "$(PREFLIGHT)" ]; then \
+	  [ $$hazards -eq 0 ]; \
+	elif [ $$guix_home -eq 1 ]; then \
+	  [ $$hazards -eq 0 ] && [ $$conflicts -eq 0 ]; \
+	fi
+
+# check-protondrive earns its place here for the same reason check-tailscale
+# does: it only probes.  `winget list' and a few [ -d ] tests read state and
+# change none of it, so the no-side-effects contract below still holds, and off
+# WSL the target degrades to a single printed line.  (check-guix-container is
+# absent by contrast because it needs a running container, not because reaching
+# across to Windows is itself disqualifying.)
+check: check-system check-session-coupling check-tailscale check-orbstack check-protondrive check-espanso-windows check-home-ownership
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

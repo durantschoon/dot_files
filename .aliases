@@ -270,6 +270,76 @@ if [ -e ~/.HOME ]; then
 fi
 
 # -----------------------------------------------------------------------------
+# clean -- drop editor backup files (foo~) from here down
+# -----------------------------------------------------------------------------
+# mg and emacs write foo~ next to foo.  This is the old muscle-memory alias for
+# sweeping them; it stays useful even if backups later get redirected into a
+# single directory, because checkouts from before the switch still carry them.
+#
+# A function, not an alias, so it can take -n.  Deliberate choices:
+#   - .git and node_modules are pruned: a ~-suffixed blob inside .git is git's
+#     business, and node_modules is someone else's tree.
+#   - $HOME and / are refused outright -- `clean' is reached for reflexively and
+#     a stray one in $HOME would walk every mounted Windows drive under WSL.
+#   - -print into a read loop rather than find -delete, so each removal is named
+#     on stdout; a delete you cannot see is one you cannot sanity-check.
+clean() {
+    local dry=0
+    case "$1" in
+        -n|--dry-run) dry=1 ;;
+        -h|--help)
+            echo "clean [-n]  remove editor backup files (*~) from here down"
+            echo "  -n, --dry-run   list what would go, delete nothing"
+            return 0 ;;
+    esac
+
+    if [ "$PWD" = "$HOME" ] || [ "$PWD" = "/" ]; then
+        echo "clean: refusing to walk all of $PWD -- cd somewhere smaller." >&2
+        return 1
+    fi
+
+    local found=0 f
+    while IFS= read -r f; do
+        # An empty $(find) still feeds the heredoc one blank line; a real
+        # filename is never empty, so skipping blanks is safe and keeps the
+        # count honest when nothing matches.
+        [ -n "$f" ] || continue
+        found=$((found + 1))
+        if [ "$dry" -eq 1 ]; then
+            echo "would remove: $f"
+        else
+            rm -f -- "$f" && echo "removed: $f"
+        fi
+    done <<EOF
+$(find . \( -name .git -o -name node_modules \) -prune -o -type f -name '*~' -print)
+EOF
+
+    if [ "$found" -eq 0 ]; then
+        echo "clean: no *~ files here."
+    elif [ "$dry" -eq 1 ]; then
+        echo "clean: $found file(s) would be removed."
+    else
+        echo "clean: $found file(s) removed."
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# fastfetch -- one command name on every machine
+# -----------------------------------------------------------------------------
+# fastfetch is the system-info tool we actually want, but Ubuntu only started
+# packaging it in 24.04, so jammy and friends can offer neofetch alone.  Rather
+# than remember which box has which, define a fastfetch shim -- ONLY when no
+# real fastfetch is on PATH, so a machine that has the real thing is never
+# shadowed by this.  A function, not a plain alias, so "$@" reaches neofetch and
+# the notice goes to stderr where it cannot pollute a pipe.
+if ! command -v fastfetch >/dev/null 2>&1 && command -v neofetch >/dev/null 2>&1; then
+    fastfetch() {
+        echo "fastfetch is not installed here; running neofetch instead." >&2
+        command neofetch "$@"
+    }
+fi
+
+# -----------------------------------------------------------------------------
 # Aliases for work (private repo to protect employer)
 # -----------------------------------------------------------------------------
 
@@ -532,7 +602,7 @@ if [ -n "$ZSH_VERSION" ]; then
 
     # nr () { echo "npm run $*" ; npm run $* }
 
-    [[ -f /Users/durant/.pyenv/shims/python ]] && alias python3=/Users/durant/.pyenv/shims/python
+    [[ -f "$HOME/.pyenv/shims/python" ]] && alias python3="$HOME/.pyenv/shims/python"
 
     alias heroku_logs='heroku logs --force-colors --tail --app'
 

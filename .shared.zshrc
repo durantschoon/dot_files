@@ -38,7 +38,7 @@ fi
 # `bun repl` for node
 #
 # bun completions, source if exists
-[ -s "/Users/durant/.bun/_bun" ] && source "/Users/durant/.bun/_bun"
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 #
 #####################
 

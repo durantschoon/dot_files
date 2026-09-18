@@ -47,13 +47,25 @@ fi
 # virtualenvwrapper, find in sdkman-init) was "not found" for exactly that reason.
 typeset -gU path
 
-# ${~1} forces tilde expansion, so quoted "~/foo" args work too
+# Takes ONE directory, not a colon-joined PATH string.
+#
+# ${~1} forces tilde expansion, so quoted "~/foo" args work too.  It is captured
+# into a local first because ${~1} left bare in a command is also subject to
+# filename generation: under WSL, Windows PATH interop puts a literal
+# "/mnt/c/Program Files (x86)/..." in $PATH, zsh reads the (x86) as a glob
+# group, matches nothing, and NOMATCH aborts the line with "no matches found"
+# before [ -d ] ever runs.  A scalar assignment does not glob, and $d inside
+# [[ ]] is neither split nor globbed, so the parens survive as ordinary
+# characters.  Note "${~1}" is NOT a fix: double quotes suppress the ~ flag and
+# tilde expansion would silently stop working.
 add_to_front_of_path () {
-    [ -d ${~1} ] && export path=(${~1} "$path[@]")
+    local d=${~1}
+    [[ -d $d ]] && export path=("$d" "$path[@]")
 }
 
 add_to_end_of_path () {
-    [ -d ${~1} ] && export path=("$path[@]" ${~1})
+    local d=${~1}
+    [[ -d $d ]] && export path=("$path[@]" "$d")
 }
 
 # to add kubectl context name to prompt, it's set across shells so use a file
@@ -86,6 +98,3 @@ add_to_front_of_path "$PNPM_HOME"
 
 # command-line fuzzy finder ... should get this on all systems
 [ -f /usr/local/bin/fzf ] && eval "$(/usr/local/bin/fzf --zsh)"
-
-# pixi is for ros2 on macos
-add_to_front_of_path "/Users/durant/.pixi/bin:$PATH"

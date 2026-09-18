@@ -17,6 +17,12 @@ espanso/match/private.yml
 # approved; /gnu/store paths in it are generation-specific anyway)
 .claude/settings.local.json
 
+# Claude Code agent worktrees: each is a full checkout of this repo on its own
+# branch, created and removed by the agent that owns it.  Only worktrees/ is
+# ignored, not .claude/ as a whole, so a project settings.json or commands/
+# can still be tracked here later.
+.claude/worktrees/
+
 # Local secrets. Real values live in ~/.secrets.env (untracked); the tracked
 # template documenting required names is .secrets.env.example. This entry is a
 # safety net in case a .secrets.env is ever created inside the repo dir.

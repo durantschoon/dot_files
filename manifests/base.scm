@@ -38,10 +38,12 @@ releases and other GitHub features to the terminal.")
    '(
      ;; core
      "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain" "cmake"
-     "ripgrep" "fd" "fzf" "eza" "jq"
+     "ripgrep" "fd" "fzf" "eza" "jq" "fastfetch"
 
-     ;; editor stack for Spacemacs (holy-mode)
-     "emacs" "aspell" "aspell-dict-en"
+     ;; editor stack for Spacemacs (holy-mode).  mg is the microscopic Emacs
+     ;; clone -- the one that starts instantly for a commit message or a quick
+     ;; edit, where waiting on the Spacemacs daemon is not worth it.
+     "emacs" "mg" "aspell" "aspell-dict-en"
 
      ;; SankeyFin dev toolchain (see sankeyfin/scripts/guix-manifest.scm)
      "openjdk" "clojure-tools" "just"
