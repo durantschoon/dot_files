@@ -74,8 +74,51 @@
              (guix packages)
              (guix gexp)
              (ice-9 format)
+             (ice-9 ftw)               ;scandir -- for %claude-skill-entries
              (srfi srfi-1)
              (srfi srfi-9))
+
+;; One home-files entry per skill directory under claude/skills, so that
+;; ~/.claude/skills is a real directory holding store symlinks rather than a
+;; store symlink itself.  Declaring ".claude/skills" as a single recursive
+;; local-file made the whole directory read-only, and Claude Code could no
+;; longer write ~/.claude/skills/synced -- skills synced from claude.ai simply
+;; stopped landing.  (It also made the first `guix home reconfigure' on a
+;; machine that already HAD a ~/.claude/skills die in the symlink manager,
+;; which backs up a colliding path with copy-file and so cannot back up a
+;; directory: "sendfile: Is a directory".)
+;;
+;; The list is scanned at evaluation time rather than spelled out, so adding a
+;; skill to the claude/ submodule needs no edit here.  Two consequences of
+;; scanning:
+;;
+;;   - The path is computed, so it cannot be a literal for the local-file
+;;     macro to resolve against this file's directory.  It is resolved the way
+;;     home/base.scm finds this file -- (current-filename) with a repo-root
+;;     fallback -- made absolute, and handed over as assume-valid-file-name,
+;;     which is the documented way to say "already resolved, do not warn".
+;;   - An uninitialized claude/ submodule yields an empty list here rather
+;;     than an error.  That is fine: `make apply' initializes the submodule
+;;     first and the literal claude/ local-files in the service below still
+;;     fail loudly if it is missing.
+(define %claude-skills-directory
+  (string-append (dirname (or (current-filename) "home/common.scm"))
+                 "/../claude/skills"))
+
+(define %claude-skill-entries
+  (if (file-exists? %claude-skills-directory)
+      (let ((root (canonicalize-path %claude-skills-directory)))
+        (filter-map
+         (lambda (name)
+           (let ((dir (string-append root "/" name)))
+             (and (not (member name '("." "..")))
+                  (eq? 'directory (stat:type (stat dir)))
+                  `(,(string-append ".claude/skills/" name)
+                    ,(local-file (assume-valid-file-name dir)
+                                 (string-append "claude-skill-" name)
+                                 #:recursive? #t)))))
+         (scandir root)))
+      '()))
 
 ;; Babashka: native Clojure interpreter (not in Guix, fetch binary from GitHub)
 (define babashka
@@ -1026,15 +1069,21 @@ call, so extensions never collide; only genuine double ownership does."
         ;; read-only and defeats installers that target it.  #:recursive? #t
         ;; on the directories is load-bearing: it preserves the executable
         ;; bit on bin/, which a plain local-file drops to 0444.
+        ;;
+        ;; skills/ gets the same treatment one level further down, for the
+        ;; same reason: Claude Code WRITES ~/.claude/skills/synced (its cache
+        ;; of skills synced from claude.ai), so ~/.claude/skills must stay a
+        ;; real directory.  Each repo skill is its own entry -- see
+        ;; %claude-skill-entries.
         (simple-service 'claude-code-files home-files-service-type
-                        (list
-                         `(".claude/agent-roles.conf" ,(local-file "../claude/agent-roles.conf"))
-                         `(".claude/agent-templates" ,(local-file "../claude/agent-templates"
-                                                                  "claude-agent-templates"
-                                                                  #:recursive? #t))
-                         `(".claude/bin" ,(local-file "../claude/bin" "claude-bin" #:recursive? #t))
-                         `(".claude/skills" ,(local-file "../claude/skills" "claude-skills"
-                                                         #:recursive? #t))))
+                        (append
+                         (list
+                          `(".claude/agent-roles.conf" ,(local-file "../claude/agent-roles.conf"))
+                          `(".claude/agent-templates" ,(local-file "../claude/agent-templates"
+                                                                   "claude-agent-templates"
+                                                                   #:recursive? #t))
+                          `(".claude/bin" ,(local-file "../claude/bin" "claude-bin" #:recursive? #t)))
+                         %claude-skill-entries))
 
         ;; Part 2 of 2: the files Claude Code DOES write.
         (simple-service 'claude-writable-config home-activation-service-type
