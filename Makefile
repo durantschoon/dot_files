@@ -255,10 +255,12 @@ current_dir := $(shell $(PWD_CMD))
 
 # Refuse, rather than warn, when Guix Home already owns this account's dotfiles.
 #
-# The two setups claim nearly the same paths (.zshrc, .zshenv, .aliases, .mg,
-# .wayland.zshenv, bin, and -- via home-zsh-service-type -- .zprofile), so the
-# one that ran last simply wins.  What makes that worth an abort instead of a
-# notice is that the two links MEAN different things:
+# The two setups claim overlapping paths (.zshenv, .aliases, .mg,
+# .wayland.zshenv, bin), so the one that ran last simply wins.  .zshenv is the
+# sharpest case: under guix it is a two-line stub that sets ZDOTDIR to
+# ~/.config/zsh, where the real .zshrc/.zprofile live, so overwriting it cuts
+# off the ENTIRE guix zsh setup, not one file.  What makes all of this worth an
+# abort instead of a notice is that the two kinds of link MEAN different things:
 #
 #   native:  ~/.aliases -> ~/dot_files/.aliases       live; edit, open a shell
 #   guix:    ~/.aliases -> /gnu/store/...-aliases     read-only SNAPSHOT
@@ -279,7 +281,8 @@ guard-native-over-guix:
 	  echo ""; \
 	  echo "  *** refusing to run set_up_links: Guix Home owns this account ***"; \
 	  echo "  $$HOME/.guix-home exists, so a home generation is active and already"; \
-	  echo "  owns .zshrc, .zshenv, .zprofile, .aliases, .mg, .wayland.zshenv and bin."; \
+	  echo "  owns .zshenv (and through ZDOTDIR, ~/.config/zsh), .aliases, .mg,"; \
+	  echo "  .wayland.zshenv and bin."; \
 	  echo "  Overwriting them with native symlinks would revert your shell to"; \
 	  echo "  whatever the store snapshot holds, silently."; \
 	  echo ""; \
@@ -1605,13 +1608,18 @@ SYSTEM_CONFIGS := $(filter-out $(SYSTEM_PINS),$(wildcard system/*.scm))
 #
 #   home-files-service-type  entries appear literally in home/common.scm as
 #                            `(".aliases" ,(local-file ...)) -- greppable.
-#   home-zsh-service-type    SYNTHESISES .zshrc/.zshenv/.zprofile out of its
-#                            zshrc/zshenv/zprofile field lists.  Those names
-#                            appear nowhere in the file as strings, so they are
-#                            named below.  That list is fixed by the service
-#                            type itself, not by our config, so naming it here
-#                            is a constant rather than a duplicated fact.
-GUIX_ZSH_OWNED := .zshrc .zshenv .zprofile
+#   home-zsh-service-type    SYNTHESISES its files out of the zshrc/zshenv/
+#                            zprofile field lists, so they appear nowhere in
+#                            the file as strings and are named below.  Note
+#                            WHERE: the service writes them under
+#                            ~/.config/zsh and leaves only a ZDOTDIR-setting
+#                            stub at ~/.zshenv.  ~/.zshrc is NOT claimed -- with
+#                            ZDOTDIR set, zsh never reads it, so a leftover
+#                            native ~/.zshrc is dead weight, not a conflict.
+#                            That layout is fixed by the service type, not by
+#                            our config, so naming it here is a constant rather
+#                            than a duplicated fact.
+GUIX_ZSH_OWNED := .zshenv .config/zsh/.zshenv .config/zsh/.zshrc .config/zsh/.zprofile
 
 check-home-ownership:
 	@echo "==> \$$HOME dotfiles: Guix Home vs native symlinks"
