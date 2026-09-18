@@ -89,3 +89,26 @@ degraded.
   check its status directly; (b) before merging, `ListAgents` and message any other
   session working in this repo about the files in flight; (c) a merge that cannot
   fast-forward is inspected (`git log main..`), never pushed through.
+
+### Added at the stage 10 retro (reports 05–09)
+
+- **State the contract; mark enumerations "at least".** Three of the five stages had a
+  prompt list that contradicted the prompt's own goal: stage 06 D2 (the `--image`
+  precedence list vs "a user-supplied image is never rewritten"), stage 06 D3 (six
+  named callers, where the stated goal needed nine more), stage 07 D3 (a `(qq)` recipe
+  that cannot satisfy "on one line"). Executors resolved each correctly, but only by
+  deviating. Prompts now lead with the behaviour that must hold, present any list of
+  call sites or mechanisms as "at least", and say outright that the goal wins.
+- **Every measurement a report asks for has a matching grant.** Stage 09 D1: the
+  report questions needed `readlink /bin/sh` inside a container the grant did not
+  cover. Before committing a prompt, walk its Report requirements and check each one
+  can be answered inside the Allowed files and grants.
+- **The wrong-base handover is standing behaviour, not a fluke.** It recurred in
+  stages 05 (D1) and 07 (D1) after the stage 05 retro rule was written; the rule
+  caught it both times. Launch messages therefore always carry the base SHA
+  explicitly, in addition to the prompt naming its branch.
+- **A background coordinator does not write to `main`.** When the coordinating session
+  is a background job, prompts land on an integration branch named in the launch
+  message, stage branches merge into that, and the human merges the integration
+  branch. "Prompts land on `main`" holds for interactive coordinators only. This keeps
+  the one-writer rule true without a `ListAgents` round-trip per commit.
