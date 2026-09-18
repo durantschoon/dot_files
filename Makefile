@@ -1724,6 +1724,11 @@ endif
 # report says so instead of leaving a bare "absent" that reads like a fault.
 # That is derived from the generation, not from a list of layers kept here.
 #
+# The path column is coloured (cyan) so the two columns stay apart even where a
+# long path overruns its 28 characters and the padding disappears.  Only on a
+# terminal, and never with NO_COLOR set or TERM=dumb: piped into a file, a
+# pager or `grep', the output stays plain text with no escape codes in it.
+#
 # Exit status.  Normally: non-zero only when a generation is active and
 # something is wrong, so `make check' stays green on a native-only machine
 # where none of this applies.  With PREFLIGHT=1 (how `apply' calls it):
@@ -1743,6 +1748,10 @@ check-home-ownership:
 	dfroot="$$(cd "$(DOTFILES_HOME)" 2>/dev/null && pwd -P)"; \
 	[ -n "$$dfroot" ] || dfroot="/nonexistent"; \
 	conflicts=0; hazards=0; inactive=0; espanso_off=0; \
+	c1=""; c0=""; \
+	if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
+	  c1="$$(printf '\033[36m')"; c0="$$(printf '\033[0m')"; \
+	fi; \
 	for p in $$claimed; do \
 	  t="$$HOME/$$p"; \
 	  anc=""; rest="$$p"; via=""; \
@@ -1751,7 +1760,7 @@ check-home-ownership:
 	    if [ -L "$$HOME/$$anc" ]; then via="$$anc"; break; fi; \
 	  done; \
 	  if [ -n "$$via" ]; then \
-	    printf '    %-28s %s\n' "$$p" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
+	    printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
 	    hazards=1; continue; \
 	  fi; \
 	  if [ ! -e "$$t" ] && [ ! -L "$$t" ]; then \
@@ -1774,16 +1783,16 @@ check-home-ownership:
 	  fi; \
 	  case "$$owner" in \
 	    "real directory") \
-	      printf '    %-28s %s\n' "$$p" "HAZARD: real directory where guix wants a symlink"; \
+	      printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: real directory where guix wants a symlink"; \
 	      hazards=1 ;; \
 	    native|"real file") \
 	      if [ $$guix_home -eq 1 ]; then \
-	        printf '    %-28s %s\n' "$$p" "CONFLICT: $$owner, but Guix Home is active"; \
+	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "CONFLICT: $$owner, but Guix Home is active"; \
 	        conflicts=1; \
 	      else \
-	        printf '    %-28s %s\n' "$$p" "$$owner"; \
+	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
 	      fi ;; \
-	    *) printf '    %-28s %s\n' "$$p" "$$owner" ;; \
+	    *) printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
 	  esac; \
 	done; \
 	if [ $$guix_home -eq 0 ]; then \
