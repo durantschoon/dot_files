@@ -1,0 +1,296 @@
+#!/bin/sh
+#
+# bin/submodule-publish -- record a submodule bump in the superproject ONLY
+# after proving the submodule's remote already has the commit.
+#
+#   ./bin/submodule-publish claude          # or: make claude-publish
+#   ./bin/submodule-publish espanso/private # or: make submodule-publish SUBMODULE=...
+#
+# WHY THIS EXISTS
+#
+# dot_files is public and records a submodule as nothing but a gitlink: a raw
+# 40-hex commit id in the superproject's tree.  Git will happily commit a
+# gitlink naming a commit that exists in exactly one clone on one laptop, and
+# nothing in `git status', `git log' or a code review makes that visible -- the
+# id looks identical either way.  The damage shows up on the NEXT machine, as
+#
+#     fatal: Needed a single revision
+#     Unable to find current revision in submodule path 'claude'
+#
+# out of `git submodule update --init claude', which `make apply' deliberately
+# does not soften with `|| true' (see the comment at the `apply' target): the
+# home configuration reads ../claude/* through local-file, so a missing
+# submodule has to stop the reconfigure rather than silently deploy without it.
+#
+# So the invariant this script exists to hold is:
+#
+#     a superproject commit produced by this tooling never points at a
+#     submodule commit that the submodule's remote does not have on its
+#     default branch.
+#
+# It is enforced by ASKING THE REMOTE (ls-remote + fetch + merge-base), never
+# by trusting a local remote-tracking ref, which is only ever as fresh as the
+# last fetch someone happened to run.
+#
+# WHAT IT WILL NOT DO
+#
+#   - it never runs `push --force', and never rewrites anything;
+#   - it never merges or fast-forwards the submodule's default branch.  Moving
+#     the default branch is a decision about shared history, so it prints the
+#     exact commands and stops;
+#   - it never pushes the superproject.  It prints that command too.
+#
+# Exit status: 0 on success (including "already published"), 2 on a usage
+# error, 1 on every refusal.  No step's failure is masked -- there is no
+# `|| true' here, and no `cmd | tail' pipeline whose status belongs to `tail'.
+
+set -u
+
+PROG=submodule-publish
+
+say()  { printf '%s\n' "$*"; }
+warn() { printf '%s\n' "$*" >&2; }
+die()  { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
+
+usage() {
+    cat >&2 <<EOF
+usage: $PROG <submodule-path>
+
+Push the submodule's current commit to its origin, verify that the commit is
+reachable from origin's default branch, and only then commit the superproject
+gitlink for <submodule-path> -- and nothing else.
+
+  $PROG claude
+  $PROG espanso/private
+EOF
+    exit 2
+}
+
+# --------------------------------------------------------------------------
+# Arguments and the superproject
+# --------------------------------------------------------------------------
+
+[ $# -eq 1 ] || usage
+case $1 in
+    -h|--help|'') usage ;;
+esac
+
+path=$1
+while :; do                             # a trailing slash is a tab-completion
+    case $path in                       # artefact, not a different submodule
+        */) path=${path%/} ;;
+        *)  break ;;
+    esac
+done
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) ||
+    die "not inside a git repository"
+cd "$root" ||
+    die "cannot enter the superproject root $root"
+
+git rev-parse --verify -q HEAD >/dev/null ||
+    die "the superproject at $root has no commits yet -- nothing to bump"
+
+# Is <path> a gitlink in the index?  This asks the index rather than
+# .gitmodules, because the index is what a commit would actually record.
+mode=$(git ls-files --stage -- "$path" | awk 'NR == 1 { print $1 }')
+[ "$mode" = 160000 ] ||
+    die "'$path' is not a submodule of $root (no gitlink in the index)"
+
+# `git submodule status' prefixes an uninitialized submodule with `-' and a
+# conflicted one with `U'.
+substat=$(git submodule status -- "$path" 2>/dev/null) || substat=''
+case $substat in
+    U*) die "submodule '$path' has an unresolved merge conflict" ;;
+esac
+
+# The presence of <path>/.git -- NOT `git -C <path> rev-parse --git-dir', which
+# is the obvious test and the wrong one: an uninitialized submodule is an empty
+# directory inside the superproject, so rev-parse walks UP out of it and
+# cheerfully answers with the superproject's own .git.  Measured while writing
+# this: after `git submodule deinit -f -- sub', that rev-parse exits 0.
+if [ ! -e "$path/.git" ]; then
+    warn "$PROG: submodule '$path' is not initialized."
+    warn ""
+    warn "    git submodule update --init -- $path"
+    warn ""
+    exit 1
+fi
+
+# --------------------------------------------------------------------------
+# The submodule must have nothing uncommitted
+# --------------------------------------------------------------------------
+# Tracked changes only.  An untracked file is not part of the commit being
+# published and so cannot make the gitlink unfetchable; it is reported as a
+# note rather than used as a refusal, because scratch files in a working
+# submodule are normal and refusing over them would make the safe path the
+# annoying one.
+
+tracked_dirty=$(git -C "$path" status --porcelain --untracked-files=no) ||
+    die "cannot read the status of submodule '$path'"
+if [ -n "$tracked_dirty" ]; then
+    warn "$PROG: submodule '$path' has uncommitted changes:"
+    warn ""
+    printf '%s\n' "$tracked_dirty" | sed 's/^/    /' >&2
+    warn ""
+    warn "Commit or stash them inside $path first; a gitlink can only point at"
+    warn "a commit, so anything left uncommitted would silently not be published."
+    exit 1
+fi
+
+untracked=$(git -C "$path" ls-files --others --exclude-standard) ||
+    die "cannot list untracked files in submodule '$path'"
+if [ -n "$untracked" ]; then
+    say "note: $path has untracked files; they are not part of the commit being"
+    say "      published and are left exactly where they are:"
+    printf '%s\n' "$untracked" | sed 's/^/        /'
+fi
+
+# --------------------------------------------------------------------------
+# C: the commit we are being asked to record
+# --------------------------------------------------------------------------
+
+C=$(git -C "$path" rev-parse HEAD)          || die "cannot resolve HEAD of '$path'"
+Cshort=$(git -C "$path" rev-parse --short HEAD) || die "cannot abbreviate HEAD of '$path'"
+subject=$(git -C "$path" log -1 --format=%s "$C") ||
+    die "cannot read the subject of $C"
+
+# Empty when HEAD is detached, which is exactly the state `git submodule
+# update' leaves behind -- so it is a normal case here, not an error.
+branch=$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=''
+
+git -C "$path" remote get-url origin >/dev/null 2>&1 ||
+    die "submodule '$path' has no 'origin' remote to publish to"
+
+# --------------------------------------------------------------------------
+# Push what can be pushed
+# --------------------------------------------------------------------------
+# A plain push, never --force: if origin has something this branch does not
+# contain, that is a fact about shared history and the human decides.
+
+if [ -n "$branch" ]; then
+    say "==> git -C $path push origin $branch"
+    git -C "$path" push origin "$branch" ||
+        die "pushing '$branch' to origin failed (see git's message above)"
+else
+    say "==> $path is on a detached HEAD -- no branch to push"
+fi
+
+# --------------------------------------------------------------------------
+# Ask the REMOTE what its default branch is, then ask it for that branch
+# --------------------------------------------------------------------------
+# Not `main': this repo's own submodules could be renamed tomorrow, and plenty
+# of remotes still answer `master' or something else entirely.
+
+symref=$(git -C "$path" ls-remote --symref origin HEAD 2>/dev/null) ||
+    die "cannot reach the origin of '$path' (ls-remote failed)"
+def=$(printf '%s\n' "$symref" |
+          sed -n 's|^ref: refs/heads/\(.*\)[[:space:]]HEAD$|\1|p' |
+          head -n 1)
+if [ -z "$def" ]; then
+    # Older servers (and some mirrors) answer ls-remote without a symref line.
+    def=$(git -C "$path" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || def=''
+    def=${def#origin/}
+fi
+[ -n "$def" ] ||
+    die "cannot determine the default branch of $path's origin"
+
+git -C "$path" fetch -q origin "+refs/heads/$def:refs/remotes/origin/$def" ||
+    die "fetching origin/$def for '$path' failed"
+
+# --------------------------------------------------------------------------
+# THE INVARIANT
+# --------------------------------------------------------------------------
+
+if ! git -C "$path" merge-base --is-ancestor "$C" "refs/remotes/origin/$def"; then
+    cat >&2 <<EOF
+$PROG: refusing to record a gitlink that origin does not have.
+
+    submodule:       $path
+    commit:          $C
+                     $subject
+    currently on:    ${branch:-a detached HEAD}
+    origin default:  origin/$def
+
+$C is not reachable from origin/$def.  Recording it here
+would produce a public commit whose submodule pointer only this machine can
+resolve: every other clone's
+
+    git submodule update --init -- $path
+
+would fail, and with it \`make apply'.
+
+Land the commit on $def first, then re-run this command.
+EOF
+    if [ -n "$branch" ]; then
+        cat >&2 <<EOF
+
+    git -C $path push origin $branch:$def
+
+  or, if you would rather move the branch locally and look at it first:
+
+    git -C $path fetch origin
+    git -C $path checkout $def
+    git -C $path merge --ff-only $branch
+    git -C $path push origin $def
+EOF
+    else
+        cat >&2 <<EOF
+
+    git -C $path push origin $C:$def
+
+  or, to put the work on a branch before publishing it:
+
+    git -C $path checkout -b <branch-name> $C
+    git -C $path push origin <branch-name>
+EOF
+    fi
+    warn ""
+    warn "Either way this command fast-forwards $def -- it is refused if it"
+    warn "would not, and moving $def any other way is your decision, not this"
+    warn "script's."
+    exit 1
+fi
+
+say "==> origin/$def contains $Cshort"
+
+# --------------------------------------------------------------------------
+# Record it -- the gitlink at <path>, and nothing else
+# --------------------------------------------------------------------------
+
+recorded=$(git rev-parse --verify -q "HEAD:$path") || recorded=''
+if [ "$recorded" = "$C" ]; then
+    say "$path: already published at $Cshort -- nothing to commit"
+    exit 0
+fi
+
+msg="chore($path): bump to $Cshort -- $subject"
+
+# `git add -- <path>' stages the one gitlink; `git commit -- <path>' is a
+# partial commit, which builds the tree from HEAD plus that pathspec alone.
+# Anything else the user had staged or modified stays exactly as it was and
+# stays OUT of this commit -- a bump commit that quietly swept up unrelated
+# work would be its own kind of silent surprise.
+git add -- "$path"            || die "staging the gitlink for '$path' failed"
+git commit -q -m "$msg" -- "$path" || die "committing the gitlink for '$path' failed"
+
+# Defensive, because the whole point of this script is that a wrong commit here
+# is invisible: assert what actually landed rather than what was intended.
+landed=$(git diff-tree --no-commit-id --name-only -r HEAD) ||
+    die "cannot inspect the commit just made"
+[ "$landed" = "$path" ] ||
+    die "internal error: the bump commit touched more than '$path': $landed"
+
+super_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || super_branch=''
+
+say ""
+say "$path: $(git rev-parse --short HEAD)  $msg"
+say ""
+say "Next step -- this script never pushes the superproject:"
+say ""
+if [ -n "$super_branch" ]; then
+    say "    git push origin $super_branch"
+else
+    say "    git push origin HEAD:<branch>   # the superproject is on a detached HEAD"
+fi
+say ""

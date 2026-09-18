@@ -178,8 +178,16 @@ help:
 	@echo "                       login shell and push it into a running Emacs."
 	@echo "                       Runs automatically after apply/apply-wayland/update."
 	@echo "  make submodule-update - Init and update submodules (espanso/private)"
-	@echo "  make submodule-pull  - Pull latest in each submodule"
+	@echo "  make submodule-pull  - Fast-forward each initialized submodule to the tip of its"
+	@echo "                       remote default branch, detached HEAD included (the state"
+	@echo "                       'make apply' leaves behind). Never forces, never merges a"
+	@echo "                       divergence; a submodule that moved leaves the superproject's"
+	@echo "                       gitlink MODIFIED -- record it with make claude-publish."
 	@echo "  make submodule-push  - Push changes from each submodule"
+	@echo "  make claude-publish  - Publish the claude/ submodule: push it, prove origin's default"
+	@echo "                       branch really has the commit, then commit ONLY that gitlink"
+	@echo "                       (refuses rather than record a pointer no other clone can fetch)"
+	@echo "  make submodule-publish SUBMODULE=<path> - the same for any submodule path"
 	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
 	@echo "  make setup-tailscale - Install tailscaled as a system LaunchDaemon (mac only;"
@@ -192,6 +200,8 @@ help:
 	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
 	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
+	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
+	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
@@ -556,6 +566,7 @@ endif
 endif
 
 .PHONY: guix-config apply-wayland submodule-update submodule-pull submodule-push
+.PHONY: submodule-publish claude-publish
 guix-config:
 	@echo "====================================================================="
 	@echo "Creating Guix Home configuration structure in ~/guix-config"
@@ -918,13 +929,130 @@ submodule-update:
 	@echo "==> git submodule update --init --recursive"
 	@git submodule update --init --recursive
 
+# submodule-pull used to be `git submodule foreach git pull', which fails in
+# exactly the state `make apply' leaves behind.  Measured on 2026-09-18 in a
+# scratch superproject, on a submodule initialized the way apply does it:
+#
+#     $ git submodule foreach git pull
+#     Entering 'sub'
+#     You are not currently on a branch.
+#     Please specify which branch you want to merge with.
+#     ...
+#     fatal: run_command returned non-zero status for sub
+#     exit status: 128
+#
+# because `git submodule update --init' leaves the submodule on a detached
+# HEAD (`git status -sb' prints `## HEAD (no branch)'), and `git pull' has no
+# upstream to merge from there.  So the target no longer asks `pull' to guess:
+# it asks the REMOTE for its default branch, fetches exactly that branch, and
+# fast-forwards -- checking out the new tip when the submodule is detached and
+# merging --ff-only when it is on a branch.
+#
+# It never forces and never merges a divergence.  A submodule carrying local
+# commits that do not fast-forward is reported and left exactly as found; the
+# other submodules are still attempted, and the target exits non-zero at the
+# end so a script cannot mistake a partial run for a clean one.
+#
+# "Initialized" is tested as `[ -e <path>/.git ]', not with `git -C <path>
+# rev-parse --git-dir': an uninitialized submodule is an EMPTY DIRECTORY inside
+# this repo, so that rev-parse walks up out of it and answers with the
+# superproject's own .git -- exit 0, and every uninitialized submodule silently
+# treated as initialized.
 submodule-pull:
-	@echo "==> git submodule foreach git pull"
-	@git submodule foreach git pull
+	@echo "==> submodule-pull: fast-forward each initialized submodule to its remote default branch"
+	@set -u; \
+	rc=0; \
+	if [ ! -f .gitmodules ]; then \
+	  echo "    no .gitmodules here -- nothing to pull"; \
+	  exit 0; \
+	fi; \
+	raw=$$(git config -f .gitmodules --get-regexp '^submodule\..*\.path$$') || raw=''; \
+	paths=$$(printf '%s\n' "$$raw" | awk 'NF { print $$2 }'); \
+	if [ -z "$$paths" ]; then \
+	  echo "    .gitmodules declares no submodule paths -- nothing to pull"; \
+	  exit 0; \
+	fi; \
+	for p in $$paths; do \
+	  if [ ! -e "$$p/.git" ]; then \
+	    echo "    $$p: not initialized -- skipped (git submodule update --init -- $$p)"; \
+	    continue; \
+	  fi; \
+	  dirty=$$(git -C "$$p" status --porcelain --untracked-files=no); \
+	  if [ -n "$$dirty" ]; then \
+	    echo "    $$p: uncommitted changes -- left untouched"; \
+	    rc=1; continue; \
+	  fi; \
+	  symref=$$(git -C "$$p" ls-remote --symref origin HEAD 2>/dev/null) || { \
+	    echo "    $$p: cannot reach its origin -- left untouched"; \
+	    rc=1; continue; \
+	  }; \
+	  def=$$(printf '%s\n' "$$symref" | sed -n 's|^ref: refs/heads/\(.*\)[[:space:]]HEAD$$|\1|p' | head -n 1); \
+	  if [ -z "$$def" ]; then \
+	    echo "    $$p: cannot determine origin's default branch -- left untouched"; \
+	    rc=1; continue; \
+	  fi; \
+	  if ! git -C "$$p" fetch -q origin "+refs/heads/$$def:refs/remotes/origin/$$def"; then \
+	    echo "    $$p: fetching origin/$$def failed -- left untouched"; \
+	    rc=1; continue; \
+	  fi; \
+	  old=$$(git -C "$$p" rev-parse HEAD); \
+	  new=$$(git -C "$$p" rev-parse "refs/remotes/origin/$$def"); \
+	  olds=$$(git -C "$$p" rev-parse --short "$$old"); \
+	  news=$$(git -C "$$p" rev-parse --short "$$new"); \
+	  if [ "$$old" = "$$new" ]; then \
+	    echo "    $$p: up to date ($$olds, origin/$$def)"; \
+	    continue; \
+	  fi; \
+	  if ! git -C "$$p" merge-base --is-ancestor "$$old" "$$new"; then \
+	    echo "    $$p: local commits do not fast-forward to origin/$$def -- left untouched"; \
+	    echo "        HEAD $$olds, origin/$$def $$news"; \
+	    rc=1; continue; \
+	  fi; \
+	  branch=$$(git -C "$$p" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=''; \
+	  if [ -n "$$branch" ]; then \
+	    git -C "$$p" merge --ff-only -q "refs/remotes/origin/$$def" || { \
+	      echo "    $$p: fast-forwarding branch '$$branch' to origin/$$def failed -- left untouched"; \
+	      rc=1; continue; \
+	    }; \
+	  else \
+	    git -C "$$p" checkout -q --detach "$$new" || { \
+	      echo "    $$p: checking out origin/$$def failed -- left untouched"; \
+	      rc=1; continue; \
+	    }; \
+	  fi; \
+	  echo "    $$p: $$olds -> $$news"; \
+	done; \
+	echo ""; \
+	echo "    A submodule that moved leaves this superproject's gitlink MODIFIED."; \
+	echo "    Record it with:  make claude-publish   (or: make submodule-publish SUBMODULE=<path>)"; \
+	if [ "$$rc" != 0 ]; then \
+	  echo ""; \
+	  echo "    At least one submodule was left untouched (see above); nothing was forced."; \
+	fi; \
+	exit $$rc
 
 submodule-push:
 	@echo "==> git submodule foreach git push"
 	@git submodule foreach git push
+
+# bin/submodule-publish holds the invariant that gives this repo's gitlinks
+# their meaning: a commit recorded here is one every other clone can fetch.
+# The logic lives in a script rather than a recipe so it can be tested without
+# make -- see tests/submodule/publish-smoke.zsh.  SUBMODULE_PUBLISH is spelled
+# from MAKEFILE_LIST so the target works under `make -f /path/to/Makefile' from
+# another directory, which is exactly how the test drives it.
+SUBMODULE_PUBLISH := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))/bin/submodule-publish
+
+claude-publish:
+	@$(SUBMODULE_PUBLISH) claude
+
+submodule-publish:
+	@if [ -z "$(SUBMODULE)" ]; then \
+	  echo "usage: make submodule-publish SUBMODULE=<path>" >&2; \
+	  echo "   or: make claude-publish" >&2; \
+	  exit 2; \
+	fi
+	@$(SUBMODULE_PUBLISH) $(SUBMODULE)
 
 .PHONY: setup-keyd
 # Guix System detection for setup-keyd.
@@ -1871,6 +1999,18 @@ check-jobs:
 .PHONY: check-jobs-live
 check-jobs-live:
 	@./tests/jobs/podman-live.zsh
+
+# bin/submodule-publish and the rewritten submodule-pull, against scratch repos
+# built in a `mktemp -d' area the test removes again: a bare "remote", a clone
+# acting as a submodule's origin, and superprojects carrying them.  No network,
+# and this repo's own `claude' and `espanso/private' are never touched.
+#
+# Deliberately NOT a prerequisite of `check', for the same reason as check-jobs:
+# it makes commits and pushes (inside the scratch area), and `check' must stay
+# something you can run on any machine at any time without side effects.
+.PHONY: check-submodule-publish
+check-submodule-publish:
+	@./tests/submodule/publish-smoke.zsh
 
 # The file name IS the host class, and a machine of that class takes the class
 # name as its host name -- so you pick a config to reconfigure with by reading
