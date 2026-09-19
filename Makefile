@@ -159,21 +159,53 @@ warn-dotfiles-home:
 	  fi; \
 	fi
 
-# `make help' colours the "make <target>" column cyan and the section headings
-# bold, so the target names stand apart from their descriptions.  The text
-# itself lives in help-text, which stays plain; the colouring is a sed pass
-# applied only on a terminal, and never with NO_COLOR set or TERM=dumb (the
-# same rule as check-home-ownership), so `make help | grep ...' and the
-# container smoke test that runs `make help' see no escape codes.
+# `make help' rewraps and colours help-text, which stays plain and unwrapped
+# in spirit: write an entry as "  make <target>  - <description>" plus any
+# continuation lines indented 23 spaces, and never hand-wrap it again.
+#
+# Wrapping.  awk joins each entry with its continuation lines and refills it to
+# HELP_WIDTH columns, continuing under the usual 23-column hanging indent;
+# lines that are not entries (headings, notes) pass through untouched.  Plain
+# POSIX awk -- no gawk-isms -- because macOS ships the BWK awk.
+#
+# Colour.  The "make <target>" column goes cyan and the headings bold, only on
+# a terminal and never with NO_COLOR set or TERM=dumb (the same rule as
+# check-home-ownership), so `make help | grep ...' and the container smoke test
+# that runs `make help' see no escape codes.  The [ -t 1 ] runs in the last
+# stage of the pipeline, whose stdout is still make's own.
+HELP_WIDTH ?= 95
+
 help:
-	@if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
-	  c1="$$(printf '\033[36m')"; hd="$$(printf '\033[1m')"; c0="$$(printf '\033[0m')"; \
-	  $(MAKE) --no-print-directory help-text \
-	    | sed -e "s/^\(  \)\(make [^ ]*\( [A-Z_]*=[^ ]*\)*\)/\1$$c1\2$$c0/" \
-	          -e "s/^\([A-Z][^ ].*:\)$$/$$hd\1$$c0/"; \
-	else \
-	  $(MAKE) --no-print-directory help-text; \
-	fi
+	@$(MAKE) --no-print-directory help-text \
+	| awk -v width=$(HELP_WIDTH) -v indent=23 ' \
+	    BEGIN { pad = ""; for (i = 0; i < indent; i++) pad = pad " " } \
+	    function flush(   n, i, words, line, sep) { \
+	      if (head == "") return; \
+	      n = split(body, words, " "); line = head; sep = ""; \
+	      for (i = 1; i <= n; i++) { \
+	        if (length(line) + length(sep) + length(words[i]) > width && line != head && line != pad) { \
+	          print line; line = pad; sep = "" \
+	        } \
+	        line = line sep words[i]; sep = " " \
+	      } \
+	      print line; head = "" \
+	    } \
+	    /^  make / && index($$0, " - ") { \
+	      flush(); i = index($$0, " - "); \
+	      head = substr($$0, 1, i + 2); body = substr($$0, i + 3); next \
+	    } \
+	    head != "" && substr($$0, 1, indent) == pad && substr($$0, indent + 1, 1) != " " { \
+	      body = body " " substr($$0, indent + 1); next \
+	    } \
+	    { flush(); print } \
+	    END { flush() }' \
+	| if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
+	    c1="$$(printf '\033[36m')"; hd="$$(printf '\033[1m')"; c0="$$(printf '\033[0m')"; \
+	    sed -e "s/^\(  \)\(make [^ ]*\( [A-Z_]*=[^ ]*\)*\)/\1$$c1\2$$c0/" \
+	        -e "s/^\([A-Z][^ ].*:\)$$/$$hd\1$$c0/"; \
+	  else \
+	    cat; \
+	  fi
 
 help-text:
 	@echo "Available targets:"
