@@ -177,20 +177,36 @@ printf '== cmd            %s\n\n' "$cmdstr"
 #     place, so $! is still the command's own pid and no shell is left over it.
 #
 #     It does NOT work everywhere, and the difference is measured, not assumed.
-#     dash -- debian:stable-slim's /bin/sh, so the shell for every docker job --
-#     enforces the POSIX rule that an ignored signal cannot be un-ignored:
-#       # in debian:stable-slim
-#       mode=plain     -> INT IGNORED (child survived)
-#       mode=subshell  -> INT IGNORED (child survived)
-#     So under dash a forwarded INT reaches a command that cannot act on it.
+#     At least two host classes enforce the POSIX rule that an ignored signal
+#     cannot be un-ignored:
+#
+#       - dash -- debian:stable-slim's /bin/sh, so the shell for every docker
+#         job:
+#           # in debian:stable-slim
+#           mode=plain     -> INT IGNORED (child survived)
+#           mode=subshell  -> INT IGNORED (child survived)
+#
+#       - macOS's /bin/sh, which is bash 3.2.57(1)-release. Measured on macOS 27
+#         in stage 12, sending the INT only once the child had exec'd the sleep:
+#           /bin/sh                3.2.57(1)-release    SURVIVED
+#           /bin/dash              dash                 SURVIVED
+#           /opt/homebrew/bin/bash 5.3.15(1)-release    DIED
+#         so it is bash 3.2's behaviour rather than Darwin's: a bash 5 on the
+#         same machine grants the reset, which is why the Guix measurement above
+#         (bash 5.2.37 as sh) sees `trap -- - INT'.
+#
+#     So on such a host a forwarded INT reaches a command that cannot act on it.
 #     TERM and HUP -- what docker-stop, launchd and `tmux kill-window' actually
 #     send -- are not in POSIX's ignore set and are unaffected; and a Ctrl-C in
 #     a tmux pane is delivered by the kernel to the whole foreground process
 #     group, so the command gets it directly whatever job-tee does. What is
-#     left uncovered is a deliberate `kill -INT <job-tee-pid>' under dash, where
-#     job-tee now waits for the runner's own grace timer (podman: 10 s, then
-#     SIGKILL) instead of dying at once. tests/jobs/tee-smoke.zsh assertion 5
-#     fails loudly on any host whose /bin/sh behaves this way.
+#     left uncovered is a deliberate `kill -INT <job-tee-pid>' on those hosts,
+#     where job-tee now waits for the runner's own grace timer (podman: 10 s,
+#     then SIGKILL) instead of dying at once. tests/jobs/tee-smoke.zsh section 5
+#     does not assume either answer: it probes the local /bin/sh with this very
+#     construct and then either runs its three INT assertions or records them as
+#     SKIP lines naming the shell and its version -- so the limitation is always
+#     reported, and is never silently passed over.
 #
 #   * `<&0' -- POSIX assigns /dev/null to the standard input of an asynchronous
 #     list unless the redirection is explicit, and a job that could read its

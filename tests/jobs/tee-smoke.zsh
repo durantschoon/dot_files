@@ -68,7 +68,11 @@ tee_cleanup() {
   (( TEE_CLEANED )) && return $rc          # exactly once, whichever path got here
   TEE_CLEANED=1
   cd / 2>/dev/null                         # so $BASE can go from under us
-  [[ -d $LOGS ]] && command chmod u+rwx -- "$LOGS" 2>/dev/null
+  # No `--' on any chmod in this file: BSD chmod (macOS) has no end-of-options
+  # marker and takes the `--' as a file name ("chmod: --: No such file or
+  # directory", exit 1) where GNU chmod accepts it. Every chmod here is handed
+  # an absolute path under $BASE, so no argument can begin with `-' anyway.
+  [[ -d $LOGS ]] && command chmod u+rwx "$LOGS" 2>/dev/null
   local p
   for p in $BG_PIDS; do kill -KILL "$p" 2>/dev/null; done
   command rm -rf -- "$BASE"
@@ -96,8 +100,13 @@ trap 'tee_on_signal PIPE' PIPE
 # --------------------------------------------------------------------------
 
 typeset -g N_OK=0
+typeset -g N_SKIP=0
 ok()   { (( N_OK++ )); print -r -- "ok   $1" }
 note() { print -r -- "     note: $1" }
+# Same shape and same output format as smoke.zsh:252, so the three suites'
+# lines are greppable together. A skip is a MEASURED host limitation with the
+# measurement in its reason -- never a way to make an unknown look like a pass.
+skip() { (( N_SKIP++ )); print -r -- "SKIP $1  -- $2" }
 fail() {
   print -r -- "FAIL $1"
   local l; for l in "${@:2}"; do print -r -- "     $l"; done
@@ -180,7 +189,7 @@ trap 'echo got-TERM > "$SIDE"; exit 5' TERM
 echo trapper-ready
 while :; do sleep 0.2; done
 TRAPPER_EOF
-chmod +x -- "$TRAPPER" || exit 1
+chmod +x "$TRAPPER" || exit 1
 
 cd -- "$REPO" || exit 1
 print -r -- "# tee-smoke $TOKEN  repo=$REPO"
@@ -263,10 +272,86 @@ note "4  job-tee exited $SIG_RC; footer: [$(lastline "$SIG_LOG")]"
 # HUP is not an academic case: stage 07 measured a tmux `kill-window' HUP
 # taking the footer with it exactly as docker-stop's TERM did.
 
-run_signalled t5i INT '^cmd-running$' sh -c 'echo cmd-running; exec sleep 300'
-rceq "5  an INTed job-tee exits 128+2" "$SIG_RC" "130" "$(oneline "$SIG_LOG")"
-has  "5  ... and its footer records 130" "$SIG_LOG" "== job-tee exit   130 at "
-has  "5  ... naming SIGINT" "$SIG_LOG" "(SIGINT)"
+# INT, however, is only testable on a host whose /bin/sh can un-ignore it, and
+# that is a property of the shell, not of job-tee. POSIX has a shell without job
+# control set SIGINT to SIG_IGN in the children of an asynchronous list, and says
+# a signal ignored on entry cannot be trapped; job-tee's `( trap - INT QUIT;
+# exec "$@" ) &' asks for the reset anyway because some shells grant it. Whether
+# THIS host's /bin/sh grants it is measured below with job-tee's own construct,
+# in /bin/sh (job-tee's shebang interpreter), and the three INT assertions then
+# either run or are recorded as SKIP naming the shell. Neither branch invents an
+# answer: a host that cannot deliver a forwarded INT must not fail this suite,
+# and must not be allowed to pass it silently either.
+#
+# The INT is sent only once `ps' shows the child really IS the sleep -- i.e.
+# after `trap -' has run and exec has happened, so the disposition is settled.
+# Killing straight after the fork races that and is not a measurement: /bin/dash,
+# whose true answer is "survived", answered "died" 5 times out of 5 that way
+# while this file was being written (stage 12, measured on macOS 27).
+#
+# Both waits are bounded polls, the child is reaped before the probe returns,
+# and a child that never becomes a sleep yields `unmeasured' rather than a
+# guess -- so `sleep' failing to start cannot hang or mis-answer this.
+
+typeset -g INT_PROBE_SRC='
+( trap - INT QUIT; exec sleep 30 ) &
+p=$!
+i=0
+ready=no
+while [ $i -lt 20 ]; do                  # <= 1 s to become an exec'\''d sleep
+  case $(ps -p $p -o comm= 2>/dev/null) in
+    *sleep*) ready=yes; break ;;
+  esac
+  i=$((i+1))
+  sleep 0.05
+done
+if [ "$ready" = no ]; then
+  verdict=unmeasured
+else
+  kill -INT $p 2>/dev/null
+  verdict=survived
+  i=0
+  while [ $i -lt 20 ]; do                # <= 1 s to die of the INT
+    kill -0 $p 2>/dev/null || { verdict=died; break; }
+    i=$((i+1))
+    sleep 0.05
+  done
+fi
+kill -TERM $p 2>/dev/null                # a survivor goes by TERM, which works
+i=0
+while [ $i -lt 10 ]; do                  # <= 0.5 s to reap it
+  kill -0 $p 2>/dev/null || break
+  i=$((i+1))
+  sleep 0.05
+done
+kill -0 $p 2>/dev/null && kill -KILL $p 2>/dev/null
+wait $p 2>/dev/null
+echo "$verdict"
+exit 0
+'
+
+typeset -g SH_ID INT_VERDICT INT_WHY
+SH_ID=$(/bin/sh -c 'if [ -n "${BASH_VERSION:-}" ]; then echo "bash $BASH_VERSION"
+                    elif [ -n "${ZSH_VERSION:-}" ]; then echo "zsh $ZSH_VERSION"
+                    else echo "${0##*/}"; fi' 2>/dev/null)
+INT_VERDICT=$(/bin/sh -c "$INT_PROBE_SRC" 2>/dev/null)
+note "5  INT probe: /bin/sh is ${SH_ID:-unknown}; async child after \`trap - INT QUIT' -> ${INT_VERDICT:-no-answer}"
+
+if [[ $INT_VERDICT == died ]]; then
+  run_signalled t5i INT '^cmd-running$' sh -c 'echo cmd-running; exec sleep 300'
+  rceq "5  an INTed job-tee exits 128+2" "$SIG_RC" "130" "$(oneline "$SIG_LOG")"
+  has  "5  ... and its footer records 130" "$SIG_LOG" "== job-tee exit   130 at "
+  has  "5  ... naming SIGINT" "$SIG_LOG" "(SIGINT)"
+else
+  if [[ $INT_VERDICT == survived ]]; then
+    INT_WHY="/bin/sh is ${SH_ID:-unknown}: async child kept SIGINT ignored; forwarded INT cannot reach the job"
+  else
+    INT_WHY="/bin/sh is ${SH_ID:-unknown}: the probe's child never became a running sleep, so SIGINT forwarding is unmeasured here"
+  fi
+  skip "5  an INTed job-tee exits 128+2"     "$INT_WHY"
+  skip "5  ... and its footer records 130"   "$INT_WHY"
+  skip "5  ... naming SIGINT"                "$INT_WHY"
+fi
 
 run_signalled t5h HUP '^cmd-running$' sh -c 'echo cmd-running; exec sleep 300'
 rceq "5  a HUPed job-tee exits 128+1" "$SIG_RC" "129" "$(oneline "$SIG_LOG")"
@@ -283,9 +368,9 @@ has  "5  ... naming SIGHUP" "$SIG_LOG" "(SIGHUP)"
 # success. `should-not-exist' is the witness: if the command ran at all, it is
 # there.
 
-command chmod 555 -- "$LOGS" || fail "6  could not make $LOGS read-only"
+command chmod 555 "$LOGS" || fail "6  could not make $LOGS read-only"
 OUT=$("$JT" t6 sh -c 'touch should-not-exist' 2>&1); RC=$?
-command chmod 755 -- "$LOGS" || fail "6  could not restore the mode of $LOGS"
+command chmod 755 "$LOGS" || fail "6  could not restore the mode of $LOGS"
 
 rceq "6  job-tee refuses with 1 when it cannot write the log" "$RC" "1" "$OUT"
 has  "6  ... naming the path it could not write" "$OUT" "logs/t6."
@@ -328,5 +413,9 @@ eq    "7  ... and 7 out of the failing one" "$(smoke_sed "$LOGS/t2.latest.log")"
 tee_cleanup
 eq "8  the cleanup removed the scratch tree" "$([[ -e $BASE ]] && print left-behind)" ""
 
-print -r -- "# $N_OK assertions passed"
+# Run and skipped, separately and always, in smoke.zsh's format and for its
+# reason: a suite that silently shrank on a host it could not fully exercise
+# would report the same green line as one that ran everything. T = N + M, so a
+# host-dependent section cannot quietly vanish from the total either.
+print -r -- "# $N_OK assertions passed, $N_SKIP skipped, $(( N_OK + N_SKIP )) total"
 exit 0
