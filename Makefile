@@ -203,6 +203,8 @@ help:
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
 	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
 	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
+	@echo "  make check-ssh-agent - Check gpg-agent is serving ssh keys to this shell, with fix hints"
+	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
@@ -818,6 +820,69 @@ restart-gpg-agent:
 	@echo "==> restarting gpg-agent onto the new config"
 	@herd restart gpg-agent 2>/dev/null \
 	  || echo "    (skipped: no user shepherd -- the agent will pick this up at next login)"
+
+# Is the gpg-ssh-agent layer actually usable from THIS shell?  Walks the chain
+# a `git push' depends on, in order, and prints the fix at the first broken
+# link:
+#   1. gpg-agent's ssh socket exists (the shepherd service is up)
+#   2. the pinentry named in gpg-agent.conf still exists -- see the GC trap
+#      described above restart-gpg-agent
+#   3. $SSH_AUTH_SOCK in the calling shell points at that socket, not at a
+#      dead /tmp/ssh-* left by an `eval $(ssh-agent -s)'
+#   4. keys have been imported (the one-time `ssh-add' per machine)
+#   5. which of them are unlocked right now (cache-TTL state; informational)
+#
+# Deliberately NOT a prerequisite of `check': the answer depends on the
+# calling shell's environment and on a passphrase cache that expires every
+# hour, so it would make `check' fail for reasons that are not config drift.
+# The socket test comes before any gpg-connect-agent call, because that
+# command autostarts an agent and this target must not have side effects.
+.PHONY: check-ssh-agent
+check-ssh-agent:
+	@echo "==> gpg-agent as ssh agent"
+	@if ! command -v gpgconf >/dev/null 2>&1; then \
+	  echo "    skipped: no gpgconf here (gpg-ssh-agent layer not deployed)"; \
+	  exit 0; \
+	fi; \
+	rc=0; \
+	sock=$$(gpgconf --list-dirs agent-ssh-socket); \
+	if [ ! -S "$$sock" ]; then \
+	  echo "    [--] agent    : no socket at $$sock"; \
+	  echo "         fix: herd start gpg-agent   (or log in again)"; \
+	  exit 1; \
+	fi; \
+	echo "    [ok] agent    : $$sock"; \
+	pin=$$(sed -n 's/^pinentry-program[[:space:]]*//p' "$$HOME/.gnupg/gpg-agent.conf" 2>/dev/null); \
+	if [ -n "$$pin" ] && [ ! -x "$$pin" ]; then \
+	  rc=1; \
+	  echo "    [--] pinentry : $$pin is gone (guix gc'd it)"; \
+	  echo "         fix: make apply   (or at least: make restart-gpg-agent)"; \
+	else \
+	  echo "    [ok] pinentry : $${pin:-gpg default}"; \
+	fi; \
+	if [ "$$SSH_AUTH_SOCK" = "$$sock" ]; then \
+	  echo "    [ok] this shell: SSH_AUTH_SOCK -> gpg-agent"; \
+	else \
+	  rc=1; \
+	  echo "    [--] this shell: SSH_AUTH_SOCK=$${SSH_AUTH_SOCK:-<unset>}"; \
+	  echo "         fix: export SSH_AUTH_SOCK=\"\$$(gpgconf --list-dirs agent-ssh-socket)\"; unset SSH_AGENT_PID"; \
+	  echo "              (or open a new terminal; never 'eval \$$(ssh-agent -s)')"; \
+	fi; \
+	keys=$$(gpg-connect-agent 'keyinfo --ssh-list --ssh-fpr' /bye 2>/dev/null | grep '^S KEYINFO'); \
+	if [ -z "$$keys" ]; then \
+	  rc=1; \
+	  echo "    [--] keys     : none imported into gpg-agent"; \
+	  echo "         fix (once per machine, in a real terminal):"; \
+	  echo "              gpg-connect-agent updatestartuptty /bye"; \
+	  echo "              ssh-add $$(ls $$HOME/.ssh/id_* 2>/dev/null | grep -v '\.pub$$' | sed "s|^$$HOME|~|" | tr '\n' ' ')"; \
+	else \
+	  echo "$$keys" | while read -r _ _ _ _ _ _ cached _ fpr _; do \
+	    comment=$$(SSH_AUTH_SOCK="$$sock" ssh-add -l 2>/dev/null | grep -F "$$fpr" | sed 's/^[0-9]* [^ ]* //'); \
+	    if [ "$$cached" = 1 ]; then state=unlocked; else state="locked (next ssh/git push asks once)"; fi; \
+	    echo "    [ok] key      : $${comment:-$$fpr} -- $$state"; \
+	  done; \
+	fi; \
+	[ $$rc = 0 ] && echo "==> ssh agent OK" || { echo "==> ssh agent: fix the [--] lines above"; exit 1; }
 
 # The guix to run AFTER a `guix pull': the one the pull just produced.
 #
