@@ -517,6 +517,7 @@ installed either way."
     "fzf"
     "eza"
     "jq"
+    "rclone"
     ;; Guix has a real fastfetch, so no shim is needed here.  .aliases only
     ;; defines its neofetch fallback when fastfetch is absent from PATH.
     "fastfetch"
