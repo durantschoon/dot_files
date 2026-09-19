@@ -211,11 +211,12 @@ help-text:
 	@echo "Available targets:"
 	@echo ""
 	@echo "  make setup-native  - Set up native dotfiles (symlinks ~/bin -> ~/dot_files/bin,"
-	@echo "                       then installs Claude Code if missing)"
+	@echo "                       then installs Claude Code, uv and agy if missing)"
 	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
+	@echo "  make install-agy    - Install agy, Google's Antigravity CLI (idempotent; loader wrapper on Guix System)"
 	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
 	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
@@ -294,7 +295,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude install-uv
+setup-native: set_up_links install-claude install-uv install-agy
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
 # when `claude` already runs) and handles the Guix System non-FHS case by
@@ -321,6 +322,20 @@ ifeq ($(os),$(OS_WINDOWS))
 	@echo "(from WSL, run 'make install-uv' in the WSL shell instead)"
 else
 	@bash bin/install-uv.sh
+endif
+
+# agy (Google's Antigravity CLI) everywhere: it is not packaged in Guix, so
+# this also runs from apply/apply-wayland/update, like install-claude.
+# Idempotent; bin/install-agy.sh skips the official installer's shell-profile
+# edits and wraps the binary with the glibc loader on Guix System.
+.PHONY: install-agy
+install-agy:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install agy from PowerShell with:"
+	@echo "  irm https://antigravity.google/cli/install.ps1 | iex"
+	@echo "(from WSL, run 'make install-agy' in the WSL shell instead)"
+else
+	@bash bin/install-agy.sh
 endif
 
 # We're going to insist we're in this directory so we can run commands from here
@@ -978,6 +993,8 @@ apply: warn-dotfiles-home
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-claude
+	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> done (Guix Home applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -1015,6 +1032,8 @@ apply-wayland: warn-dotfiles-home
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-claude
+	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> done (Guix Home Wayland applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -1758,6 +1777,8 @@ update: warn-dotfiles-home
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent; re-patches if broken)"
 	@$(MAKE) --no-print-directory install-claude
+	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent; re-wraps if broken)"
+	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 
 install-manifest:
 	@echo "==> guix package -m manifests/base.scm"
