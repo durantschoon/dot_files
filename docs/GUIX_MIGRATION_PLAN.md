@@ -359,6 +359,7 @@ guix search bat eza fd zoxide starship delta  # Modern CLI tools
 **For tools not in Guix:**
 
 - **UV**: now packaged in Guix (`uv`, in `%base-packages`); non-Guix hosts use `make install-uv`
+- **agy** (Google's Antigravity CLI): not in Guix; `make install-agy` (also run by `make apply`) downloads the official binary and, on Guix System, wraps it with the Guix glibc loader like Claude Code
 - **Obsidian**: Use AppImage or Flatpak (Guix supports flatpak)
 - Add standalone tool paths via Guix Home environment variables
 
