@@ -120,3 +120,27 @@ degraded.
   message, stage branches merge into that, and the human merges the integration
   branch. "Prompts land on `main`" holds for interactive coordinators only. This keeps
   the one-writer rule true without a `ListAgents` round-trip per commit.
+
+### Stage 10 retro addendum (second coordinator, same report range)
+
+Two coordinator sessions ran this retro independently — the section above landed
+first; these are the patterns it did not record:
+
+- **Interpreter paths are a portability class, and `/bin/sh` is the only absolute
+  one allowed.** `/bin/zsh` does not exist on Guix: stage 08 hit it (D4) after the
+  coordinator's own prompt specified `#!/bin/zsh -f` — the stage 05 retro bullet
+  above baked that spelling in — and `make check-jobs` died at error 127 on the Guix
+  host for the same reason (stage 09 gates table). Executable scripts use
+  `#!/usr/bin/env -S zsh -f` (Guix ships `/usr/bin/env`; macOS `env` has `-S` since
+  10.15); prompts never spell an absolute interpreter path except `/bin/sh` for
+  deliberately-POSIX scripts.
+- **Push exactly once, after post-commit evidence is captured.** Stage 09 pushed,
+  then amended twice, leaving a superseded remote branch that could not
+  fast-forward and handing the coordinator a verification job. Executors do not
+  amend after a successful push; if something must change anyway, disclose it and
+  leave the remote ref to the coordinator.
+- **Stage prompts name their host and the gates that cannot run there.** Since
+  stage 08 the two machines diverge (no docker/tmux/launchctl on the Guix host; no
+  podman on the Mac). A prompt that inherits a gate list without checking it
+  against its host produces "impossible gate" confusion instead of evidence
+  (stage 09 had to special-case `make check-jobs` mid-flight).
