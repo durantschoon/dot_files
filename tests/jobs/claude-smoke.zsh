@@ -1,4 +1,4 @@
-#!/bin/zsh -f
+#!/usr/bin/env -S zsh -f
 # -*- mode: sh; -*-
 #
 # tests/jobs/claude-smoke.zsh -- smoke test for .claude-jobs.zsh (claude-run,
@@ -18,6 +18,74 @@ emulate -L zsh
 setopt no_nomatch
 
 typeset -g WT=${${0:A:h}:h:h}
+
+# --------------------------------------------------------------------------
+# The launchd gate
+# --------------------------------------------------------------------------
+# claude-run's second half IS a launchd agent, and launchd is macOS's init:
+# _claude_job_guard refuses outright off darwin ("the relaunch half is launchd,
+# macOS only"), so on Linux every claude-* verb below returns before it does
+# anything at all. This is a feature probe, not a `uname' switch, for the
+# reason _docker_guard is one.
+#
+# Measured on the Guix host before this gate went in -- and the reason the gate
+# is a whole-suite skip rather than a best-effort run:
+#
+#   claude-smoke: 7/27 passed
+#
+# Twenty failed, and the other five PASSED VACUOUSLY: "claude did NOT get
+# --continue on first start", "second claude-run with a prompt is refused",
+# "session removed", "agent unloaded" and "plist deleted" are every one of them
+# satisfied by a Claude that never started, an agent that was never loaded and
+# a plist that was never written. A green line standing for that is worse than
+# no line, so each assertion is named and skipped instead. The one assertion
+# that needs no launchd -- the make wiring -- still runs for real.
+typeset -g N=0 FAILS=0 N_SKIP=0
+skip() { (( N_SKIP++ )); print "  SKIP $1  -- $2" }
+if (( ! $+commands[launchctl] )); then
+  print "claude-smoke: no launchctl on this host -- claude-run is launchd-only"
+  local m
+  for m in \
+    "claude-run exits 0" \
+    "tmux session <slug>-t1 exists" \
+    "fake claude started (argv recorded)" \
+    "claude runs at the repo root" \
+    "claude got --permission-mode auto" \
+    "claude got the prompt as an argument" \
+    "claude did NOT get --continue on first start" \
+    "launchd agent is loaded" \
+    "plist lives in the scratch HOME" \
+    "plist relaunch carries --continue" \
+    "attached once" \
+    "RunAtLoad did not start a second claude" \
+    "second claude-run with a prompt is refused" \
+    "…and says so" \
+    "claude-run without a prompt exits 0" \
+    "…and attaches again" \
+    "still exactly one session" \
+    "session gone before relaunch" \
+    "relaunch recreated the session" \
+    "relaunched claude got --continue" \
+    "relaunched claude did not get the old prompt" \
+    "claude-status exits 0" \
+    "claude-rm exits 0" \
+    "session removed" \
+    "agent unloaded" \
+    "plist deleted"
+  do
+    skip "$m" "no launchctl on this host"
+  done
+  # Needs neither launchd nor a scratch tree: it reads the Makefile.
+  (( N++ ))
+  if grep -q "claude-smoke.zsh" "$WT/Makefile"; then
+    print "  ok   make check-jobs runs this file"
+  else
+    (( FAILS++ )); print "  FAIL make check-jobs runs this file"
+  fi
+  print "claude-smoke: $((N - FAILS))/$N passed, $N_SKIP skipped, $((N + N_SKIP)) total"
+  exit $(( FAILS != 0 ))
+fi
+
 typeset -g TOKEN=claudesmoke-$$
 typeset -g BASE=${${TMPDIR:-/tmp}%/}/$TOKEN
 mkdir -p -- "$BASE" || exit 1
@@ -62,7 +130,10 @@ cleanup() {
   cd "$REPO" 2>/dev/null && claude-rm t1 >/dev/null 2>&1
   launchctl bootout "gui/$(id -u)/local.job.$SLUG.t1" >/dev/null 2>&1
   tmux kill-server >/dev/null 2>&1
-  /bin/rm -rf -- "$BASE"
+  # `command rm', not /bin/rm: there is no /bin/rm on Guix System (/bin holds
+  # `sh' and nothing else), and an absolute path that does not exist leaks the
+  # whole scratch tree on the way out.
+  command rm -rf -- "$BASE"
 }
 trap cleanup EXIT
 
@@ -120,5 +191,5 @@ assert "plist deleted" test ! -f "$HOME/Library/LaunchAgents/local.job.$SLUG.t1.
 # 5. make wiring.
 assert "make check-jobs runs this file" grep -q "claude-smoke.zsh" "$WT/Makefile"
 
-print "claude-smoke: $((N - FAILS))/$N passed"
+print "claude-smoke: $((N - FAILS))/$N passed, $N_SKIP skipped, $((N + N_SKIP)) total"
 (( FAILS == 0 ))

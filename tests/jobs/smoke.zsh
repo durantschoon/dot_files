@@ -1,4 +1,4 @@
-#!/bin/zsh -f
+#!/usr/bin/env -S zsh -f
 # -*- mode: sh; -*-
 #
 # tests/jobs/smoke.zsh -- end-to-end smoke test for .jobs.zsh and bin/job-tee.
@@ -80,16 +80,71 @@ for b in tmux docker git; do
   [[ -x ${commands[$b]} ]] && ln -sfn -- "${commands[$b]}" "$PATHBIN/$b"
 done
 
+# zsh's own path, resolved while the invoking PATH is still in scope: section 4
+# re-runs the remote-quoting hop through a REAL zsh, and `/bin/zsh' is a macOS
+# spelling. Measured on Guix System: there is no /bin/zsh at all, and the only
+# things under /bin and /usr/bin are `sh' and `env'.
+typeset -g SMOKE_ZSH=${commands[zsh]:-/bin/zsh}
+
+# The fixed system PATH below is the whole toolbox on a Mac and almost empty on
+# Guix System, where tmux, git, sed, awk and the coreutils all live in profile
+# directories under $HOME or /run/current-system. Measured here:
+#
+#   $ ls /usr/bin /bin      ->  env        sh
+#
+# so the suite's own `cat', `id', `wc' and `tmux' were not found at all. The
+# invoking PATH's directories are therefore MIRRORED into a scratch bin as
+# symlinks, minus the four commands whose presence or absence an assertion
+# actually measures: fzf (9b), tailscale (N4a) and the two container CLIs
+# (N6c, N9, N10). The mirror is appended AFTER the fixed directories, so on a
+# Mac every name still resolves exactly where it resolved before and the
+# mirror is never reached; on Guix it is the toolbox.
+typeset -g SYSBIN=$BASE/sysbin
+typeset -g ENGINEBIN=$BASE/enginebin
+mkdir -p -- "$SYSBIN" "$ENGINEBIN" || exit 1
+
+local d f
+for d in ${(s.:.)PATH}; do
+  [[ -d $d ]] || continue
+  for f in "$d"/*(N-*:t); do
+    case $f in (fzf|tailscale|docker|podman) continue ;; esac
+    [[ -e $SYSBIN/$f ]] || ln -s -- "$d/$f" "$SYSBIN/$f"
+  done
+done
+
+# The real container engine of this host, resolved before $PATH is replaced and
+# the same way _docker_guard resolves it: the first of docker, podman that is
+# on PATH AND whose `info' answers -- presence is not reachability. docker on
+# the Mac, podman on this Guix host. It gets a scratch bin of its own so that
+# $FULL_PATH can carry an engine while $NOFZF_PATH deliberately carries none.
+# REAL_CTR_BIN is absolute on purpose: the cleanup trap runs on paths where
+# $PATH is a fake sandwich, and it must reach the real engine anyway.
+typeset -g REAL_CTR= REAL_CTR_BIN=
+for b in docker podman; do
+  [[ -x ${commands[$b]} ]] || continue
+  command "${commands[$b]}" info >/dev/null 2>&1 || continue
+  ln -sfn -- "${commands[$b]}" "$ENGINEBIN/$b"
+  [[ -n $REAL_CTR ]] || { REAL_CTR=$b; REAL_CTR_BIN=${commands[$b]} }
+done
+
 # The developer's real $HOME, kept only to report what the ControlPath would
 # expand to in daily use ($HOME below is the scratch one). Nothing reads ~/.ssh.
 typeset -g REAL_HOME=$HOME
 
 export HOME=$HOME_LOCAL
 export TMUX_TMPDIR=$TMUX_LOCAL
-export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN:$ENGINEBIN
 export SHELL=/bin/sh                      # deterministic pane shell
 typeset -g FULL_PATH=$PATH
-typeset -g NOFZF_PATH=$WT/bin:$PATHBIN:/usr/bin:/bin:/usr/sbin:/sbin
+typeset -g NOFZF_PATH=$WT/bin:$PATHBIN:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN
+
+# launchd is macOS's init. There is no launchctl on Linux, so the assertions
+# that drive a real agent cannot run there -- and they must not be allowed to
+# PASS there either: `launchctl print ...' of a missing binary exits non-zero,
+# which is exactly what "the agent is unloaded" reads as success. A feature
+# probe, not a `uname' switch, for the reason _docker_guard exists.
+typeset -g HAVE_LAUNCHD=0
+(( $+commands[launchctl] )) && HAVE_LAUNCHD=1
 unset TMUX TMUX_PANE GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE JOB_DOCKER_ARGS
 unset JOB_LAUNCHD_PREFIX JOB_DOCKER_IMAGE
 
@@ -113,20 +168,27 @@ smoke_cleanup() {
   SMOKE_CLEANED=1
   TMUX_TMPDIR=$TMUX_LOCAL  tmux kill-server >/dev/null 2>&1
   TMUX_TMPDIR=$TMUX_REMOTE tmux kill-server >/dev/null 2>&1
-  launchctl bootout "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1
-  command rm -f -- "$LD_PLIST"
   # Since stage 07 a promotion can load an agent for any task, so the label is
   # no longer known in advance. `rm -rf $BASE' below takes the plists (they are
   # inside the scratch $HOME), but only launchd can unload what launchd holds,
-  # so every agent of THIS run's slug is booted out by name first.
-  local l
-  for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$SLUG.*.plist(N); do
-    launchctl bootout "gui/$(id -u)/${${l:t}%.plist}" >/dev/null 2>&1
-  done
-  local c
-  for c in ${(f)"$(docker ps -aq --filter "label=job.repo=$SLUG" 2>/dev/null)"}; do
-    docker rm -f -- "$c" >/dev/null 2>&1
-  done
+  # so every agent of THIS run's slug is booted out by name first. Where there
+  # is no launchd there is nothing loaded to boot out.
+  if (( HAVE_LAUNCHD )); then
+    launchctl bootout "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1
+    local l
+    for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$SLUG.*.plist(N); do
+      launchctl bootout "gui/$(id -u)/${${l:t}%.plist}" >/dev/null 2>&1
+    done
+  fi
+  command rm -f -- "$LD_PLIST"
+  # The engine by absolute path: this trap also runs from sections whose $PATH
+  # is a sandwich of fake engines, and the containers to remove are real.
+  if [[ -n $REAL_CTR_BIN ]]; then
+    local c
+    for c in ${(f)"$("$REAL_CTR_BIN" ps -aq --filter "label=job.repo=$SLUG" 2>/dev/null)"}; do
+      "$REAL_CTR_BIN" rm -f -- "$c" >/dev/null 2>&1
+    done
+  fi
   command rm -rf -- "$BASE"
   return $rc
 }
@@ -181,8 +243,16 @@ fi
 # --------------------------------------------------------------------------
 
 typeset -g N_OK=0
+typeset -g N_SKIP=0
 ok()   { (( N_OK++ )); print -r -- "ok   $1" }
 note() { print -r -- "     note: $1" }
+# A skipped assertion is counted and named, never silent and never an `ok':
+# the closing line reports run and skipped separately, so "it passed here" and
+# "it could not be asked here" stay two different facts.
+skip() { (( N_SKIP++ )); print -r -- "SKIP $1  -- $2" }
+skip_all() { local why=$1 m; for m in "${@:2}"; do skip "$m" "$why"; done }
+# The real engine, by absolute path, whatever $PATH currently says.
+rctr() { command "$REAL_CTR_BIN" "$@" }
 fail() {
   print -r -- "FAIL $1"
   local l; for l in "${@:2}"; do print -r -- "     $l"; done
@@ -387,7 +457,7 @@ eq "4a _job_tmux fakehost new-session (remote sh) succeeds" "$rc" "0"
 eq "4b window name survives the hop intact (remote sh)" \
    "$(_job_tmux fakehost list-windows -t "=$SLUG-q" -F '#W')" "$WNAME"
 
-SMOKE_REMOTE_SH=/bin/zsh
+SMOKE_REMOTE_SH=$SMOKE_ZSH
 smoke_quoting qz
 rc=$?
 eq "4c _job_tmux fakehost new-session (remote zsh) succeeds" "$rc" "0"
@@ -600,38 +670,68 @@ eq "10c tmux-ls prints nothing" "$(tmux-ls 2>/dev/null)" ""
 # 11. launchd is unchanged by the host layer
 # --------------------------------------------------------------------------
 
-out=$(launchd-run t1 --restart no -- sh -c 'echo ld' 2>&1); rc=$?
-eq "11a launchd-run loads the agent" "$rc" "0"
-eq "11a ... the plist was written" "$([[ -f $LD_PLIST ]] && print yes)" "yes"
-has "11b launchd-status shows the label" "$(launchd-status t1 2>&1)" "$LD_LABEL"
-out=$(launchd-rm t1 2>&1); rc=$?
-eq "11c launchd-rm succeeds" "$rc" "0"
-eq "11c ... the plist is gone" "$([[ -e $LD_PLIST ]] && print yes)" ""
-eq "11c ... and the agent is unloaded" \
-   "$(launchctl print "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1 && print loaded)" ""
+if (( HAVE_LAUNCHD )); then
+  out=$(launchd-run t1 --restart no -- sh -c 'echo ld' 2>&1); rc=$?
+  eq "11a launchd-run loads the agent" "$rc" "0"
+  eq "11a ... the plist was written" "$([[ -f $LD_PLIST ]] && print yes)" "yes"
+  has "11b launchd-status shows the label" "$(launchd-status t1 2>&1)" "$LD_LABEL"
+  out=$(launchd-rm t1 2>&1); rc=$?
+  eq "11c launchd-rm succeeds" "$rc" "0"
+  eq "11c ... the plist is gone" "$([[ -e $LD_PLIST ]] && print yes)" ""
+  eq "11c ... and the agent is unloaded" \
+     "$(launchctl print "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1 && print loaded)" ""
+else
+  skip_all "no launchctl on this host" \
+    "11a launchd-run loads the agent" \
+    "11a ... the plist was written" \
+    "11b launchd-status shows the label" \
+    "11c launchd-rm succeeds" \
+    "11c ... the plist is gone" \
+    "11c ... and the agent is unloaded"
+fi
 
 # --------------------------------------------------------------------------
 # 12. Docker labels point back at the repo
 # --------------------------------------------------------------------------
 
-out=$(docker-run t1 --image alpine --restart no -- true 2>&1); rc=$?
-eq "12a docker-run starts the container" "$rc" "0"
-eq "12b the job.root label is the scratch repo" \
-   "$(docker inspect -f '{{index .Config.Labels "job.root"}}' "$SLUG-t1" 2>&1)" "$REPO"
-eq "12b the job.repo label is the slug" \
-   "$(docker inspect -f '{{index .Config.Labels "job.repo"}}' "$SLUG-t1" 2>&1)" "$SLUG"
-docker-rm --all >/dev/null 2>&1
-eq "12c docker-rm --all removes it" \
-   "$(docker container inspect "$SLUG-t1" >/dev/null 2>&1 && print yes)" ""
-eq "12c docker-ls prints nothing" "$(docker-ls 2>/dev/null)" ""
+# The engine here is whichever one answered `info' at start-up -- docker on the
+# Mac, podman on the Guix host -- because that is what _docker_guard is going to
+# resolve, and a label written by podman is the same promise as a label written
+# by docker. No --image: the built-in default is engine-appropriate by
+# construction (_docker_image qualifies it for podman, which enforces
+# short-name resolution and has no TTY to answer the prompt on under `run -d'),
+# whereas a hard-coded short `alpine' is a Docker-only spelling.
+if [[ -n $REAL_CTR ]]; then
+  out=$(docker-run t1 --restart no -- true 2>&1); rc=$?
+  eq "12a docker-run starts the container" "$rc" "0"
+  eq "12b the job.root label is the scratch repo" \
+     "$(rctr inspect -f '{{index .Config.Labels "job.root"}}' "$SLUG-t1" 2>&1)" "$REPO"
+  eq "12b the job.repo label is the slug" \
+     "$(rctr inspect -f '{{index .Config.Labels "job.repo"}}' "$SLUG-t1" 2>&1)" "$SLUG"
+  docker-rm --all >/dev/null 2>&1
+  eq "12c docker-rm --all removes it" \
+     "$(rctr container inspect "$SLUG-t1" >/dev/null 2>&1 && print yes)" ""
+  eq "12c docker-ls prints nothing" "$(docker-ls 2>/dev/null)" ""
+
+  # N6(a): section 12 ran on the default. Assert what that default WAS rather
+  # than assuming it, so a machine without docker reports honestly -- which is
+  # this machine: the engine that answers here is podman.
+  eq "N6a the default CLI is the engine that answered at start-up" \
+     "$JOB_CONTAINER_CLI" "$REAL_CTR"
+  note "the real container engine for this run is [$REAL_CTR] at [$REAL_CTR_BIN]"
+else
+  skip_all "no container engine answered \`info' on this host" \
+    "12a docker-run starts the container" \
+    "12b the job.root label is the scratch repo" \
+    "12b the job.repo label is the slug" \
+    "12c docker-rm --all removes it" \
+    "12c docker-ls prints nothing" \
+    "N6a the default CLI is the engine that answered at start-up"
+fi
 
 # --------------------------------------------------------------------------
 # N6. JOB_CONTAINER_CLI  (stage 05 assertion 6)
 # --------------------------------------------------------------------------
-# (a) is section 12 above: it ran on the default. Assert what that default was
-# rather than assuming it, so a machine without docker reports honestly.
-
-eq "N6a the default CLI is docker while docker is on PATH" "$JOB_CONTAINER_CLI" "docker"
 
 typeset -g CLI_SAVED=$JOB_CONTAINER_CLI
 JOB_CONTAINER_CLI=/nonexistent/ctr
@@ -666,9 +766,14 @@ command rm -f -- "$PATHBIN/podman"
 PATH=$FULL_PATH
 unset JOB_CONTAINER_CLI
 smoke_reload
-docker-ls >/dev/null 2>&1
-eq "N6c ... and with the real docker back on PATH the choice is docker again" \
-   "$JOB_CONTAINER_CLI" "docker"
+if [[ -n $REAL_CTR ]]; then
+  docker-ls >/dev/null 2>&1
+  eq "N6c ... and with the real engine back on PATH the choice is that engine again" \
+     "$JOB_CONTAINER_CLI" "$REAL_CTR"
+else
+  skip "N6c ... and with the real engine back on PATH the choice is that engine again" \
+       "no container engine answered \`info' on this host"
+fi
 
 # --------------------------------------------------------------------------
 # N9. The container CLI is resolved by REACHABILITY, lazily  (stage 06 item 1)
@@ -797,7 +902,12 @@ eq "N10d under docker the default image stays the short name" \
 command rm -f -- "$PATHBIN/docker" "$PATHBIN/podman"
 PATH=$FULL_PATH
 unset JOB_CONTAINER_CLI
-eq "N10 the fakes are gone again" "$(command -v podman)" ""
+# What must be true is that the FAKES are gone, which is not the same as "no
+# podman anywhere": on a host whose real engine IS podman the name still
+# resolves, to the real one. Asserted against $PATHBIN, the way N14 below
+# already asserts the same thing about its own fake.
+hasnt "N10 the fakes are gone again" "$(command -v podman)" "$PATHBIN"
+hasnt "N10 ... the fake docker too"  "$(command -v docker)" "$PATHBIN"
 
 # --------------------------------------------------------------------------
 # An engine that remembers its containers  (for N13 and N14)
@@ -913,13 +1023,21 @@ nonzero "N13c job-record for an unknown task fails" "$rc" "$out"
 has "N13c ... naming the file it looked for" "$out" "logs/nosuchtask.job"
 
 # The same contract from launchd ...
-out=$(launchd-run t1 --restart no -- sh -c "$CMD_A" 2>&1); rc=$?
-eq "N13d launchd-run t1 loads the agent" "$rc" "0"
-eq "N13d the latest runner is launchd"   "$(_job_record_get t1 runner)" "launchd"
-eq "N13d ... with restart=no"            "$(_job_record_get t1 restart)" "no"
-_job_record_cmd t1; REC_CMD=("${reply[@]}")
-eq "N13d ... and the same three-word argv" "${(j:|:)REC_CMD}" "sh|-c|$CMD_A"
-launchd-rm t1 >/dev/null 2>&1
+if (( HAVE_LAUNCHD )); then
+  out=$(launchd-run t1 --restart no -- sh -c "$CMD_A" 2>&1); rc=$?
+  eq "N13d launchd-run t1 loads the agent" "$rc" "0"
+  eq "N13d the latest runner is launchd"   "$(_job_record_get t1 runner)" "launchd"
+  eq "N13d ... with restart=no"            "$(_job_record_get t1 restart)" "no"
+  _job_record_cmd t1; REC_CMD=("${reply[@]}")
+  eq "N13d ... and the same three-word argv" "${(j:|:)REC_CMD}" "sh|-c|$CMD_A"
+  launchd-rm t1 >/dev/null 2>&1
+else
+  skip_all "no launchctl on this host" \
+    "N13d launchd-run t1 loads the agent" \
+    "N13d the latest runner is launchd" \
+    "N13d ... with restart=no" \
+    "N13d ... and the same three-word argv"
+fi
 
 # ... and from Docker, which adds the two keys only it has.
 out=$(docker-run t1 --image alpine --restart always -- sh -c "$CMD_A" 2>&1); rc=$?
@@ -1091,24 +1209,36 @@ command rm -f -- "$P_STATE/$SLUG-amb"
 # Promotion to launchd, through the real launchctl under the scratch $HOME.
 typeset -g LD_T5_LABEL=local.job.$SLUG.t5
 typeset -g LD_T5=$HOME_LOCAL/Library/LaunchAgents/$LD_T5_LABEL.plist
-tmux-run t5 -- sh -c "$CMD_A" >/dev/null 2>&1
-smoke_wait_dead t5 || fail "N14l t5 never finished" "$(tmux-status t5 2>&1)"
-out=$(job-promote t5 --to launchd 2>&1); rc=$?
-eq "N14l job-promote t5 --to launchd succeeds" "$rc" "0"
-eq "N14l ... the plist was written" "$([[ -f $LD_T5 ]] && print yes)" "yes"
-eq "N14l ... the record follows"    "$(_job_record_get t5 runner)" "launchd"
-typeset -ga PA
-PA=("${(f)$(command sed -n '/<key>ProgramArguments<\/key>/,/<\/array>/p' "$LD_T5" \
-            | command sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')}")
-eq "N14l ... and ProgramArguments ends in the recorded argv" \
-   "${(j:|:)PA[-3,-1]}" "sh|-c|$CMD_A"
-eq "N14l ... wrapped in job-tee under the task name" \
-   "${(j:|:)PA[-5,-4]}" "$WT/bin/job-tee|t5"
-out=$(launchd-rm t5 2>&1); rc=$?
-eq "N14m launchd-rm cleans the promoted agent" "$rc" "0"
-eq "N14m ... the plist is gone" "$([[ -e $LD_T5 ]] && print yes)" ""
-eq "N14m ... and it is unloaded" \
-   "$(launchctl print "gui/$(id -u)/$LD_T5_LABEL" >/dev/null 2>&1 && print loaded)" ""
+if (( HAVE_LAUNCHD )); then
+  tmux-run t5 -- sh -c "$CMD_A" >/dev/null 2>&1
+  smoke_wait_dead t5 || fail "N14l t5 never finished" "$(tmux-status t5 2>&1)"
+  out=$(job-promote t5 --to launchd 2>&1); rc=$?
+  eq "N14l job-promote t5 --to launchd succeeds" "$rc" "0"
+  eq "N14l ... the plist was written" "$([[ -f $LD_T5 ]] && print yes)" "yes"
+  eq "N14l ... the record follows"    "$(_job_record_get t5 runner)" "launchd"
+  typeset -ga PA
+  PA=("${(f)$(command sed -n '/<key>ProgramArguments<\/key>/,/<\/array>/p' "$LD_T5" \
+              | command sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')}")
+  eq "N14l ... and ProgramArguments ends in the recorded argv" \
+     "${(j:|:)PA[-3,-1]}" "sh|-c|$CMD_A"
+  eq "N14l ... wrapped in job-tee under the task name" \
+     "${(j:|:)PA[-5,-4]}" "$WT/bin/job-tee|t5"
+  out=$(launchd-rm t5 2>&1); rc=$?
+  eq "N14m launchd-rm cleans the promoted agent" "$rc" "0"
+  eq "N14m ... the plist is gone" "$([[ -e $LD_T5 ]] && print yes)" ""
+  eq "N14m ... and it is unloaded" \
+     "$(launchctl print "gui/$(id -u)/$LD_T5_LABEL" >/dev/null 2>&1 && print loaded)" ""
+else
+  skip_all "no launchctl on this host" \
+    "N14l job-promote t5 --to launchd succeeds" \
+    "N14l ... the plist was written" \
+    "N14l ... the record follows" \
+    "N14l ... and ProgramArguments ends in the recorded argv" \
+    "N14l ... wrapped in job-tee under the task name" \
+    "N14m launchd-rm cleans the promoted agent" \
+    "N14m ... the plist is gone" \
+    "N14m ... and it is unloaded"
+fi
 
 # --------------------------------------------------------------------------
 # Q2/Q3. Measurements behind the trail -- notes, not pass/fail
@@ -1149,8 +1279,13 @@ command rm -f -- "$PATHBIN/docker"
 PATH=$FULL_PATH
 unset JOB_CONTAINER_CLI SMOKE_CTR_REC SMOKE_CTR_RUNW SMOKE_CTR_STATE
 hasnt "N14 the promote engine is off PATH again" "$(command -v docker)" "$PATHBIN"
-eq    "N14 ... and a real engine answers again" \
-      "$(command docker info >/dev/null 2>&1 && print yes)" "yes"
+if [[ -n $REAL_CTR ]]; then
+  eq  "N14 ... and a real engine answers again" \
+      "$(rctr info >/dev/null 2>&1 && print yes)" "yes"
+else
+  skip "N14 ... and a real engine answers again" \
+       "no container engine answered \`info' on this host"
+fi
 
 # --------------------------------------------------------------------------
 # N7. job-ls says which runners are local-only  (stage 05 assertion 7)
@@ -1318,5 +1453,8 @@ else
   ltmux kill-session -t "=$SLUG-cdir" >/dev/null 2>&1
 fi
 
-print -r -- "# $N_OK assertions passed"
+# Run and skipped, separately and always: a suite that silently shrank on a
+# host it could not fully exercise would report the same green line as one that
+# ran everything, which is the failure this count exists to make impossible.
+print -r -- "# $N_OK assertions passed, $N_SKIP skipped, $(( N_OK + N_SKIP )) total"
 exit 0
