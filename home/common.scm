@@ -636,6 +636,9 @@ call, so extensions never collide; only genuine double ownership does."
                      ;; backup-directory-alist itself.
                      `(".mg" ,(local-file "../.mg" "mg"))
                      `(".config/direnv/direnvrc" ,(local-file "../direnv/direnvrc" "direnvrc"))
+                     ;; Overrides Starship's emoji symbols, which ConEmu
+                     ;; can't draw -- see the header of starship.toml.
+                     `(".config/starship.toml" ,(local-file "../starship/starship.toml" "starship.toml"))
                      ;; Git identity (name/email) comes up declaratively with
                      ;; the system.  Deployed as a read-only store symlink, so
                      ;; `git config --global' would silently replace the

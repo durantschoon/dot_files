@@ -1,0 +1,19 @@
+# Starship prompt config.  Deployed to ~/.config/starship.toml by
+# home/common.scm (home-files-service-type).
+#
+# Why this file exists: Starship's default symbols for some modules are colour
+# emoji above U+FFFF (package 📦 U+1F4E6, python 🐍 U+1F40D).  ConEmu cannot
+# draw characters outside the Basic Multilingual Plane, so they render as �
+# regardless of font.  These overrides use Nerd Font glyphs in the BMP
+# private-use area, which CaskaydiaCove NF draws everywhere.
+#
+# Written as \u escapes so an editor or paste can't mangle them.  Adding a
+# language?  Check its default symbol's codepoint first:
+#   printf '%s' '🦀' | iconv -t UTF-32BE | xxd    # > 0000ffff => override it
+# Avoid nf-md-* glyphs (U+F0001 and up): they are outside the BMP too.
+
+[package]
+symbol = " "   # nf-oct-package
+
+[python]
+symbol = " "   # nf-dev-python
