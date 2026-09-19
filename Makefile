@@ -23,7 +23,13 @@ flavor := $(FLAVOR_UNKNOWN)
 PWD_CMD := pwd
 WHICH_CMD := which
 
-POWERLINE_FONT := 'Meslo LG'
+# Terminal font: Cascadia Code patched with Nerd Font glyphs (the prompt's
+# git/package/python icons live in its BMP private-use area; see
+# starship/starship.toml).  On Linux Guix Home installs it (the
+# font-caskaydia-cove-nerd package in home/common.scm); only macOS installs it
+# here.  Under WSL it belongs to Windows, which draws the terminal.
+NERD_FONT := CaskaydiaCove Nerd Font Mono
+NERD_FONT_CASK := font-caskaydia-cove-nerd-font
 
 ifeq ($(OS),Windows_NT)
 	os := $(OS_WINDOWS)
@@ -455,27 +461,11 @@ else
 	@echo "Please install build tools, curl, file, and zsh manually"
 endif
 endif
+# Nerd Font install, macOS only -- Linux gets it from Guix Home.
 ifeq ("$(os)","$(OS_MAC)")
-	@# install svn if needed for the fonts
-	@brew list svn > /dev/null || brew install svn
-endif
-# This powerline install should work on mac and linux
-ifneq ($(flavor), $(FLAVOR_WSL))
-ifneq ($(shell which fc-list 2>/dev/null),)
-	@fc-list : file family | grep "/Library" | grep $(POWERLINE_FONT) > /dev/null && { \
-		echo Found $(POWERLINE_FONT), not installing "\n"; \
-	}
-	@fc-list : file family | grep "/Library" | grep $(POWERLINE_FONT) > /dev/null || { \
-		echo Installing $(POWERLINE_FONT); \
-		git clone https://github.com/powerline/fonts.git --depth=1; \
-		./fonts/install.sh; \
-		rm -rf fonts; \
-		echo; \
-	}
-else
-	@echo "fc-list not available - skipping font installation"
-	@echo "To install fonts manually, run: guix install fontconfig"
-endif
+	@brew list --cask $(NERD_FONT_CASK) > /dev/null 2>&1 \
+		&& echo "Found $(NERD_FONT), not installing" \
+		|| brew install --cask $(NERD_FONT_CASK)
 endif
 	@echo "Skipping oh-my-zsh installation - using starship instead"
 # 2>/dev/null matters more than it looks: ifneq is evaluated at Makefile PARSE

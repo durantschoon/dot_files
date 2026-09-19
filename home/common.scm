@@ -69,6 +69,7 @@
                                        ;the layer ownership check
              (guix download)
              (guix build-system copy)
+             (guix build-system font)
              (guix build copy-build-system)
              (guix build utils)
              (guix packages)
@@ -242,6 +243,35 @@ exec ~a/freeplane.sh \"$@\"
 maintained fork of FreeMind.  It reads and writes FreeMind's @file{.mm} files.
 Licensed GPLv2+; the field below follows the @code{babashka}/@code{github-cli}
 convention in this file of not importing @code{(guix licenses)}.")
+    (license #f)))
+
+;; CaskaydiaCove: Cascadia Code patched with Nerd Font glyphs, the terminal
+;; font the starship prompt is written for (starship/starship.toml's package
+;; and python symbols live in the Nerd Font private-use area).  Guix has
+;; `font-microsoft-cascadia', but that is the unpatched font: the prompt's
+;; icons would still render as `?'.  Pinned to a Nerd Fonts release rather
+;; than "latest" because url-fetch needs a fixed hash.
+;;
+;; This only matters where Guix's fontconfig is what DRAWS the terminal -- a
+;; Linux desktop.  Under WSL the terminal is Windows Terminal or ConEmu, which
+;; read Windows fonts, so there the font is installed on the Windows side.
+(define font-caskaydia-cove-nerd
+  (package
+    (name "font-caskaydia-cove-nerd")
+    (version "3.5.1")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append "https://github.com/ryanoasis/nerd-fonts/releases/download/v"
+                                  version "/CascadiaCode.tar.xz"))
+              (sha256 (base32 "0sc3m8imzx4ii5vg0m2b9a20njg0bmqi6i9nxsinm17206a8wndf"))))
+    (build-system font-build-system)
+    (home-page "https://www.nerdfonts.com")
+    (synopsis "Cascadia Code with Nerd Font icon glyphs")
+    (description "CaskaydiaCove is Microsoft's Cascadia Code patched by the
+Nerd Fonts project with icon glyphs used by shell prompts and editors, in
+Nerd Font (NF), Mono (NFM) and Propo (NFP) variants.  Licensed OFL-1.1; the
+field below follows this file's convention of not importing
+@code{(guix licenses)}.")
     (license #f)))
 
 ;; ---------------------------------------------------------------------------
@@ -628,7 +658,7 @@ call, so extensions never collide; only genuine double ownership does."
              (if (session-ref session 'wayland?) %wayland-packages '())
              ;; Package OBJECTS (defined above), not specs -- the fold
              ;; resolves both.
-             (list github-cli freeplane babashka)))
+             (list github-cli freeplane babashka font-caskaydia-cove-nerd)))
    #:services
    (lambda (session)
      (list
