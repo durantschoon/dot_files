@@ -65,6 +65,24 @@ fi
 # GPG configuration
 export GPG_TTY=$(tty)
 
+# Tell gpg-agent which terminal to prompt on for SSH.  GPG_TTY above only
+# reaches gpg-agent from gpg itself; ssh never passes it, so for a `git push'
+# the agent uses the terminal last registered by updatestartuptty.  Where there
+# is no graphical prompter (WSL: WSLg has a display but no GNOME gcr-prompter,
+# so pinentry-gnome3 falls back to the terminal), an unregistered or closed
+# terminal means "agent refused operation" and the push fails.
+#
+# Trade-off: this points the agent at the most recently opened shell, so an
+# unlock prompt can land in a different window from the one you pushed from.
+#
+# Only when SSH_AUTH_SOCK is gpg-agent's socket, so a machine using another
+# ssh agent (macOS keychain, say) is untouched; --no-autostart so opening a
+# shell never starts a gpg-agent that was not already running; -t 0 so shells
+# with no terminal do not register "not a tty".
+if [[ -t 0 && "$SSH_AUTH_SOCK" == *gpg-agent.ssh* ]] && (( $+commands[gpg-connect-agent] )); then
+    gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1
+fi
+
 # Console ninja (if available)
 # Re-added defensively: guix home's .zprofile runs `emulate sh -c ". /etc/profile"',
 # which can rebuild PATH after .zshenv ran.  Use add_to_front_of_path rather than
