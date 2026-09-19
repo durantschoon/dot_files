@@ -1963,6 +1963,18 @@ endif
 #                        activation aborts half-done, before ~/.guix-home
 #                        exists, with some paths already switched over.
 #
+# And, once a generation is active, one kind of LEFTOVER: a $HOME symlink into
+# this repo that Guix Home does not claim.  set_up_links made it; guix neither
+# owns it nor replaces it, so it outlives the migration.  At best it is dead
+# weight (~/.zshrc -- zsh reads $ZDOTDIR instead).  At worst something still
+# reads it, and reads the LIVE repo alongside the deployed snapshot: a leftover
+# ~/.shared.zshenv made .linux.zshenv's `source' line run .shared.zshenv a
+# second time, so its edits took effect without an apply while nothing else's
+# did.  The loop over claimed paths cannot see these -- by definition they are
+# not claimed -- so this is a separate scan of $HOME's top level, which is the
+# only place set_up_links links into.  Links that ARE ancestors of a claimed
+# path are skipped here; the hazard check above already reports them.
+#
 # An ABSENT path gets one more distinction once a generation is active: if
 # common.scm declares it but ~/.guix-home/files does not contain it, its layer
 # is simply off for this session (espanso under %foreign-session, say), and the
@@ -2040,6 +2052,18 @@ check-home-ownership:
 	    *) printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
 	  esac; \
 	done; \
+	leftovers=0; \
+	if [ $$guix_home -eq 1 ]; then \
+	  claimed_words=" $$(printf '%s ' $$claimed)"; \
+	  for t in "$$HOME"/.[!.]* "$$HOME"/bin; do \
+	    [ -L "$$t" ] || continue; \
+	    n="$${t#$$HOME/}"; \
+	    case "$$(readlink -f "$$t" 2>/dev/null)" in "$$dfroot"/*) ;; *) continue ;; esac; \
+	    case "$$claimed_words" in *" $$n "*|*" $$n/"*) continue ;; esac; \
+	    printf '    %s%-28s%s %s\n' "$$c1" "$$n" "$$c0" "LEFTOVER: native link -> $$(readlink "$$t")"; \
+	    leftovers=1; \
+	  done; \
+	fi; \
 	if [ $$guix_home -eq 0 ]; then \
 	  echo "    (no ~/.guix-home: no home generation active, so native ownership is expected)"; \
 	fi; \
@@ -2071,10 +2095,18 @@ check-home-ownership:
 	  echo "    will not see your repo edits for it.  Run: make apply  (guix backs up a"; \
 	  echo "    colliding FILE by itself, into ~/<timestamp>-guix-home-legacy-configs-backup)."; \
 	fi; \
+	if [ $$leftovers -eq 1 ]; then \
+	  echo ""; \
+	  echo "    LEFTOVER = a native-setup link into this repo that Guix Home does not"; \
+	  echo "    claim, so no apply will ever remove it.  Dead weight at best; at worst"; \
+	  echo "    something still reads it LIVE beside the deployed snapshot (a leftover"; \
+	  echo "    ~/.shared.zshenv runs .shared.zshenv twice).  Fix: rm the link -- only"; \
+	  echo "    the link; the file in the repo is untouched."; \
+	fi; \
 	if [ -n "$(PREFLIGHT)" ]; then \
 	  [ $$hazards -eq 0 ]; \
 	elif [ $$guix_home -eq 1 ]; then \
-	  [ $$hazards -eq 0 ] && [ $$conflicts -eq 0 ]; \
+	  [ $$hazards -eq 0 ] && [ $$conflicts -eq 0 ] && [ $$leftovers -eq 0 ]; \
 	fi
 
 # check-protondrive earns its place here for the same reason check-tailscale
