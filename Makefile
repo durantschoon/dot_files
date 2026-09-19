@@ -922,6 +922,62 @@ check-ssh-agent:
 	fi; \
 	[ $$rc = 0 ] && echo "==> ssh agent OK" || { echo "==> ssh agent: fix the [--] lines above"; exit 1; }
 
+# Offer to unlock the ssh keys that the restart-gpg-agent step of an apply just
+# locked again.  Nothing needs RE-ADDING: an agent restart only empties the
+# passphrase cache, while the keys stay in ~/.gnupg/private-keys-v1.d, listed in
+# sshcontrol.  So the list comes from the agent itself (ssh-add -L), and there
+# is no separate record here to drift out of date.
+#
+# The unlock is `ssh-keygen -Y sign' over a throwaway string, given only the
+# PUBLIC key, which forces the signature through the agent: pinentry asks
+# once, the passphrase is cached for default-cache-ttl-ssh, and nothing leaves
+# the machine (an `ssh -T git@github.com' would also work, but needs network).
+# updatestartuptty goes first so the prompt appears in THIS terminal, not in
+# whichever shell was opened last (see the updatestartuptty block in
+# .zshrc.starship).
+#
+# Quiet unless it has something to say: no gpg agent, no socket, no keys, or
+# every key still cached -- skip silently.  With no terminal on stdin (a
+# piped or scripted apply) it only prints the reminder.  The answer defaults
+# to yes; an Enter unlocks.  A wrong passphrase or a cancel is reported, never
+# fatal: the apply has already succeeded by the time this runs.
+.PHONY: unlock-ssh-keys
+unlock-ssh-keys:
+	@command -v gpgconf >/dev/null 2>&1 || exit 0; \
+	sock=$$(gpgconf --list-dirs agent-ssh-socket); \
+	[ -S "$$sock" ] || exit 0; \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	info=$$(gpg-connect-agent --no-autostart 'keyinfo --ssh-list --ssh-fpr' /bye 2>/dev/null | grep '^S KEYINFO'); \
+	i=0; \
+	SSH_AUTH_SOCK="$$sock" ssh-add -L 2>/dev/null | grep -v '^The agent has no' > "$$tmp/all"; \
+	while IFS= read -r k; do \
+	  i=$$((i+1)); printf '%s\n' "$$k" > "$$tmp/$$i.pub"; \
+	  fp=$$(ssh-keygen -lf "$$tmp/$$i.pub" | awk '{print $$2}'); \
+	  cached=$$(printf '%s\n' "$$info" | awk -v fp="$$fp" '$$9 == fp {print $$7}'); \
+	  if [ "$$cached" = 1 ]; then rm -f "$$tmp/$$i.pub"; continue; fi; \
+	  printf '%s\n' "$$k" | awk '{print "    " ($$3 != "" ? $$3 : $$1)}' >> "$$tmp/labels"; \
+	done < "$$tmp/all"; \
+	[ -s "$$tmp/labels" ] || exit 0; \
+	echo ""; \
+	echo "--- SSH KEYS LOCKED ---"; \
+	echo "gpg-agent was restarted, so these keys need their passphrase again:"; \
+	cat "$$tmp/labels"; \
+	if [ ! -t 0 ]; then \
+	  echo "(not a terminal: the next ssh or git push will ask instead)"; exit 0; \
+	fi; \
+	printf 'Unlock them now? [Y/n] '; read -r ans; \
+	case "$$ans" in [Nn]*) echo "    skipped -- the next ssh or git push will ask"; exit 0 ;; esac; \
+	gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1; \
+	for f in "$$tmp"/*.pub; do \
+	  [ -e "$$f" ] || continue; \
+	  label=$$(awk '{print ($$3 != "" ? $$3 : $$1)}' "$$f"); \
+	  if echo unlock | SSH_AUTH_SOCK="$$sock" ssh-keygen -Y sign -n make-apply-unlock -f "$$f" >/dev/null 2>&1; then \
+	    echo "    [ok] $$label unlocked"; \
+	  else \
+	    echo "    [--] $$label not unlocked (wrong passphrase or cancelled) -- the next push will ask"; \
+	  fi; \
+	done
+
 # The guix to run AFTER a `guix pull': the one the pull just produced.
 #
 # `guix pull' installs into ~/.config/guix/current and does nothing else; it
@@ -983,6 +1039,7 @@ apply: warn-dotfiles-home
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
+	@$(MAKE) --no-print-directory unlock-ssh-keys
 
 apply-wayland: warn-dotfiles-home
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
@@ -1020,6 +1077,7 @@ apply-wayland: warn-dotfiles-home
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
+	@$(MAKE) --no-print-directory unlock-ssh-keys
 
 # apply-ewm -- deploy the EWM TRIAL home generation (docs/EWM_TRIAL_PLAN.md,
 # home/ewm.scm).  Deliberately leaner than apply/apply-wayland: no guix pull,
