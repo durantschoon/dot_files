@@ -25,4 +25,5 @@
                               %gpg-ssh-agent-layer
                               %emacs-layer
                               %browser-layer
-                              %claude-code-layer))
+                              %claude-code-layer
+                              %gemini-layer))
