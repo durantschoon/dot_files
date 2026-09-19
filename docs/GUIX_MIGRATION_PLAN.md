@@ -348,7 +348,7 @@ Before diving deep, verify these tools in Guix:
 
 ```bash
 # Check what's available
-guix search uv           # Python package manager (likely NOT available yet)
+guix search uv           # Python package manager (available: in home/common.scm)
 guix search obsidian     # (likely NOT available - proprietary)
 guix search freeplane    # (should be available - FOSS Java app)
 guix search atuin        # Shell history sync
@@ -358,7 +358,7 @@ guix search bat eza fd zoxide starship delta  # Modern CLI tools
 
 **For tools not in Guix:**
 
-- **UV**: Install standalone via `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **UV**: now packaged in Guix (`uv`, in `%base-packages`); non-Guix hosts use `make install-uv`
 - **Obsidian**: Use AppImage or Flatpak (Guix supports flatpak)
 - Add standalone tool paths via Guix Home environment variables
 

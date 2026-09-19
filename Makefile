@@ -167,6 +167,7 @@ help:
 	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
+	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
 	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
 	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
@@ -243,7 +244,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude
+setup-native: set_up_links install-claude install-uv
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
 # when `claude` already runs) and handles the Guix System non-FHS case by
@@ -257,6 +258,19 @@ ifeq ($(os),$(OS_WINDOWS))
 	@echo "(from WSL, run 'make install-claude' in the WSL shell instead)"
 else
 	@bash bin/install-claude.sh
+endif
+
+# uv on hosts Guix Home does not manage (on Guix it is in %base-packages in
+# home/common.scm).  Idempotent; see bin/install-uv.sh for the per-platform
+# choice.  Native Windows gets winget, like install-claude.
+.PHONY: install-uv
+install-uv:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install uv with:"
+	@echo "  winget install astral-sh.uv"
+	@echo "(from WSL, run 'make install-uv' in the WSL shell instead)"
+else
+	@bash bin/install-uv.sh
 endif
 
 # We're going to insist we're in this directory so we can run commands from here

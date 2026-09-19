@@ -47,5 +47,8 @@ releases and other GitHub features to the terminal.")
 
      ;; SankeyFin dev toolchain (see sankeyfin/scripts/guix-manifest.scm)
      "openjdk" "clojure-tools" "just"
+
+     ;; Python package/venv manager used by .aliases (see home/common.scm)
+     "uv"
      ))
   (list github-cli)))

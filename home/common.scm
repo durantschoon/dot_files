@@ -459,6 +459,10 @@ installed either way."
     "aspell" "aspell-dict-en"
     ;; SankeyFin dev toolchain (see sankeyfin/scripts/guix-manifest.scm)
     "openjdk" "clojure-tools" "just"
+    ;; uv: the Python package/venv manager the mkvirtualenv-style wrappers in
+    ;; .aliases call.  Packaged in Guix proper (rust-apps) with substitutes,
+    ;; so no Rust build.  Non-Guix hosts get it from `make install-uv'.
+    "uv"
     ;; For bin/install-claude.sh: curl fetches the Claude Code binary, and
     ;; glibc provides the ld-linux loader its wrapper uses to run the
     ;; unmodified binary (no FHS /lib64 on Guix)
