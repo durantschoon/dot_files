@@ -122,6 +122,27 @@
          (scandir root)))
       '()))
 
+;; One home-files entry per skill directory under gemini/skills, so that
+;; ~/.gemini/config/skills is a real directory holding store symlinks.
+(define %gemini-skills-directory
+  (string-append (dirname (or (current-filename) "home/common.scm"))
+                 "/../gemini/skills"))
+
+(define %gemini-skill-entries
+  (if (file-exists? %gemini-skills-directory)
+      (let ((root (canonicalize-path %gemini-skills-directory)))
+        (filter-map
+         (lambda (name)
+           (let ((dir (string-append root "/" name)))
+             (and (not (member name '("." "..")))
+                  (eq? 'directory (stat:type (stat dir)))
+                  `(,(string-append ".gemini/config/skills/" name)
+                    ,(local-file (assume-valid-file-name dir)
+                                 (string-append "gemini-skill-" name)
+                                 #:recursive? #t)))))
+         (scandir root)))
+      '()))
+
 ;; Babashka: native Clojure interpreter (not in Guix, fetch binary from GitHub)
 (define babashka
   (package
@@ -1205,6 +1226,23 @@ call, so extensions never collide; only genuine double ownership does."
                                                 "(inputs not linked yet); re-run `"
                                                 apply-cmd "`\n"))))))))))))
 
+;; gemini: Antigravity/Gemini configuration (global skills, hooks, and scripts).
+(define %gemini-layer
+  (layer
+   #:name 'gemini
+   #:synopsis "Antigravity/Gemini config: global skills, hooks, and scripts"
+   #:services
+   (lambda (session)
+     (list
+      (simple-service 'gemini-files home-files-service-type
+                      (append
+                       (list
+                        `(".gemini/config/hooks.json" ,(local-file "../gemini/hooks.json"))
+                        `(".gemini/config/scripts" ,(local-file "../gemini/scripts"
+                                                                "gemini-scripts"
+                                                                #:recursive? #t)))
+                       %gemini-skill-entries))))))
+
 ;; Enabled layers, in service order.  A machine wanting a subset passes its
 ;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
 (define %default-layers
@@ -1215,7 +1253,8 @@ call, so extensions never collide; only genuine double ownership does."
         %emacs-layer
         %browser-layer
         %espanso-layer
-        %claude-code-layer))
+        %claude-code-layer
+        %gemini-layer))
 
 (define* (dotfiles-home session #:key (layers %default-layers)
                         (extra-services '()))

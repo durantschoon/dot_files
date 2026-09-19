@@ -1,0 +1,11 @@
+{
+  "away-recap": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ~/.gemini/config/scripts/away_check.py",
+        "timeout": 5
+      }
+    ]
+  }
+}
