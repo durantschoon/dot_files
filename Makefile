@@ -221,6 +221,7 @@ help-text:
 	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
+	@echo "  make update-codex   - Install or update Codex in ~/.local (works with Guix npm)"
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
 	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
@@ -315,6 +316,12 @@ ifeq ($(os),$(OS_WINDOWS))
 else
 	@bash bin/install-claude.sh
 endif
+
+# Keep npm installs outside Guix's immutable store and update the existing local copy.
+.PHONY: update-codex
+update-codex:
+	npm install --global --prefix "$$HOME/.local" @openai/codex@latest
+	"$$HOME/.local/bin/codex" --version
 
 # uv on hosts Guix Home does not manage (on Guix it is in %base-packages in
 # home/common.scm).  Idempotent; see bin/install-uv.sh for the per-platform
