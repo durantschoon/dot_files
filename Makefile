@@ -116,7 +116,7 @@ ifeq ($(LOGIN_SHELL),)
 	LOGIN_SHELL := /bin/zsh
 endif
 
-.PHONY: all setup-native set_up_links wsl help guix-root-install warn-dotfiles-home guard-native-over-guix
+.PHONY: all setup-native set_up_links wsl help help-text guix-root-install warn-dotfiles-home guard-native-over-guix
 
 # Makefile and set_up_links assume the repo is at $(HOME)/dot_files (symlink is fine).
 DOTFILES_HOME := $(HOME)/dot_files
@@ -159,7 +159,23 @@ warn-dotfiles-home:
 	  fi; \
 	fi
 
+# `make help' colours the "make <target>" column cyan and the section headings
+# bold, so the target names stand apart from their descriptions.  The text
+# itself lives in help-text, which stays plain; the colouring is a sed pass
+# applied only on a terminal, and never with NO_COLOR set or TERM=dumb (the
+# same rule as check-home-ownership), so `make help | grep ...' and the
+# container smoke test that runs `make help' see no escape codes.
 help:
+	@if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
+	  c1="$$(printf '\033[36m')"; hd="$$(printf '\033[1m')"; c0="$$(printf '\033[0m')"; \
+	  $(MAKE) --no-print-directory help-text \
+	    | sed -e "s/^\(  \)\(make [^ ]*\( [A-Z_]*=[^ ]*\)*\)/\1$$c1\2$$c0/" \
+	          -e "s/^\([A-Z][^ ].*:\)$$/$$hd\1$$c0/"; \
+	else \
+	  $(MAKE) --no-print-directory help-text; \
+	fi
+
+help-text:
 	@echo "Available targets:"
 	@echo ""
 	@echo "  make setup-native  - Set up native dotfiles (symlinks ~/bin -> ~/dot_files/bin,"
