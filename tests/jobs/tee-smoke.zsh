@@ -12,6 +12,13 @@
 # apparatus -- so this is the one jobs test that runs everywhere, which is why
 # check-jobs opens with it.
 #
+# Section 5c is the single exception and stays an exception: where a container
+# engine and the images are already there it runs the INT assertions inside
+# dash and busybox ash, because that is the userland the escalation exists for,
+# and where they are not it SKIPs with the reason. It never pulls and never
+# needs an engine for any other section, so the suite as a whole still runs on
+# a bare host.
+#
 # What it pins down is the two promises job-tee makes about never losing the
 # record of a run, both of them measured BROKEN in stage 08 against a live
 # engine (docs/stages/stage-08-REPORT.md, Q3 and Q2):
@@ -38,6 +45,14 @@
 emulate -L zsh
 setopt no_nomatch
 
+# Float, because section 5b measures the distance between a signal and a footer
+# and the answer is around 2.3 s: the integer default would round the whole
+# assertion into meaninglessness. zsh's SECONDS is a builtin (no zmodload, so
+# nothing to be unavailable on another host) and a subshell keeps counting from
+# the same origin, which is what lets the background signaller below timestamp
+# the kill for the foreground shell to subtract.
+typeset -F SECONDS
+
 typeset -g WT=${${0:A:h}:h:h}             # worktree root: tests/jobs/.. /..
 typeset -g JT=$WT/bin/job-tee
 [[ -x $JT ]] || { print -u2 "tee-smoke: cannot execute $JT"; exit 1 }
@@ -50,6 +65,14 @@ typeset -g REPO=$BASE/repo
 typeset -g LOGS=$REPO/logs
 typeset -g SIDE=$BASE/t4.side
 typeset -g TRAPPER=$BASE/trapper.sh
+typeset -g IGNORER=$BASE/ignorer.sh
+# job-tee's INT_ESCALATION_GRACE, in seconds. Section 5b asserts the escalation
+# lands inside [GRACE, GRACE + 1.5]: the lower bound says the command really
+# got its grace, the upper says the escalation is prompt enough that the whole
+# sequence still fits inside a container engine's 10 s stop timeout. The 1.5 s
+# of headroom is for the poll granularity plus process teardown; measured on
+# macOS 27 in stage 13 the answer was ~2.31 s three runs running.
+typeset -gF GRACE=2.0
 mkdir -p -- "$REPO" || exit 1
 
 # --------------------------------------------------------------------------
@@ -122,6 +145,15 @@ has()   { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "
 starts() { [[ ${2[1,${#3}]} == "$3" ]] && ok "$1" || fail "$1" "expected to start with: [$3]" "actual: [$2]" }
 rc0()   { (( $2 == 0 )) && ok "$1" || fail "$1" "expected exit 0, got $2" "${@:3}" }
 rceq()  { [[ $2 == $3 ]] && ok "$1" || fail "$1" "expected exit $3, got $2" "${@:4}" }
+# A closed interval, for the one assertion that is about a duration: an
+# escalation that fired too early did not give the command its grace, and one
+# that fired too late spent budget that belongs to the engine's stop timeout.
+# Both bounds are therefore real failures, not slack.
+within() {
+  (( $2 >= $3 && $2 <= $4 )) && ok "$1" \
+    || fail "$1" "expected: $(printf '%.2f <= x <= %.2f' $3 $4)" \
+                 "actual:   $(printf '%.2f' $2)"
+}
 
 logtext()  { command cat -- "$LOGS/$1.latest.log" 2>/dev/null }
 log_has()  { command grep -q -- "$2" "$LOGS/$1.latest.log" 2>/dev/null }
@@ -151,17 +183,26 @@ oneline()  { print -r -- "${${1//$'\n'/ | }//  / }" }
 # header: signalling between "== cmd" and the fork would test a different (and
 # much rarer) code path than the one these assertions are about.
 
-typeset -g SIG_RC=0 SIG_LOG=""
+#
+# SIG_ELAPSED is the wall time from the signal to job-tee's return, and the
+# signaller is the only process that knows when the signal left: it stamps
+# $SECONDS into a file immediately before the kill, and the foreground shell
+# subtracts that from its own $SECONDS the moment job-tee returns. Measuring it
+# from out here instead would fold in the readiness poll, which is unbounded in
+# principle and would drown the 2 s the assertion is actually about.
+
+typeset -g SIG_RC=0 SIG_LOG="" SIG_ELAPSED=0
 
 run_signalled() {
   local task=$1 sig=$2 ready=$3; shift 3
-  local pidf=$BASE/$task.pid i
-  command rm -f -- "$pidf"
+  local pidf=$BASE/$task.pid sentf=$BASE/$task.sent i
+  command rm -f -- "$pidf" "$sentf"
   {
     for i in {1..200}; do                  # 20 s to become ready
       [[ -s $pidf ]] && log_has "$task" "$ready" && break
       sleep 0.1
     done
+    print -r -- $SECONDS > "$sentf"
     kill -s "$sig" "$(<$pidf)" 2>/dev/null
     for i in {1..100}; do                  # 10 s to die of it
       kill -0 "$(<$pidf)" 2>/dev/null || break
@@ -175,8 +216,11 @@ run_signalled() {
   BG_PIDS+=($killer)
   sh -c 'echo $$ > "$1"; shift; exec "$@"' _ "$pidf" "$JT" "$task" "$@" >/dev/null 2>&1
   SIG_RC=$?
+  local -F done_at=$SECONDS               # before the wait below, not after it
   wait $killer 2>/dev/null
   BG_PIDS=(${BG_PIDS:#$killer})
+  SIG_ELAPSED=0
+  [[ -s $sentf ]] && SIG_ELAPSED=$(( done_at - $(<$sentf) ))
   SIG_LOG=$(logtext "$task")
 }
 
@@ -190,6 +234,20 @@ echo trapper-ready
 while :; do sleep 0.2; done
 TRAPPER_EOF
 chmod +x "$TRAPPER" || exit 1
+
+# The command for section 5b: it IGNORES INT outright and then execs, because
+# SIG_IGN survives exec -- so the process job-tee signals cannot act on an INT
+# on ANY host, whatever that host's /bin/sh decided about `trap - INT QUIT'.
+# That is what makes 5b host-independent where section 5 is host-dependent: it
+# does not need a shell that keeps INT ignored, it brings its own. It is also
+# the honest model of the real exposure, a job that simply does not answer INT.
+command cat > "$IGNORER" <<'IGNORER_EOF'
+#!/bin/sh
+trap '' INT
+echo ignorer-ready
+exec sleep 300
+IGNORER_EOF
+chmod +x "$IGNORER" || exit 1
 
 cd -- "$REPO" || exit 1
 print -r -- "# tee-smoke $TOKEN  repo=$REPO"
@@ -272,16 +330,22 @@ note "4  job-tee exited $SIG_RC; footer: [$(lastline "$SIG_LOG")]"
 # HUP is not an academic case: stage 07 measured a tmux `kill-window' HUP
 # taking the footer with it exactly as docker-stop's TERM did.
 
-# INT, however, is only testable on a host whose /bin/sh can un-ignore it, and
+# INT reaches the COMMAND only on a host whose /bin/sh can un-ignore it, and
 # that is a property of the shell, not of job-tee. POSIX has a shell without job
 # control set SIGINT to SIG_IGN in the children of an asynchronous list, and says
 # a signal ignored on entry cannot be trapped; job-tee's `( trap - INT QUIT;
 # exec "$@" ) &' asks for the reset anyway because some shells grant it. Whether
 # THIS host's /bin/sh grants it is measured below with job-tee's own construct,
-# in /bin/sh (job-tee's shebang interpreter), and the three INT assertions then
-# either run or are recorded as SKIP naming the shell. Neither branch invents an
-# answer: a host that cannot deliver a forwarded INT must not fail this suite,
-# and must not be allowed to pass it silently either.
+# in /bin/sh (job-tee's shebang interpreter).
+#
+# Since stage 13 that measurement no longer decides whether the INT assertions
+# RUN -- only what they should see. job-tee escalates an unanswered INT to TERM
+# after INT_ESCALATION_GRACE, so `an INTed job-tee exits 130 and writes a
+# truthful footer' is true on every host, and this section asserts it on every
+# host. The probe survives because it is still the explanation of which branch a
+# host took: `died' hosts get the historical `(SIGINT)' footer, `survived' hosts
+# get one naming the escalation. Only `unmeasured' -- the probe's child never
+# became a running sleep, so nothing was established at all -- still SKIPs.
 #
 # The INT is sent only once `ps' shows the child really IS the sleep -- i.e.
 # after `trap -' has run and exec has happened, so the disposition is settled.
@@ -337,17 +401,23 @@ SH_ID=$(/bin/sh -c 'if [ -n "${BASH_VERSION:-}" ]; then echo "bash $BASH_VERSION
 INT_VERDICT=$(/bin/sh -c "$INT_PROBE_SRC" 2>/dev/null)
 note "5  INT probe: /bin/sh is ${SH_ID:-unknown}; async child after \`trap - INT QUIT' -> ${INT_VERDICT:-no-answer}"
 
-if [[ $INT_VERDICT == died ]]; then
+if [[ $INT_VERDICT == died || $INT_VERDICT == survived ]]; then
   run_signalled t5i INT '^cmd-running$' sh -c 'echo cmd-running; exec sleep 300'
   rceq "5  an INTed job-tee exits 128+2" "$SIG_RC" "130" "$(oneline "$SIG_LOG")"
   has  "5  ... and its footer records 130" "$SIG_LOG" "== job-tee exit   130 at "
-  has  "5  ... naming SIGINT" "$SIG_LOG" "(SIGINT)"
-else
-  if [[ $INT_VERDICT == survived ]]; then
-    INT_WHY="/bin/sh is ${SH_ID:-unknown}: async child kept SIGINT ignored; forwarded INT cannot reach the job"
+  if [[ $INT_VERDICT == died ]]; then
+    # The command got the INT itself and died of it, so the annotation is the
+    # historical one and no escalation may appear.
+    has "5  ... naming SIGINT" "$SIG_LOG" "(SIGINT)"
   else
-    INT_WHY="/bin/sh is ${SH_ID:-unknown}: the probe's child never became a running sleep, so SIGINT forwarding is unmeasured here"
+    # The command could not see the INT; the footer has to say what actually
+    # ended it rather than quietly claiming the INT did.
+    has "5  ... naming SIGINT and the escalation that ended the job" \
+        "$SIG_LOG" "(SIGINT; escalated to SIGTERM"
   fi
+  note "5  footer: [$(lastline "$SIG_LOG")]"
+else
+  INT_WHY="/bin/sh is ${SH_ID:-unknown}: the probe's child never became a running sleep, so this host's INT behaviour is unmeasured"
   skip "5  an INTed job-tee exits 128+2"     "$INT_WHY"
   skip "5  ... and its footer records 130"   "$INT_WHY"
   skip "5  ... naming SIGINT"                "$INT_WHY"
@@ -357,6 +427,123 @@ run_signalled t5h HUP '^cmd-running$' sh -c 'echo cmd-running; exec sleep 300'
 rceq "5  a HUPed job-tee exits 128+1" "$SIG_RC" "129" "$(oneline "$SIG_LOG")"
 has  "5  ... and its footer records 129" "$SIG_LOG" "== job-tee exit   129 at "
 has  "5  ... naming SIGHUP" "$SIG_LOG" "(SIGHUP)"
+
+# --------------------------------------------------------------------------
+# 5b. A command that cannot answer INT is TERMed after the grace -- everywhere
+# --------------------------------------------------------------------------
+# Section 5 above depends on what this host's /bin/sh does; this one does not.
+# $IGNORER sets SIGINT to SIG_IGN and execs, so the signalled process ignores
+# INT on every host, and the only thing that can still end it is job-tee's
+# escalation. What is asserted is the whole contract in one run: the recorded
+# status is the 130 the runner reports for the event, the annotation says the
+# TERM -- not the INT -- is what ended the job, the command's own 143 survives
+# into the annotation instead of being replaced by it, and the escalation lands
+# inside its budget. Without the upper bound this assertion would also pass for
+# a job-tee that escalated after nine seconds, i.e. one that still loses the
+# footer to a container engine's SIGKILL.
+
+run_signalled t5x INT '^ignorer-ready$' "$IGNORER"
+rceq "5b an INT-ignoring job is ended anyway: job-tee exits 128+2" \
+     "$SIG_RC" "130" "$(oneline "$SIG_LOG")"
+has  "5b ... and the annotation names the SIGTERM that did it" \
+     "$SIG_LOG" "escalated to SIGTERM"
+has  "5b ... carrying the command's own status, 128+15, as its own number" \
+     "$SIG_LOG" "command exited 143"
+# Printed to one and two decimals rather than as raw floats: `typeset -F' would
+# otherwise put [2.0000000000, 3.5] and 2.3650469999999997s into the output, and
+# a line nobody can read at a glance is a line nobody checks.
+within "5b ... within [$(printf '%.1f' $GRACE), $(printf '%.1f' $(( GRACE + 1.5 )))] s of the signal" \
+       "$SIG_ELAPSED" "$GRACE" "$(( GRACE + 1.5 ))"
+note "5b signal -> footer: $(printf '%.2f' $SIG_ELAPSED)s; footer: [$(lastline "$SIG_LOG")]"
+
+# --------------------------------------------------------------------------
+# 5c. The same escalation inside dash and busybox ash
+# --------------------------------------------------------------------------
+# The shells above are this host's. The exposure that motivated the escalation
+# is a container: an image whose STOPSIGNAL is SIGINT, where `docker-stop'
+# sends INT, /bin/sh is dash or busybox ash (neither of which honours the
+# reset), and the engine's 10 s timer ends an unanswered stop with SIGKILL and
+# no footer. So the assertion is made where it matters, in both images
+# .jobs.zsh can put a job into.
+#
+# Only bin/job-tee is bind-mounted, read-only, exactly as docker-run mounts it
+# (.jobs.zsh:965); /work is the container's own writable layer, so nothing
+# outside the container is written and `--rm' takes the whole thing away. The
+# INT is sent from inside the container, to job-tee's own pid, by the same
+# wrapper trick used above -- and for the same reason, since a backgrounded
+# job-tee would never receive an INT to begin with.
+#
+# The engine is resolved the way .jobs.zsh resolves it (stage 06): by which CLI
+# ANSWERS `info', not by which binary is on PATH. Images are never pulled: an
+# image that is not already local is a SKIP naming it, because pulling would be
+# a network dependency in a suite whose whole point is that it runs anywhere.
+
+typeset -g CTR_CLI="" c
+for c in ${JOB_CONTAINER_CLI:-} docker podman; do
+  [[ -n $c ]] || continue
+  command -v "$c" >/dev/null 2>&1 || continue
+  "$c" info >/dev/null 2>&1 || continue
+  CTR_CLI=$c
+  break
+done
+
+# POSIX sh, run as the container's own process. Written with `<<\EOF' heredocs
+# and no single quotes anywhere, so it survives being carried in a zsh
+# single-quoted string and handed to `sh -c' unmangled.
+typeset -g CTR_SRC='
+set -u
+mkdir -p /work/logs
+cd /work || exit 1
+cat > cmd.sh <<\CMD_EOF
+echo cmd-running
+exec sleep 300
+CMD_EOF
+cat > wrap.sh <<\WRAP_EOF
+echo $$ > /work/jt.pid
+exec /usr/local/bin/job-tee ctr /bin/sh /work/cmd.sh
+WRAP_EOF
+rm -f jt.pid
+(
+  i=0
+  while [ $i -lt 200 ]; do
+    if [ -s jt.pid ] && grep -q cmd-running logs/ctr.latest.log 2>/dev/null; then break; fi
+    i=$((i+1)); sleep 0.1
+  done
+  kill -INT $(cat jt.pid) 2>/dev/null
+  i=0
+  while [ $i -lt 150 ]; do
+    kill -0 $(cat jt.pid) 2>/dev/null || break
+    i=$((i+1)); sleep 0.1
+  done
+  kill -KILL $(cat jt.pid) 2>/dev/null
+) &
+/bin/sh wrap.sh >/dev/null 2>&1
+echo RC=$?
+cat logs/ctr.latest.log
+exit 0
+'
+
+typeset -g img CTR_OUT CTR_WHY
+for img in debian:stable-slim alpine:latest; do
+  CTR_WHY=""
+  if [[ -z $CTR_CLI ]]; then
+    CTR_WHY="no container engine answered \`info' (tried ${JOB_CONTAINER_CLI:+$JOB_CONTAINER_CLI, }docker, podman)"
+  elif ! "$CTR_CLI" image inspect "$img" >/dev/null 2>&1; then
+    CTR_WHY="$CTR_CLI has no local $img and this suite does not pull"
+  fi
+  if [[ -n $CTR_WHY ]]; then
+    skip "5c $img: an INTed job-tee exits 128+2"       "$CTR_WHY"
+    skip "5c $img: ... its footer records 130"         "$CTR_WHY"
+    skip "5c $img: ... naming the escalation to SIGTERM" "$CTR_WHY"
+    continue
+  fi
+  CTR_OUT=$("$CTR_CLI" run --rm -v "$JT:/usr/local/bin/job-tee:ro" "$img" \
+            /bin/sh -c "$CTR_SRC" 2>&1)
+  has "5c $img: an INTed job-tee exits 128+2"       "$CTR_OUT" "RC=130"
+  has "5c $img: ... its footer records 130"         "$CTR_OUT" "== job-tee exit   130 at "
+  has "5c $img: ... naming the escalation to SIGTERM" "$CTR_OUT" "escalated to SIGTERM"
+  note "5c $img: [$(lastline "$CTR_OUT")]"
+done
 
 # --------------------------------------------------------------------------
 # 6. A run that cannot be recorded does not happen
