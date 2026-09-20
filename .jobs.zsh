@@ -33,7 +33,7 @@
 #   start [TASK]         start a stopped definition again (launchd, Docker)
 #   rm [TASK|--all]      stop it and remove the definition
 #
-# plus tmux-new / tmux-go for plain interactive sessions, tmux-pick /
+# plus tmux-new / tmux-go (alias tmux-take) for plain interactive sessions, tmux-pick /
 # tmux-dash to choose one interactively, docker-clean for exited containers,
 # and job-* for the runner-independent pieces:
 #
@@ -441,7 +441,7 @@ _job_tmux_attach_polite() {
   n=$(_job_tmux "$host" display-message -p -t "=$name" '#{session_attached}' 2>/dev/null)
   if (( ${n:-0} > 0 )); then
     print -u2 "$name is attached elsewhere ($n client(s)) -- attaching READ-ONLY; that screen keeps it."
-    print -u2 "(to take it over instead: tmux-go <task> from the repo, or: tmux attach -d -t $name on $host)"
+    print -u2 "(to take it over instead: tmux-take <task> from the repo, or: tmux attach -d -t $name on $host)"
     _job_tmux_attach "$host" "$name" ro
   else
     _job_tmux_attach "$host" "$name"
@@ -563,6 +563,13 @@ tmux-go() {
   fi
   _job_tmux_attach "$host" "$name"
 }
+
+# tmux-take: the same function under the name that says what tmux-go does when
+# the session is held elsewhere. A mnemonic, not a fourth behaviour: like
+# tmux-go it creates a missing session, attaches a detached one, and displaces
+# the other client of an attached one (attach -d). The polite-attach hint
+# names it so the take-over reads as deliberate.
+tmux-take() { tmux-go "$@"; }
 
 # tmux-pick [--all]: choose a session and attach. Lists this repo's sessions on
 # every host (or every session everywhere with --all), plus a "new session"

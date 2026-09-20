@@ -27,3 +27,4 @@ espanso/match/private.yml
 # template documenting required names is .secrets.env.example. This entry is a
 # safety net in case a .secrets.env is ever created inside the repo dir.
 .secrets.env
+logs/

@@ -141,6 +141,11 @@ source "$WT/.jobs.zsh" || exit 1
 source "$WT/.claude-jobs.zsh" || exit 1
 # No tty here: record the attach instead of doing it.
 _job_tmux_attach() { print -r -- "attach $1 $2" >> "$BASE/attach.txt" }
+# The reminder-and-Enter before a new session would block on a terminal
+# stdin; shadow it, after checking the real one is a no-op off a terminal.
+_claude_job_confirm </dev/null t0 claude-smoke-t0; typeset -g RC=$?
+assert "_claude_job_confirm is a no-op when stdin is not a terminal" test $RC -eq 0
+_claude_job_confirm() { print -r -- "confirm $1 $2" >> "$BASE/confirm.txt" }
 
 cd "$REPO" || exit 1
 print "claude-smoke: $SLUG in $BASE"

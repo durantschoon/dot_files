@@ -528,6 +528,8 @@ eq "6e ... on host fakehost" "${${=claude_rows[1]}[1]}" "fakehost"
 
 eq "7a tmux-go attaches where the session lives" \
    "$(tmux-go claude 2>/dev/null)" "attach fakehost $SLUG-claude"
+eq "7a' tmux-take is the same verb" \
+   "$(tmux-take claude 2>/dev/null)" "attach fakehost $SLUG-claude"
 
 out=$(tmux-run claude -- sh -c 'echo remote; exit 0' 2>&1); rc=$?
 eq "7b tmux-run follows the session to fakehost" "$rc" "0"

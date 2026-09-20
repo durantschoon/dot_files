@@ -30,18 +30,41 @@
 # own (System Settings > Users & Groups > "Automatically log in as"), because
 # LaunchAgents run only after login.
 #
+# Before a NEW session starts, claude-run prints how to leave and come back
+# (C-b d, tmux-go TASK, tmux-logs TASK, claude-rm TASK) and waits for Enter,
+# so the escape hatch is on screen before the session swallows the terminal.
+# Skipped when stdin is not a terminal (scripts, the smoke test) or when
+# CLAUDE_JOB_CONFIRM=no.
+#
 # Knobs: CLAUDE_JOB_BIN (default ~/.claude/local/claude, else `claude` on
-# PATH), CLAUDE_JOB_MODE (--permission-mode, default auto). Local host only;
-# --on is not supported (the transcript lives on the machine that ran it).
+# PATH), CLAUDE_JOB_MODE (--permission-mode, default auto), CLAUDE_JOB_CONFIRM
+# (yes|no, default yes). Local host only; --on is not supported (the
+# transcript lives on the machine that ran it).
 
 typeset -g CLAUDE_JOB_BIN=${CLAUDE_JOB_BIN:-$HOME/.claude/local/claude}
 typeset -g CLAUDE_JOB_MODE=${CLAUDE_JOB_MODE:-auto}
+typeset -g CLAUDE_JOB_CONFIRM=${CLAUDE_JOB_CONFIRM:-yes}
 
 _claude_job_bin() {
   if [[ -x $CLAUDE_JOB_BIN ]]; then print -r -- "$CLAUDE_JOB_BIN"
   elif (( $+commands[claude] )); then print -r -- "${commands[claude]}"
   else print -u2 "claude-run: no claude binary at CLAUDE_JOB_BIN=$CLAUDE_JOB_BIN and none on PATH"; return 1
   fi
+}
+
+# The reminder-and-Enter before a new session. A function of its own so the
+# smoke test can shadow it, and a no-op off a terminal so nothing scripted can
+# block on it.
+_claude_job_confirm() {
+  local task=$1 name=$2
+  [[ -t 0 && $CLAUDE_JOB_CONFIRM != no ]] || return 0
+  print -u2 -- "claude-run: about to start '$name' in tmux. To leave and come back:"
+  print -u2 -- "  C-b d               detach; the session keeps running"
+  print -u2 -- "  tmux-go $task       attach again"
+  print -u2 -- "  tmux-logs $task     watch logs/$task.latest.log from outside"
+  print -u2 -- "  claude-rm $task     when it is done (session + agent; transcript kept)"
+  local reply
+  read -r "reply?claude-run: press Enter to launch, Ctrl-C to abort: " || { print -u2; return 130 }
 }
 
 _claude_job_guard() {
@@ -66,6 +89,7 @@ claude-run() {
     fi
     print -u2 "claude-run: '$name' already running; refreshing its relaunch agent and attaching"
   else
+    _claude_job_confirm "$task" "$name" || return
     job-init || return
     local -a cmd; cmd=("$bin" --permission-mode "$CLAUDE_JOB_MODE" "$@")
     # Quote each argument for the sh -c tmux uses. Done OUTSIDE double quotes:

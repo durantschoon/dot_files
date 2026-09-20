@@ -314,7 +314,7 @@ Examples:
 
 ```sh
 cd ~/Repos/myproj
-tmux-go                              # attach to session "myproj" (created if needed)
+tmux-go                              # attach to session "myproj" (created if needed; tmux-take is the same verb)
 tmux-run build -- make -j8 all       # session "myproj-build", window "build", logs/build.*.log
 tmux-logs build                      # tail -f logs/build.latest.log
 tmux-stop build                      # close the window; tmux-rm build kills the session
@@ -485,7 +485,9 @@ tmux-stop claude; tmux-rm --all      # act on the host that holds it
 **Polite attach.** The pickers and `tmux-peek` attach read-only (`tmux attach -r`)
 when another client already holds the session, and say so; that client keeps
 the session and no phone keystroke reaches the job. A detached session is
-attached normally. `tmux-go` is the explicit take-over (`attach -d`). Two
+attached normally. `tmux-go` is the explicit take-over (`attach -d`); `tmux-take`
+is the same function under a name that says so — a mnemonic, and it still
+creates a missing session and attaches a detached one exactly like `tmux-go`. Two
 clients on one session resize the window to whichever acted last
 (`window-size latest`), read-only ones included.
 
