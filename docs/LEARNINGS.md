@@ -59,3 +59,27 @@ failing or passing silently.
 
 **Pointers.** `docs/stages/stage-12-REPORT.md` (shell survey, probe timing);
 `bin/job-tee` signal block comments; `tests/jobs/tee-smoke.zsh` §5 probe.
+
+**Implemented in stage 13.** `bin/job-tee` now forwards the INT, gives the child
+`INT_ESCALATION_GRACE=2` seconds, and TERMs it if it is still alive; the recorded
+status stays `130` and the annotation reads
+`(SIGINT; escalated to SIGTERM after 2s; command exited 143)`. The grace is spent
+by a background watchdog polling `kill -0` every 0.1 s rather than by a poll in
+the handler, because the handler has to be inside `wait` for the child to be
+reaped — an unreaped child is a zombie and answers `kill -0` like a live one, so
+a poll that skipped the `wait` would escalate every time, including when the INT
+worked. Measured on macOS 27 (`/bin/sh` = bash 3.2.57, a `survived` host, so the
+escalation fires on every run): signal → footer 2.307 / 2.312 / 2.322 s, min
+2.307, median 2.312, and 2.34 s through `tee-smoke.zsh` §5b. On the other branch
+— Homebrew bash 5.3.15, which honours the reset — the INT kills the command
+outright, the watchdog exits early, and the footer is the historical `(SIGINT)`
+at 0.010 s, so a `died` host pays nothing for this. End to end, the exposure
+named above (`docker run -d --init --stop-signal SIGINT … job-tee t sleep 300`,
+then `docker stop`): with this change, exit `130`, `docker stop` 2.49 s
+(debian:stable-slim) / 2.51 s (alpine:latest), footer present in both; against
+the unmodified base the same run took 10.40 s, exited `137`, and its log's last
+line was `== cmd            sleep 300`. `tests/jobs/tee-smoke.zsh` therefore no
+longer SKIPs the INT assertions on a strict host: §5 runs them everywhere
+(only the probe's `unmeasured` outcome still skips), §5b asserts the escalation
+against a command that ignores INT outright, and §5c repeats it inside
+`debian:stable-slim` and `alpine:latest`. Job control is still not used.

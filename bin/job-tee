@@ -91,9 +91,14 @@ ln -sfn "$task.$stamp.log" "$latest" 2>/dev/null || refuse "$latest"
 # above.
 
 fifo="${TMPDIR:-/tmp}/job-tee.$$.fifo"
-rm -f "$fifo" 2>/dev/null
+# The INT-escalation watchdog further down answers through a flag file rather
+# than through an exit status: it must be able to say "I sent the TERM" without
+# racing the main shell's decision to stop waiting for it. It lives next to the
+# fifo because that directory has just been proved writable by the mkfifo.
+esc_flag="$fifo.escalated"
+rm -f "$fifo" "$esc_flag" 2>/dev/null
 mkfifo -m 600 "$fifo" 2>/dev/null || refuse "$fifo"
-trap 'rm -f "$fifo"' EXIT
+trap 'rm -f "$fifo" "$esc_flag"' EXIT
 
 exec 3>&1 4>&2                       # the real stdout/stderr, kept for the exit
 tee -a "$log" <"$fifo" &
@@ -113,7 +118,7 @@ footer() { printf '\n== job-tee exit   %s at %s%s\n' "$1" "$(date '+%Y-%m-%d %H:
 finish() {
   exec >&3 2>&4
   wait "$tee_pid" 2>/dev/null
-  rm -f "$fifo" 2>/dev/null
+  rm -f "$fifo" "$esc_flag" 2>/dev/null
   exit "$1"
 }
 
@@ -129,8 +134,59 @@ finish() {
 # command answered the signal with an exit status of its own (a trap that
 # exits 5) that number would otherwise be lost, so it rides along in the
 # annotation instead of replacing anything.
+#
+# INT alone also ESCALATES. On several of the shells this script runs under,
+# the command cannot receive a forwarded INT at all -- the long note at the
+# async start below has the measurements, docs/LEARNINGS.md (2026-09-19) has
+# the decision. "Forward and wait" on such a host waits for a death that never
+# comes, and the run then ends by the runner's own SIGKILL with NO FOOTER,
+# which is the single outcome this whole file exists to prevent. So an INT
+# that the command did not act on within a bounded grace is followed by a
+# TERM, which no shell ignores and every one of these shells delivers, and the
+# footer's annotation says that is what happened.
+
+# Seconds from the forwarded INT to the TERM behind it. It has to stay well
+# under a container engine's stop timeout -- Docker's default is 10 s from the
+# stop signal to SIGKILL -- because the whole sequence has to finish inside
+# that window: this grace, THEN the command's own TERM handling, then tee
+# draining and the footer. 2 s leaves 8 s of the 10 for the parts that are not
+# this script's to spend.
+INT_ESCALATION_GRACE=2
 
 signalled=0
+
+# Why the grace is a background watchdog and not a poll in the handler: the
+# handler must `wait' for the command (that is how the command's own exit
+# status is learned, and waiting reaps it), and a `kill -0' poll run by a shell
+# that has NOT yet waited is blind -- an unreaped child is a zombie, and a
+# zombie answers `kill -0' exactly like a live process, so such a poll would
+# report "still alive" and escalate every single time, including when the INT
+# worked perfectly. With the handler blocked in `wait', the child is reaped the
+# instant it dies, and the watchdog's `kill -0' becomes a truthful liveness
+# test.
+escalation_watchdog() {
+  # Poll granularity: a tenth of a second where the userland has one --
+  # measured accepted, and really sub-second, by macOS /bin/sh (bash 3.2),
+  # debian:stable-slim's dash and alpine's busybox ash (stage 13, Q1) -- and
+  # whole seconds where `sleep 0.1' is rejected, so a coarser userland gets a
+  # coarser grace rather than a grace that collapses to nothing.
+  if sleep 0.1 2>/dev/null; then
+    tick=0.1; ticks=$(( INT_ESCALATION_GRACE * 10 ))
+  else
+    tick=1;   ticks=$INT_ESCALATION_GRACE
+  fi
+  i=0
+  while [ "$i" -lt "$ticks" ]; do
+    kill -0 "$cmd_pid" 2>/dev/null || return 0     # the INT was enough
+    sleep "$tick"
+    i=$(( i + 1 ))
+  done
+  kill -0 "$cmd_pid" 2>/dev/null || return 0
+  # Flag first, signal second: the handler must never be able to read "not
+  # escalated" about a TERM that has in fact been sent.
+  : >"$esc_flag" 2>/dev/null
+  kill -s TERM "$cmd_pid" 2>/dev/null
+}
 
 on_signal() {
   name=$1
@@ -139,12 +195,30 @@ on_signal() {
   signalled=1
   status=$(( 128 + num ))
   cmd_status=$status
+  escalated=no
   if [ -n "${cmd_pid:-}" ]; then
     kill -s "$name" "$cmd_pid" 2>/dev/null
-    wait "$cmd_pid" 2>/dev/null
-    cmd_status=$?
+    if [ "$name" = INT ]; then
+      # `>/dev/null 2>&1' is not cosmetic: a background job inherits this
+      # shell's stdout, which IS the fifo, and tee only learns the log has
+      # ended when the last writer closes it. A watchdog still holding that
+      # write end would stall `finish' for the length of the grace.
+      escalation_watchdog >/dev/null 2>&1 &
+      watchdog_pid=$!
+      wait "$cmd_pid" 2>/dev/null
+      cmd_status=$?
+      kill -s TERM "$watchdog_pid" 2>/dev/null   # a no-op if it already ran
+      wait "$watchdog_pid" 2>/dev/null
+      [ -f "$esc_flag" ] && escalated=yes
+    else
+      wait "$cmd_pid" 2>/dev/null
+      cmd_status=$?
+    fi
   fi
-  if [ "$cmd_status" -eq "$status" ]; then
+  if [ "$escalated" = yes ]; then
+    footer "$status" \
+      " (SIG$name; escalated to SIGTERM after ${INT_ESCALATION_GRACE}s; command exited $cmd_status)"
+  elif [ "$cmd_status" -eq "$status" ]; then
     footer "$status" " (SIG$name)"
   else
     footer "$status" " (SIG$name; command exited $cmd_status)"
@@ -199,14 +273,25 @@ printf '== cmd            %s\n\n' "$cmdstr"
 #     TERM and HUP -- what docker-stop, launchd and `tmux kill-window' actually
 #     send -- are not in POSIX's ignore set and are unaffected; and a Ctrl-C in
 #     a tmux pane is delivered by the kernel to the whole foreground process
-#     group, so the command gets it directly whatever job-tee does. What is
+#     group, so the command gets it directly whatever job-tee does. What was
 #     left uncovered is a deliberate `kill -INT <job-tee-pid>' on those hosts,
-#     where job-tee now waits for the runner's own grace timer (podman: 10 s,
-#     then SIGKILL) instead of dying at once. tests/jobs/tee-smoke.zsh section 5
-#     does not assume either answer: it probes the local /bin/sh with this very
-#     construct and then either runs its three INT assertions or records them as
-#     SKIP lines naming the shell and its version -- so the limitation is always
-#     reported, and is never silently passed over.
+#     plus the realistic version of it: an image whose STOPSIGNAL is SIGINT, so
+#     `docker-stop' sends INT and the engine's 10 s timer ends the run with
+#     SIGKILL and no footer.
+#
+#     Since stage 13 the handler above does not depend on the reset working: an
+#     INT the command has not acted on within INT_ESCALATION_GRACE is followed
+#     by a TERM, and the footer records `escalated to SIGTERM'. Turning job
+#     control on was measured as the alternative and rejected -- it needs a
+#     controlling terminal that a detached container does not have, writes job
+#     notices into the log, and moves the child out of the foreground process
+#     group (docs/LEARNINGS.md, 2026-09-19). This script therefore never
+#     enables job control. The reset stays because where it IS
+#     honoured the command gets the real INT and the escalation never fires.
+#     tests/jobs/tee-smoke.zsh section 5 still probes the local /bin/sh with
+#     this very construct -- the probe is the explanation of which branch a host
+#     takes -- but the INT assertions themselves now run on every host, and
+#     section 5c proves the escalation inside dash and busybox ash.
 #
 #   * `<&0' -- POSIX assigns /dev/null to the standard input of an asynchronous
 #     list unless the redirection is explicit, and a job that could read its
