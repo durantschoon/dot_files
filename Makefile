@@ -264,6 +264,8 @@ help-text:
 	@echo "                       code, cached session, and whether the config is encrypted"
 	@echo "  make cloud-creds-strip - Remove the Proton password from the rclone config once the"
 	@echo "                       remote has a session; verifies and restores on failure"
+	@echo "  make cloud-creds-login - Re-authenticate the rclone remote when the session expires,"
+	@echo "                       then remove the password again automatically"
 	@echo "  make check-cloud   - Run the bin/cloud-dirs.sh smoke test (hermetic: scratch HOME and"
 	@echo "                       a stand-in Proton root, so it needs no account; not part of 'make check')"
 	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
@@ -1673,9 +1675,15 @@ cloud-sync:
 # bin/cloud-creds.sh holds the reasoning.
 #
 # check- is advisory here too, for the same reason check-cloud-dirs is.
-.PHONY: check-cloud-creds cloud-creds-strip
+.PHONY: check-cloud-creds cloud-creds-strip cloud-creds-login
 check-cloud-creds:
 	@bash bin/cloud-creds.sh check
+
+# The recovery path, as one command.  A session expires months after setup and
+# surfaces as a failing `make cloud-sync', so bin/cloud-sync.sh diagnoses that
+# case and names this target rather than leaving the steps to memory.
+cloud-creds-login:
+	@bash bin/cloud-creds.sh login
 
 cloud-creds-strip:
 	@bash bin/cloud-creds.sh strip $(if $(DRY_RUN),--dry-run,)

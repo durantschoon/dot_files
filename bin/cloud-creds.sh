@@ -3,6 +3,7 @@
 # config once the remote has a session, and prove the sync still works.
 #
 #   bin/cloud-creds.sh check [--strict]   report what is stored; advisory by default
+#   bin/cloud-creds.sh login              re-authenticate, then strip, in one step
 #   bin/cloud-creds.sh strip [--dry-run]  blank the secrets, verify, restore on failure
 #
 # WHY THIS EXISTS.  rclone's protondrive backend has no OAuth: `rclone config'
@@ -184,9 +185,8 @@ strip_mode() {
         cfg_has "$key" && session=$((session + 1))
     done
     (( session )) || die "$CLOUD_RCLONE_REMOTE has no cached session -- log in first:
-  rclone config                      (enter your REAL Proton password + a fresh 2FA code)
-  rclone lsd $CLOUD_RCLONE_REMOTE:   (confirm it works; this writes the session)
-then re-run this."
+  make cloud-creds-login
+which walks you through rclone config and then re-runs this automatically."
 
     # Refuse if the remote is already broken, so that a failure AFTER the edit
     # is unambiguously caused by the edit.
@@ -243,6 +243,46 @@ would only make the cause harder to find."
     return 1
 }
 
+# --- login ---------------------------------------------------------------
+
+# The whole re-authentication dance as one command, because the failure it
+# recovers from is rare enough that nobody remembers the steps: the session
+# expires months after it was set up, `make cloud-sync' fails with a transfer
+# error rather than an auth error, and the fix is a menu tree plus a follow-up
+# nobody wrote down.  So: hand over to rclone config, then do the follow-up
+# here.  strip_mode already refuses unless the login actually took, which is
+# why no separate "now check it worked" step is needed -- or possible to skip.
+login_mode() {
+    command -v rclone >/dev/null 2>&1 \
+        || die "rclone is not installed (make add-pkg PKG=rclone, then make apply)"
+
+    log "rclone config is about to open. In its menu:"
+    log ""
+    if rclone listremotes 2>/dev/null | grep -qx "$CLOUD_RCLONE_REMOTE:"; then
+        log "    e) Edit existing remote   ->   $CLOUD_RCLONE_REMOTE"
+    else
+        log "    n) New remote   ->   name it \"$CLOUD_RCLONE_REMOTE\", type \"protondrive\""
+    fi
+    log "    password:  y) Yes, type in my own password   <- NOT g) Generate"
+    log "               your real Proton account password"
+    log "    2fa:       a FRESH code from your authenticator, entered promptly"
+    log "    q) Quit config when the remote is written"
+    log ""
+    log "Then this will remove the password again, automatically."
+    log ""
+    printf 'Press Enter to open rclone config (Ctrl-C to abort): '
+    read -r _ || true
+
+    # No redirection: rclone config is a full-screen interactive menu and needs
+    # the terminal.  Its exit status covers the menu, not the login, so the
+    # verdict comes from strip_mode's own checks below.
+    rclone config || die "rclone config exited with an error"
+
+    log ""
+    log "==> rclone config done; cleaning up the credentials it stored"
+    strip_mode 0
+}
+
 # --- main ----------------------------------------------------------------
 
 mode=${1:-check}
@@ -252,12 +292,13 @@ for arg in "$@"; do
     case "$arg" in
         --strict)  strict=1 ;;
         --dry-run) dry=1 ;;
-        *) die "usage: cloud-creds.sh [check [--strict] | strip [--dry-run]]" ;;
+        *) die "usage: cloud-creds.sh [check [--strict] | login | strip [--dry-run]]" ;;
     esac
 done
 
 case "$mode" in
     check) check_mode "$strict" ;;
+    login) login_mode ;;
     strip) strip_mode "$dry" ;;
-    *) die "usage: cloud-creds.sh [check [--strict] | strip [--dry-run]]" ;;
+    *) die "usage: cloud-creds.sh [check [--strict] | login | strip [--dry-run]]" ;;
 esac

@@ -120,8 +120,9 @@ print "=== 3. refuses to strip a remote with no cached session ==="
 C=$(new_conf nosession no)
 OUT=$(run "$C" 0 strip) && fail "stripped a session-less remote" \
     || ok "refuses without a session"
-[[ "$OUT" == *"no cached session"* ]] && ok "says why, and how to fix it" \
-    || fail "unhelpful refusal: $OUT"
+[[ "$OUT" == *"no cached session"* ]] && ok "says why" || fail "unhelpful refusal: $OUT"
+[[ "$OUT" == *"make cloud-creds-login"* ]] && ok "names the one-command recovery" \
+    || fail "refusal leaves the recovery steps to memory: $OUT"
 grep -q '^password = TLMk' "$C" && ok "left the password alone" \
     || fail "removed the password anyway"
 

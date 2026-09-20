@@ -96,8 +96,21 @@ BISYNC_FLAGS=(
     # (it is a community, reverse-engineered backend -- rclone.org/protondrive
     # documents this).  Comparing on modtime would therefore see a difference
     # on every pass and churn forever.  Since v1.66 bisync can compare on any
-    # combination of size, modtime and checksum, and protondrive does support
-    # SHA1, so compare on what this backend can actually tell us.
+    # combination of size, modtime and checksum, so ask for what is left.
+    #
+    # CAVEAT, measured rather than assumed.  The backend ADVERTISES sha1, but
+    # Proton only has a hash for a file whose uploading client stored one --
+    # 1 of 72 files in Location/home/org had a sha1, the one rclone itself had
+    # uploaded; the rest came from Syncthing and the web client and have none.
+    # bisync says so on every pass: "hash unexpectedly blank despite Fs support
+    # (, ) (you may need to --resync!)".  The --resync it suggests does NOT fix
+    # this -- there is no hash to find -- and the warning is harmless.
+    #
+    # What it costs: for a file with neither hash nor modtime, SIZE is the only
+    # comparator, so an edit that preserves length (TODO -> DONE, a flipped
+    # date digit) is invisible to bisync until something else changes the file.
+    # The gap closes per-file as rclone re-uploads, since rclone stores a sha1
+    # when it writes.  Checksum stays in the list for exactly that reason.
     --compare size,checksum
     --resilient          # retry transient errors instead of aborting the pass
     --recover            # pick up from an interrupted run without a full resync
@@ -134,6 +147,20 @@ done
 
 if (( failed )); then
     printf '\n%d pair(s) failed.\n' "$failed" >&2
+    # Tell the two failure modes apart rather than making the human guess.  An
+    # expired session surfaces here as a pile of transfer errors, not as
+    # "login expired", and the fix is nothing like the baseline fix -- so ask
+    # the account one cheap question before offering any advice.  Only on the
+    # failure path: the happy path must not pay for this.
+    if ! rclone lsd "$CLOUD_RCLONE_REMOTE:" \
+            --retries 1 --low-level-retries 1 --timeout 30s >/dev/null 2>&1; then
+        printf '\n%s: cannot reach the account at all -- this is a LOGIN failure,\n' \
+               "$CLOUD_RCLONE_REMOTE" >&2
+        printf 'not a sync problem. The cached session has probably expired:\n' >&2
+        printf '  make cloud-creds-login\n' >&2
+        exit 1
+    fi
+    printf 'The account is reachable, so this is not a login problem.\n' >&2
     printf 'A first run, or one after a long gap, needs a baseline:\n' >&2
     printf '  make cloud-sync RESYNC=1\n' >&2
     exit 1
