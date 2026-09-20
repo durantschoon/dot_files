@@ -62,12 +62,14 @@ typeset -g REPO=$HOME_LOCAL/$REPO_REL
 typeset -g REPO_REMOTE=$HOME_REMOTE/$REPO_REL
 typeset -g SLUG=job-smoke-$$              # what _job_slugify makes of the above
 typeset -g FZF_CAPTURE=$BASE/fzf-input.txt
+typeset -g FZF_ARGV=$BASE/fzf-argv.txt    # the fake fzf's recorded argv
+typeset -g SHADOWBIN=$BASE/shadowbin      # ssh/tailscale as REAL scripts (see below)
 typeset -g OUTSIDE=$BASE/elsewhere/repo   # a checkout that is NOT under $HOME
 typeset -g OUTSIDE_SLUG=repo              # _job_slugify of the above
 typeset -g CTR_ARGV=$BASE/podman-argv.txt # the fake podman's recorded argv
 
 mkdir -p -- "$REPO" "$REPO_REMOTE" "$TMUX_LOCAL" "$TMUX_REMOTE" "$PATHBIN" \
-            "$OUTSIDE" "$HOME_LOCAL/Library/LaunchAgents" || exit 1
+            "$OUTSIDE" "$SHADOWBIN" "$HOME_LOCAL/Library/LaunchAgents" || exit 1
 
 # The scratch checkouts. Same basename on both sides, so both agree on the slug.
 git init -q -- "$REPO" 2>/dev/null || { print -u2 "smoke: git init failed"; exit 1 }
@@ -266,6 +268,12 @@ eq()  { [[ $2 == $3 ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]"
 eqlit() { [[ $2 == "$3" ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
 has() { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
 hasnt() { [[ $2 != *$3* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
+# The literal pair, for the same reason eqlit exists. A picker key is
+# "host|name" and an fzf binding is "ctrl-r:reload(...)": `|' is alternation in
+# a zsh pattern and `(' opens a group, so `*local|x*' and `*reload(*' do not
+# mean what they read as. These two quote the needle instead.
+haslit()   { [[ $2 == *"$3"* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
+hasntlit() { [[ $2 != *"$3"* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
 starts() { [[ $2 == $3* ]] && ok "$1" || fail "$1" "expected to start with: [$3]" "actual: [$2]" }
 # Non-zero exit, whatever the value: several new paths only promise "not 0".
 nonzero() { (( $2 != 0 )) && ok "$1 (rc=$2)" || fail "$1" "expected a non-zero exit, got 0" "${@:3}" }
@@ -307,9 +315,52 @@ ssh() {
     $SMOKE_REMOTE_SH -c "$*"
 }
 
+# The same two shadows again, as REAL EXECUTABLES this time.
+#
+# Since stage 14 the picker's list is rebuilt by a command fzf runs in a fresh,
+# non-interactive zsh (`zsh -f -c 'source .jobs.zsh; _tmux_pick_lines'`), and a
+# child process inherits none of this file's shell functions -- it would reach
+# for the developer's real ssh and the real tailnet. Section 9 has to run that
+# command for real to prove a refresh shows what a fresh invocation shows, so
+# the two shadows it needs also exist on disk, and $SHADOWBIN goes at the FRONT
+# of the full PATH. Nothing else changes: in this shell the functions above
+# still win over PATH, and $NOFZF_PATH deliberately does NOT carry $SHADOWBIN,
+# so N4a ("tailscale really is off this PATH") measures what it always did.
+command cat > "$SHADOWBIN/ssh" <<SSHSHIM
+#!/bin/sh
+while [ \$# -gt 0 ]; do
+  case \$1 in
+    -o|-i|-p|-l|-F) shift 2 ;;
+    -*)             shift ;;
+    *)              break ;;
+  esac
+done
+[ \$# -ge 2 ] || { echo "smoke ssh: expected HOST COMMAND, got: \$*" >&2; exit 255; }
+host=\$1; shift
+[ "\$host" = fakehost ] || { echo "smoke ssh: no such host '\$host'" >&2; exit 255; }
+HOME=$HOME_REMOTE TMUX_TMPDIR=$TMUX_REMOTE PATH=$SMOKE_REMOTE_PATH SHELL=/bin/sh \\
+  /bin/sh -c "\$*"
+SSHSHIM
+command cat > "$SHADOWBIN/tailscale" <<'TSSHIM'
+#!/bin/sh
+[ "$1" = status ] || exit 0
+printf '%s\n' "100.64.0.1      selfnode              durant@      macOS    -"
+printf '%s\n' "100.64.0.2      fakehost              durant@      macOS    -"
+printf '%s\n' "100.64.0.3      sleepy                durant@      linux    offline"
+TSSHIM
+chmod +x "$SHADOWBIN/ssh" "$SHADOWBIN/tailscale" || exit 1   # BSD chmod has no `--'
+export PATH=$SHADOWBIN:$PATH
+FULL_PATH=$PATH
+
 # No assertion may need a terminal.
 _job_tmux_attach() { print -r -- "attach $1 $2${3:+ $3}" }
-fzf() { command tee -- "$FZF_CAPTURE" | command sed -n "${SMOKE_PICK}p" }
+# Records BOTH halves of the call: stdin (the menu fzf was handed) and argv
+# (the bindings and header it was configured with, which is where the refresh
+# key and the poll live).
+fzf() {
+  print -rl -- "$@" > "$FZF_ARGV"
+  command tee -- "$FZF_CAPTURE" | command sed -n "${SMOKE_PICK}p"
+}
 
 # Re-source the file under test and put the shadows back. Sourcing redefines
 # _job_tmux_attach (the only shadow that .jobs.zsh itself owns); `tailscale`,
@@ -649,6 +700,169 @@ eq "9e tmux-peek attaches a detached session in take-over mode (no third arg)" \
    "$(tmux-peek t1 2>/dev/null)" "attach local $SLUG-t1"
 eq "9f tmux-peek never creates: unknown task is refused" \
    "$(tmux-peek nosuch 2>/dev/null; print rc=$?)" "rc=1"
+
+# --------------------------------------------------------------------------
+# 9(b). The picker's list is live: one producer, a refresh key, a timer
+# --------------------------------------------------------------------------
+# Stage 14. The contract: while a picker is open, one key rebuilds its list and
+# a timer rebuilds it unprompted, and a rebuilt list is EXACTLY what a fresh
+# invocation would show. The list therefore has one producer, _tmux_pick_lines,
+# and the proof that the reload really reproduces it is to run fzf's reload
+# command string -- taken from the recorded argv, not from this file's idea of
+# it -- in a fresh zsh and compare the bytes.
+
+# --- item 1: the lines ARE the list -----------------------------------------
+_tmux_repo_rows; rows=("${reply[@]}")
+_tmux_pick_lines >/dev/null; typeset -ga PICK_LINES=("${reply[@]}")
+eq "9g _tmux_pick_lines prints one line per row plus the new row" \
+   "$#PICK_LINES" "$(( $#rows + 1 ))"
+eq "9g ... keyed host|name" \
+   "${PICK_LINES[1]%%$'\t'*}" "${${(s:|:)rows[1]}[1]}|${${(s:|:)rows[1]}[2]}"
+haslit "9g ... and labelled, after the tab, with the session name" \
+   "${PICK_LINES[1]#*$'\t'}" "${${(s:|:)rows[1]}[2]}"
+eq "9g ... and the last line is the new-session row" "${PICK_LINES[-1]%%$'\t'*}" "new"
+
+_tmux_all_rows; typeset -ga ALL_ROWS=("${reply[@]}")
+_tmux_pick_lines --all >/dev/null; typeset -ga DASH_LINES=("${reply[@]}")
+eq "9h _tmux_pick_lines --all is every session on both servers, with no new row" \
+   "$#DASH_LINES" "$#ALL_ROWS"
+hasntlit "9h ... literally no new row" "${(F)DASH_LINES}" "new"$'\t'"new session"
+haslit "9h ... the local server's session is there"  "${(F)DASH_LINES}" "local|$SLUG-t1"$'\t'
+haslit "9h ... the remote server's session too"      "${(F)DASH_LINES}" "fakehost|$SLUG-claude"$'\t'
+haslit "9h ... and the labels carry the repo column" "${(F)DASH_LINES}" "$SLUG "
+
+# --- item 3: the bindings fzf was actually given ----------------------------
+# Read back from the recorded argv. Each --bind value is its own word, so the
+# binding for a key is the line that starts with it.
+# ${1} braced, not $1: an unbraced `$1:r' is zsh's "remove the extension"
+# history modifier, and "^$1:reload(" silently becomes "^ctrl-reload(", which
+# matches nothing and would have made every assertion below vacuous.
+smoke_fzf_bind() { command grep -m1 -- "^${1}:reload(" "$FZF_ARGV" }
+# The reload command inside a `KEY:reload(CMD)+transform-header(...)' value.
+smoke_reload_cmd() {
+  local b=$(smoke_fzf_bind "$1")
+  b=${b#*reload\(}
+  print -r -- "${b%%\)+*}"
+}
+
+command rm -f -- "$FZF_ARGV"
+SMOKE_PICK=1
+tmux-pick >/dev/null 2>&1
+typeset -g PICK_ARGV="$(command cat "$FZF_ARGV")"
+haslit "9i tmux-pick binds ctrl-r to a reload"       "$PICK_ARGV" "ctrl-r:reload("
+haslit "9i ... and the default poll to the timer"    "$PICK_ARGV" "every(120):reload("
+haslit "9i ... the header names the refresh key"     "$PICK_ARGV" "ctrl-r refresh"
+haslit "9i ... and the poll"                         "$PICK_ARGV" "auto every 120s"
+haslit "9i ... and carries an updated stamp"         "$PICK_ARGV" "updated "
+haslit "9i ... the cursor survives a reload by key, not by index" "$PICK_ARGV" "--id-nth"
+
+# JOB_PICK_POLL is assigned, not passed as a one-shot prefix: zsh does not
+# restore a prefix assignment made to a FUNCTION call, so the "restore" has to
+# be written out anyway -- and then it may as well be visible.
+command rm -f -- "$FZF_ARGV"
+JOB_PICK_POLL=0
+tmux-pick >/dev/null 2>&1
+hasntlit "9j JOB_PICK_POLL=0 leaves no timer binding" "$(command cat "$FZF_ARGV")" "every("
+haslit   "9j ... but ctrl-r is still bound"           "$(command cat "$FZF_ARGV")" "ctrl-r:reload("
+JOB_PICK_POLL=120
+command rm -f -- "$FZF_ARGV"
+tmux-pick --poll 0 >/dev/null 2>&1
+hasntlit "9j --poll 0 likewise"                       "$(command cat "$FZF_ARGV")" "every("
+command rm -f -- "$FZF_ARGV"
+tmux-pick --poll 7 >/dev/null 2>&1
+haslit "9j --poll 7 reads every(7)"                   "$(command cat "$FZF_ARGV")" "every(7):reload("
+haslit "9j ... and the header says 7s"                "$(command cat "$FZF_ARGV")" "auto every 7s"
+out=$(tmux-pick --poll nope 2>&1); rc=$?
+eq     "9j --poll wants whole seconds" "$rc" "64"
+haslit "9j ... and says so"            "$out" "whole seconds"
+
+# --- item 2: the reload command reproduces the list -------------------------
+# _job_ago renders "Ns ago", so two identical listings taken either side of a
+# clock tick differ by a second and nothing else. The reload is therefore run
+# BETWEEN two _tmux_pick_lines calls and the comparison only counts when those
+# two agree: then no second boundary was crossed, and any difference left is a
+# real one.
+typeset -g RL_OUT= PK_OUT=
+smoke_pick_pair() {                       # smoke_pick_pair CMD [--all]
+  local cmd=$1; shift
+  local i before after
+  for i in {1..20}; do
+    _tmux_pick_lines "$@" >/dev/null; before=${(F)reply}
+    RL_OUT=$("$SMOKE_ZSH" -c "$cmd")
+    _tmux_pick_lines "$@" >/dev/null; after=${(F)reply}
+    [[ $before == $after ]] && { PK_OUT=$before; return 0 }
+  done
+  return 1
+}
+
+# The scalars tmux-pick exports for the duration of its call (the third,
+# JOB_CONTAINER_CLI, no picker code path reads). A `local -x' cannot be
+# observed from outside the call, so the test sets the same ones itself -- and
+# then shows below that they are load-bearing.
+export JOB_HOSTS_EXPORT="${(j: :)JOB_HOSTS}" JOB_HOST="$JOB_HOST"
+
+command rm -f -- "$FZF_ARGV"
+tmux-pick >/dev/null 2>&1
+typeset -g RELOAD_PICK="$(smoke_reload_cmd ctrl-r)"
+eqlit "9k the reload command is a fresh zsh with no rc files" \
+      "${RELOAD_PICK%% -c *}" "'$_JOB_ZSH_BIN' -f"
+haslit "9k ... re-sourcing this worktree's copy, not ~/dot_files" \
+       "$RELOAD_PICK" "'${JOBS_ZSH:A}'"
+smoke_pick_pair "$RELOAD_PICK" \
+  || fail "9k the clock ticked on all 20 tries" "$RELOAD_PICK"
+eqlit "9k the reload reproduces tmux-pick's list byte for byte" "$RL_OUT" "$PK_OUT"
+hasntlit "9k ... and JOB_HOSTS_EXPORT is what carries the hosts: emptied, the remote's rows go" \
+         "$(JOB_HOSTS_EXPORT= "$SMOKE_ZSH" -c "$RELOAD_PICK")" "fakehost|"
+
+command rm -f -- "$FZF_ARGV"
+tmux-dash >/dev/null 2>&1
+typeset -g RELOAD_DASH="$(smoke_reload_cmd ctrl-r)"
+haslit "9l tmux-dash's reload asks for the whole dashboard" "$RELOAD_DASH" "_tmux_pick_lines --all"
+smoke_pick_pair "$RELOAD_DASH" --all \
+  || fail "9l the clock ticked on all 20 tries" "$RELOAD_DASH"
+eqlit "9l the reload reproduces tmux-dash's list byte for byte" "$RL_OUT" "$PK_OUT"
+
+# ... and it is a reload, not a replay: a session started on the REMOTE server
+# after fzf opened must appear in it.
+rtmux new-session -d -s "$SLUG-late" -c "$REPO_REMOTE" || fail "9m cannot create the late session"
+smoke_pick_pair "$RELOAD_PICK" || fail "9m the clock ticked on all 20 tries"
+haslit "9m a session started after fzf opened shows up in the reload" \
+       "$RL_OUT" "fakehost|$SLUG-late"$'\t'
+eqlit  "9m ... and the reloaded list still matches a fresh one exactly" "$RL_OUT" "$PK_OUT"
+rtmux kill-session -t "=$SLUG-late" >/dev/null 2>&1
+unset JOB_HOSTS_EXPORT
+
+# --- item 5: how a chosen row is attached is unchanged ----------------------
+_tmux_repo_rows; rows=("${reply[@]}")
+want1="${${(s:|:)rows[1]}[1]} ${${(s:|:)rows[1]}[2]}"
+want2="${${(s:|:)rows[2]}[1]} ${${(s:|:)rows[2]}[2]}"
+SMOKE_PICK=2
+eq "9n after a rebuild, picking a row still attaches through the polite path" \
+   "$(tmux-pick 2>/dev/null)" "attach $want2"
+SMOKE_PICK=1
+
+# --- item 4: the numbered menu refreshes, quits, and redraws on the timer ---
+typeset -g MENU_ERR1=$BASE/menu-err1.txt MENU_ERR2=$BASE/menu-err2.txt
+out=$( unfunction fzf; PATH=$NOFZF_PATH; print -l r 2 | tmux-pick 2>"$MENU_ERR1" )
+eq "9o the menu redraws on r, then attaches the row number" "$out" "attach $want2"
+# One prompt per draw, and the prompt is the only thing that always starts a
+# line: the menu that follows an `r' begins on the same line as the prompt the
+# `r' was typed at, because a pipe does not echo the newline a terminal would.
+eq "9o ... and the menu really was drawn twice" \
+   "$(command grep -c '^attach>' "$MENU_ERR1")" "2"
+haslit "9o ... the prompt says what the keys are" \
+       "$(command cat "$MENU_ERR1")" "[number, r=refresh, q=quit; auto-refresh 120s]"
+
+out=$( unfunction fzf; PATH=$NOFZF_PATH; print q | tmux-pick 2>/dev/null; print "rc=$?" )
+eq "9o q quits with status 0 and attaches nothing" "$out" "rc=0"
+
+out=$( unfunction fzf; PATH=$NOFZF_PATH
+       { sleep 1.5; print 1 } | tmux-pick --poll 1 2>"$MENU_ERR2" )
+eq "9p --poll 1 redraws by itself while stdin is silent, then attaches" \
+   "$out" "attach $want1"
+typeset -g N_MENU=$(command grep -c '^attach>' "$MENU_ERR2")
+eq "9p ... the timer redrew the menu ($N_MENU draws, at least 2 wanted)" \
+   "$(( N_MENU >= 2 ))" "1"
 
 # --------------------------------------------------------------------------
 # 10. Stop and rm across hosts

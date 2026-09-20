@@ -336,7 +336,9 @@ job-logs build -l                    # every log file for a task, newest first
 
 Knobs: `JOB_DOCKER_IMAGE` (default image), `JOB_DOCKER_ARGS` (zsh array of
 extra `docker run` flags, e.g. `-e FOO=1`), `JOB_LAUNCHD_PREFIX` (default
-`local.job`), and `JOB_CONTAINER_CLI` — the container CLI the `docker-*` verbs
+`local.job`), `JOB_PICK_POLL` (seconds between `tmux-pick` / `tmux-dash`
+auto-refreshes, default `120`, `0` disables the timer; `--poll SECONDS`
+overrides it for one call), and `JOB_CONTAINER_CLI` — the container CLI the `docker-*` verbs
 drive. It is **resolved on first use, by which engine actually answers
 `info`**, not by which binary happens to be on `PATH`: sourcing `.jobs.zsh`
 runs neither engine, and the first `docker-*` verb of a shell tries `docker`
@@ -479,8 +481,22 @@ tmux-peek claude                     # look without disturbing: read-only if ano
 tmux-run build --on mac -- make all  # run over there, log in mac's ./logs/
 tmux-pick                            # pick one of this repo's sessions (fzf, else a menu); polite attach
 tmux-dash                            # pick from every session on every host (any directory); polite attach
+tmux-dash --poll 30                  # ... refreshing itself every 30s instead of the default 120
 tmux-stop claude; tmux-rm --all      # act on the host that holds it
 ```
+
+**The picker's list is live.** While `tmux-pick` or `tmux-dash` is open, `ctrl-r`
+(fzf) or `r` (the numbered menu) rebuilds the list in place, and it also rebuilds
+itself every `JOB_PICK_POLL` seconds — 120 by default, `0` to switch the timer
+off, `--poll SECONDS` for one call — so a dashboard left open on a phone stops
+showing the world as it was when it was opened. A refresh shows exactly what a
+fresh invocation would: fzf reruns the same list producer in a throwaway `zsh -f`
+that re-sources `.jobs.zsh` (`JOB_HOSTS` is an array and cannot be exported, so
+it travels as the scalar `JOB_HOSTS_EXPORT` for the duration of the call), the
+header carries an `updated HH:MM:SS` stamp, and `--track --id-nth 1` keeps the
+cursor on the same session rather than on the same row number. The timer needs
+fzf ≥ 0.73 (`every(N)`); on anything older `ctrl-r` still works and the header
+says the timer is off.
 
 **Polite attach.** The pickers and `tmux-peek` attach read-only (`tmux attach -r`)
 when another client already holds the session, and say so; that client keeps

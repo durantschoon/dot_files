@@ -34,7 +34,8 @@
 #   rm [TASK|--all]      stop it and remove the definition
 #
 # plus tmux-new / tmux-go (alias tmux-take) for plain interactive sessions, tmux-pick /
-# tmux-dash to choose one interactively, docker-clean for exited containers,
+# tmux-dash to choose one interactively (live: ctrl-r or `r' refreshes, and a
+# JOB_PICK_POLL timer refreshes by itself), docker-clean for exited containers,
 # and job-* for the runner-independent pieces:
 #
 #   job-record [TASK]    the latest value of every key in ./logs/<task>.job
@@ -46,6 +47,31 @@
 # tmux sessions form ONE namespace across machines: see "Hosts" below.
 #
 # Sourced from ~/.aliases. Needs zsh; launchd-* need macOS.
+
+# ---------------------------------------------------------------------------
+# Where this file is, and how a child shell gets a shell's settings
+# ---------------------------------------------------------------------------
+# tmux-pick's list is rebuilt by fzf, and fzf rebuilds it by running a SHELL
+# COMMAND in a fresh, non-interactive shell -- one that has never sourced this
+# file and cannot be handed a zsh function.  So the reload command re-sources
+# this file, which means this file has to know where it is: `%x' is the name of
+# the file whose source is being executed, read here, once, while that is still
+# true (inside a function it would name the function's file, and after sourcing
+# it is gone).  `:A' resolves the ~/.aliases -> ~/dot_files symlink chain, so
+# the path still works from a shell started anywhere.
+typeset -g _JOB_ZSH_FILE=${${(%):-%x}:A}
+# The zsh to re-source it with.  fzf runs its commands through `$SHELL -c',
+# which is not necessarily zsh (the smoke suite pins /bin/sh), so the reload
+# command names its interpreter instead of assuming one.
+typeset -g _JOB_ZSH_BIN=${commands[zsh]:-zsh}
+#
+# What that child cannot inherit is an ARRAY: only the environment crosses an
+# exec, and the environment holds scalars.  JOB_HOST and JOB_CONTAINER_CLI are
+# scalars and travel as themselves; JOB_HOSTS does not, so tmux-pick exports
+# JOB_HOSTS_EXPORT -- the same names, space separated -- for the duration of
+# the call, and the host block further down fills an unset JOB_HOSTS from it.
+# Set-but-empty ("no other hosts") and unset ("nobody said") are different
+# answers, so `${+...}' decides which, never emptiness.
 
 # ---------------------------------------------------------------------------
 # Shared: names, roots, logs
@@ -309,7 +335,16 @@ job-status() {
 # twin. A new session goes to --on HOST, else $JOB_HOST, else local.
 #
 # Only tmux is host-aware for now; launchd-* and docker-* act on this machine.
-(( ${+JOB_HOSTS} )) || typeset -ga JOB_HOSTS=(minius)
+#
+# An unset JOB_HOSTS is filled from JOB_HOSTS_EXPORT when that scalar is set
+# (tmux-pick's reload command; see the header), else from the built-in default.
+if (( ! ${+JOB_HOSTS} )); then
+  if (( ${+JOB_HOSTS_EXPORT} )); then
+    typeset -ga JOB_HOSTS=(${=JOB_HOSTS_EXPORT})
+  else
+    typeset -ga JOB_HOSTS=(minius)
+  fi
+fi
 : ${JOB_HOST:=local}
 typeset -g _JOB_SSH_CONNECT_TIMEOUT=3
 # Connection reuse, shared by every ssh this file runs: one master per
@@ -571,27 +606,183 @@ tmux-go() {
 # names it so the take-over reads as deliberate.
 tmux-take() { tmux-go "$@"; }
 
-# tmux-pick [--all]: choose a session and attach. Lists this repo's sessions on
-# every host (or every session everywhere with --all), plus a "new session"
-# row. Uses fzf when installed, else a numbered menu.
-tmux-pick() {
+# ---------------------------------------------------------------------------
+# tmux-pick / tmux-dash: the list, the refresh key, and the timer
+# ---------------------------------------------------------------------------
+# The invariant: while a picker is open, one key rebuilds its list and a timer
+# rebuilds it unprompted, and a rebuilt list is exactly what a fresh invocation
+# would show -- same rows, same order, same host filtering. A dashboard left
+# open on a phone otherwise shows the world as it was when it was opened.
+#
+# That is why the list has exactly ONE producer, _tmux_pick_lines: it is built
+# once here and again, in a fresh shell, on every reload, and two producers
+# would be two chances to disagree.
+
+# Seconds between automatic refreshes; 0 turns the timer off. --poll SECONDS
+# overrides it for one call.
+: ${JOB_PICK_POLL:=120}
+# The fzf minor version that introduced the every(N) timer event: 0.73.0,
+# "Timer-driven `every(N)` event for `--bind`" (fzf CHANGELOG.md). reload()
+# has been there since 0.19.0, so ctrl-r needs no version test -- only the
+# timer does, and an unknown event name makes fzf exit with a usage error
+# instead of starting. --track/--id-nth hang off the SAME probe, deliberately
+# conservatively: their own introducing version was not looked up, so an fzf
+# too old for every(N) is simply given neither rather than guessed at.
+typeset -g _JOB_FZF_EVERY_MINOR=73
+
+# _tmux_pick_lines [--all] -- one "key<TAB>label" line per session, plus the
+# trailing "new" row unless --all. key is "host|name".
+#
+# Answers BOTH ways on purpose: the lines go to stdout, because this is the
+# command fzf reloads with, and into `reply', because that is how tmux-pick
+# reads them. `lines=$(_tmux_pick_lines)' would run the host walk inside a
+# subshell and throw away _job_ts_status's warned-once guard -- the very bug
+# _job_hosts answers in `reply' to avoid.
+_tmux_pick_lines() {
   local all=0; [[ $1 == --all || $1 == -a ]] && all=1
-  local -a rows keys labels; local r
+  local r; local -a rows
   if (( all )); then _tmux_all_rows; else _tmux_repo_rows; fi
   rows=("${reply[@]}")
+  typeset -ga reply; reply=()
   for r in "${rows[@]}"; do
-    keys+=("${${(s:|:)r}[1]}|${${(s:|:)r}[2]}"); labels+=("$(_tmux_label "$r" $all)")
+    reply+=("${${(s:|:)r}[1]}|${${(s:|:)r}[2]}"$'\t'"$(_tmux_label "$r" $all)")
   done
-  (( all )) || { keys+=(new); labels+=("new session '$(job-name)' on $JOB_HOST"); }
-  (( $#keys )) || { _job_hosts; print -u2 "tmux-pick: no sessions on ${(j:, :)reply}"; return 1; }
+  (( all )) || reply+=("new"$'\t'"new session '$(job-name)' on $JOB_HOST")
+  (( $#reply )) && print -l -- "${reply[@]}"
+  return 0
+}
+
+# The shell command string fzf reloads with: a fresh zsh, no rc files, that
+# re-sources this file and calls the function above. The cwd is fzf's, which
+# is tmux-pick's, so job-repo resolves the same repo; JOB_HOSTS_EXPORT /
+# JOB_HOST / JOB_CONTAINER_CLI come from the environment tmux-pick exports.
+# stderr is dropped: the parent shell has already said whatever there was to
+# say (the tailscale warning is once per shell), and a child writing over the
+# fzf window would be noise, not information.
+#
+# The file path travels as a POSITIONAL PARAMETER rather than spliced into the
+# script: one level of quoting instead of two, so a path with a space in it
+# cannot come apart, and the script itself holds no quote that needs escaping.
+# One limit worth naming: fzf scans reload(...) for the closing parenthesis, so
+# a repo path containing one would need the reload:CMD form instead.
+_tmux_pick_reload_cmd() {
+  local script='source "$1" 2>/dev/null; _tmux_pick_lines'
+  (( ${1:-0} )) && script+=' --all'
+  script+=' 2>/dev/null'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE}"
+}
+
+# Does the fzf on PATH have every(N)? Probed once per shell from `fzf
+# --version', never assumed: this Mac has 0.74.3, but the phone and the Guix
+# host ship whatever their package trees ship. Non-digits are stripped before
+# the comparison so a version like "0.74.3 (Homebrew)" or an rc suffix cannot
+# turn the test into a math error.
+_tmux_fzf_has_every() {
+  if (( ! ${+_JOB_FZF_EVERY} )); then
+    typeset -g _JOB_FZF_EVERY=0
+    local v=${${(s: :)"$(command fzf --version 2>/dev/null)"}[1]}
+    local -a p; p=(${(s:.:)v})
+    local major=${p[1]//[^0-9]/} minor=${p[2]//[^0-9]/}
+    (( ${major:-0} > 0 || ${minor:-0} >= _JOB_FZF_EVERY_MINOR )) && _JOB_FZF_EVERY=1
+  fi
+  (( _JOB_FZF_EVERY ))
+}
+
+# tmux-pick [--all] [--poll SECONDS]: choose a session and attach. Lists this
+# repo's sessions on every host (or every session everywhere with --all), plus
+# a "new session" row. Uses fzf when installed, else a numbered menu.
+#
+# Live in both: ctrl-r (fzf) or `r' (menu) rebuilds the list, and it rebuilds
+# itself every JOB_PICK_POLL seconds -- default 120, 0 for never, --poll
+# SECONDS for this one call. How a chosen row is attached is unchanged: the
+# polite attach, read-only when another client holds the session.
+tmux-pick() {
+  local all=0 poll=${JOB_PICK_POLL:-120}
+  local usage="usage: tmux-pick [--all] [--poll SECONDS]"
+  while (( $# )); do
+    case $1 in
+      --all|-a) all=1; shift ;;
+      --poll)   poll=$2; shift 2 ;;
+      *) print -u2 "tmux-pick: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
+    esac
+  done
+  [[ $poll == <-> ]] || {
+    print -u2 "tmux-pick: --poll wants whole seconds, 0 to disable the timer; got '$poll'"
+    print -u2 "$usage"; return 64
+  }
+
+  # The environment the reload command inherits, for the duration of this call
+  # only (`local -x'). Captured into plain locals first: `local -x X=$X' reads
+  # the name it is in the middle of shadowing.
+  local hosts_now=${(j: :)JOB_HOSTS} host_now=$JOB_HOST cli_now=${JOB_CONTAINER_CLI-}
+  local -x JOB_HOSTS_EXPORT=$hosts_now JOB_HOST=$host_now JOB_CONTAINER_CLI=$cli_now
+
+  local -a allflag; (( all )) && allflag=(--all)
+  _tmux_pick_lines "${allflag[@]}" >/dev/null
+  local -a lines; lines=("${reply[@]}")
+  (( $#lines )) || { _job_hosts; print -u2 "tmux-pick: no sessions on ${(j:, :)reply}"; return 1; }
+
   local choice
   if command -v fzf >/dev/null 2>&1; then
-    choice=$(paste <(print -l -- "${keys[@]}") <(print -l -- "${labels[@]}") \
-      | fzf --delimiter=$'\t' --with-nth=2 --height=50% --reverse --no-sort --prompt='attach> ' | cut -f1)
+    local reload timer=0
+    reload=$(_tmux_pick_reload_cmd $all)
+    (( poll > 0 )) && _tmux_fzf_has_every && timer=1
+    local hint="enter attach · ctrl-r refresh"
+    if (( timer )); then                     hint+=" · auto every ${poll}s"
+    elif (( poll > 0 )); then                hint+=" · no auto (fzf < 0.$_JOB_FZF_EVERY_MINOR)"
+    else                                     hint+=" · auto off"
+    fi
+    hint+=" · esc quit"
+    # The stamp is what proves a reload happened. `date' with the whole header
+    # as its format string is ONE command with no nested substitution, which
+    # is what makes it safe to hand to fzf inside a --bind.
+    local stamp_fmt="+$hint · updated %H:%M:%S"
+    local stamp_cmd="date ${(qq)stamp_fmt}"
+    local -a binds
+    binds=(--bind "ctrl-r:reload($reload)+transform-header($stamp_cmd)")
+    (( timer )) && binds+=(--bind "every($poll):reload($reload)+transform-header($stamp_cmd)")
+    # --track --id-nth 1 keeps the cursor on the SAME session across a reload
+    # (field 1 is the host|name key), instead of on whatever row now happens
+    # to hold that index. Wanted for ctrl-r too, so it hangs off the version
+    # probe rather than off the timer being on.
+    local -a track; _tmux_fzf_has_every && track=(--track --id-nth 1)
+    choice=$(print -l -- "${lines[@]}" \
+      | fzf --delimiter=$'\t' --with-nth=2 --height=50% --reverse --no-sort \
+            --prompt='attach> ' --header "$(command date "$stamp_fmt")" \
+            "${track[@]}" "${binds[@]}" \
+      | cut -f1)
     [[ -n $choice ]] || return 1
   else
-    local PS3='attach> '
-    select choice in "${labels[@]}"; do [[ -n $choice ]] && { choice=$keys[$REPLY]; break; }; done
+    # No fzf, so the timer is zsh's. `read -t' cannot tell a timeout from
+    # end-of-input -- both return 1 -- and a menu that redrew on EOF would
+    # spin forever, so the wait is zselect's: it returns 0 when fd 0 is
+    # READABLE, which at EOF it is, and 1 only when the interval ran out.
+    # Without the module there is no timer, and the prompt does not claim one.
+    local ticker=0
+    (( poll > 0 )) && zmodload zsh/zselect 2>/dev/null && ticker=1
+    local hint="attach> [number, r=refresh, q=quit"
+    (( ticker )) && hint+="; auto-refresh ${poll}s"
+    hint+="] "
+    local ans i
+    choice=""
+    while :; do
+      for i in {1..$#lines}; do printf '%2d) %s\n' $i "${lines[$i]#*$'\t'}" >&2; done
+      printf '%s' "$hint" >&2
+      if (( ticker )) && ! zselect -t $(( poll * 100 )) -r 0 2>/dev/null; then
+        print -u2 ""                          # the interval ran out: redraw
+        _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
+        continue
+      fi
+      ans=""
+      read -r ans || break                    # end of input: nothing chosen
+      case $ans in
+        q|Q) return 0 ;;
+        r|R|"") _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}") ;;
+        <->) if (( ans >= 1 && ans <= $#lines )); then choice=${lines[$ans]%%$'\t'*}; break
+             else print -u2 "tmux-pick: there is no row $ans"; fi ;;
+        *) print -u2 "tmux-pick: enter a row number, r to refresh, or q to quit" ;;
+      esac
+    done
     [[ -n $choice ]] || return 1
   fi
   if [[ $choice == new ]]; then tmux-go; else _job_tmux_attach_polite "${choice%%|*}" "${choice#*|}"; fi
@@ -606,8 +797,9 @@ tmux-peek() {
   host=$reply[1]
   _job_tmux_attach_polite "$host" "$name"
 }
-# tmux-dash: every session on every host, grouped by recency; pick one to attach.
-tmux-dash() { tmux-pick --all; }
+# tmux-dash: every session on every host, grouped by recency; pick one to
+# attach. tmux-pick --all under another name, and it takes the same flags.
+tmux-dash() { tmux-pick --all "$@"; }
 
 # tmux-run TASK [--on HOST] [--] CMD...: run CMD in a window named TASK of the
 # task's session, teeing to ./logs/. Runs where the session already exists,
