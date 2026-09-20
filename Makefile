@@ -260,6 +260,10 @@ help-text:
 	@echo "                       automatically at the end of apply/apply-wayland/setup-native)"
 	@echo "  make cloud-sync    - Linux only: two-way rclone bisync of those dirs with Proton"
 	@echo "                       Drive (RESYNC=1 for the first run, DRY_RUN=1 to preview)"
+	@echo "  make check-cloud-creds - Report what the rclone remote stores: password, stale 2FA"
+	@echo "                       code, cached session, and whether the config is encrypted"
+	@echo "  make cloud-creds-strip - Remove the Proton password from the rclone config once the"
+	@echo "                       remote has a session; verifies and restores on failure"
 	@echo "  make check-cloud   - Run the bin/cloud-dirs.sh smoke test (hermetic: scratch HOME and"
 	@echo "                       a stand-in Proton root, so it needs no account; not part of 'make check')"
 	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
@@ -1660,13 +1664,31 @@ check-cloud-dirs:
 cloud-sync:
 	@bash bin/cloud-sync.sh $(if $(RESYNC),--resync,) $(if $(DRY_RUN),--dry-run,)
 
-# The cloud-dirs test suite.  Hermetic -- a scratch HOME and a scratch stand-in
-# for the Proton root, no account, no rclone, no network -- but kept out of
-# `make check' for the same reason check-jobs is: `check' reports on THIS
-# machine's state, while this proves the script's behaviour.
+# The credential half of the same story.  rclone's protondrive backend has no
+# OAuth, so `rclone config' takes the real Proton ACCOUNT password -- which in
+# one-password mode also derives the mailbox keys -- and stores it "obscured",
+# which `rclone reveal' undoes.  Once a login has cached a session in the
+# remote, the password is no longer needed; cloud-creds-strip removes it and
+# proves the sync still works, restoring the config if it does not.
+# bin/cloud-creds.sh holds the reasoning.
+#
+# check- is advisory here too, for the same reason check-cloud-dirs is.
+.PHONY: check-cloud-creds cloud-creds-strip
+check-cloud-creds:
+	@bash bin/cloud-creds.sh check
+
+cloud-creds-strip:
+	@bash bin/cloud-creds.sh strip $(if $(DRY_RUN),--dry-run,)
+
+# The cloud test suites.  Both hermetic -- dirs-smoke uses a scratch HOME and a
+# scratch stand-in for the Proton root; creds-smoke puts a stub rclone in front
+# of the real one on PATH -- so neither needs an account, a network or rclone
+# itself.  Kept out of `make check' for the same reason check-jobs is: `check'
+# reports on THIS machine's state, while these prove the scripts' behaviour.
 .PHONY: check-cloud
 check-cloud:
 	@./tests/cloud/dirs-smoke.zsh
+	@./tests/cloud/creds-smoke.zsh
 
 # The external store/database volumes must be restored together when moving
 # machines. Compose deliberately refuses to silently replace a missing store.
