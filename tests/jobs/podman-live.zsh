@@ -180,7 +180,13 @@ trap 'live_on_signal PIPE' PIPE
 # --------------------------------------------------------------------------
 
 typeset -g N_OK=0
+typeset -g N_SKIP=0
 ok()   { (( N_OK++ )); print -r -- "ok   $1" }
+# Same shape and format as smoke.zsh / tee-smoke.zsh: a skip is a MEASURED host
+# limitation with the measurement in its reason, counted separately so the total
+# stays fixed and a section cannot vanish from it silently. (The whole-script
+# preflight SKIP above is different: nothing ran at all, so there is no total.)
+skip() { (( N_SKIP++ )); print -r -- "SKIP $1  -- $2" }
 note() { print -r -- "     note: $1" }
 fail() {
   print -r -- "FAIL $1"
@@ -487,5 +493,5 @@ eq "10 ... and the scratch tree" "$([[ -e $BASE ]] && print left-behind)" ""
 eq "10 ... and the image it borrowed is still in the store" \
    "$(xctr image inspect "$WANT_IMAGE" >/dev/null 2>&1 && print present)" "present"
 
-print -r -- "# $N_OK assertions passed"
+print -r -- "# $N_OK assertions passed, $N_SKIP skipped, $(( N_OK + N_SKIP )) total"
 exit 0
