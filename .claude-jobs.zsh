@@ -89,6 +89,17 @@ claude-run() {
   local name root bin tmux_bin
   name=$(job-name "$task") || return
   root=$(job-root); bin=$(_claude_job_bin) || return; tmux_bin=${commands[tmux]:?tmux not on PATH}
+  # JOB_TASK / JOB_REPO in the session's environment, so that a recap skill
+  # running inside this Claude session can write logs/<task>.recap.md without
+  # being told which task it is (.jobs.zsh, _job_tmux_env_flags; empty on a
+  # tmux older than 3.2). Computed once and used for BOTH the session started
+  # here and the one the relaunch agent recreates at login, because a session
+  # that came back after a reboot must know the same things it knew before.
+  local -a cenv; _job_tmux_env_flags local "$task"; cenv=("${reply[@]}")
+  # Joined and quoted OUTSIDE double quotes, the trap tmux-run documents: in
+  # them zsh joins the array before (qq) applies and both -e flags arrive as
+  # one word.
+  local cenvq=${(j: :)${(qq)cenv}}; [[ -n $cenvq ]] && cenvq+=" "
 
   if tmux has-session -t "=$name" 2>/dev/null; then
     if (( $# )); then
@@ -104,7 +115,7 @@ claude-run() {
     # inside them zsh would join the array into one word before (qq) applies
     # (the same trap tmux-run documents).
     local quoted_cmd=${(j: :)${(qq)cmd}}
-    tmux new-session -d -s "$name" -n claude -c "$root" "$quoted_cmd" || return
+    tmux new-session -d -s "$name" -n claude -c "$root" "${cenv[@]}" "$quoted_cmd" || return
     print -u2 "claude-run: started '$name' at $root  (claude --permission-mode $CLAUDE_JOB_MODE${@:+ + prompt})"
   fi
 
@@ -117,7 +128,7 @@ claude-run() {
   # `has-session` is about to be asked on.
   local resume="$bin --permission-mode $CLAUDE_JOB_MODE --continue" envp=""
   [[ -n $TMUX_TMPDIR ]] && envp="export TMUX_TMPDIR=${(qq)TMUX_TMPDIR}; "
-  local relaunch="${envp}${(qq)tmux_bin} has-session -t ${(qq):-=$name} 2>/dev/null || exec ${(qq)tmux_bin} new-session -d -s ${(qq)name} -n claude -c ${(qq)root} ${(qq)resume}"
+  local relaunch="${envp}${(qq)tmux_bin} has-session -t ${(qq):-=$name} 2>/dev/null || exec ${(qq)tmux_bin} new-session -d -s ${(qq)name} -n claude -c ${(qq)root} ${cenvq}${(qq)resume}"
   launchd-run "$task" --restart no -- /bin/sh -c "$relaunch" 2>/dev/null \
     || { print -u2 "claude-run: session is up but the relaunch agent failed to load (launchd-status $task)"; return 1 }
   print -u2 "claude-run: relaunch-at-login agent $(launchd-label "$task") loaded"

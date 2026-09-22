@@ -21,6 +21,8 @@
 #                   written by bin/job-tee, which every runner wraps around CMD
 #   record          ./logs/<task>.job   append-only key=value, latest key wins
 #                   one block per start; what job-promote re-runs (see below)
+#   notes           ./logs/<task>.notes.md   YOURS; nothing else ever writes it
+#   recap           ./logs/<task>.recap.md   the latest session recap, replaced
 #
 # Verbs are the same across runners (prefixes tmux- / launchd- / docker-):
 #
@@ -39,6 +41,11 @@
 # and job-* for the runner-independent pieces:
 #
 #   job-record [TASK]    the latest value of every key in ./logs/<task>.job
+#   job-recap [TASK] [--writer NAME]
+#                        replace ./logs/<task>.recap.md with the recap on stdin
+#   job-note [TASK]      open ./logs/<task>.notes.md in $VISUAL/$EDITOR
+#   job-note-context [TASK]
+#                        the generated context block: state, stage, recap, notes
 #   job-promote TASK [--to tmux|launchd|docker] [--image IMG]
 #                        [--restart POLICY] [--now]
 #                        stop TASK where it is and start the SAME command
@@ -324,6 +331,217 @@ job-status() {
 }
 
 # ---------------------------------------------------------------------------
+# Notes and recaps: what a session is DOING, kept beside its logs
+# ---------------------------------------------------------------------------
+# tmux-dash says a session's name and its age. It has never said what the
+# session is doing or waiting on, so seven live sessions were reconstructed by
+# attaching to each of them in turn (measured 2026-09-20). Three sources of
+# that answer already existed and none of them reached the picker: the stage
+# prompt behind a `stage-NN' task, the session recap a /recap skill prints into
+# the conversation and then loses, and the user's own running notes, which
+# lived nowhere at all.
+#
+# Two files per task, beside that task's logs, on the host that runs it:
+#
+#   logs/<task>.notes.md   THE USER'S. `job-note' creates it on first edit
+#                          with a two-line hint and nothing else; no function
+#                          here, and no skill, ever writes it again.
+#   logs/<task>.recap.md   the latest recap, written by `job-recap' and by the
+#                          recap skills. Latest write wins: the file is
+#                          REPLACED, never appended to, because a recap is a
+#                          snapshot and a pile of stale snapshots is not one.
+#
+# The recap FORMAT CONTRACT, so that a picker on one machine can read a recap
+# a skill wrote on another:
+#
+#   line 1    # recap <ISO-8601 local time> <writer>
+#             writer is `claude', `gemini', or free text naming who wrote it
+#   line 2+   the recap body, exactly as the skill produced it
+#
+# and the STATUS CONTRACT, which is what a picker shows in the row itself:
+# the first notes line beginning `> ' is that session's one-line status; with
+# no such line, the recap body's `Current Subtask' value is used instead.
+
+_job_notes_file() {
+  local task; task=$(_job_task "$1") || return
+  print -r -- "$(job-root)/logs/$task.notes.md"
+}
+_job_recap_file() {
+  local task; task=$(_job_task "$1") || return
+  print -r -- "$(job-root)/logs/$task.recap.md"
+}
+
+# Epoch seconds of an ISO-8601 local stamp as _job_now writes it, or nothing.
+# `strftime -r' is strptime(3), and %z is not in POSIX strptime -- it works on
+# this Mac and on glibc, but a libc without it must not cost the whole recap
+# header, so the zone is dropped and the age is off by the offset instead.
+# When even that fails the caller prints the stamp itself, unconverted.
+_job_stamp_epoch() {
+  local s=$1 e
+  zmodload zsh/datetime 2>/dev/null || return 1
+  strftime -r -s e '%Y-%m-%dT%H:%M:%S%z' "$s" 2>/dev/null && { print -r -- "$e"; return 0 }
+  strftime -r -s e '%Y-%m-%dT%H:%M:%S' "${s%[-+]*}" 2>/dev/null && { print -r -- "$e"; return 0 }
+  return 1
+}
+
+# job-recap [TASK] [--writer NAME]: replace logs/<task>.recap.md with the
+# recap body on stdin, and print the path.
+#
+# TASK defaults to $JOB_TASK -- which every session this file creates carries
+# in its environment, see _job_tmux_env_flags -- and then to `main', so a skill
+# running INSIDE a session does not have to be told the session's own name.
+#
+# Local host only, on purpose: the skill that calls this runs in the session,
+# and the session is already on the host whose logs/ the file belongs beside.
+#
+# Temp file plus rename, because the reader is a picker preview that can fire
+# at any moment: it sees the whole previous recap or the whole new one, never
+# half of either.
+job-recap() {
+  local usage="usage: job-recap [TASK] [--writer NAME]   (the recap body is read from stdin)"
+  local task="" writer=claude
+  while (( $# )); do
+    case $1 in
+      --writer) writer=$2; shift 2 ;;
+      --)       shift ;;
+      -*)       print -u2 "job-recap: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
+      *)        task=$1; shift ;;
+    esac
+  done
+  [[ -n $writer ]] || { print -u2 "job-recap: --writer wants a name"; print -u2 "$usage"; return 64 }
+  task=$(_job_task "${task:-${JOB_TASK:-main}}") || return
+  local root file tmp; root=$(job-root); file=$root/logs/$task.recap.md
+  mkdir -p -- "$root/logs" || return
+  tmp=$file.$$.tmp
+  { print -r -- "# recap $(_job_now) $writer"; command cat } > "$tmp" \
+    || { command rm -f -- "$tmp"; return 1 }
+  command mv -f -- "$tmp" "$file" || { command rm -f -- "$tmp"; return 1 }
+  print -r -- "$file"
+}
+
+# What a brand-new notes file says. Two hint lines and one empty `> ' status
+# line, ready to be filled in -- deliberately EMPTY rather than a worked
+# example, because a template that shipped a live status would have every
+# freshly created note claim something on the user's dashboard that its owner
+# had not written. The worked example lives inside the hint, where it is inert.
+_job_notes_template() {
+  local task=$1
+  print -r -- "<!-- Notes for task '$task' -- yours. job-note-context prints this file verbatim, and nothing but your editor ever writes it. -->"
+  print -r -- "<!-- The first line starting with \"> \" is this session's status in tmux-pick / tmux-dash, e.g.  > waiting on review -->"
+  print -r -- "> "
+}
+
+# job-note [TASK]: open the task's notes in $VISUAL, else $EDITOR, else vi,
+# creating the file with its hint the first time. Returns the EDITOR's status,
+# so a picker that ran this knows whether to believe the file changed.
+#
+# The variable is split into words, so an EDITOR of `emacsclient -t' works as
+# written rather than being looked up as one impossible file name.
+job-note() {
+  local task; task=$(_job_task "$1") || return
+  local root file; root=$(job-root); file=$root/logs/$task.notes.md
+  mkdir -p -- "$root/logs" || return
+  [[ -e $file ]] || _job_notes_template "$task" > "$file" || return
+  local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-vi}}})
+  (( $#ed )) || ed=(vi)
+  "${ed[@]}" "$file"
+}
+
+# (b) of the context block: the per-repo override, else this repo's own
+# stage-prompt convention.
+#
+# `.jobs/note-context' is how a repo whose unit of work is NOT a numbered stage
+# says what a task is about -- an executable handed TASK as $1, whose stdout is
+# this section. A repo with a goal stack prints its current sub-goal there. The
+# stage-prompt reader below is only what this repo happens to need.
+_job_note_stage() {
+  local task=$1 root=$2
+  local hook=$root/.jobs/note-context
+  [[ -x $hook ]] && { "$hook" "$task"; return 0 }
+  [[ $task == stage-<-> ]] || return 0
+  local pfile=$root/docs/stages/$task-PROMPT.md
+  [[ -r $pfile ]] || return 0
+  local title para
+  # No `--' on any sed here: BSD sed has no end-of-options marker and takes it
+  # as a FILE NAME, so `sed -n 1p -- f' prints "sed: --: No such file or
+  # directory" on stderr before reading f (measured, macOS 27). Every path
+  # these are given is absolute, so there is nothing for `--' to protect.
+  title=$(command sed -n '/^# /{s/^# //p;q;}' "$pfile")
+  # The first paragraph under the first `## Motivation' heading: leading blank
+  # lines skipped, then lines until the next blank one. A prompt heading may
+  # carry a suffix (`## Motivation (measured)'), so the match is a prefix.
+  para=$(command awk '
+    !inmot && /^## Motivation/ { inmot = 1; next }
+    inmot && !started && /^[[:space:]]*$/ { next }
+    inmot && started && /^[[:space:]]*$/ { exit }
+    inmot { started = 1; print }' "$pfile")
+  print -r -- "stage: ${title:-$task}"
+  [[ -n $para ]] && print -r -- "$para"
+  if [[ -r $root/docs/stages/$task-REPORT.md ]]; then print -r -- "report: present"
+  else                                                print -r -- "report: absent"
+  fi
+}
+
+# (c) of the context block: the recap, its header line rewritten as an age.
+_job_note_recap() {
+  local task=$1 root=$2 file=$root/logs/$task.recap.md
+  [[ -r $file ]] || return 0
+  local head rest stamp writer e
+  head=$(command sed -n 1p "$file")
+  if [[ $head == '# recap '* ]]; then
+    rest=${head#'# recap '}
+    stamp=${rest%% *}; writer=${rest#* }
+    [[ $writer == $stamp ]] && writer=""
+    e=$(_job_stamp_epoch "$stamp")
+    if [[ -n $e ]]; then print -r -- "recap · $(_job_ago "$e") · ${writer:-unknown}"
+    else                 print -r -- "recap · $stamp · ${writer:-unknown}"
+    fi
+    command sed -n '2,$p' "$file"
+  else
+    # Not in the documented format: show it anyway rather than drop it, and do
+    # not pretend to know when it was written or by whom.
+    print -r -- "recap · (no header line)"
+    command cat -- "$file"
+  fi
+}
+
+# job-note-context [TASK]: the GENERATED half of the context view.
+#
+# Regenerated on every render and stored nowhere, so the top of the view is
+# always now; the bottom is the user's own file, printed verbatim. A section
+# with nothing to say is left out rather than printed empty.
+job-note-context() {
+  local task; task=$(_job_task "$1") || return
+  local root repo name; root=$(job-root); repo=$(job-repo)
+  name=$(job-name "$task") || return
+
+  # (a) what, where, and which runner holds it -- the same live lookups
+  #     job-status makes, plus the session's own last activity.
+  print -r -- "$repo · $task · $root"
+  job-status "$task" 2>/dev/null
+  local act=""
+  if _tmux_where "$name" 2>/dev/null; then
+    act=$(_job_tmux "$reply[1]" list-sessions -F '#{session_name}|#{session_activity}' 2>/dev/null \
+          | command awk -F'|' -v n="$name" '$1 == n { print $2; exit }')
+  fi
+  [[ -n $act ]] && print -r -- "last activity: $(_job_ago "$act")"
+
+  local block
+  block=$(_job_note_stage "$task" "$root")          # (b)
+  [[ -n $block ]] && { print; print -r -- "$block" }
+  block=$(_job_note_recap "$task" "$root")          # (c)
+  [[ -n $block ]] && { print; print -r -- "$block" }
+
+  print                                             # (d)
+  print -r -- "notes:"
+  local notes=$root/logs/$task.notes.md
+  if [[ -r $notes ]]; then command cat -- "$notes"
+  else print -r -- "(none — ctrl-e to start one)"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Hosts: one tmux namespace across machines
 # ---------------------------------------------------------------------------
 # tmux sessions are looked up on this machine ("local") and on every host in
@@ -427,6 +645,57 @@ _job_tmux() {
 _job_sh() {
   local host=$1; shift
   if [[ $host == local ]]; then sh -c "$*"; else ssh "${_JOB_SSH_OPTS[@]}" "$host" "$*"; fi
+}
+# The same, but with a terminal: for a remote command that IS an interactive
+# program -- today, the notes editor behind the picker's ctrl-e. Carries the
+# attach's option set (the shared ControlPath, no BatchMode and no
+# ConnectTimeout), because those two are exactly wrong for a connection a human
+# is about to type into.
+_job_sh_tty() {
+  local host=$1; shift
+  if [[ $host == local ]]; then sh -c "$*"
+  else ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "$*"
+  fi
+}
+# tmux >= 3.2: `new-session -e VAR=VALUE'. Every session this file creates
+# carries JOB_TASK and JOB_REPO, so that a skill running INSIDE one (job-recap,
+# the recap skills) knows which task it is without being told.
+#
+# Probed from `tmux -V' per host, once per shell, never assumed: this Mac has
+# 3.7c, but the phone and the Guix host ship whatever their package trees ship.
+# On anything older the flags are simply OMITTED and one line says so, because
+# an old tmux must degrade to a session without JOB_TASK, not to no session at
+# all -- measured with tmux 3.7c, `new-session' handed a flag it does not know
+# prints `command new-session: unknown flag -Z', exits 1 and creates nothing,
+# which is what passing -e blind would cost on a 3.1.
+typeset -gi _JOB_TMUX_ENV_MAJOR=3 _JOB_TMUX_ENV_MINOR=2
+typeset -gA _JOB_TMUX_ENV_OK _JOB_TMUX_ENV_WARNED
+_job_tmux_env_ok() {
+  local host=$1
+  if [[ -z ${_JOB_TMUX_ENV_OK[$host]-} ]]; then
+    local v=${${(s: :)"$(_job_tmux "$host" -V 2>/dev/null)"}[2]}
+    local -a p; p=(${(s:.:)v})
+    local major=${p[1]//[^0-9]/} minor=${p[2]//[^0-9]/}
+    if (( ${major:-0} > _JOB_TMUX_ENV_MAJOR
+          || ( ${major:-0} == _JOB_TMUX_ENV_MAJOR && ${minor:-0} >= _JOB_TMUX_ENV_MINOR ) ))
+    then _JOB_TMUX_ENV_OK[$host]=1
+    else _JOB_TMUX_ENV_OK[$host]=0
+    fi
+  fi
+  (( _JOB_TMUX_ENV_OK[$host] ))
+}
+# reply = the -e flags for TASK on HOST, empty when tmux there is too old.
+_job_tmux_env_flags() {
+  local host=$1 task=$2 repo=${3:-$(job-repo)}
+  typeset -ga reply; reply=()
+  if ! _job_tmux_env_ok "$host"; then
+    if [[ -z ${_JOB_TMUX_ENV_WARNED[$host]-} ]]; then
+      _JOB_TMUX_ENV_WARNED[$host]=1
+      print -u2 "job: tmux on $host is older than ${_JOB_TMUX_ENV_MAJOR}.${_JOB_TMUX_ENV_MINOR} and has no \`new-session -e', so its sessions carry no JOB_TASK/JOB_REPO -- name the task explicitly there (job-recap TASK). (warned once per host per shell)"
+    fi
+    return 0
+  fi
+  reply=(-e "JOB_TASK=$task" -e "JOB_REPO=$repo")
 }
 # Repo root relative to $HOME, the path assumed for the same checkout elsewhere.
 # A root outside $HOME has no such relative form: `${root#$HOME/}' would leave
@@ -587,16 +856,94 @@ _tmux_label_widths() {
   typeset -gi _JOB_W_REPO=$wr _JOB_W_SESS=$ws
 }
 
-# One display line for a row; $2=1 adds the repo column (dashboard).
+# The one-line status of each row, in `reply', one entry per row in order.
+#
+# Where a session lives is where its notes and its recap are: both files sit in
+# the checkout the session is rooted at (#{session_path}), on the host that
+# runs it. So the read goes through the same _job_sh the rest of the host layer
+# uses -- and ONE call per host rather than one per row, because a dashboard of
+# six remote sessions must not cost six ssh round trips on every refresh.
+#
+# The reader is POSIX sh, not a zsh function, for the same reason tmux-run's
+# remote command is: it is the same text on both sides of the hop, and the far
+# side is somebody else's machine. It reads path/task pairs as positional
+# parameters and prints one line per pair, empty when there is nothing to say.
+#
+# `/./{p;q;}' rather than `1p': the first NON-EMPTY `> ' line wins. A notes
+# file starts life with an empty `> ' line waiting to be filled in, and with
+# `1p' that empty line would beat both a real status written under it and the
+# recap -- a template silencing the row it exists to describe.
+typeset -g _JOB_STATUS_SH='
+while [ $# -gt 0 ]; do
+  d=$1; t=$2; shift 2
+  s=
+  if [ -r "$d/logs/$t.notes.md" ]; then
+    s=$(sed -n "s/^> //p" "$d/logs/$t.notes.md" | sed -n "/./{p;q;}")
+  fi
+  if [ -z "$s" ] && [ -r "$d/logs/$t.recap.md" ]; then
+    s=$(sed -n "s/.*Current Subtask:[*]*[[:space:]]*//p" "$d/logs/$t.recap.md" | sed -n "/./{p;q;}")
+  fi
+  printf "%s\n" "$s"
+done
+'
+_tmux_row_statuses() {
+  local -a rows; rows=("$@")
+  typeset -ga reply; reply=()
+  (( $#rows )) || return 0
+  integer i k
+  repeat $#rows; do reply+=("") done
+  local -aU hosts; hosts=(${rows%%|*})
+  local host out qargs
+  local -a idx args lines
+  for host in "${hosts[@]}"; do
+    idx=(); args=()
+    for (( i = 1; i <= $#rows; i++ )); do
+      [[ ${rows[i]%%|*} == $host ]] || continue
+      idx+=($i)
+      args+=("${${(@s:|:)rows[i]}[6]}" "$(_tmux_row_task "${rows[i]}")")
+    done
+    (( $#args )) || continue
+    # Quoted OUTSIDE the double-quoted command string: inside one, zsh joins
+    # the array into a single word before (qq) sees it, so every path/task
+    # pair would reach the far end as ONE argument -- the same trap tmux-run
+    # documents, found here as an sh loop whose `shift 2' never emptied $@.
+    qargs=${(j: :)${(qq)args}}
+    out=$(_job_sh "$host" "sh -c ${(qq)_JOB_STATUS_SH} jobstatus $qargs" 2>/dev/null)
+    lines=("${(@f)out}")
+    for (( k = 1; k <= $#idx; k++ )); do reply[$idx[k]]=${lines[k]-} done
+  done
+  return 0
+}
+
+# One display line for a row; $2=1 adds the repo column (dashboard); $3 is the
+# row's one-line status, appended after two spaces when there is room for it.
+#
+# The status is the FIRST thing to go when a row would outgrow the 80-column
+# budget. It is a courtesy; the session name is the thing you paste into
+# tmux-go, so the name overflows and the status is cut, never the other way
+# round -- and a status that was cut says so with an ellipsis rather than
+# ending mid-word as if that were all there was.
+# (`rowstat', not `status': $status is one of zsh's read-only specials, a
+# synonym for $?, and a `local status=' inside a function is an error.)
 _tmux_label() {
   local -a f; f=("${(@s:|:)1}")
-  local all=${2:-0} repo="" sess=$f[2]
+  local all=${2:-0} rowstat=${3-} repo="" sess=$f[2]
   if (( all )); then
     repo=$(printf '%-*s ' "$_JOB_W_REPO" "$(_tmux_row_repo "$1")")
     sess=$(_tmux_row_task "$1")
   fi
-  printf '%-8s %s%-*s %2s win  %-8s %s' "$f[1]" "$repo" "$_JOB_W_SESS" "$sess" "$f[3]" \
-    "$( (( f[4] )) && print attached || print detached )" "$(_job_ago "$f[5]")"
+  local line
+  line=$(printf '%-8s %s%-*s %2s win  %-8s %s' "$f[1]" "$repo" "$_JOB_W_SESS" "$sess" "$f[3]" \
+    "$( (( f[4] )) && print attached || print detached )" "$(_job_ago "$f[5]")")
+  if [[ -n $rowstat ]]; then
+    rowstat=${${rowstat//$'\t'/ }//$'\n'/ }
+    integer room=$(( _JOB_LABEL_COLS - ${#line} - 2 ))
+    if (( room >= 4 )); then
+      (( ${#rowstat} > room )) && rowstat="${rowstat[1,room-1]}…"
+      line+="  $rowstat"
+    fi
+  fi
+  printf '%s' "$line"
 }
 # Host holding session NAME (local preferred), in reply[1]; failure if none.
 # Answers in `reply' for the same reason _job_hosts does: `host=$(_tmux_where
@@ -647,12 +994,18 @@ tmux-new() {
     print -u2 "tmux-new: session '$name' already exists on $host"; return 0
   fi
   host=${_tmux_arg_on:-$JOB_HOST}
+  local task; task=$(_job_task "$_tmux_arg_task") || return
+  local -a env; _job_tmux_env_flags "$host" "$task"; env=("${reply[@]}")
+  # Quoted outside the double quotes below, for the reason tmux-run gives: in
+  # them zsh joins the array into one word before (qq) applies, and the two -e
+  # flags would arrive at the remote tmux as a single unusable argument.
+  local envq=${(j: :)${(qq)env}}
   if [[ $host == local ]]; then
-    tmux new-session -d -s "$name" -c "$(job-root)"
+    tmux new-session -d -s "$name" -c "$(job-root)" "${env[@]}"
   else
     rel=$(_job_rel_root) || return
     _job_remote_root_ok "$host" "$rel" || return
-    _job_sh "$host" "cd \"\$HOME/$rel\" && tmux new-session -d -s ${(qq)name}"
+    _job_sh "$host" "cd \"\$HOME/$rel\" && tmux new-session -d -s ${(qq)name} $envq"
   fi && print -u2 "tmux-new: created session '$name' on $host"
 }
 
@@ -703,8 +1056,14 @@ tmux-take() { tmux-go "$@"; }
 # too old for every(N) is simply given neither rather than guessed at.
 typeset -g _JOB_FZF_EVERY_MINOR=73
 
-# _tmux_pick_lines [--all] -- one "key<TAB>label" line per session, plus the
-# trailing "new" row unless --all. key is "host|name".
+# _tmux_pick_lines [--all] -- one "key<TAB>label<TAB>path" line per session,
+# plus the trailing "new" row unless --all. key is "host|name".
+#
+# The third field is the row's #{session_path} and is HIDDEN from the list
+# (fzf shows field 2 alone). It is there because a preview and an editor have
+# to know which checkout the row is about, and a session name does not say:
+# the same name identifies one session across machines, but its notes, its
+# recap and its logs live in a directory only the row itself knows.
 #
 # Answers BOTH ways on purpose: the lines go to stdout, because this is the
 # command fzf reloads with, and into `reply', because that is how tmux-pick
@@ -720,13 +1079,86 @@ _tmux_pick_lines() {
   # shows the same widths a fresh invocation would.
   local -a wflag; (( all )) && wflag=(--all)
   _tmux_label_widths "${wflag[@]}" "${rows[@]}"
+  _tmux_row_statuses "${rows[@]}"
+  local -a stats; stats=("${reply[@]}")
   typeset -ga reply; reply=()
-  for r in "${rows[@]}"; do
-    reply+=("${${(s:|:)r}[1]}|${${(s:|:)r}[2]}"$'\t'"$(_tmux_label "$r" $all)")
+  integer i
+  for (( i = 1; i <= $#rows; i++ )); do
+    r=$rows[i]
+    reply+=("${${(s:|:)r}[1]}|${${(s:|:)r}[2]}"$'\t'"$(_tmux_label "$r" $all "${stats[i]-}")"$'\t'"${${(@s:|:)r}[6]}")
   done
-  (( all )) || reply+=("new"$'\t'"new session '$(job-name)' on $JOB_HOST")
+  (( all )) || reply+=("new"$'\t'"new session '$(job-name)' on $JOB_HOST"$'\t'"$(job-root)")
   (( $#reply )) && print -l -- "${reply[@]}"
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# The context view of ONE row, and the editor for its notes
+# ---------------------------------------------------------------------------
+# Both are handed exactly what a row carries: its `host|name' key and its
+# session path. A local row is answered in this shell; a REMOTE row is answered
+# on its own host, through the same _job_sh the rest of the host layer uses, by
+# a fresh zsh sourcing that host's ~/dot_files/.jobs.zsh -- the same "same
+# checkout, same dotfiles, same path relative to $HOME" premise tmux-new and
+# tmux-run already depend on.
+#
+# JOB_HOSTS_EXPORT is handed to the remote EMPTY on purpose. The remote is
+# being asked about itself, and a host walk back across the tailnet from inside
+# a preview that fires on every cursor move is not an answer worth waiting for.
+# Set-but-empty is how the host block spells "no other hosts", which is exactly
+# what is meant here, as against unset, which means "nobody said".
+typeset -g _JOB_REMOTE_CTX_SH='source "$HOME/dot_files/.jobs.zsh" 2>/dev/null; job-note-context "$1"'
+typeset -g _JOB_REMOTE_NOTE_SH='source "$HOME/dot_files/.jobs.zsh" 2>/dev/null; job-note "$1"'
+
+# Host, session name and task of a row, into three globals. Fails for the
+# "new" row, whose key is not a host|name pair.
+#
+# The session path is `spath' everywhere below and never `path': zsh's `path'
+# is the array tied to $PATH, so a `local path=...' inside a function replaces
+# the shell's whole command search path with that one directory for the length
+# of the call. Measured here first as a preview that found neither tmux, nor
+# sed, nor cat, and reported a session that was plainly running as missing.
+_tmux_pick_row() {
+  typeset -g _tmux_pick_host="" _tmux_pick_name="" _tmux_pick_task=""
+  local key=$1 spath=$2
+  [[ $key == *\|* ]] || return 1
+  _tmux_pick_host=${key%%|*}
+  _tmux_pick_name=${key#*|}
+  _tmux_pick_task=$(_tmux_row_task "$_tmux_pick_host|$_tmux_pick_name||||$spath")
+  return 0
+}
+
+_tmux_pick_preview() {
+  local key=$1 spath=$2
+  _tmux_pick_row "$key" "$spath" || {
+    print -r -- "new session '$(job-name)' on $JOB_HOST"
+    print -r -- "(nothing to show until it exists)"
+    return 0
+  }
+  if [[ $_tmux_pick_host == local ]]; then
+    ( cd -- "$spath" 2>/dev/null || { print -r -- "(the checkout $spath is not there any more)"; exit 0 }
+      job-note-context "$_tmux_pick_task" )
+  else
+    _job_sh "$_tmux_pick_host" \
+      "cd ${(qq)spath} && JOB_HOSTS_EXPORT= zsh -f -c ${(qq)_JOB_REMOTE_CTX_SH} job-note-context ${(qq)_tmux_pick_task}"
+  fi
+}
+
+_tmux_pick_edit() {
+  local key=$1 spath=$2
+  _tmux_pick_row "$key" "$spath" || {
+    print -u2 "tmux-pick: there is no session yet, so there is nothing to take notes on"
+    return 1
+  }
+  if [[ $_tmux_pick_host == local ]]; then
+    ( cd -- "$spath" 2>/dev/null || { print -u2 "tmux-pick: the checkout $spath is not there any more"; exit 1 }
+      job-note "$_tmux_pick_task" )
+  else
+    # The remote's OWN $VISUAL/$EDITOR decides, because the editor has to run
+    # where the file is, and -t because it is about to want a terminal.
+    _job_sh_tty "$_tmux_pick_host" \
+      "cd ${(qq)spath} && zsh -f -c ${(qq)_JOB_REMOTE_NOTE_SH} job-note ${(qq)_tmux_pick_task}"
+  fi
 }
 
 # The shell command string fzf reloads with: a fresh zsh, no rc files, that
@@ -747,6 +1179,21 @@ _tmux_pick_reload_cmd() {
   (( ${1:-0} )) && script+=' --all'
   script+=' 2>/dev/null'
   print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE}"
+}
+
+# The preview and the ctrl-e editor, built exactly the way the reload command
+# above is -- same fresh rc-less zsh, same re-source, same file path travelling
+# as a positional parameter rather than spliced into the script. What is new is
+# that fzf's own field placeholders travel the same way: {1} is the row's
+# host|name key and {3} its session path, and fzf substitutes each of them
+# shell-quoted, so they arrive as $2 and $3 whatever is in them.
+_tmux_pick_preview_cmd() {
+  local script='source "$1" 2>/dev/null; _tmux_pick_preview "$2" "$3" 2>/dev/null'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
+}
+_tmux_pick_edit_cmd() {
+  local script='source "$1" 2>/dev/null; _tmux_pick_edit "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
 
 # Does the fzf on PATH have every(N)? Probed once per shell from `fzf
@@ -801,10 +1248,12 @@ tmux-pick() {
 
   local choice
   if command -v fzf >/dev/null 2>&1; then
-    local reload timer=0
+    local reload preview editcmd timer=0
     reload=$(_tmux_pick_reload_cmd $all)
+    preview=$(_tmux_pick_preview_cmd)
+    editcmd=$(_tmux_pick_edit_cmd)
     (( poll > 0 )) && _tmux_fzf_has_every && timer=1
-    local hint="enter attach · ctrl-r refresh"
+    local hint="enter attach · ctrl-r refresh · ? notes · ctrl-e edit"
     if (( timer )); then                     hint+=" · auto every ${poll}s"
     elif (( poll > 0 )); then                hint+=" · no auto (fzf < 0.$_JOB_FZF_EVERY_MINOR)"
     else                                     hint+=" · auto off"
@@ -818,6 +1267,25 @@ tmux-pick() {
     local -a binds
     binds=(--bind "ctrl-r:reload($reload)+transform-header($stamp_cmd)")
     (( timer )) && binds+=(--bind "every($poll):reload($reload)+transform-header($stamp_cmd)")
+    # The preview toggle is `?', not ctrl-/: ctrl-/ reaches an application only
+    # on terminals that send 0x1f for it, which is not something a phone
+    # keyboard can be relied upon for, while `?' is typeable everywhere. What
+    # that costs is that `?' can no longer be typed into the query -- nil here,
+    # because every session name this file makes has been through _job_slugify
+    # and _job_task, which between them allow only [A-Za-z0-9_-].
+    binds+=(--bind '?:toggle-preview')
+    # ctrl-e edits the row's notes and then reloads, because the status in the
+    # row comes out of the file that was just edited and a list still showing
+    # the old one would be lying about work the user had done a second ago.
+    binds+=(--bind "ctrl-e:execute($editcmd)+reload($reload)+transform-header($stamp_cmd)")
+    # A preview eating half of a 60-column phone screen hides the list it is
+    # describing, so it starts hidden on a narrow terminal and shown on a wide
+    # one; `?' moves it either way. COLUMNS is 0 in a non-interactive shell, so
+    # `tput cols' answers instead, and 80 when even that cannot.
+    integer cols=${COLUMNS:-0}
+    (( cols > 0 )) || cols=${$(command tput cols 2>/dev/null):-80}
+    local pwin=right,55%,border-left
+    (( cols >= 100 )) || pwin+=,hidden
     # --track --id-nth 1 keeps the cursor on the SAME session across a reload
     # (field 1 is the host|name key), instead of on whatever row now happens
     # to hold that index. Wanted for ctrl-r too, so it hangs off the version
@@ -826,6 +1294,7 @@ tmux-pick() {
     choice=$(print -l -- "${lines[@]}" \
       | fzf --delimiter=$'\t' --with-nth=2 --height=50% --reverse --no-sort \
             --prompt='attach> ' --header "$(command date "$stamp_fmt")" \
+            --preview "$preview" --preview-window "$pwin" \
             "${track[@]}" "${binds[@]}" \
       | cut -f1)
     [[ -n $choice ]] || return 1
@@ -837,13 +1306,15 @@ tmux-pick() {
     # Without the module there is no timer, and the prompt does not claim one.
     local ticker=0
     (( poll > 0 )) && zmodload zsh/zselect 2>/dev/null && ticker=1
-    local hint="attach> [number, r=refresh, q=quit"
+    local hint="attach> [number, n N=notes, e N=edit, r=refresh, q=quit"
     (( ticker )) && hint+="; auto-refresh ${poll}s"
     hint+="] "
     local ans i
     choice=""
     while :; do
-      for i in {1..$#lines}; do printf '%2d) %s\n' $i "${lines[$i]#*$'\t'}" >&2; done
+      # ${...%%<TAB>*} on the label half: the hidden session path is field 3
+      # and has no business on a screen that is already showing a whole row.
+      for i in {1..$#lines}; do printf '%2d) %s\n' $i "${${lines[$i]#*$'\t'}%%$'\t'*}" >&2; done
       printf '%s' "$hint" >&2
       if (( ticker )) && ! zselect -t $(( poll * 100 )) -r 0 2>/dev/null; then
         print -u2 ""                          # the interval ran out: redraw
@@ -857,7 +1328,24 @@ tmux-pick() {
         r|R|"") _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}") ;;
         <->) if (( ans >= 1 && ans <= $#lines )); then choice=${lines[$ans]%%$'\t'*}; break
              else print -u2 "tmux-pick: there is no row $ans"; fi ;;
-        *) print -u2 "tmux-pick: enter a row number, r to refresh, or q to quit" ;;
+        # `n N' and `e N' are what the fzf side spends a preview pane and a
+        # ctrl-e on. Everything they print goes to stderr, like the menu
+        # itself: this function's STDOUT is the caller's, and a context block
+        # on it would be read as an answer.
+        [nN]' '<->|[eE]' '<->)
+          local -a w; w=(${=ans}); local num=$w[2] l k p
+          if (( num >= 1 && num <= $#lines )); then
+            l=$lines[num]; k=${l%%$'\t'*}; p=${l##*$'\t'}
+            if [[ ${w[1]:l} == n ]]; then
+              _tmux_pick_preview "$k" "$p" >&2
+            else
+              _tmux_pick_edit "$k" "$p" >&2
+              _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
+            fi
+          else
+            print -u2 "tmux-pick: there is no row $num"
+          fi ;;
+        *) print -u2 "tmux-pick: enter a row number, \`n N' for that row's notes, \`e N' to edit them, r to refresh, or q to quit" ;;
       esac
     done
     [[ -n $choice ]] || return 1
@@ -924,7 +1412,11 @@ tmux-run() {
   elif _job_tmux "$host" has-session -t "=$name" 2>/dev/null; then
     _job_tmux "$host" new-window -d -t "=$name:" -n "$task" "${cflag[@]}" "$shcmd"
   else
-    _job_tmux "$host" new-session -d -s "$name" -n "$task" "${cflag[@]}" "$shcmd"
+    # Only a NEW session takes the -e flags: a window opened into a session
+    # that already exists inherits that session's environment, and setting it
+    # twice would be two places for the same fact to drift apart.
+    local -a env; _job_tmux_env_flags "$host" "$task"; env=("${reply[@]}")
+    _job_tmux "$host" new-session -d -s "$name" -n "$task" "${cflag[@]}" "${env[@]}" "$shcmd"
   fi || return
   # A remote run writes NO record. The record belongs beside the logs, and the
   # logs are in the OTHER host's checkout; writing it here would claim a task

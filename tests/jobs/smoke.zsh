@@ -67,6 +67,7 @@ typeset -g SHADOWBIN=$BASE/shadowbin      # ssh/tailscale as REAL scripts (see b
 typeset -g OUTSIDE=$BASE/elsewhere/repo   # a checkout that is NOT under $HOME
 typeset -g OUTSIDE_SLUG=repo              # _job_slugify of the above
 typeset -g CTR_ARGV=$BASE/podman-argv.txt # the fake podman's recorded argv
+typeset -g ED_ARGV=$BASE/editor-argv.txt  # the fake $EDITOR's recorded argv
 
 # --------------------------------------------------------------------------
 # Containment: this suite's only route to tmux, and its one read of the
@@ -402,6 +403,13 @@ hasnt() { [[ $2 != *$3* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3
 haslit()   { [[ $2 == *"$3"* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
 hasntlit() { [[ $2 != *"$3"* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
 starts() { [[ $2 == $3* ]] && ok "$1" || fail "$1" "expected to start with: [$3]" "actual: [$2]" }
+# The other end, quoted: a row's status is appended to its label, so "ends
+# with" is the whole claim -- and it has to be spelled as an anchored pattern
+# with a LITERAL needle, because a `*...' handed to eq would not work. Measured
+# (zsh 5.9): a pattern that arrives through a parameter is matched literally
+# unless it goes through ${~...}, so eq's right-hand side is a literal string
+# whatever its comment above says.
+ends() { [[ $2 == *"$3" ]] && ok "$1" || fail "$1" "expected to end with: [$3]" "actual: [$2]" }
 # Non-zero exit, whatever the value: several new paths only promise "not 0".
 nonzero() { (( $2 != 0 )) && ok "$1 (rc=$2)" || fail "$1" "expected a non-zero exit, got 0" "${@:3}" }
 # poll CMD... until it succeeds, up to 10s in 0.5s steps (pane shells are slow).
@@ -438,7 +446,10 @@ ssh() {
   (( $# >= 2 )) || { print -u2 "smoke ssh: expected HOST COMMAND, got: $*"; return 255 }
   local host=$1; shift
   [[ $host == fakehost ]] || { print -u2 "smoke ssh: no such host '$host'"; return 255 }
+  # EDITOR too, since stage 16: the picker's ctrl-e on a remote row runs the
+  # REMOTE's editor, and the one thing no assertion may do is open a real one.
   HOME=$HOME_REMOTE TMUX_TMPDIR=$TMUX_REMOTE PATH=$SMOKE_REMOTE_PATH SHELL=/bin/sh \
+    EDITOR=$SHADOWBIN/fake-editor VISUAL= \
     $SMOKE_REMOTE_SH -c "$*"
 }
 
@@ -466,6 +477,7 @@ done
 host=\$1; shift
 [ "\$host" = fakehost ] || { echo "smoke ssh: no such host '\$host'" >&2; exit 255; }
 HOME=$HOME_REMOTE TMUX_TMPDIR=$TMUX_REMOTE PATH=$SMOKE_REMOTE_PATH SHELL=/bin/sh \\
+  EDITOR=$SHADOWBIN/fake-editor VISUAL= \\
   /bin/sh -c "\$*"
 SSHSHIM
 command cat > "$SHADOWBIN/tailscale" <<'TSSHIM'
@@ -475,7 +487,16 @@ printf '%s\n' "100.64.0.1      selfnode              durant@      macOS    -"
 printf '%s\n' "100.64.0.2      fakehost              durant@      macOS    -"
 printf '%s\n' "100.64.0.3      sleepy                durant@      linux    offline"
 TSSHIM
-chmod +x "$SHADOWBIN/ssh" "$SHADOWBIN/tailscale" || exit 1   # BSD chmod has no `--'
+# The $EDITOR shadow, in the same style as the fzf one: a recorder, not the
+# thing itself. It writes down the argv it was called with and appends one
+# canned line to the file it was given, so `job-note' can be measured without
+# any assertion opening an editor -- let alone blocking until one is closed.
+command cat > "$SHADOWBIN/fake-editor" <<EDSHIM
+#!/bin/sh
+printf '%s\n' "\$*" >> "$ED_ARGV"
+printf '%s\n' "> edited by the shim" >> "\$1"
+EDSHIM
+chmod +x "$SHADOWBIN/ssh" "$SHADOWBIN/tailscale" "$SHADOWBIN/fake-editor" || exit 1   # BSD chmod has no `--'
 export PATH=$SHADOWBIN:$PATH
 FULL_PATH=$PATH
 
@@ -1016,8 +1037,11 @@ eq "9o the menu redraws on r, then attaches the row number" "$out" "attach $want
 # `r' was typed at, because a pipe does not echo the newline a terminal would.
 eq "9o ... and the menu really was drawn twice" \
    "$(command grep -c '^attach>' "$MENU_ERR1")" "2"
+# Stage 16 added `n N' and `e N' to the menu, so the prompt names five keys
+# rather than three. The literal is updated rather than loosened: what the
+# prompt says is the only documentation this branch has.
 haslit "9o ... the prompt says what the keys are" \
-       "$(command cat "$MENU_ERR1")" "[number, r=refresh, q=quit; auto-refresh 120s]"
+       "$(command cat "$MENU_ERR1")" "[number, n N=notes, e N=edit, r=refresh, q=quit; auto-refresh 120s]"
 
 out=$( unfunction fzf; PATH=$NOFZF_PATH; print q | tmux-pick 2>/dev/null; print "rc=$?" )
 eq "9o q quits with status 0 and attaches nothing" "$out" "rc=0"
@@ -1106,6 +1130,330 @@ haslit "15g ... it passes with live sessions on a private server" \
        "$GST_OUT" "guard passes while two look-real sessions live on a PRIVATE server"
 haslit "15g ... and FAILs on a deliberate mismatch" \
        "$GST_OUT" "guard FAILs on a deliberate mismatch"
+
+# --------------------------------------------------------------------------
+# 16. Notes, recaps, task identity, and the status in the row  (stage 16)
+# --------------------------------------------------------------------------
+# The user runs seven or more claude-run sessions at once and used to
+# reconstruct each one's state by attaching to it in turn (2026-09-20), because
+# a picker row says a name and an age and nothing else. Stage 16 puts three
+# answers where the row is: a regenerated context block (state, stage, latest
+# recap), the user's own notes file under it, and a one-line status in the row.
+#
+# Placed here, while there are live sessions on BOTH servers, because the half
+# of this that is easy to get wrong is the remote half: notes and recaps live
+# beside the logs, and the logs are in the checkout on the host that runs the
+# job -- so every one of these reads has to survive an ssh hop.
+
+# --- item 1: job-recap ------------------------------------------------------
+typeset -g RC_T1=$REPO/logs/t1.recap.md
+command rm -f -- "$RC_T1"
+out=$(job-recap t1 --writer gemini <<< 'the first body'); rc=$?
+eq "16a job-recap exits 0" "$rc" "0"
+eq "16a ... and prints the path it wrote" "$out" "$RC_T1"
+typeset -g RC_HEAD="$(command sed -n 1p "$RC_T1")"
+eq "16a its first line is '# recap <ISO-8601 stamp> <writer>'" \
+   "$([[ $RC_HEAD =~ '^# recap [0-9T:+-]+ gemini$' ]] && print yes)" "yes"
+eq "16a ... and its second is the body from stdin" \
+   "$(command sed -n 2p "$RC_T1")" "the first body"
+job-recap t1 --writer gemini <<< 'the second body' >/dev/null
+eq "16a a second recap REPLACES the file rather than appending to it" \
+   "$(command wc -l < "$RC_T1" | command tr -d ' ')" "2"
+eq "16a ... and the body is the new one" "$(command sed -n 2p "$RC_T1")" "the second body"
+# $JOB_TASK is what a session created by this file now carries (16d below), so
+# a skill running inside one need not be told the session's own name.
+JOB_TASK=t2 job-recap <<< 'the t2 body' >/dev/null
+unset JOB_TASK      # zsh does not restore a prefix assignment made to a FUNCTION
+eq "16a JOB_TASK names the task when none is given" \
+   "$(command sed -n 2p "$REPO/logs/t2.recap.md")" "the t2 body"
+has "16a ... and the writer defaults to claude" \
+    "$(command sed -n 1p "$REPO/logs/t2.recap.md")" "claude"
+
+# --- item 3: job-note-context, in a scratch repo of its own -----------------
+typeset -g CTX=$BASE/ctxrepo
+mkdir -p -- "$CTX/docs/stages" "$CTX/logs" || exit 1
+command cat > "$CTX/docs/stages/stage-03-PROMPT.md" <<'STAGE3'
+# Stage 3 — the title line
+
+**Host for this stage: nowhere at all.**
+
+## Motivation (measured)
+
+The paragraph under Motivation is the one the context block shows.
+
+A second paragraph, which it must not.
+STAGE3
+cd -- "$CTX" || exit 1
+out=$(job-note-context stage-03 2>/dev/null)
+haslit "16b the context names the stage prompt's title" "$out" "stage: Stage 3 — the title line"
+haslit "16b ... and its first Motivation paragraph" \
+       "$out" "The paragraph under Motivation is the one the context block shows."
+hasntlit "16b ... and stops at the blank line before the second" "$out" "A second paragraph"
+hasntlit "16b ... and does not wander up into the prompt's preamble" "$out" "nowhere at all"
+haslit "16b ... and says the report is absent" "$out" "report: absent"
+haslit "16b a task with no notes says how to start some" "$out" "(none — ctrl-e to start one)"
+: > "$CTX/docs/stages/stage-03-REPORT.md"
+haslit "16b ... and present once the report file is there" \
+       "$(job-note-context stage-03 2>/dev/null)" "report: present"
+
+# The per-repo override: how a repo whose unit of work is not a numbered stage
+# says what a task is about.
+mkdir -p -- "$CTX/.jobs"
+print -r -- '#!/bin/sh'                >  "$CTX/.jobs/note-context"
+print -r -- 'printf "GOAL: %s\n" "$1"' >> "$CTX/.jobs/note-context"
+chmod +x "$CTX/.jobs/note-context"     # BSD chmod has no `--'
+out=$(job-note-context stage-03 2>/dev/null)
+haslit "16b an executable .jobs/note-context replaces the stage block" "$out" "GOAL: stage-03"
+hasntlit "16b ... and the stage prompt is then not read at all" "$out" "Stage 3 — the title line"
+command rm -rf -- "$CTX/.jobs"
+
+job-recap stage-03 --writer gemini <<< 'the recap body' >/dev/null
+out=$(job-note-context stage-03 2>/dev/null)
+eq "16b the recap's header comes back as an age and a writer" \
+   "$(print -r -- "$out" | command grep -c '^recap · [0-9][0-9]*[smhd] ago · gemini$')" "1"
+haslit "16b ... with the body under it" "$out" "the recap body"
+
+print -r -- '> waiting on review'      >  "$CTX/logs/stage-03.notes.md"
+print -r -- 'and the detail under it'  >> "$CTX/logs/stage-03.notes.md"
+haslit "16b the notes are printed verbatim after 'notes:'" \
+       "$(job-note-context stage-03 2>/dev/null)" \
+       "notes:"$'\n'"> waiting on review"$'\n'"and the detail under it"
+
+# --- item 4: job-note, through the recorded $EDITOR -------------------------
+typeset -g CTX_NOTES=$CTX/logs/n1.notes.md
+command rm -f -- "$ED_ARGV"
+EDITOR=$SHADOWBIN/fake-editor
+VISUAL=
+job-note n1; rc=$?
+eq "16c job-note exits with the editor's own status" "$rc" "0"
+eq "16c ... having created the notes file" "$([[ -f $CTX_NOTES ]] && print yes)" "yes"
+typeset -g CTX_NOTES_TXT="$(command cat "$CTX_NOTES")"
+haslit "16c ... whose hint says who owns it" \
+       "$CTX_NOTES_TXT" "nothing but your editor ever writes it"
+haslit "16c ... and carries the \"> \" status example" "$CTX_NOTES_TXT" "> waiting on review"
+haslit "16c ... and the canned line the shim wrote"    "$CTX_NOTES_TXT" "> edited by the shim"
+eq "16c ... and the shim's argv ends in that path" \
+   "$(command tail -n 1 "$ED_ARGV")" "$CTX_NOTES"
+EDITOR=false
+job-note n1; rc=$?
+nonzero "16c an editor that fails is reported as a failure" "$rc"
+EDITOR=$SHADOWBIN/fake-editor
+cd -- "$REPO" || exit 1
+
+# --- item 5: JOB_TASK / JOB_REPO in the session environment -----------------
+tmux-new e1 >/dev/null 2>&1
+eq "16d a session created by tmux-new carries JOB_TASK" \
+   "$(ltmux show-environment -t "=$SLUG-e1" JOB_TASK 2>/dev/null)" "JOB_TASK=e1"
+eq "16d ... and JOB_REPO beside it" \
+   "$(ltmux show-environment -t "=$SLUG-e1" JOB_REPO 2>/dev/null)" "JOB_REPO=$SLUG"
+tmux-run e2 -- true >/dev/null 2>&1
+eq "16d one created by tmux-run carries it too" \
+   "$(ltmux show-environment -t "=$SLUG-e2" JOB_TASK 2>/dev/null)" "JOB_TASK=e2"
+tmux-new e3 --on fakehost >/dev/null 2>&1
+eq "16d ... and so does one created over the ssh hop" \
+   "$(rtmux show-environment -t "=$SLUG-e3" JOB_TASK 2>/dev/null)" "JOB_TASK=e3"
+eq "16d ... with its repo slug" \
+   "$(rtmux show-environment -t "=$SLUG-e3" JOB_REPO 2>/dev/null)" "JOB_REPO=$SLUG"
+# The session environment is not the point; the job's own process seeing it is.
+tmux-run e4 -- sh -c 'printf "JT=%s JR=%s\n" "$JOB_TASK" "$JOB_REPO"' >/dev/null 2>&1
+_e4_log() { [[ -s $REPO/logs/e4.latest.log ]] }
+waitfor _e4_log || fail "16d the e4 job produced no log" "$(tmux-status e4 2>&1)"
+haslit "16d and the job's own process reads both out of its environment" \
+       "$(command cat "$REPO/logs/e4.latest.log")" "JT=e4 JR=$SLUG"
+note "Q2 tmux here is [$(ltmux -V)]; _job_tmux_env_ok local says $(_job_tmux_env_ok local && print yes || print no)"
+
+# --- item 6: what the picker hands fzf --------------------------------------
+# The remote side needs the dotfiles where the preview assumes they are. That
+# is the host layer's standing premise -- the same checkout at the same path
+# under $HOME -- applied to ~/dot_files/.jobs.zsh, so it is set up here rather
+# than worked around.
+mkdir -p -- "$HOME_REMOTE/dot_files" || exit 1
+ln -sfn -- "$JOBS_ZSH" "$HOME_REMOTE/dot_files/.jobs.zsh"
+
+# The value word that follows an option in the recorded argv (one word a line).
+smoke_fzf_opt() { command awk -v o="$1" 'p { print; exit } $0 == o { p = 1 }' "$FZF_ARGV" }
+# fzf substitutes {1} and {3} with the row's fields, shell-quoted. Same here,
+# so that what gets RUN below is what fzf would have run and not a paraphrase.
+smoke_fzf_subst() {
+  local c=$1
+  c=${c//\{1\}/${(qq)2}}
+  c=${c//\{3\}/${(qq)3}}
+  print -r -- "$c"
+}
+# The CMD inside a `KEY:execute(CMD)+...' binding value.
+smoke_exec_cmd() {
+  local b; b=$(command grep -m1 -- "^${1}:execute(" "$FZF_ARGV")
+  b=${b#*execute\(}
+  print -r -- "${b%%\)+*}"
+}
+
+command rm -f -- "$FZF_ARGV"
+COLUMNS=120
+tmux-pick >/dev/null 2>&1
+typeset -g P16_ARGV="$(command cat "$FZF_ARGV")"
+haslit "16e tmux-pick gives fzf a --preview"            "$P16_ARGV" "--preview"
+haslit "16e ... a key that toggles it"                  "$P16_ARGV" "?:toggle-preview"
+haslit "16e ... and ctrl-e bound to an execute"         "$P16_ARGV" "ctrl-e:execute("
+haslit "16e ... which reloads after it, so the row's status catches up" \
+       "$P16_ARGV" ")+reload("
+haslit "16e the header names both new keys"             "$P16_ARGV" "? notes · ctrl-e edit"
+hasntlit "16e at 120 columns the preview starts shown"  "$(smoke_fzf_opt --preview-window)" "hidden"
+command rm -f -- "$FZF_ARGV"
+COLUMNS=80
+tmux-pick >/dev/null 2>&1
+haslit "16e at 80 it starts hidden, because a phone screen has no room" \
+       "$(smoke_fzf_opt --preview-window)" "hidden"
+COLUMNS=120
+
+command rm -f -- "$FZF_ARGV"
+tmux-pick >/dev/null 2>&1
+typeset -g PV_CMD="$(smoke_fzf_opt --preview)"
+eqlit "16e the preview command is a fresh zsh with no rc files" \
+      "${PV_CMD%% -c *}" "'$_JOB_ZSH_BIN' -f"
+haslit "16e ... re-sourcing this worktree's copy, not ~/dot_files" \
+       "$PV_CMD" "'${JOBS_ZSH:A}'"
+haslit "16e ... and taking the row's key and its hidden session path" \
+       "$PV_CMD" "{1} {3}"
+
+# The scalars tmux-pick exports for the duration of its call cannot be seen
+# from outside it, so the test sets the same ones. JOB_LAUNCHD_SLUG is this
+# suite's own (it pins the launchd label); exported so that the child shell
+# names the same agent the parent does, and unexported again afterwards.
+export JOB_HOSTS_EXPORT="${(j: :)JOB_HOSTS}" JOB_HOST="$JOB_HOST"
+export JOB_LAUNCHD_SLUG
+
+# job-note-context renders "Ns ago", so two identical blocks taken either side
+# of a clock tick differ by a second and nothing else -- the same trick 9k uses
+# for the reload: run the command BETWEEN two references and only believe the
+# comparison when those two agree.
+typeset -g CTX_RUN= CTX_WANT=
+smoke_ctx_pair() {                        # smoke_ctx_pair CMD DIR TASK
+  local i before after
+  for i in {1..20}; do
+    before=$(cd -- "$2" && job-note-context "$3" 2>/dev/null)
+    CTX_RUN=$("$SMOKE_ZSH" -c "$1" 2>/dev/null)
+    after=$(cd -- "$2" && job-note-context "$3" 2>/dev/null)
+    [[ $before == "$after" ]] && { CTX_WANT=$before; return 0 }
+  done
+  return 1
+}
+smoke_ctx_pair "$(smoke_fzf_subst "$PV_CMD" "local|$SLUG-t1" "$REPO")" "$REPO" t1 \
+  || fail "16e the clock ticked on all 20 tries" "$PV_CMD"
+eqlit "16e the preview prints exactly what job-note-context prints for that row" \
+      "$CTX_RUN" "$CTX_WANT"
+haslit "16e ... and what it printed really is the context block" "$CTX_RUN" "notes:"
+
+# The remote row: same preview command, answered on the other host.
+# Short on purpose: these two statuses are asserted in a REAL row further
+# down, where the 80-column budget is mostly spent on a per-run session name
+# like job-smoke-<pid>-nohome, and a long one would arrive truncated.
+_job_sh fakehost "mkdir -p ${(qq)REPO_REMOTE}/logs && printf '%s\n' '> a remote note' > ${(qq)REPO_REMOTE}/logs/claude.notes.md"
+typeset -g RPV_OUT
+RPV_OUT=$("$SMOKE_ZSH" -c "$(smoke_fzf_subst "$PV_CMD" "fakehost|$SLUG-claude" "$REPO_REMOTE")" 2>/dev/null)
+haslit "16e a remote row's preview is answered in the remote checkout" \
+       "$RPV_OUT" "$REPO_REMOTE"
+haslit "16e ... and prints the notes that live THERE" \
+       "$RPV_OUT" "> a remote note"
+hasntlit "16e ... and not this machine's" "$RPV_OUT" "$REPO/logs"
+
+# Report question 1: a preview runs on EVERY cursor move, so what it costs is
+# part of whether it is usable at all. Measured here rather than reasoned
+# about, in the environment the rest of this section measures.
+typeset -g PV_LOCAL="$(smoke_fzf_subst "$PV_CMD" "local|$SLUG-t1" "$REPO")"
+typeset -g PV_REMOTE="$(smoke_fzf_subst "$PV_CMD" "fakehost|$SLUG-claude" "$REPO_REMOTE")"
+smoke_time_cmd() {                        # median of 3 runs of `zsh -c CMD', in ms
+  local c=$1 i t0 t1; local -a ms
+  for i in 1 2 3; do
+    t0=$EPOCHREALTIME; "$SMOKE_ZSH" -c "$c" >/dev/null 2>&1; t1=$EPOCHREALTIME
+    ms+=($(( (t1 - t0) * 1000 )))
+  done
+  ms=(${(on)ms})
+  printf '%.0f' $ms[2]
+}
+note "Q1 one preview render: local $(smoke_time_cmd "$PV_LOCAL") ms, remote through the ssh shim $(smoke_time_cmd "$PV_REMOTE") ms (median of 3)"
+
+typeset -g ED_CMD="$(smoke_exec_cmd ctrl-e)"
+haslit "16e the ctrl-e command is built the same way, on _tmux_pick_edit" \
+       "$ED_CMD" "_tmux_pick_edit"
+command rm -f -- "$ED_ARGV" "$REPO/logs/t1.notes.md"
+EDITOR=$SHADOWBIN/fake-editor "$SMOKE_ZSH" -c \
+  "$(smoke_fzf_subst "$ED_CMD" "local|$SLUG-t1" "$REPO")" >/dev/null 2>&1
+eq "16e running it opens the EDITOR shim on that row's notes file" \
+   "$(command tail -n 1 "$ED_ARGV")" "$REPO/logs/t1.notes.md"
+
+# --- item 6, the status in the row ------------------------------------------
+# Synthetic rows, as 9(c) does for the column widths: the three cases are a
+# notes line, a recap line and a status too long for the budget, and none of
+# them is worth a tmux server.
+mkdir -p -- "$BASE/abc/logs" || exit 1
+typeset -g SROW="local|abc-s1|1|0|$ROW_AGO|$BASE/abc"
+eq "16f the synthetic row's task really is s1" "$(_tmux_row_task "$SROW")" "s1"
+print -r -- '> waiting on review' > "$BASE/abc/logs/s1.notes.md"
+_tmux_row_statuses "$SROW"
+eq "16f the status is the notes' \"> \" line, without the marker" \
+   "$reply[1]" "waiting on review"
+_tmux_label_widths "$SROW"
+typeset -g SLBL="$(_tmux_label "$SROW" 0 "$reply[1]")"
+ends "16f ... appended to the label after two spaces" "$SLBL" "  waiting on review"
+haslit "16f ... with the session name still in front of it" "$SLBL" "abc-s1"
+
+# A template that shipped a live status would have every freshly created note
+# claim something its owner never wrote, so the template's `> ' line is empty
+# and the first NON-empty one is what counts.
+_job_notes_template s1 > "$BASE/abc/logs/s1.notes.md"
+_tmux_row_statuses "$SROW"
+eq "16f a freshly created notes file claims no status at all" "$reply[1]" ""
+print -r -- '> now it says something' >> "$BASE/abc/logs/s1.notes.md"
+_tmux_row_statuses "$SROW"
+eq "16f ... and a real line written under it is what shows" \
+   "$reply[1]" "now it says something"
+
+command rm -f -- "$BASE/abc/logs/s1.notes.md"
+print -r -- '# recap 2026-01-01T00:00:00+0000 gemini' >  "$BASE/abc/logs/s1.recap.md"
+print -r -- '- **Current Subtask:** running tests'    >> "$BASE/abc/logs/s1.recap.md"
+_tmux_row_statuses "$SROW"
+eq "16f with no notes the recap's Current Subtask is the status" \
+   "$reply[1]" "running tests"
+ends "16f ... and it reaches the row" "$(_tmux_label "$SROW" 0 "$reply[1]")" "  running tests"
+
+typeset -g SLONG="$(printf 'w%.0s' {1..120})"
+typeset -g SLBL3="$(_tmux_label "$SROW" 0 "$SLONG")"
+eq "16f an over-long status is cut back to the 80-column budget" \
+   "$(( ${#SLBL3} <= 80 ))" "1"
+haslit "16f ... and says it was cut, with an ellipsis" "$SLBL3" "…"
+haslit "16f ... while the session name is left whole"  "$SLBL3" "abc-s1"
+
+# End to end, through the producer the picker and its reload both use.
+print -r -- '> from my notes' > "$REPO/logs/t1.notes.md"
+_tmux_pick_lines >/dev/null
+haslit "16f a local row's status reaches the picker's own line" \
+       "${(F)reply}" "  from my notes"
+haslit "16f ... and a remote row's comes back over the ssh path" \
+       "${(F)reply}" "  a remote note"
+eq "16f every picker line carries its hidden third field" \
+   "$(print -l -- "${reply[@]}" | command awk -F'\t' '{ if (NF != 3) bad++ } END { print bad + 0 }')" "0"
+eq "16f ... and that field is the row's session path" \
+   "$(print -l -- "${reply[@]}" | command awk -F'\t' -v k="local|$SLUG-t1" '$1 == k { print $3 }')" "$REPO"
+
+# --- item 6, the numbered fallback ------------------------------------------
+typeset -g MENU_ERR3=$BASE/menu-err3.txt MENU_ERR4=$BASE/menu-err4.txt
+out=$( unfunction fzf; PATH=$NOFZF_PATH; print -l 'n 1' q | tmux-pick 2>"$MENU_ERR3" )
+typeset -g MENU3="$(command cat "$MENU_ERR3")"
+haslit "16g the menu prompt offers the two new verbs" \
+       "$MENU3" "[number, n N=notes, e N=edit, r=refresh, q=quit"
+haslit "16g \`n 1' prints row 1's context block" "$MENU3" "notes:"
+eq "16g ... and none of it reaches stdout, which is the caller's" "$out" ""
+command rm -f -- "$ED_ARGV"
+out=$( unfunction fzf; PATH=$NOFZF_PATH; EDITOR=$SHADOWBIN/fake-editor
+       print -l 'e 1' q | tmux-pick 2>"$MENU_ERR4" )
+eq "16g \`e 1' runs the EDITOR shim" "$([[ -s $ED_ARGV ]] && print yes)" "yes"
+haslit "16g ... on a notes file"     "$(command cat "$ED_ARGV")" ".notes.md"
+
+# Put the picker's world back: no notes, no recaps, no exported scalars.
+command rm -f -- "$REPO/logs/t1.notes.md" "$REPO/logs/t1.recap.md"
+_job_sh fakehost "rm -f ${(qq)REPO_REMOTE}/logs/claude.notes.md"
+unset JOB_HOSTS_EXPORT
+typeset +x JOB_LAUNCHD_SLUG
 
 # --------------------------------------------------------------------------
 # 10. Stop and rm across hosts

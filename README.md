@@ -390,6 +390,75 @@ a `podman` process is supervising the container and does **not** survive a
 reboot. Enable `podman-restart.service` or write a Quadlet unit if you need a
 job back after a restart.
 
+### Notes and recaps
+
+A picker row used to say a session's name and its age and nothing else, so
+seven live sessions were reconstructed by attaching to each of them in turn.
+Two files per task now say what a session is *doing*, and they live beside that
+task's logs, in the checkout on the host that runs it:
+
+| file | who writes it |
+|------|----------------|
+| `logs/<task>.notes.md` | **you**, in `$EDITOR`. Nothing else ever writes it. |
+| `logs/<task>.recap.md` | `job-recap` and the recap skills. Replaced, never appended. |
+
+```sh
+job-recap [TASK] [--writer NAME]   # replace logs/<task>.recap.md with stdin; prints the path
+job-note [TASK]                    # open logs/<task>.notes.md in $VISUAL/$EDITOR
+job-note-context [TASK]            # the generated block: state, stage, latest recap, notes
+```
+
+`TASK` defaults to **`$JOB_TASK`**, then `main`. Every tmux session `tmux-new`,
+`tmux-go`, `tmux-run` and `claude-run` create — local or remote — now carries
+`JOB_TASK` and `JOB_REPO` in its environment (`tmux new-session -e`, tmux ≥ 3.2;
+an older tmux gets no variables and one line saying so, rather than no session),
+so a `/recap` skill running *inside* a session does not have to be told which
+task it is.
+
+The **recap format** is a contract, so a picker on one machine can read a recap
+a skill wrote on another: first line `# recap <ISO-8601 local time> <writer>`
+(writer = `claude`, `gemini`, or free text), then the body. `job-recap` writes
+through a temp file and a rename, because the reader is a preview that can fire
+at any moment. The Gemini `/recap` skill persists its output this way; the
+Claude-side skill lives in the `claude` submodule and is a separate step.
+
+`job-note-context` prints, in order and omitting whatever is empty: the repo,
+task and root, the live `job-status` lines and the session's last activity; the
+**stage context**; the **recap**, its header rewritten as `recap · 4m ago ·
+gemini`; and finally your notes file, verbatim. Stage context is the repo's own
+`.jobs/note-context` — an executable given `TASK` as `$1`, which is how a repo
+whose unit of work is not a numbered stage says what a task is about — and,
+failing that, for a `stage-NN` task, the title and first `## Motivation`
+paragraph of `docs/stages/stage-NN-PROMPT.md` plus whether its report exists.
+
+In `tmux-pick` / `tmux-dash`:
+
+- **`?`** toggles a preview pane showing that block for the highlighted row —
+  hidden below 100 columns, shown at or above it. (`?` rather than `ctrl-/`,
+  which only reaches the application on terminals that send `0x1f`; nothing is
+  lost, because session names here are `[A-Za-z0-9_-]` by construction.)
+- **`ctrl-e`** opens that row's notes in `$EDITOR` and reloads the list.
+- In the numbered menu, **`n N`** prints the block and **`e N`** edits.
+
+Rows carry a hidden third field, the session's `#{session_path}`, so a preview
+knows *which checkout* a row is about. Remote rows are answered on their own
+host, through the same ssh path the picker already uses, by a fresh `zsh`
+sourcing that machine's `~/dot_files/.jobs.zsh`.
+
+**The `> ` status convention.** The first non-empty notes line beginning `> `
+is that session's one-line status and appears in the row itself, after two
+spaces; with no such line, the recap's `Current Subtask` value is used. A new
+notes file is created with a two-line hint and an *empty* `> ` line, so it
+claims nothing until you write something. When a row would exceed the
+80-column budget the status is the first thing to go — truncated with `…`,
+never the session name, which is the thing you paste into `tmux-go`.
+
+```sh
+job-note stage-24                     # write "> waiting on review" at the top
+tmux-dash                             # the row now ends in "  waiting on review"
+job-recap --writer gemini < recap.md  # from inside the session; $JOB_TASK names it
+```
+
 `make check-jobs` runs the end-to-end test in
 [`tests/jobs/smoke.zsh`](./tests/jobs/smoke.zsh). It is deliberately not part
 of `make check`: it starts two tmux servers, a container and a launchd agent
@@ -549,6 +618,8 @@ tmux-peek claude                     # look without disturbing: read-only if ano
 tmux-run build --on mac -- make all  # run over there, log in mac's ./logs/
 tmux-pick                            # pick one of this repo's sessions (fzf, else a menu); polite attach
 tmux-dash                            # pick from every session on every host (any directory); polite attach
+                                     # in both: ? shows the row's notes and recap, ctrl-e edits them
+                                     # (see "Notes and recaps" above)
 tmux-dash --poll 30                  # ... refreshing itself every 30s instead of the default 120
 tmux-stop claude; tmux-rm --all      # act on the host that holds it
 ```

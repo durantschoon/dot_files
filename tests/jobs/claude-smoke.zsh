@@ -59,6 +59,9 @@ if (( ! $+commands[launchctl] )); then
     "its label carries no per-run token" \
     "plist lives in the scratch HOME" \
     "plist relaunch carries --continue" \
+    "plist relaunch carries the task identity too" \
+    "the session carries JOB_TASK" \
+    "… and JOB_REPO" \
     "the agent's program is a per-task name, not job-tee" \
     "… and that name is a symlink to job-tee" \
     "attached once" \
@@ -301,6 +304,15 @@ assert "launchd agent is loaded" launchctl print "gui/$(id -u)/$LD_LABEL"
 assert "its label carries no per-run token" test "$(launchd-label t1)" = "$LD_LABEL"
 assert "plist lives in the scratch HOME" test -f "$LD_PLIST"
 assert "plist relaunch carries --continue" grep -q -- '--continue' "$LD_PLIST"
+# Stage 16 item 5: the session knows which task it is, so that a recap skill
+# running inside it can write logs/<task>.recap.md without being told. Asserted
+# on the relaunch command too, because a session brought back after a reboot
+# must know the same things the one it replaces knew.
+assert "plist relaunch carries the task identity too" grep -q -- 'JOB_TASK=t1' "$LD_PLIST"
+assert "the session carries JOB_TASK" \
+  test "$(ptmux show-environment -t "=$SLUG-t1" JOB_TASK 2>/dev/null)" = "JOB_TASK=t1"
+assert "… and JOB_REPO" \
+  test "$(ptmux show-environment -t "=$SLUG-t1" JOB_REPO 2>/dev/null)" = "JOB_REPO=$SLUG"
 # The agent's program is its own per-task name for job-tee, so Login Items can
 # tell one Claude session from another (stage 15 item 3).
 typeset -g CS_PROG="$HOME/Library/Application Support/local.job/$LD_LABEL/$SLUG-t1"
