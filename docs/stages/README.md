@@ -144,3 +144,32 @@ first; these are the patterns it did not record:
   podman on the Mac). A prompt that inherits a gate list without checking it
   against its host produces "impossible gate" confusion instead of evidence
   (stage 09 had to special-case `make check-jobs` mid-flight).
+
+### Added at the stage 15 retro (reports 10–14)
+
+- **Measurement harnesses get the same containment as tests, enforced by a tool,
+  not a sentence.** Stage 14 D1: a throwaway harness set `TMUX_TMPDIR` under the
+  scratchpad, the socket path came to 126 bytes, over the 104-byte `sun_path` limit
+  this repo already documents for `ControlPath`, tmux fell through to the user's
+  default server, and `kill-server` took down seven live Claude sessions twice. The
+  variable was set; the grant said "private servers only"; neither helped. Stage 15
+  adds `tests/jobs/private-tmux`, the only way any test or probe may reach tmux: it
+  makes a short private socket dir, refuses over-long paths, and `exec`s tmux.
+  Prompts name it; probes that touch tmux, docker, or launchd say their blast
+  radius before running. Related: stage 10 D6, 11 D6, 13 D9 — measurement steps
+  reaching outside the grants, small each time.
+- **`worktree.baseRef=head` fixed the handover.** Stages 13 and 14 arrived on the
+  exact base with no reset, after five wrong handovers in twelve stages. The
+  verify-then-reset first action stays as the check that proves it each time.
+- **Report-only amend before the single push is the sanctioned shape.** Stages 12
+  (D6), 13 (D8) and 14 each captured gate evidence after the commit and folded it
+  into the report with `git commit --amend` before pushing once. "One commit" and
+  "evidence from the committed tree" conflict otherwise; this resolves it. Never
+  after the push.
+- **Version and release facts may come from a delegated web lookup, cited.** Stage
+  14 D10 did so for fzf's CHANGELOG and the Guix/Termux package versions; the
+  report names the sources. Acceptable; a claim without a source is not.
+- **Test helpers are accreting per stage** (`eqlit`, `starts`, `haslit`, `hasntlit`,
+  `nonzero`, per-suite `skip`). Four suites now carry near-duplicate helper sets.
+  A shared `tests/jobs/lib.zsh` is a candidate for the stage after next; noted,
+  not done here, because it touches every suite at once.
