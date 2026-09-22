@@ -541,6 +541,7 @@ installed either way."
     "xdg-utils"
     ;; gpg CLI, matching the gpg-agent the gpg-ssh-agent layer runs
     "gnupg"
+    "glow"
     "perl"
     "tree"
     "zig"))
