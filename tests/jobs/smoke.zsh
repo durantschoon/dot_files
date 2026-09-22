@@ -1390,11 +1390,13 @@ typeset -g SROW="local|abc-s1|1|0|$ROW_AGO|$BASE/abc"
 eq "16f the synthetic row's task really is s1" "$(_tmux_row_task "$SROW")" "s1"
 print -r -- '> waiting on review' > "$BASE/abc/logs/s1.notes.md"
 _tmux_row_statuses "$SROW"
-eq "16f the status is the notes' \"> \" line, without the marker" \
-   "$reply[1]" "waiting on review"
+# The marker STAYS on a status that came from the notes: it is the visible
+# difference between "I wrote this" and "the recap said this", which is the
+# reason for having both sources. The recap case below keeps no marker.
+eq "16f a notes status keeps its \"> \" marker" "$reply[1]" "> waiting on review"
 _tmux_label_widths "$SROW"
 typeset -g SLBL="$(_tmux_label "$SROW" 0 "$reply[1]")"
-ends "16f ... appended to the label after two spaces" "$SLBL" "  waiting on review"
+ends "16f ... appended to the label after two spaces" "$SLBL" "  > waiting on review"
 haslit "16f ... with the session name still in front of it" "$SLBL" "abc-s1"
 
 # A template that shipped a live status would have every freshly created note
@@ -1406,7 +1408,7 @@ eq "16f a freshly created notes file claims no status at all" "$reply[1]" ""
 print -r -- '> now it says something' >> "$BASE/abc/logs/s1.notes.md"
 _tmux_row_statuses "$SROW"
 eq "16f ... and a real line written under it is what shows" \
-   "$reply[1]" "now it says something"
+   "$reply[1]" "> now it says something"
 
 command rm -f -- "$BASE/abc/logs/s1.notes.md"
 print -r -- '# recap 2026-01-01T00:00:00+0000 gemini' >  "$BASE/abc/logs/s1.recap.md"
@@ -1414,6 +1416,7 @@ print -r -- '- **Current Subtask:** running tests'    >> "$BASE/abc/logs/s1.reca
 _tmux_row_statuses "$SROW"
 eq "16f with no notes the recap's Current Subtask is the status" \
    "$reply[1]" "running tests"
+hasntlit "16f ... and a recap-derived status carries NO marker" "$reply[1]" ">"
 ends "16f ... and it reaches the row" "$(_tmux_label "$SROW" 0 "$reply[1]")" "  running tests"
 
 typeset -g SLONG="$(printf 'w%.0s' {1..120})"
@@ -1422,14 +1425,23 @@ eq "16f an over-long status is cut back to the 80-column budget" \
    "$(( ${#SLBL3} <= 80 ))" "1"
 haslit "16f ... and says it was cut, with an ellipsis" "$SLBL3" "…"
 haslit "16f ... while the session name is left whole"  "$SLBL3" "abc-s1"
+# The marker is part of the status, so it is part of what has to fit.
+print -r -- "> $SLONG" > "$BASE/abc/logs/s1.notes.md"
+_tmux_row_statuses "$SROW"
+typeset -g SLBL4="$(_tmux_label "$SROW" 0 "$reply[1]")"
+eq "16f a cut notes status fits the budget with its marker counted in" \
+   "$(( ${#SLBL4} <= 80 ))" "1"
+haslit "16f ... and what survives still starts with the marker" "$SLBL4" "  > w"
+haslit "16f ... and is still marked as cut"                     "$SLBL4" "…"
+command rm -f -- "$BASE/abc/logs/s1.notes.md"
 
 # End to end, through the producer the picker and its reload both use.
 print -r -- '> from my notes' > "$REPO/logs/t1.notes.md"
 _tmux_pick_lines >/dev/null
 haslit "16f a local row's status reaches the picker's own line" \
-       "${(F)reply}" "  from my notes"
+       "${(F)reply}" "  > from my notes"
 haslit "16f ... and a remote row's comes back over the ssh path" \
-       "${(F)reply}" "  a remote note"
+       "${(F)reply}" "  > a remote note"
 eq "16f every picker line carries its hidden third field" \
    "$(print -l -- "${reply[@]}" | command awk -F'\t' '{ if (NF != 3) bad++ } END { print bad + 0 }')" "0"
 eq "16f ... and that field is the row's session path" \

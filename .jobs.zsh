@@ -359,8 +359,10 @@ job-status() {
 #   line 2+   the recap body, exactly as the skill produced it
 #
 # and the STATUS CONTRACT, which is what a picker shows in the row itself:
-# the first notes line beginning `> ' is that session's one-line status; with
-# no such line, the recap body's `Current Subtask' value is used instead.
+# the first notes line beginning `> ' is that session's one-line status, MARKER
+# AND ALL; with no such line, the recap body's `Current Subtask' value is used
+# instead, without one. A leading `> ' in a row therefore means exactly "a
+# human wrote this", and its absence "this was derived from the recap".
 
 _job_notes_file() {
   local task; task=$(_job_task "$1") || return
@@ -873,12 +875,20 @@ _tmux_label_widths() {
 # file starts life with an empty `> ' line waiting to be filled in, and with
 # `1p' that empty line would beat both a real status written under it and the
 # recap -- a template silencing the row it exists to describe.
+#
+# A status that came from the NOTES keeps its `> '; one derived from the
+# recap's `Current Subtask' does not. That difference is the point of having
+# both: the marker is how a row says "I wrote this" as against "the recap said
+# this", and a dashboard where those two look alike cannot be read at a glance.
+# The marker is put back rather than left on, because the emptiness test is
+# about the TEXT -- `> ' alone is a waiting template line, not a status.
 typeset -g _JOB_STATUS_SH='
 while [ $# -gt 0 ]; do
   d=$1; t=$2; shift 2
   s=
   if [ -r "$d/logs/$t.notes.md" ]; then
     s=$(sed -n "s/^> //p" "$d/logs/$t.notes.md" | sed -n "/./{p;q;}")
+    [ -n "$s" ] && s="> $s"
   fi
   if [ -z "$s" ] && [ -r "$d/logs/$t.recap.md" ]; then
     s=$(sed -n "s/.*Current Subtask:[*]*[[:space:]]*//p" "$d/logs/$t.recap.md" | sed -n "/./{p;q;}")

@@ -447,15 +447,20 @@ sourcing that machine's `~/dot_files/.jobs.zsh`.
 
 **The `> ` status convention.** The first non-empty notes line beginning `> `
 is that session's one-line status and appears in the row itself, after two
-spaces; with no such line, the recap's `Current Subtask` value is used. A new
-notes file is created with a two-line hint and an *empty* `> ` line, so it
-claims nothing until you write something. When a row would exceed the
-80-column budget the status is the first thing to go — truncated with `…`,
-never the session name, which is the thing you paste into `tmux-go`.
+spaces, **with its `> ` still on it**; with no such line, the recap's
+`Current Subtask` value is used, *without* a marker. That difference is the
+point of having both sources: a leading `> ` in a row means "I wrote this",
+and its absence means "the recap said this", so a dashboard can be read at a
+glance rather than decoded. A new notes file is created with a two-line hint
+and an *empty* `> ` line, so it claims nothing until you write something. When
+a row would exceed the 80-column budget the status is the first thing to go —
+truncated with `…`, marker counted in, and never the session name, which is
+the thing you paste into `tmux-go`.
 
 ```sh
 job-note stage-24                     # write "> waiting on review" at the top
-tmux-dash                             # the row now ends in "  waiting on review"
+tmux-dash                             # the row now ends in "  > waiting on review"
+                                      # (a recap-derived one would read "  running tests")
 job-recap --writer gemini < recap.md  # from inside the session; $JOB_TASK names it
 ```
 

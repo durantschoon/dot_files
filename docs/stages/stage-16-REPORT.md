@@ -321,6 +321,8 @@ No frame was ever created in the user's Emacs during this stage. See Deviation
    between a self-written and a machine-derived status was meant to be visible
    in the row, re-adding the marker is one line in `_tmux_row_statuses`'s sh
    reader.
+   **Settled the other way by the coordinator; see "Follow-up commit" at the
+   end of this report. The marker stays.**
 4. **The notes template's `> ` line is empty, and the worked example lives
    inside the hint.** Item 1 asks for "a two-line hint comment and a `> `
    status-line example". The file gets two hint comment lines — the second of
@@ -395,6 +397,8 @@ No frame was ever created in the user's Emacs during this stage. See Deviation
 
 1. **Should the row status keep its `> `?** Deviation 3. One line either way,
    and the prompt's two halves disagree, so the coordinator should settle it.
+   **Answered: yes for a notes status, no for a recap-derived one. Done in the
+   follow-up commit; see the section at the end.**
 2. **`docker-status` costs 98 ms of every preview render.** The preview must
    print exactly what `job-note-context` prints, so the fix cannot live in the
    preview. Candidates: cache a *negative* engine probe for a second or two
@@ -433,3 +437,66 @@ No frame was ever created in the user's Emacs during this stage. See Deviation
 9. **`tmux-go` carries the env only because it delegates to `tmux-new`.** True
    today and asserted through `tmux-new`, but nothing stops a future change to
    `tmux-go` from creating a session directly and quietly losing it.
+
+## Follow-up commit — the row status keeps its `> ` for user notes
+
+A second commit on this branch, `fix(jobs): stage 16 follow-up -- row status
+keeps the > marker for user notes`. `f5b01aa` is untouched; this is new text
+and a new commit, not an amendment.
+
+14. **Deviation 3 is settled, the other way.** The stage 16 prompt contradicts
+    itself about the row status: change item 6 says "the first notes line
+    beginning `> ` (**without the marker**)", while verification item 6 expects
+    a row to end with `  > waiting on review` — marker included — against
+    `  running tests` for the recap-derived case. `f5b01aa` followed the change
+    item, on the prompt's own ranking of its sections. The coordinator has
+    settled it in favour of **verification item 6**, stating that the change
+    item's parenthesis was the error, and the reason is the one the two halves
+    of that verification line already imply: **the marker is the visible
+    difference between "I wrote this" and "the recap said this"**, which is the
+    whole point of having two sources. Without it a dashboard row has to be
+    decoded; with it, it can be read.
+
+    So a status taken from `logs/<task>.notes.md` now keeps its `> ` and a row
+    reads `lim-stage-27 …  > waiting on review`, while one derived from the
+    recap's `Current Subtask` still carries no marker and reads
+    `…  running tests`.
+
+    What changed: two lines in `_JOB_STATUS_SH` (the emptiness test still runs
+    against the *text*, because a bare `> ` is a waiting template line and not
+    a status, so the marker is put back after that test rather than left on),
+    the `STATUS CONTRACT` comment in `.jobs.zsh`'s "Notes and recaps" header,
+    the comment above `_JOB_STATUS_SH`, the README's "`> ` status convention"
+    paragraph and its worked example, and six assertions in smoke.zsh's 16f.
+
+    **The truncation rule is unchanged**: the marker counts toward the status
+    width and the session name is never cut. Four assertions cover it — three
+    from before, plus a new pair proving a *notes* status that overflows is
+    still cut to the 80-column budget, still starts `  > ` and still ends `…`.
+    Two further new assertions pin the contrast itself: a notes status equals
+    `> waiting on review`, and a recap-derived one contains no `>` at all.
+
+### Follow-up gates
+
+Run on the committed follow-up tree:
+
+```
+$ zsh -n .jobs.zsh             -> exit 0
+$ zsh -n tests/jobs/smoke.zsh  -> exit 0
+$ ./tests/jobs/smoke.zsh       -> exit 0
+  # 402 assertions passed, 0 skipped, 402 total
+  ok   the user's default tmux server is untouched (8 sessions, unchanged)
+$ make check                   -> exit 0
+$ make check-jobs              -> exit 0
+  tee-smoke:    # 48 assertions passed, 0 skipped, 48 total
+  smoke.zsh:    # 402 assertions passed, 0 skipped, 402 total
+  claude-smoke: 73/73 passed, 0 skipped, 73 total
+```
+
+smoke.zsh 398 → **402** (+4 net: six assertions rewritten in place, four
+added). `tests/jobs/private-tmux --default-ls` before and after the follow-up
+run: the same eight names, `diff` clean — `dot-files`, `ga-mech-stage-28`,
+`guix-platform-install-coordinator`, `guix-platform-install-jobs`,
+`lim-stage-27`, `media-announce-jobs`, `obsidian-drift-coordinator`,
+`ros2-classroom-coordinator`. Deviation 1 is unchanged by any of this: that
+session was not this stage's and is still not touched.
