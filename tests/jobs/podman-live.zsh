@@ -143,6 +143,19 @@ typeset -g WANT_IMAGE=debian:stable-slim
 # is not known in advance, which is the same lesson stage 07 taught the smoke
 # test about launchd labels.
 
+# Containment (stage 15), in the same shape as the other three suites: this
+# one drives a container engine and never tmux, so there is nothing here to
+# contain -- which is the reason to check rather than the reason not to. A
+# suite that is sure it never talks to tmux is precisely the one that would
+# not notice if something it ran did. tests/jobs/private-tmux's --default-ls
+# is the only thing any test here can express against the user's own server,
+# and reading is all it does.
+typeset -g PT=${0:A:h}/private-tmux
+[[ -x $PT ]] || { print -u2 "podman-live: cannot execute $PT"; exit 1 }
+typeset -g PT_DEFAULT_DIR=${TMUX_TMPDIR:-/tmp}
+pt_default_sessions() { PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
+typeset -g LIVE_DEFAULT_BEFORE="$(pt_default_sessions)"
+
 typeset -g LIVE_CLEANED=0
 
 live_cleanup() {
@@ -492,6 +505,8 @@ eq "10 the cleanup removed every container of this run" \
 eq "10 ... and the scratch tree" "$([[ -e $BASE ]] && print left-behind)" ""
 eq "10 ... and the image it borrowed is still in the store" \
    "$(xctr image inspect "$WANT_IMAGE" >/dev/null 2>&1 && print present)" "present"
+eqlit "10 ... and the user's default tmux server is untouched" \
+      "$(pt_default_sessions)" "$LIVE_DEFAULT_BEFORE"
 
 print -r -- "# $N_OK assertions passed, $N_SKIP skipped, $(( N_OK + N_SKIP )) total"
 exit 0

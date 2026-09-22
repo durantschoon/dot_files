@@ -518,11 +518,84 @@ _tmux_all_rows() {
   _job_hosts; local -a hosts=("${reply[@]}")
   reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h"; done | sort -t'|' -k5,5nr)"})
 }
+# ---------------------------------------------------------------------------
+# One display line per row, in columns that fit what is actually in them
+# ---------------------------------------------------------------------------
+# The repo and session columns used to be nailed to 18 and 28 characters.
+# Measured on 2026-09-20: `guix-platform-install' is 21 characters, so its row
+# in tmux-dash pushed every column after it out of line, and the dashboard
+# printed the slug twice per row (`guix-platform-install
+# guix-platform-install-jobs'), which is 43 characters spent saying one thing.
+#
+# So the two columns are sized from the rows about to be DISPLAYED, and in
+# --all mode the session column carries the task rather than repeating the
+# slug that is already in the column beside it.
+#
+# Capped, never truncated. A value wider than its column overflows and makes
+# that row longer; the alternative is to drop characters off a session name,
+# and a name that has lost its end is not a name you can hand to tmux-go.
+
+# The width every label aims to fit inside, and what it spends before the two
+# sized columns get any: host 8, four literal spaces, the 2-column window
+# count, " win  ", the 8-character attached/detached word, and 7 for the
+# longest ordinary "12d ago" / "59m ago". 8 + 1 + 1 + 2 + 6 + 8 + 1 + 7 = 34.
+typeset -gi _JOB_LABEL_COLS=80
+typeset -gi _JOB_LABEL_FIXED=34
+# The current widths. Defaults are the historical ones, so a bare _tmux_label
+# call that never went through _tmux_label_widths still lines up with itself.
+typeset -gi _JOB_W_REPO=18 _JOB_W_SESS=28
+
+# The repo slug a row belongs to, from its #{session_path}.
+_tmux_row_repo() { _job_slugify "${${(@s:|:)1}[6]}" }
+# The task a row's session name carries: the naming contract job-name writes is
+# `<repo>-<task>', or a bare `<repo>' for the default task. A session this file
+# did not name keeps its whole name -- splitting it somewhere would invent a
+# task that nobody chose.
+_tmux_row_task() {
+  local -a f; f=("${(@s:|:)1}")
+  local repo; repo=$(_tmux_row_repo "$1")
+  if   [[ $f[2] == $repo ]];   then print -r -- main
+  elif [[ $f[2] == $repo-* ]]; then print -r -- "${f[2]#$repo-}"
+  else                              print -r -- "$f[2]"
+  fi
+}
+
+# _tmux_label_widths [--all] ROW... -- size the columns for this row set.
+# Callers run it once over the rows they are about to print, then _tmux_label
+# per row; the widths are globals because printf cannot be told a width the
+# caller has not measured yet.
+_tmux_label_widths() {
+  local all=0; [[ $1 == --all ]] && { all=1; shift }
+  local r v
+  integer wr=0 ws=0 budget
+  for r in "$@"; do
+    if (( all )); then
+      v=$(_tmux_row_repo "$r"); (( ${#v} > wr )) && wr=${#v}
+      v=$(_tmux_row_task "$r"); (( ${#v} > ws )) && ws=${#v}
+    else
+      v=${${(@s:|:)r}[2]};      (( ${#v} > ws )) && ws=${#v}
+    fi
+  done
+  budget=$(( _JOB_LABEL_COLS - _JOB_LABEL_FIXED ))
+  (( all )) && (( budget-- ))            # the space that follows the repo column
+  # Over budget: take from the wider of the two until it fits, so one long
+  # slug cannot starve the session names next to it.
+  while (( ws + (all ? wr : 0) > budget )); do
+    if (( all && wr > ws )); then (( wr-- )); else (( ws-- )); fi
+    (( ws < 1 )) && { ws=1; break }
+  done
+  typeset -gi _JOB_W_REPO=$wr _JOB_W_SESS=$ws
+}
+
 # One display line for a row; $2=1 adds the repo column (dashboard).
 _tmux_label() {
   local -a f; f=("${(@s:|:)1}")
-  local repo=""; (( ${2:-0} )) && repo=$(printf '%-18s ' "$(_job_slugify "$f[6]")")
-  printf '%-8s %s%-28s %2s win  %-8s %s' "$f[1]" "$repo" "$f[2]" "$f[3]" \
+  local all=${2:-0} repo="" sess=$f[2]
+  if (( all )); then
+    repo=$(printf '%-*s ' "$_JOB_W_REPO" "$(_tmux_row_repo "$1")")
+    sess=$(_tmux_row_task "$1")
+  fi
+  printf '%-8s %s%-*s %2s win  %-8s %s' "$f[1]" "$repo" "$_JOB_W_SESS" "$sess" "$f[3]" \
     "$( (( f[4] )) && print attached || print detached )" "$(_job_ago "$f[5]")"
 }
 # Host holding session NAME (local preferred), in reply[1]; failure if none.
@@ -643,6 +716,10 @@ _tmux_pick_lines() {
   local r; local -a rows
   if (( all )); then _tmux_all_rows; else _tmux_repo_rows; fi
   rows=("${reply[@]}")
+  # Size the columns over exactly the rows about to be rendered, so a reload
+  # shows the same widths a fresh invocation would.
+  local -a wflag; (( all )) && wflag=(--all)
+  _tmux_label_widths "${wflag[@]}" "${rows[@]}"
   typeset -ga reply; reply=()
   for r in "${rows[@]}"; do
     reply+=("${${(s:|:)r}[1]}|${${(s:|:)r}[2]}"$'\t'"$(_tmux_label "$r" $all)")
@@ -859,7 +936,12 @@ tmux-run() {
 }
 
 # tmux-ls: this repo's sessions on every reachable host.
-tmux-ls() { local r; local -a rows; _tmux_repo_rows; rows=("${reply[@]}"); for r in "${rows[@]}"; do _tmux_label "$r"; print; done; }
+tmux-ls() {
+  local r; local -a rows
+  _tmux_repo_rows; rows=("${reply[@]}")
+  _tmux_label_widths "${rows[@]}"
+  for r in "${rows[@]}"; do _tmux_label "$r"; print; done
+}
 
 # tmux-status [TASK]: which host, and per-window state.
 tmux-status() {
@@ -915,16 +997,42 @@ _launchd_plist() { print -r -- "$HOME/Library/LaunchAgents/$1.plist"; }
 _launchd_loaded() { launchctl print "$(_launchd_domain)/$1" >/dev/null 2>&1; }
 _xml_escape() { local s=$1; s=${s//&/&amp;}; s=${s//</&lt;}; s=${s//>/&gt;}; print -r -- "$s"; }
 
-# launchd-label [TASK]: local.job.<repo>.<task> (override the prefix with JOB_LAUNCHD_PREFIX).
+# The repo component of a launchd label. Normally the repo slug; pin it with
+# JOB_LAUNCHD_SLUG when the label must be STABLE across runs of the same thing.
+#
+# Why that knob exists: a label is not just an identifier, it is a row in
+# macOS's Login Items ("Allow in the Background"). A per-run label therefore
+# costs a "job-tee can run in the background" notification on every run and
+# leaves a dead entry behind afterwards -- measured in stage 15 against the
+# Background Task Management store, which keeps the entry after the agent is
+# booted out and the plist deleted. The smoke suites keep per-run tokens for
+# every other artefact they create (scratch trees, sessions, containers) and
+# pin only this, so macOS sees one background item per suite instead of one
+# per run. Nothing else should need it.
+_launchd_slug() { print -r -- "${JOB_LAUNCHD_SLUG:-$(job-repo)}" }
+
+# launchd-label [TASK]: local.job.<repo>.<task> (override the prefix with
+# JOB_LAUNCHD_PREFIX, the repo component with JOB_LAUNCHD_SLUG).
 launchd-label() {
   local task; task=$(_job_task "$1") || return
-  print -r -- "${JOB_LAUNCHD_PREFIX:-local.job}.$(job-repo).$task"
+  print -r -- "${JOB_LAUNCHD_PREFIX:-local.job}.$(_launchd_slug).$task"
 }
 # Labels of this repo's plists, from the files on disk (loaded or not).
 _launchd_repo_labels() {
-  local prefix="${JOB_LAUNCHD_PREFIX:-local.job}.$(job-repo)."
+  local prefix="${JOB_LAUNCHD_PREFIX:-local.job}.$(_launchd_slug)."
   local f; for f in "$HOME"/Library/LaunchAgents/"$prefix"*.plist(N); do print -r -- "${${f:t}%.plist}"; done
 }
+# Where an agent's own copy of its program name lives.
+#
+# macOS's Background Items list shows the FILE NAME of a LaunchAgent's program,
+# so every agent that runs bin/job-tee displays as "job-tee" -- ten Claude
+# sessions are ten indistinguishable rows, and there is no way to tell which
+# one to switch off. Measured in stage 15 (report Q1) against
+# /private/var/db/com.apple.backgroundtaskmanagement: the store records the
+# item's name from the program path AS WRITTEN IN THE PLIST, symlink and all,
+# and does not resolve it. So each agent gets a symlink of its own, named
+# <repo>-<task>, pointing at the one real job-tee.
+_launchd_support_dir() { print -r -- "$HOME/Library/Application Support/local.job/$1" }
 # Unload and wait until launchd agrees, so a following bootstrap cannot race it.
 _launchd_bootout() {
   _launchd_loaded "$1" || return 0
@@ -960,8 +1068,19 @@ launchd-run() {
     on-failure) keepalive=$'\t<key>KeepAlive</key>\n\t<dict><key>SuccessfulExit</key><false/></dict>\n' ;;
     always)     keepalive=$'\t<key>KeepAlive</key>\n\t<true/>\n' ;;
   esac
+  # The per-task program name (see _launchd_support_dir). Best effort on
+  # purpose: a nicer row in a system list is worth less than the agent itself,
+  # so a host where the link cannot be made still gets a working plist, and
+  # says which one it fell back to rather than quietly looking different.
+  local support progname prog=$tee
+  support=$(_launchd_support_dir "$label"); progname="$(job-repo)-$task"
+  if mkdir -p -- "$support" 2>/dev/null && ln -sfn -- "$tee" "$support/$progname" 2>/dev/null; then
+    prog=$support/$progname
+  else
+    print -u2 "launchd-run: could not create the per-task program name at $support/$progname -- using $tee, so Login Items will show it as 'job-tee'"
+  fi
   local args="" a
-  for a in "$tee" "$task" "${_job_run_cmd[@]}"; do args+=$'\t\t<string>'"$(_xml_escape "$a")"$'</string>\n'; done
+  for a in "$prog" "$task" "${_job_run_cmd[@]}"; do args+=$'\t\t<string>'"$(_xml_escape "$a")"$'</string>\n'; done
   _launchd_bootout "$label" || return
   mkdir -p "${plist:h}"
   # StandardOut/ErrorPath catch anything launchd or job-tee emit before the
@@ -1040,11 +1159,17 @@ launchd-rm() {
   _launchd_guard || return
   local -a labels
   if [[ $1 == --all ]]; then labels=($(_launchd_repo_labels)); else labels=("$(launchd-label "$1")") || return; fi
-  local l plist
+  local l plist support
   for l in "${labels[@]}"; do
     plist=$(_launchd_plist "$l")
     _launchd_bootout "$l" || continue
     if [[ -f $plist ]]; then command rm -f -- "$plist" && print -u2 "launchd-rm: removed $l"; else print -u2 "launchd-rm: no plist for $l"; fi
+    # The agent's own program-name directory goes with it. Guarded on a
+    # non-empty label and on the directory really being the one this file
+    # builds, because this is the only `rm -rf' in the file.
+    support=$(_launchd_support_dir "$l")
+    [[ -n $l && $support == "$HOME/Library/Application Support/local.job/"?* && -d $support ]] \
+      && command rm -rf -- "$support"
   done
 }
 

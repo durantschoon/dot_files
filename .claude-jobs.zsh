@@ -14,7 +14,15 @@
 #     A second claude-run for a running TASK does not start a second copy: it
 #     refreshes the agent and attaches; a PROMPT given then is refused, loudly.
 #
-# claude-status TASK      tmux-status + launchd-status
+# claude-status [TASK]    with a task: tmux-status + launchd-status. With none:
+#                         every loaded claude-run agent, whether its session is
+#                         up, and which checkout it belongs to.
+# claude-relaunch [--all|TASK]
+#                         after a tmux server dies, bring back every claude-run
+#                         session that is missing -- one per checkout, because
+#                         `claude --continue` resumes one conversation per
+#                         checkout; the loser of a shared checkout is named,
+#                         with the reason. Sessions that are up are left alone.
 # claude-rm TASK          tmux-rm + launchd-rm (the transcript in ~/.claude
 #                         is untouched; `claude --continue` in the repo still
 #                         finds it)
@@ -116,10 +124,203 @@ claude-run() {
   _job_tmux_attach local "$name"
 }
 
+# ---------------------------------------------------------------------------
+# Finding the claude-run agents: from the plists, not from the label
+# ---------------------------------------------------------------------------
+# A label says local.job.<repo>.<task>, and for a long time that was enough to
+# reconstruct the session name. It is not, and must not be relied on: the repo
+# component is pinnable (JOB_LAUNCHD_SLUG), so the label and the session name
+# can legitimately disagree. The authority is the agent's own relaunch command,
+# which contains the name verbatim -- `new-session -d -s '<name>'' as claude-run
+# wrote it. Reading it back from there also answers the other question these
+# verbs must not get wrong: whether an agent is a claude-run agent at all.
+#
+# That distinction is the whole safety of claude-relaunch. A plain launchd-run
+# job has no tmux session, so "its session is missing" is true of it always, and
+# kickstarting it would restart somebody's build. Only an agent whose program
+# recreates a tmux session is ever kicked.
+
+# The loaded agents under the launchd prefix, one label per line.
+_claude_job_labels() {
+  local prefix="${JOB_LAUNCHD_PREFIX:-local.job}."
+  launchctl list 2>/dev/null \
+    | command awk -v p="$prefix" 'NR > 1 && index($3, p) == 1 { print $3 }' \
+    | command sort
+}
+# The session name a plist's relaunch command recreates; failure when the plist
+# is not a claude-run agent. `$xml' is quoted on the right of the == because it
+# is a whole file: unquoted it would be read as a pattern.
+_claude_agent_session() {
+  local plist=$1 xml rest
+  [[ -f $plist ]] || return 1
+  xml=$(command cat -- "$plist" 2>/dev/null) || return 1
+  rest=${xml#*new-session -d -s }
+  [[ $rest == "$xml" ]] && return 1
+  [[ $rest == \'* ]] || return 1
+  rest=${rest#\'}; rest=${rest%%\'*}
+  [[ -n $rest ]] || return 1
+  print -r -- "$rest"
+}
+_claude_agent_wd() { command plutil -extract WorkingDirectory raw -o - -- "$1" 2>/dev/null }
+# The last `at=' of a checkout's per-task record: when that task was last
+# STARTED. Compared as a string, which is right for ISO-8601 stamps written by
+# one machine in one zone -- and the tie-break below falls through to the plist
+# mtime whenever it is missing rather than inventing an order.
+_claude_agent_at() {
+  local f=$1/logs/$2.job
+  [[ -f $f ]] || return 1
+  command awk 'index($0, "at=") == 1 { v = substr($0, 4) }
+               END { if (v == "") exit 1; print v }' "$f"
+}
+_claude_agent_mtime() {
+  local -a s
+  zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
+  zstat -A s +mtime -- "$1" 2>/dev/null || return 1
+  print -r -- "$s[1]"
+}
+
+# claude-status [TASK]: with a task, tmux-status + launchd-status for it; with
+# none, every loaded claude-run agent, whether its session is up, and where.
 claude-status() {
   _claude_job_guard || return
-  local task=${1:?usage: claude-status TASK}
+  if (( $# == 0 )); then
+    local -a labels; labels=(${(f)"$(_claude_job_labels)"})
+    local label plist name wd state
+    integer any=0
+    for label in "${labels[@]}"; do
+      plist=$(_launchd_plist "$label"); [[ -f $plist ]] || continue
+      name=$(_claude_agent_session "$plist") || continue
+      wd=$(_claude_agent_wd "$plist"); any=1
+      if tmux has-session -t "=$name" 2>/dev/null; then state=up; else state=MISSING; fi
+      printf '%-38s %-28s %-8s %s\n' "$label" "$name" "$state" "$wd"
+    done
+    (( any )) || print -u2 "claude-status: no claude-run agents are loaded (claude-run TASK loads one)"
+    return 0
+  fi
+  local task=$1
   tmux-status "$task"; launchd-status "$task"
+}
+
+# claude-relaunch [--all|TASK]
+#
+# The verb for "the tmux server went away and my Claude sessions did with it".
+# Recovery used to be a `launchctl kickstart gui/$UID/local.job.<repo>.<task>'
+# typed once per checkout, skipping by hand the ones that share a checkout
+# (2026-09-20, after the server died).
+#
+# For every loaded claude-run agent whose session is missing: kickstart it --
+# but ONE per checkout. Two agents in the same checkout both resume with
+# `claude --continue', which picks the most recent conversation whose cwd is
+# that root; running both would attach two Claudes to one transcript. So the
+# two are ranked, the better one is kicked, and the other is named along with
+# the reason it was not.
+claude-relaunch() {
+  _claude_job_guard || return
+  local usage="usage: claude-relaunch [--all|TASK]"
+  local want=""
+  case ${1-} in
+    ""|--all|-a) ;;
+    -*) print -u2 "claude-relaunch: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
+    *)  want=$(launchd-label "$1") || return ;;
+  esac
+  (( $# > 1 )) && { print -u2 "$usage"; return 64 }
+
+  local -a labels; labels=(${(f)"$(_claude_job_labels)"})
+  local -A nameof wdof taskof
+  local -a missing live
+  local label plist name wd
+  for label in "${labels[@]}"; do
+    [[ -n $want && $label != $want ]] && continue
+    plist=$(_launchd_plist "$label"); [[ -f $plist ]] || continue
+    name=$(_claude_agent_session "$plist") || continue    # not a claude-run agent
+    wd=$(_claude_agent_wd "$plist")
+    nameof[$label]=$name; wdof[$label]=$wd; taskof[$label]=${label##*.}
+    if tmux has-session -t "=$name" 2>/dev/null; then live+=("$label"); else missing+=("$label"); fi
+  done
+
+  if (( ! $#live && ! $#missing )); then
+    print -u2 "claude-relaunch: no loaded claude-run agents${want:+ for $want}"
+    return 1
+  fi
+  for label in "${live[@]}"; do
+    print -u2 "claude-relaunch: $nameof[$label] is already up -- leaving it alone"
+  done
+  if (( ! $#missing )); then
+    print -u2 "claude-relaunch: nothing to relaunch"
+    return 0
+  fi
+
+  # One per checkout. The winner is the agent whose task was STARTED most
+  # recently according to that checkout's own record; with no usable record on
+  # either side, the newer plist. Both branches say which rule decided.
+  local -A chosen
+  local -a skip_label skip_why
+  local cur a_at b_at a_mt b_mt why
+  for label in "${missing[@]}"; do
+    wd=$wdof[$label]
+    if [[ -z $wd || -z ${chosen[$wd]-} ]]; then
+      # An agent with no readable WorkingDirectory cannot be de-duplicated
+      # against anything, so it is kept rather than silently dropped.
+      [[ -n $wd ]] && chosen[$wd]=$label || chosen[$label]=$label
+      continue
+    fi
+    cur=${chosen[$wd]}
+    a_at=$(_claude_agent_at "$wd" "$taskof[$label]" 2>/dev/null)
+    b_at=$(_claude_agent_at "$wd" "$taskof[$cur]" 2>/dev/null)
+    if [[ -n $a_at && -n $b_at && $a_at != $b_at ]]; then
+      if [[ $a_at > $b_at ]]; then
+        why="$label's record is newer (at=$a_at vs at=$b_at)"; chosen[$wd]=$label
+        skip_label+=("$cur"); skip_why+=("$why")
+      else
+        why="$cur's record is newer (at=$b_at vs at=$a_at)"
+        skip_label+=("$label"); skip_why+=("$why")
+      fi
+    else
+      a_mt=$(_claude_agent_mtime "$(_launchd_plist "$label")"); b_mt=$(_claude_agent_mtime "$(_launchd_plist "$cur")")
+      if (( ${a_mt:-0} > ${b_mt:-0} )); then
+        why="no record told them apart, and $label's plist is newer"; chosen[$wd]=$label
+        skip_label+=("$cur"); skip_why+=("$why")
+      else
+        why="no record told them apart, and $cur's plist is newer"
+        skip_label+=("$label"); skip_why+=("$why")
+      fi
+    fi
+  done
+
+  integer i
+  for (( i = 1; i <= $#skip_label; i++ )); do
+    label=$skip_label[i]
+    print -u2 "claude-relaunch: SKIPPED $label ($nameof[$label]) -- it shares the checkout $wdof[$label] with $chosen[$wdof[$label]], and \`claude --continue' resumes one conversation per checkout; $skip_why[i]"
+  done
+
+  local -a kicked
+  for wd in "${(k)chosen[@]}"; do
+    label=$chosen[$wd]
+    print -u2 "claude-relaunch: kickstarting $label ($nameof[$label]) in $wdof[$label]"
+    if launchctl kickstart "$(_launchd_domain)/$label" >/dev/null 2>&1; then
+      kicked+=("$label")
+    else
+      print -u2 "claude-relaunch: kickstart of $label failed (launchd-status ${taskof[$label]})"
+    fi
+  done
+
+  # What came back. Bounded poll, never a fixed sleep: a pane shell takes about
+  # a second, and an agent that never comes back must be reported as such
+  # rather than waited on forever.
+  integer j
+  for label in "${kicked[@]}"; do
+    name=$nameof[$label]
+    for (( j = 1; j <= 20; j++ )); do
+      tmux has-session -t "=$name" 2>/dev/null && break
+      sleep 0.5
+    done
+    if tmux has-session -t "=$name" 2>/dev/null; then
+      print -u2 "claude-relaunch: $name is back (tmux-go ${taskof[$label]} to attach)"
+    else
+      print -u2 "claude-relaunch: $name did NOT come back -- claude-status, then logs/${taskof[$label]}.launchd.log in $wdof[$label]"
+    fi
+  done
+  claude-status
 }
 
 claude-rm() {

@@ -68,6 +68,37 @@ typeset -g OUTSIDE=$BASE/elsewhere/repo   # a checkout that is NOT under $HOME
 typeset -g OUTSIDE_SLUG=repo              # _job_slugify of the above
 typeset -g CTR_ARGV=$BASE/podman-argv.txt # the fake podman's recorded argv
 
+# --------------------------------------------------------------------------
+# Containment: this suite's only route to tmux, and its one read of the
+# user's default server
+# --------------------------------------------------------------------------
+# Stage 14 D1: a harness set TMUX_TMPDIR under a deep scratch path, the socket
+# came to 126 bytes, tmux silently fell back to the DEFAULT server, and
+# `kill-server' destroyed seven live Claude sessions. This suite calls
+# `kill-server' twice in its cleanup, so it is exactly the shape of thing that
+# did the damage. Every tmux invocation below therefore goes through
+# tests/jobs/private-tmux, which refuses an over-long socket path instead of
+# letting tmux choose for it.
+#
+# PT_DEFAULT_DIR is captured BEFORE $TMUX_TMPDIR is exported: afterwards the
+# variable points at this run's private server, and the guard would end up
+# comparing the private server with itself.
+typeset -g PT=${0:A:h}/private-tmux
+[[ -x $PT ]] || { print -u2 "smoke: cannot execute $PT"; exit 1 }
+typeset -g PT_DEFAULT_DIR=${TMUX_TMPDIR:-/tmp}
+
+# The two servers, as thin wrappers. Defined here, above the cleanup function,
+# because the cleanup function calls them and an EXIT trap can fire at any
+# point after it is installed.
+ltmux() { PRIVATE_TMUX_DIR=$TMUX_LOCAL  "$PT" "$@" }
+rtmux() { PRIVATE_TMUX_DIR=$TMUX_REMOTE "$PT" "$@" }
+# The one permitted question for the user's own server: which sessions are on
+# it. private-tmux has no way to spell any other subcommand against it.
+pt_default_sessions() { PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
+# Captured before anything else runs, and before any trap is installed, so the
+# guard in the cleanup always has something honest to compare against.
+typeset -g SMOKE_DEFAULT_BEFORE="$(pt_default_sessions)"
+
 mkdir -p -- "$REPO" "$REPO_REMOTE" "$TMUX_LOCAL" "$TMUX_REMOTE" "$PATHBIN" \
             "$OUTSIDE" "$SHADOWBIN" "$HOME_LOCAL/Library/LaunchAgents" || exit 1
 
@@ -155,7 +186,23 @@ typeset -g SMOKE_REMOTE_SH=/bin/sh
 typeset -g SMOKE_REMOTE_PATH=$PATH
 typeset -g SMOKE_PICK=1
 
-typeset -g LD_LABEL=local.job.$SLUG.t1
+# The launchd label is the ONE artefact of this run that is not per-run.
+#
+# A launchd label is also a row in macOS's Login Items ("Allow in the
+# Background"). With `local.job.job-smoke-<pid>.t1' every `make check-jobs'
+# raised a fresh "job-tee can run in the background" notification and left a
+# dead entry behind -- measured in stage 15 against
+# /private/var/db/com.apple.backgroundtaskmanagement, which keeps the entry
+# after bootout and after the plist is deleted. So the label is pinned through
+# JOB_LAUNCHD_SLUG and macOS sees one item for this suite, once, for ever.
+# Everything else this run creates keeps its per-run token: the scratch trees,
+# the sessions, the containers, the repo slug itself.
+#
+# The cost is that two concurrent smoke runs would share one agent. They would
+# already share the machine's launchd domain; the start-up bootout below turns
+# that from a silent race into a stated one.
+typeset -g JOB_LAUNCHD_SLUG=jobsmoke
+typeset -g LD_LABEL=local.job.$JOB_LAUNCHD_SLUG.t1
 typeset -g LD_PLIST=$HOME_LOCAL/Library/LaunchAgents/$LD_LABEL.plist
 
 # --------------------------------------------------------------------------
@@ -168,8 +215,8 @@ smoke_cleanup() {
   local rc=$?
   (( SMOKE_CLEANED )) && return $rc      # exactly once, whichever path got here
   SMOKE_CLEANED=1
-  TMUX_TMPDIR=$TMUX_LOCAL  tmux kill-server >/dev/null 2>&1
-  TMUX_TMPDIR=$TMUX_REMOTE tmux kill-server >/dev/null 2>&1
+  ltmux kill-server >/dev/null 2>&1
+  rtmux kill-server >/dev/null 2>&1
   # Since stage 07 a promotion can load an agent for any task, so the label is
   # no longer known in advance. `rm -rf $BASE' below takes the plists (they are
   # inside the scratch $HOME), but only launchd can unload what launchd holds,
@@ -178,7 +225,7 @@ smoke_cleanup() {
   if (( HAVE_LAUNCHD )); then
     launchctl bootout "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1
     local l
-    for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$SLUG.*.plist(N); do
+    for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.*.plist(N); do
       launchctl bootout "gui/$(id -u)/${${l:t}%.plist}" >/dev/null 2>&1
     done
   fi
@@ -192,7 +239,36 @@ smoke_cleanup() {
     done
   fi
   command rm -rf -- "$BASE"
+  # The guard, run after everything this suite made is gone: the user's default
+  # server must list exactly what it listed before the suite started. It is the
+  # last thing the cleanup does, and it runs on every exit path, because the
+  # damage it looks for is the damage a cleanup did.
+  smoke_default_guard || rc=1
   return $rc
+}
+
+# 0 and an `ok' when the default server's sessions are unchanged; non-zero and
+# a FAIL line otherwise. Session NAMES, not `tmux ls' lines: whether a session
+# is attached can change while this suite runs, because a human is at the
+# keyboard, and that is not what this guard is about. Sessions appearing or
+# disappearing is.
+#
+# Deliberately NOT written in terms of ok()/fail(): this runs from the EXIT
+# trap, which is installed before those helpers are defined and fires in
+# --signal-self-test mode too, and fail() exits, which is not a thing to do
+# from inside an exit trap.
+smoke_default_guard() {
+  local now n
+  now=$(pt_default_sessions)
+  n=$(print -r -- "$SMOKE_DEFAULT_BEFORE" | command grep -c .)
+  if [[ $now == "$SMOKE_DEFAULT_BEFORE" ]]; then
+    print -r -- "ok   the user's default tmux server is untouched ($n sessions, unchanged)"
+    return 0
+  fi
+  print -r -- "FAIL the user's default tmux server CHANGED across this suite"
+  print -r -- "     before: [${SMOKE_DEFAULT_BEFORE//$'\n'/, }]"
+  print -r -- "     after:  [${now//$'\n'/, }]"
+  return 1
 }
 
 # An EXIT trap alone is not enough. Measured on this machine (stage 06 Q2):
@@ -238,6 +314,57 @@ if [[ $1 == --signal-self-test ]]; then
   print -r -- "$BASE" > "$2"
   sleep 45                                # a live trap fires long before this
   exit 0                                  # reached only if the signal was lost
+fi
+
+# --------------------------------------------------------------------------
+# Guard self-test mode: prove the default-server guard can FAIL
+# --------------------------------------------------------------------------
+# `./tests/jobs/smoke.zsh --guard-self-test' answers the question a guard that
+# has only ever passed cannot answer: does it notice? Two throwaway sessions
+# are created on a PRIVATE server, under names shaped like the real ones the
+# user runs, so the comparison is against something that looks like traffic
+# rather than against nothing at all. Then:
+#
+#   1. with those two sessions live on the private server, the guard must PASS
+#      -- creating sessions on a contained server must be invisible to the
+#      default one, which is the containment claim itself;
+#   2. with the recorded baseline deliberately mutated, the guard must FAIL --
+#      otherwise every `ok' it has ever printed was worthless.
+#
+# The names are shaped like the user's (`<repo>-<task>') but are NOT any of
+# them: if containment ever did break, a test that reused a live name would
+# collide with, or kill, the very session this whole stage exists to protect.
+# Looking real is worth something; being real is worth nothing and risks
+# everything.
+if [[ $1 == --guard-self-test ]]; then
+  typeset -g GST_DIR=$BASE/tmux-guard
+  mkdir -p -- "$GST_DIR" || exit 1
+  gtmux() { PRIVATE_TMUX_DIR=$GST_DIR "$PT" "$@" }
+  print -r -- "# guard self-test: private socket $(PRIVATE_TMUX_DIR=$GST_DIR "$PT" --print-socket)"
+  gtmux new-session -d -s lim-stage-99      -c "$BASE" || exit 1
+  gtmux new-session -d -s media-announce-probe -c "$BASE" || exit 1
+  print -r -- "# guard self-test: private server now holds [$(gtmux list-sessions -F '#S' | command tr '\n' ' ')]"
+
+  typeset -gi GST_FAILS=0
+  if smoke_default_guard >/dev/null; then
+    print -r -- "ok   guard passes while two look-real sessions live on a PRIVATE server"
+  else
+    print -r -- "FAIL guard cried wolf: a private server's sessions changed its verdict"
+    (( GST_FAILS++ ))
+  fi
+
+  SMOKE_DEFAULT_BEFORE="$SMOKE_DEFAULT_BEFORE"$'\n'"a-session-that-is-not-there"
+  if smoke_default_guard >/dev/null; then
+    print -r -- "FAIL guard did NOT notice a deliberate mismatch -- it proves nothing"
+    (( GST_FAILS++ ))
+  else
+    print -r -- "ok   guard FAILs on a deliberate mismatch"
+  fi
+
+  gtmux kill-server >/dev/null 2>&1
+  SMOKE_DEFAULT_BEFORE=${SMOKE_DEFAULT_BEFORE%$'\n'a-session-that-is-not-there}
+  print -r -- "# guard self-test: $(( 2 - GST_FAILS ))/2 passed"
+  exit $(( GST_FAILS != 0 ))
 fi
 
 # --------------------------------------------------------------------------
@@ -372,9 +499,7 @@ smoke_reload() {
   _job_tmux_attach() { print -r -- "attach $1 $2${3:+ $3}" }
 }
 
-# Convenience wrappers over the two tmux servers, for independent verification.
-ltmux() { TMUX_TMPDIR=$TMUX_LOCAL  command tmux "$@" }
-rtmux() { TMUX_TMPDIR=$TMUX_REMOTE command tmux "$@" }
+# (ltmux / rtmux are defined at the top, above smoke_cleanup which uses them.)
 # #{session_path} of one session. `display-message -t "=name"` resolves an exact
 # session target as a pane target and prints nothing on tmux 3.7c, so ask
 # list-sessions instead.
@@ -385,7 +510,48 @@ lsess_path() { ltmux list-sessions -F '#{session_name}|#{session_path}' 2>/dev/n
 
 cd -- "$REPO" || exit 1
 print -r -- "# smoke $TOKEN  repo=$REPO  slug=$SLUG"
-print -r -- "# zsh $ZSH_VERSION, $(tmux -V), host=$HOST"
+print -r -- "# zsh $ZSH_VERSION, $(ltmux -V), host=$HOST"
+
+# --------------------------------------------------------------------------
+# Containment, stated before anything is started
+# --------------------------------------------------------------------------
+# Both socket paths, and their lengths, in the output of every run. The number
+# is not decoration: it is the one that was 126 when seven live sessions died.
+# private-tmux enforces the limit on each of its own calls, but .jobs.zsh runs
+# tmux itself from $TMUX_TMPDIR, so the suite asserts the same limit here for
+# the servers it is about to hand to the code under test.
+typeset -g SOCK_LOCAL="$(PRIVATE_TMUX_DIR=$TMUX_LOCAL "$PT" --print-socket)"
+typeset -g SOCK_REMOTE="$(PRIVATE_TMUX_DIR=$TMUX_REMOTE "$PT" --print-socket)"
+print -r -- "# private tmux sockets: local ${#SOCK_LOCAL}B [$SOCK_LOCAL]"
+print -r -- "#                       remote ${#SOCK_REMOTE}B [$SOCK_REMOTE]"
+print -r -- "# default server before: [${SMOKE_DEFAULT_BEFORE//$'\n'/, }]"
+eq "pre: the local private socket path is under the 100-byte limit" \
+   "$(( ${#SOCK_LOCAL} < 100 ))" "1"
+eq "pre: the remote private socket path is under the 100-byte limit" \
+   "$(( ${#SOCK_REMOTE} < 100 ))" "1"
+eq "pre: \$TMUX_TMPDIR is the local private server, not the default one" \
+   "$TMUX_TMPDIR" "$TMUX_LOCAL"
+out=$(PRIVATE_TMUX_DIR=/tmp/$(printf 'y%.0s' {1..88}) "$PT" --print-socket 2>&1); rc=$?
+eq  "pre: private-tmux refuses a 110-byte socket path with 78" "$rc" "78"
+has "pre: ... naming the length"                               "$out" "110 bytes"
+
+# A pinned label can be left loaded by a run that was killed between its
+# bootstrap and its trap. Boot it out before starting, and SAY so -- a suite
+# that silently adopted somebody else's agent would be measuring it.
+if (( HAVE_LAUNCHD )); then
+  # The awk program is run into a plain scalar first and split afterwards: an
+  # awk `{ ... }' inside a `${(f)"$( ... )"}' is more than zsh's parser will
+  # take, and the error it gives ("closing brace expected", at the end of the
+  # file) points nowhere near the line.
+  typeset -g STALE STALE_OUT
+  STALE_OUT=$(launchctl list 2>/dev/null \
+    | command awk -v p="local.job.$JOB_LAUNCHD_SLUG." 'NR > 1 && index($3, p) == 1 { print $3 }')
+  for STALE in ${(f)STALE_OUT}; do
+    [[ -n $STALE ]] || continue
+    note "a stale agent $STALE was still loaded at start-up; booting it out"
+    launchctl bootout "gui/$(id -u)/$STALE" >/dev/null 2>&1
+  done
+fi
 
 # --------------------------------------------------------------------------
 # Preconditions (not part of the 13, but every later assertion leans on them)
@@ -865,6 +1031,83 @@ eq "9p ... the timer redrew the menu ($N_MENU draws, at least 2 wanted)" \
    "$(( N_MENU >= 2 ))" "1"
 
 # --------------------------------------------------------------------------
+# 9(c). Columns that fit what is in them  (stage 15 item 4)
+# --------------------------------------------------------------------------
+# Reported 2026-09-20: `guix-platform-install' is 21 characters against a repo
+# column nailed to 18, so its dashboard row pushed every column after it out of
+# line -- and the row then said the slug twice, once in the repo column and
+# again inside the session name beside it.
+#
+# Built from synthetic rows rather than from live sessions: the two lengths
+# that matter are 3 and 21, and a suite that had to create a repo called
+# Guix_Platform_Install to measure a column width would be paying a tmux server
+# for a printf.
+
+typeset -g ROW_AGO=$(( EPOCHSECONDS - 5 ))
+typeset -g ROW_SHORT="local|abc-jobs|1|0|$ROW_AGO|$BASE/abc"
+typeset -g ROW_LONG="local|guix-platform-install-jobs|2|0|$ROW_AGO|$BASE/Guix_Platform_Install"
+typeset -g ROW_MAIN="local|abc|1|0|$ROW_AGO|$BASE/abc"
+
+eq "15pre the long row's slug really is 21 characters" \
+   "${#$(_tmux_row_repo "$ROW_LONG")}" "21"
+eq "15pre the short row's slug really is 3"  "${#$(_tmux_row_repo "$ROW_SHORT")}" "3"
+eq "15pre the task of a bare-repo session is main" "$(_tmux_row_task "$ROW_MAIN")" "main"
+eq "15pre ... and of <repo>-<task> it is the task" "$(_tmux_row_task "$ROW_LONG")" "jobs"
+
+_tmux_label_widths --all "$ROW_SHORT" "$ROW_LONG" "$ROW_MAIN"
+eq "15a --all sizes the repo column to the longest slug"  "$_JOB_W_REPO" "21"
+eq "15a ... and the session column to the longest task"   "$_JOB_W_SESS" "4"
+typeset -g LBL_SHORT="$(_tmux_label "$ROW_SHORT" 1)"
+typeset -g LBL_LONG="$(_tmux_label "$ROW_LONG" 1)"
+typeset -g LBL_MAIN="$(_tmux_label "$ROW_MAIN" 1)"
+haslit "15b --all shows the task in the session column"   "$LBL_LONG" "guix-platform-install jobs"
+hasntlit "15b ... and does not repeat the slug there"     "$LBL_LONG" "guix-platform-install-jobs"
+haslit "15b ... a bare-repo session reads as main"        "$LBL_MAIN" "abc                   main"
+# Alignment measured by string index, not by eye: everything a row prints after
+# its two sized columns must start at the same offset in every row.
+eq "15c a 3-character slug and a 21-character one align" \
+   "${#${LBL_SHORT%% win  *}}" "${#${LBL_LONG%% win  *}}"
+eq "15c ... and the bare-repo row lines up with them too" \
+   "${#${LBL_MAIN%% win  *}}" "${#${LBL_LONG%% win  *}}"
+eq "15d no --all label exceeds 80 columns" \
+   "$(( ${#LBL_SHORT} <= 80 && ${#LBL_LONG} <= 80 && ${#LBL_MAIN} <= 80 ))" "1"
+
+# Without --all there is no repo column and the session column carries the
+# whole name: tmux-ls and tmux-pick are unchanged apart from their width.
+_tmux_label_widths "$ROW_SHORT" "$ROW_LONG"
+eq "15e without --all the session column fits the longest NAME" "$_JOB_W_SESS" "26"
+typeset -g LBL_PLAIN="$(_tmux_label "$ROW_LONG")"
+haslit "15e ... and the name is what is printed"   "$LBL_PLAIN" "guix-platform-install-jobs"
+hasntlit "15e ... with no repo column in front of it" "$LBL_PLAIN" "guix-platform-install guix"
+eq "15e ... still inside 80 columns" "$(( ${#LBL_PLAIN} <= 80 ))" "1"
+
+# The cap. A slug and a task that together want more than a row has must not
+# be allowed to take it; the values overflow their columns instead, because
+# truncating a session name would lose the only thing the row is for.
+typeset -g ROW_HUGE="local|$(printf 'z%.0s' {1..60})-$(printf 'q%.0s' {1..30})|1|0|$ROW_AGO|$BASE/$(printf 'z%.0s' {1..60})"
+_tmux_label_widths --all "$ROW_HUGE"
+eq "15f the two columns together stay inside the 80-column budget" \
+   "$(( _JOB_W_REPO + _JOB_W_SESS <= 45 ))" "1"
+haslit "15f ... and the over-long value is still printed in full, not cut" \
+       "$(_tmux_label "$ROW_HUGE" 1)" "$(printf 'q%.0s' {1..30})"
+
+# --------------------------------------------------------------------------
+# 9(d). The default-server guard can fail  (stage 15 item 1)
+# --------------------------------------------------------------------------
+# Every run of this suite prints one `ok' for "the user's default tmux server
+# is untouched". A guard that has only ever passed has proved nothing, so a
+# child copy of this script exercises both of its answers -- including two
+# throwaway sessions on a PRIVATE server, which must not move the verdict.
+
+typeset -g GST_OUT
+GST_OUT=$("$SMOKE_SELF" --guard-self-test 2>&1); rc=$?
+eq "15g the guard self-test passes both halves" "$rc" "0"
+haslit "15g ... it passes with live sessions on a private server" \
+       "$GST_OUT" "guard passes while two look-real sessions live on a PRIVATE server"
+haslit "15g ... and FAILs on a deliberate mismatch" \
+       "$GST_OUT" "guard FAILs on a deliberate mismatch"
+
+# --------------------------------------------------------------------------
 # 10. Stop and rm across hosts
 # --------------------------------------------------------------------------
 
@@ -886,24 +1129,60 @@ eq "10c tmux-ls prints nothing" "$(tmux-ls 2>/dev/null)" ""
 # 11. launchd is unchanged by the host layer
 # --------------------------------------------------------------------------
 
+# The label is stable across runs and the program has a per-task NAME -- the
+# two things stage 15 changed about launchd agents, and both of them are about
+# what macOS shows the user rather than about what runs.
+typeset -g LD_SUPPORT=$HOME_LOCAL/Library/Application\ Support/local.job/$LD_LABEL
+typeset -g LD_PROG=$LD_SUPPORT/$SLUG-t1
+smoke_plist_args() {                      # the <string>s of ProgramArguments
+  typeset -ga reply
+  reply=("${(f)$(command sed -n '/<key>ProgramArguments<\/key>/,/<\/array>/p' "$1" \
+                 | command sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')}")
+}
+
 if (( HAVE_LAUNCHD )); then
   out=$(launchd-run t1 --restart no -- sh -c 'echo ld' 2>&1); rc=$?
   eq "11a launchd-run loads the agent" "$rc" "0"
   eq "11a ... the plist was written" "$([[ -f $LD_PLIST ]] && print yes)" "yes"
+  eq "11a ... under a label with NO per-run token in it" \
+     "$(launchd-label t1)" "local.job.jobsmoke.t1"
+  hasntlit "11a ... so the pid is nowhere in the label" "$(launchd-label t1)" "$$"
   has "11b launchd-status shows the label" "$(launchd-status t1 2>&1)" "$LD_LABEL"
+  # Per-task program name: what Login Items will show for this agent.
+  smoke_plist_args "$LD_PLIST"
+  eq "11b' ProgramArguments[0] is the per-task name, not job-tee" \
+     "$reply[1]" "$LD_PROG"
+  eq "11b' ... it lives under the label's Application Support directory" \
+     "${reply[1]:h}" "$LD_SUPPORT"
+  eq "11b' ... and is a symlink to the one real job-tee" \
+     "$([[ -L $LD_PROG ]] && print -r -- "${LD_PROG:A}")" "$WT/bin/job-tee"
+  eq "11b' ... the argv after it is unchanged" "${(j:|:)reply[2,4]}" "t1|sh|-c"
   out=$(launchd-rm t1 2>&1); rc=$?
   eq "11c launchd-rm succeeds" "$rc" "0"
   eq "11c ... the plist is gone" "$([[ -e $LD_PLIST ]] && print yes)" ""
+  eq "11c ... the program-name directory is gone too" \
+     "$([[ -e $LD_SUPPORT ]] && print yes)" ""
   eq "11c ... and the agent is unloaded" \
      "$(launchctl print "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1 && print loaded)" ""
+  # The whole point of pinning the label: no per-run agent is left anywhere.
+  eq "11d no agent carries a per-run token" \
+     "$(launchctl list 2>/dev/null | command grep -c "local.job.$SLUG.")" "0"
 else
   skip_all "no launchctl on this host" \
     "11a launchd-run loads the agent" \
     "11a ... the plist was written" \
+    "11a ... under a label with NO per-run token in it" \
+    "11a ... so the pid is nowhere in the label" \
     "11b launchd-status shows the label" \
+    "11b' ProgramArguments[0] is the per-task name, not job-tee" \
+    "11b' ... it lives under the label's Application Support directory" \
+    "11b' ... and is a symlink to the one real job-tee" \
+    "11b' ... the argv after it is unchanged" \
     "11c launchd-rm succeeds" \
     "11c ... the plist is gone" \
-    "11c ... and the agent is unloaded"
+    "11c ... the program-name directory is gone too" \
+    "11c ... and the agent is unloaded" \
+    "11d no agent carries a per-run token"
 fi
 
 # --------------------------------------------------------------------------
@@ -1423,7 +1702,7 @@ eq  "N14k ... and the tmux window is untouched" \
 command rm -f -- "$P_STATE/$SLUG-amb"
 
 # Promotion to launchd, through the real launchctl under the scratch $HOME.
-typeset -g LD_T5_LABEL=local.job.$SLUG.t5
+typeset -g LD_T5_LABEL=local.job.$JOB_LAUNCHD_SLUG.t5
 typeset -g LD_T5=$HOME_LOCAL/Library/LaunchAgents/$LD_T5_LABEL.plist
 if (( HAVE_LAUNCHD )); then
   tmux-run t5 -- sh -c "$CMD_A" >/dev/null 2>&1
@@ -1437,8 +1716,12 @@ if (( HAVE_LAUNCHD )); then
               | command sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p')}")
   eq "N14l ... and ProgramArguments ends in the recorded argv" \
      "${(j:|:)PA[-3,-1]}" "sh|-c|$CMD_A"
-  eq "N14l ... wrapped in job-tee under the task name" \
-     "${(j:|:)PA[-5,-4]}" "$WT/bin/job-tee|t5"
+  # Since stage 15 the program is the agent's own per-task NAME for job-tee,
+  # not job-tee's own path: what changed is the name macOS shows, not what runs.
+  eq "N14l ... wrapped in the per-task name for job-tee, under the task name" \
+     "${(j:|:)PA[-5,-4]}" "$HOME_LOCAL/Library/Application Support/local.job/$LD_T5_LABEL/$SLUG-t5|t5"
+  eq "N14l ... and that name really resolves to job-tee" \
+     "${${PA[-5]}:A}" "$WT/bin/job-tee"
   out=$(launchd-rm t5 2>&1); rc=$?
   eq "N14m launchd-rm cleans the promoted agent" "$rc" "0"
   eq "N14m ... the plist is gone" "$([[ -e $LD_T5 ]] && print yes)" ""
@@ -1662,15 +1945,24 @@ has "N12e and cleanup is guarded, so no path can run it twice" \
 
 out=$(ltmux new-session -d -s "$SLUG-cdir" -c "$BASE/definitely-not-here" 2>&1); rc=$?
 if (( rc )); then
-  note "Q3 tmux $(tmux -V) new-session -c <missing dir>: rc=$rc, stderr=[$out]"
+  note "Q3 tmux $(ltmux -V) new-session -c <missing dir>: rc=$rc, stderr=[$out]"
 else
-  note "Q3 tmux $(tmux -V) new-session -c <missing dir>: rc=0, session_path=[$(lsess_path "$SLUG-cdir")]"
+  note "Q3 tmux $(ltmux -V) new-session -c <missing dir>: rc=0, session_path=[$(lsess_path "$SLUG-cdir")]"
   note "Q3 ... its pane's #{pane_current_path}: [$(ltmux display-message -p -t "=$SLUG-cdir:" '#{pane_current_path}')], pane_dead=[$(ltmux display-message -p -t "=$SLUG-cdir:" '#{pane_dead}')]"
   ltmux kill-session -t "=$SLUG-cdir" >/dev/null 2>&1
 fi
+
+# The cleanup, and with it the default-server guard, called explicitly rather
+# than left to the EXIT trap. Measured on zsh 5.9: what an EXIT trap returns is
+# ignored, so a guard that only ever ran from the trap could print FAIL and
+# still let this script exit 0. Calling it here makes its verdict the script's.
+# smoke_cleanup is guarded to run exactly once, so the trap that follows is a
+# no-op.
+smoke_cleanup; typeset -gi GUARD_RC=$?
+(( GUARD_RC == 0 )) && (( N_OK++ ))
 
 # Run and skipped, separately and always: a suite that silently shrank on a
 # host it could not fully exercise would report the same green line as one that
 # ran everything, which is the failure this count exists to make impossible.
 print -r -- "# $N_OK assertions passed, $N_SKIP skipped, $(( N_OK + N_SKIP )) total"
-exit 0
+exit $(( GUARD_RC != 0 ))

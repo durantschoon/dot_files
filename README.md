@@ -310,6 +310,29 @@ job-ls / job-status [TASK]   # all runners at once
 and to Docker restart policies (`always` → `unless-stopped` so `docker-stop`
 sticks). tmux accepts it for symmetry and ignores it.
 
+**Each launchd agent shows its own name in Login Items.** macOS lists a
+LaunchAgent under the file name of its program, so every agent that runs
+`bin/job-tee` used to appear in Settings → General → Login Items as one of
+several identical `job-tee` rows, with no way to tell which was which.
+`launchd-run` therefore gives each agent a name of its own:
+`~/Library/Application Support/local.job/<label>/<repo>-<task>`, a symlink to
+the one real `job-tee`, used as the plist's `ProgramArguments[0]`. Measured in
+stage 15 against `/private/var/db/com.apple.backgroundtaskmanagement`: the
+store records an item's name from the program path *as written in the plist*
+and does not resolve the symlink, so the row reads `myproj-sync`. `launchd-rm`
+removes the directory with the plist. Note that macOS keeps a Background Items
+entry after the agent is gone; clearing dead rows is a Settings-pane job.
+
+`tmux-ls`, `tmux-pick` and `tmux-dash` size their repo and session columns from
+the rows they are about to show, rather than from fixed widths, and `--all`
+(the dashboard) puts the **task** in the session column instead of repeating
+the repo slug that is already in the column beside it. A 21-character slug like
+`guix-platform-install` used to push every column after it out of line and
+spend 43 of 83 columns saying its name twice; the same six rows now fit in 70
+columns and line up. Values are never truncated to fit — an over-long name
+makes its row longer, because a session name you cannot paste into `tmux-go` is
+not worth having.
+
 Examples:
 
 ```sh
@@ -336,7 +359,10 @@ job-logs build -l                    # every log file for a task, newest first
 
 Knobs: `JOB_DOCKER_IMAGE` (default image), `JOB_DOCKER_ARGS` (zsh array of
 extra `docker run` flags, e.g. `-e FOO=1`), `JOB_LAUNCHD_PREFIX` (default
-`local.job`), `JOB_PICK_POLL` (seconds between `tmux-pick` / `tmux-dash`
+`local.job`), `JOB_LAUNCHD_SLUG` (pins the repo component of a launchd label
+so the label is stable across runs — the smoke suites use it so macOS sees one
+Background Item per suite instead of one per run; nothing else should need
+it), `JOB_PICK_POLL` (seconds between `tmux-pick` / `tmux-dash`
 auto-refreshes, default `120`, `0` disables the timer; `--poll SECONDS`
 overrides it for one call), and `JOB_CONTAINER_CLI` — the container CLI the `docker-*` verbs
 drive. It is **resolved on first use, by which engine actually answers
@@ -369,6 +395,20 @@ job back after a restart.
 of `make check`: it starts two tmux servers, a container and a launchd agent
 (all inside a scratch `$TMPDIR` its exit trap removes), while everything in
 `make check` only reads files.
+
+**Every tmux call any test makes goes through
+[`tests/jobs/private-tmux`](./tests/jobs/private-tmux).** A Unix socket path is
+capped at 104 bytes; when `TMUX_TMPDIR` makes tmux's socket longer than that,
+tmux does not fail — it falls back to the **default** server, the one holding
+your live sessions. In stage 14 a measurement harness did exactly that and its
+`kill-server` destroyed seven live Claude Code sessions. `private-tmux`
+computes the socket path tmux will bind, refuses with exit `78` if it is over
+100 bytes, and only then `exec`s tmux; it rejects `-S` outright, and its one
+way to reach the default server is `--default-ls`, a read. Each suite prints
+its socket lengths at start-up and ends by checking that the default server
+lists exactly the sessions it listed before — a check the suites exercise
+against a deliberate mismatch (`./tests/jobs/smoke.zsh --guard-self-test`), so
+that its `ok` means something.
 
 ### Promoting a task
 
@@ -415,10 +455,27 @@ back after a reboot":
 cd ~/Repos/myproj
 claude-run stage-24 "Read docs/HANDOFF.md, then run stage 24 unattended."
 claude-status stage-24          # tmux-status + launchd-status
+claude-status                   # every loaded claude-run agent, up or MISSING, and where
 tmux-go stage-24                # attach, from here or from the phone
 claude-run stage-24             # re-attach; or recreate after a reboot if the agent missed it
+claude-relaunch                 # after a tmux server dies: bring back every missing session
 claude-rm stage-24              # tmux-rm + launchd-rm; the transcript stays
 ```
+
+`claude-relaunch [--all|TASK]` is the verb for "the tmux server went away and
+my Claude sessions went with it" — previously a `launchctl kickstart
+gui/$UID/local.job.<repo>.<task>` typed once per checkout. It kickstarts every
+loaded claude-run agent whose session is missing, leaves the ones that are up
+alone, and says which is which. **One per checkout:** `claude --continue`
+resumes the most recent conversation whose cwd is the repo root, so two agents
+in one checkout would point two Claudes at one transcript. When two share a
+checkout it prefers the task whose record (`logs/<task>.job`) was started most
+recently, falls back to the newer plist, and prints the one it skipped together
+with the reason. Only agents that actually recreate a tmux session are ever
+kicked — a plain `launchd-run` job has no session, and restarting somebody's
+build is not what this verb is for. A session that comes back and dies again
+(`--continue` with no conversation to continue, for instance) is reported as
+"did NOT come back", with the log to read.
 
 `claude-run` starts `claude --permission-mode $CLAUDE_JOB_MODE PROMPT` in tmux
 session `myproj-stage-24` at the repo root, then loads
@@ -439,8 +496,10 @@ something else under someone else's) and `PROMPT` is what starts it. A repo's
 `MODELS.md` is the place to record which words it uses.
 
 `make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
-test: a scratch `$HOME`, a private tmux server, a fake `claude` that records
-its argv, and one real launchd agent that the exit trap removes.
+test: a scratch `$HOME`, a private tmux server reached only through
+`tests/jobs/private-tmux`, a fake `claude` that records its argv, and real
+launchd agents under the fixed labels `local.job.claudesmoke.*` that the exit
+trap removes.
 
 ### Across machines (phone → Mac)
 
