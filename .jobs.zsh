@@ -1334,8 +1334,8 @@ tmux-pick() {
       ans=""
       read -r ans || break                    # end of input: nothing chosen
       case $ans in
-        q|Q) return 0 ;;
-        r|R|"") _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}") ;;
+        [qQ]) return 0 ;;
+        [rR]|"") _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}") ;;
         <->) if (( ans >= 1 && ans <= $#lines )); then choice=${lines[$ans]%%$'\t'*}; break
              else print -u2 "tmux-pick: there is no row $ans"; fi ;;
         # `n N' and `e N' are what the fzf side spends a preview pane and a
