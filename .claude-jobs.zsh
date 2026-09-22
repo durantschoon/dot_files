@@ -140,12 +140,30 @@ claude-run() {
 # kickstarting it would restart somebody's build. Only an agent whose program
 # recreates a tmux session is ever kicked.
 
-# The loaded agents under the launchd prefix, one label per line.
+# The loaded claude-run agents under the launchd prefix, one label per line.
+#
+# Enumerated from the PLISTS on disk and then confirmed one label at a time with
+# `launchctl print' (_launchd_loaded) -- deliberately NOT by parsing one big
+# `launchctl list'. Measured while writing the live-holder rule below: under the
+# load of a suite that is kickstarting agents, `launchctl list' intermittently
+# came back WITHOUT agents that `launchctl print' found a moment later, and the
+# tests failed in a way that took a diagnostic run to explain.
+#
+# A short survey here is not merely incomplete, it is dangerous. claude-relaunch
+# decides what to kickstart from it: an agent missing from the list is an agent
+# whose live session does not hold its checkout, and the neighbour gets kicked
+# — the exact double-`--continue' this rule exists to prevent. The filesystem
+# does not flicker, and `launchctl print' answers about one label at a time.
+#
+# It also narrows the survey to agents whose plist is in THIS $HOME, which is
+# what keeps the smoke suite's scratch $HOME from ever surveying the user's real
+# agents.
 _claude_job_labels() {
-  local prefix="${JOB_LAUNCHD_PREFIX:-local.job}."
-  launchctl list 2>/dev/null \
-    | command awk -v p="$prefix" 'NR > 1 && index($3, p) == 1 { print $3 }' \
-    | command sort
+  local prefix="${JOB_LAUNCHD_PREFIX:-local.job}." f label
+  for f in "$HOME"/Library/LaunchAgents/"$prefix"*.plist(N); do
+    label=${${f:t}%.plist}
+    _launchd_loaded "$label" && print -r -- "$label"
+  done
 }
 # The session name a plist's relaunch command recreates; failure when the plist
 # is not a claude-run agent. `$xml' is quoted on the right of the == because it
@@ -209,11 +227,31 @@ claude-status() {
 # (2026-09-20, after the server died).
 #
 # For every loaded claude-run agent whose session is missing: kickstart it --
-# but ONE per checkout. Two agents in the same checkout both resume with
-# `claude --continue', which picks the most recent conversation whose cwd is
-# that root; running both would attach two Claudes to one transcript. So the
-# two are ranked, the better one is kicked, and the other is named along with
-# the reason it was not.
+# but AT MOST ONE PER CHECKOUT, and none at all in a checkout that already has
+# a live session.
+#
+# Both halves of that are the same fact. `claude --continue' resumes the most
+# recent conversation whose cwd is the repo root, so a checkout has room for
+# exactly one resumed Claude:
+#
+#   * two MISSING agents in one checkout -- they are ranked (below), the better
+#     one is kicked, the other is named with the reason;
+#   * one LIVE and one missing -- nothing is kicked. Relaunching the missing
+#     neighbour would open the conversation the live session is already showing,
+#     a second time, in a second tmux session, beside the one the user is
+#     sitting in. The live agent HOLDS the checkout and the missing one is
+#     reported as skipped, naming the holder.
+#
+# The second case is not hypothetical: on this machine `lim' and
+# `ros2-classroom' each carry two claude-run agents on one checkout
+# (local.job.lim.jobs + local.job.lim.stage-27, and the ros2-classroom pair),
+# so "one live, one missing" is the ordinary state after a server dies and one
+# session is brought back by hand.
+#
+# Liveness is therefore surveyed across EVERY loaded claude-run agent, before
+# any TASK filter is applied: `claude-relaunch stage-27' must still see that
+# `lim-jobs' is live in the same checkout, or the argument form would be a way
+# around the rule.
 claude-relaunch() {
   _claude_job_guard || return
   local usage="usage: claude-relaunch [--all|TASK]"
@@ -225,18 +263,32 @@ claude-relaunch() {
   esac
   (( $# > 1 )) && { print -u2 "$usage"; return 64 }
 
+  # The survey is UNFILTERED: `holder' below has to know about a live sibling
+  # even when the caller named one task. The TASK filter is applied afterwards,
+  # when deciding what may be kicked.
   local -a labels; labels=(${(f)"$(_claude_job_labels)"})
-  local -A nameof wdof taskof
+  local -A nameof wdof taskof holder
   local -a missing live
   local label plist name wd
   for label in "${labels[@]}"; do
-    [[ -n $want && $label != $want ]] && continue
     plist=$(_launchd_plist "$label"); [[ -f $plist ]] || continue
     name=$(_claude_agent_session "$plist") || continue    # not a claude-run agent
     wd=$(_claude_agent_wd "$plist")
     nameof[$label]=$name; wdof[$label]=$wd; taskof[$label]=${label##*.}
-    if tmux has-session -t "=$name" 2>/dev/null; then live+=("$label"); else missing+=("$label"); fi
+    if tmux has-session -t "=$name" 2>/dev/null; then
+      live+=("$label")
+      # First live agent seen in a checkout is the one named as its holder.
+      [[ -n $wd && -z ${holder[$wd]-} ]] && holder[$wd]=$label
+    else
+      missing+=("$label")
+    fi
   done
+
+  # Only now does a named TASK narrow things down.
+  if [[ -n $want ]]; then
+    live=(${(M)live:#$want})
+    missing=(${(M)missing:#$want})
+  fi
 
   if (( ! $#live && ! $#missing )); then
     print -u2 "claude-relaunch: no loaded claude-run agents${want:+ for $want}"
@@ -250,14 +302,22 @@ claude-relaunch() {
     return 0
   fi
 
-  # One per checkout. The winner is the agent whose task was STARTED most
+  # One per checkout, and none where a live session already holds it. The
+  # winner between two missing agents is the one whose task was STARTED most
   # recently according to that checkout's own record; with no usable record on
-  # either side, the newer plist. Both branches say which rule decided.
+  # either side, the newer plist. Every branch says which rule decided.
   local -A chosen
   local -a skip_label skip_why
   local cur a_at b_at a_mt b_mt why
   for label in "${missing[@]}"; do
     wd=$wdof[$label]
+    # A live session in this checkout beats every ranking below it: there is
+    # nothing to rank, because the one conversation is already open.
+    if [[ -n $wd && -n ${holder[$wd]-} ]]; then
+      skip_label+=("$label")
+      skip_why+=("${holder[$wd]} ($nameof[${holder[$wd]}]) already holds this checkout $wd")
+      continue
+    fi
     if [[ -z $wd || -z ${chosen[$wd]-} ]]; then
       # An agent with no readable WorkingDirectory cannot be de-duplicated
       # against anything, so it is kept rather than silently dropped.
@@ -269,31 +329,41 @@ claude-relaunch() {
     b_at=$(_claude_agent_at "$wd" "$taskof[$cur]" 2>/dev/null)
     if [[ -n $a_at && -n $b_at && $a_at != $b_at ]]; then
       if [[ $a_at > $b_at ]]; then
-        why="$label's record is newer (at=$a_at vs at=$b_at)"; chosen[$wd]=$label
+        why="it shares the checkout $wd with $label, whose record is newer (at=$a_at vs at=$b_at)"
+        chosen[$wd]=$label
         skip_label+=("$cur"); skip_why+=("$why")
       else
-        why="$cur's record is newer (at=$b_at vs at=$a_at)"
+        why="it shares the checkout $wd with $cur, whose record is newer (at=$b_at vs at=$a_at)"
         skip_label+=("$label"); skip_why+=("$why")
       fi
     else
       a_mt=$(_claude_agent_mtime "$(_launchd_plist "$label")"); b_mt=$(_claude_agent_mtime "$(_launchd_plist "$cur")")
       if (( ${a_mt:-0} > ${b_mt:-0} )); then
-        why="no record told them apart, and $label's plist is newer"; chosen[$wd]=$label
+        why="it shares the checkout $wd with $label; no record told them apart, and $label's plist is newer"
+        chosen[$wd]=$label
         skip_label+=("$cur"); skip_why+=("$why")
       else
-        why="no record told them apart, and $cur's plist is newer"
+        why="it shares the checkout $wd with $cur; no record told them apart, and $cur's plist is newer"
         skip_label+=("$label"); skip_why+=("$why")
       fi
     fi
   done
 
+  # Each reason is already a whole clause, because the two kinds of skip -- a
+  # live holder, and the loser of a ranking -- have nothing in common but the
+  # rule they both serve, which is the sentence at the end.
   integer i
   for (( i = 1; i <= $#skip_label; i++ )); do
     label=$skip_label[i]
-    print -u2 "claude-relaunch: SKIPPED $label ($nameof[$label]) -- it shares the checkout $wdof[$label] with $chosen[$wdof[$label]], and \`claude --continue' resumes one conversation per checkout; $skip_why[i]"
+    print -u2 "claude-relaunch: SKIPPED $label ($nameof[$label]) -- $skip_why[i]; \`claude --continue' resumes one conversation per checkout"
   done
 
   local -a kicked
+  if (( ! ${#chosen} )); then
+    print -u2 "claude-relaunch: nothing kicked -- every missing session's checkout is already held by a live one"
+    claude-status
+    return 0
+  fi
   for wd in "${(k)chosen[@]}"; do
     label=$chosen[$wd]
     print -u2 "claude-relaunch: kickstarting $label ($nameof[$label]) in $wdof[$label]"

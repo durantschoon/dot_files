@@ -466,12 +466,21 @@ claude-rm stage-24              # tmux-rm + launchd-rm; the transcript stays
 my Claude sessions went with it" — previously a `launchctl kickstart
 gui/$UID/local.job.<repo>.<task>` typed once per checkout. It kickstarts every
 loaded claude-run agent whose session is missing, leaves the ones that are up
-alone, and says which is which. **One per checkout:** `claude --continue`
-resumes the most recent conversation whose cwd is the repo root, so two agents
-in one checkout would point two Claudes at one transcript. When two share a
-checkout it prefers the task whose record (`logs/<task>.job`) was started most
-recently, falls back to the newer plist, and prints the one it skipped together
-with the reason. Only agents that actually recreate a tmux session are ever
+alone, and says which is which.
+
+**At most one per checkout, and none where a session is already live.**
+`claude --continue` resumes the most recent conversation whose cwd is the repo
+root, so a checkout has room for exactly one resumed Claude. Two *missing*
+agents in one checkout: the one whose record (`logs/<task>.job`) was started
+most recently wins, falling back to the newer plist, and the other is printed
+with the reason. One live and one missing: **nothing is kicked** — the live
+agent holds the checkout, and relaunching its neighbour would open the
+conversation that session is already showing a second time, beside it. The
+skipped agent is reported as `SKIPPED <label> … <live label> already holds this
+checkout`. Naming a task explicitly is not a way around the rule: liveness is
+surveyed across every loaded agent before the `TASK` filter is applied. (This
+is the ordinary state after a server dies and one session is restored by hand —
+`lim` and `ros2-classroom` each carry two agents on one checkout.) Only agents that actually recreate a tmux session are ever
 kicked — a plain `launchd-run` job has no session, and restarting somebody's
 build is not what this verb is for. A session that comes back and dies again
 (`--continue` with no conversation to continue, for instance) is reported as

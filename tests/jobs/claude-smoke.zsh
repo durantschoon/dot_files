@@ -89,8 +89,17 @@ if (( ! $+commands[launchctl] )); then
     "the winner is the task whose record is newest" \
     "… its session really is back" \
     "… and the skipped one was left alone" \
+    "claude-relaunch exits 0 even when it decides to kick nothing" \
     "a session that is up is left alone" \
-    "… while the one still missing is kicked" \
+    "… its missing neighbour in the same checkout is SKIPPED" \
+    "… naming the live agent as the holder of the checkout" \
+    "… and NOTHING was kickstarted" \
+    "… so the missing neighbour is still missing" \
+    "… and the live one is untouched" \
+    "claude-relaunch TASK obeys the same rule" \
+    "… it kickstarts nothing either" \
+    "… and says who holds the checkout" \
+    "… the session is still not there" \
     "a claude-run in a second checkout starts" \
     "the lone missing session is recreated" \
     "… and it said so" \
@@ -368,13 +377,35 @@ refute "… and the skipped one was left alone" ptmux has-session -t "=$SLUG-t1"
 print "  note claude-relaunch, two agents in one checkout:"
 print -r -- "$RL_OUT" | sed 's/^/       | /'
 
-# A session that is up is left alone -- said out loud, not merely not kicked.
-# The one still missing in that checkout IS kicked now: de-duplication is
-# between two MISSING agents, and with only one missing there is no contest.
-RL_OUT="$(claude-relaunch --all 2>&1)"
+# One live, one missing, SAME checkout: nothing is kicked at all.
+#
+# This is the state the machine is actually in after a server dies and one
+# session is brought back by hand -- `lim' and `ros2-classroom' each carry two
+# claude-run agents on one checkout today. Kickstarting the missing neighbour
+# would run `claude --continue' in a checkout whose one conversation is already
+# open in the live session, producing a second tmux session showing the same
+# transcript as the one the user is sitting in. The live agent holds the
+# checkout; the missing one is skipped, and the holder is named.
+RL_OUT="$(claude-relaunch --all 2>&1)"; RC=$?
+assert "claude-relaunch exits 0 even when it decides to kick nothing" test $RC -eq 0
 assert "a session that is up is left alone" grep -q -- "$SLUG-t2 is already up" <<<"$RL_OUT"
-assert "… while the one still missing is kicked" \
-  grep -q -- "kickstarting local.job.$JOB_LAUNCHD_SLUG.t1" <<<"$RL_OUT"
+assert "… its missing neighbour in the same checkout is SKIPPED" \
+  grep -q -- "SKIPPED local.job.$JOB_LAUNCHD_SLUG.t1" <<<"$RL_OUT"
+assert "… naming the live agent as the holder of the checkout" \
+  grep -q -- "local.job.$JOB_LAUNCHD_SLUG.t2 ($SLUG-t2) already holds this checkout $REPO" <<<"$RL_OUT"
+refute "… and NOTHING was kickstarted" grep -q -- 'kickstarting' <<<"$RL_OUT"
+refute "… so the missing neighbour is still missing" ptmux has-session -t "=$SLUG-t1"
+assert "… and the live one is untouched" ptmux has-session -t "=$SLUG-t2"
+# The rule is about the checkout, not about the argument: naming the task
+# explicitly must not be a way around it.
+RL_OUT="$(claude-relaunch t1 2>&1)"; RC=$?
+assert "claude-relaunch TASK obeys the same rule" test $RC -eq 0
+refute "… it kickstarts nothing either" grep -q -- 'kickstarting' <<<"$RL_OUT"
+assert "… and says who holds the checkout" \
+  grep -q -- "already holds this checkout $REPO" <<<"$RL_OUT"
+refute "… the session is still not there" ptmux has-session -t "=$SLUG-t1"
+print "  note claude-relaunch, one live and one missing in one checkout:"
+print -r -- "$RL_OUT" | sed 's/^/       | /'
 
 # A missing session in a checkout of its own IS recreated. t1's own checkout,
 # so there is nothing to de-duplicate it against.

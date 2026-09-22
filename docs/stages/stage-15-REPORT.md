@@ -518,3 +518,102 @@ wording. A flaky assertion dressed as a measurement would be worse than none.
    symlink changes `argv[0]`, but `job-tee` is `#!/bin/sh` so the kernel rewrites
    it to the interpreter; nothing in `job-tee` reads `$0`. That is fine today and
    worth remembering if `job-tee` ever grows behaviour keyed on its own name.
+
+---
+
+## Follow-up commit (review finding on `eb3b8f3`)
+
+Appended, not edited: everything above records what was true of `eb3b8f3` and
+stays as written. Open question 1 above is **resolved by this commit** — the
+coordinator's review called it what it is, a live hazard rather than a product
+question, and it was right to.
+
+### Deviations (continued)
+
+15. **`claude-relaunch` now kicks nothing in a checkout that has ANY live
+    claude-run session.** Previously de-duplication ran between *missing* agents
+    only, exactly as the stage prompt specified, and I flagged the gap as open
+    question 1 rather than closing it. That was the wrong call: `lim` and
+    `ros2-classroom` each carry two claude-run agents on one checkout on this
+    machine today, so with `lim-stage-27` live and `lim-jobs` missing the old
+    rule would have kickstarted `lim-jobs`, and `claude --continue` would have
+    opened the conversation already on screen in a second session beside it. A
+    live agent now **holds** its checkout; each missing neighbour is reported as
+    `SKIPPED <label> (<session>) -- <live label> (<session>) already holds this
+    checkout <dir>; \`claude --continue' resumes one conversation per checkout`,
+    in the same shape as the ranking skips, and when nothing is left to kick the
+    verb says so and still exits 0. The ranking between two missing agents is
+    unchanged.
+    *Sub-point worth its own line:* the liveness survey now runs over **every**
+    loaded claude-run agent **before** the `TASK` filter is applied. Filtering
+    first would have made `claude-relaunch stage-27` blind to a live `lim-jobs`
+    in the same checkout — an argument form that quietly bypasses the rule is
+    not a rule.
+16. **`_claude_job_labels` no longer parses `launchctl list`; it enumerates the
+    plists and confirms each with `launchctl print`.** Not cosmetic, and not
+    something I went looking for: the first run of the new assertions failed six
+    of them, the second passed 70/70 with no change but a diagnostic. The
+    diagnostic showed `launchctl list` intermittently returning **without**
+    agents that `launchctl print` found moments later, under the load of a suite
+    that is kickstarting agents. The failure mode that causes is precisely the
+    one item 15 exists to prevent: an agent missing from the survey is an agent
+    whose live session does not appear to hold its checkout, so the neighbour
+    gets kicked. A survey that can come back short must not be the thing
+    decisions are made from. The filesystem does not flicker and `launchctl
+    print` answers one label at a time, so the enumeration is now
+    `$HOME/Library/LaunchAgents/<prefix>*.plist` filtered by `_launchd_loaded`.
+    It also confines the scratch `$HOME`'s survey to the scratch `$HOME`, where
+    before it read every `local.job.*` label in the user's GUI domain and
+    discarded the ones with no plist next door.
+
+### Follow-up gates
+
+Run on the follow-up tree, after the change.
+
+| gate | exit | note |
+|---|---|---|
+| `./tests/jobs/claude-smoke.zsh` ×3 | **0**, **0**, **0** | 70/70 passed, 0 skipped, 70 total, each time |
+| `make check-jobs` | **0** | tee 48/48, smoke 328/328, claude-smoke 70/70, 0 skipped |
+| `make check` | **0** | `==> all checks passed` |
+| `zsh -n .claude-jobs.zsh`, `zsh -n tests/jobs/claude-smoke.zsh` | **0** | |
+| default tmux server, before vs after | — | identical, the same six sessions |
+
+Three consecutive `claude-smoke.zsh` runs, because the finding that produced
+deviation 16 was a flake and one green run would not have been evidence of
+anything.
+
+New assertions (11), all in `claude-smoke.zsh`, all through `private-tmux`:
+
+```
+ok   claude-relaunch exits 0 even when it decides to kick nothing
+ok   a session that is up is left alone
+ok   … its missing neighbour in the same checkout is SKIPPED
+ok   … naming the live agent as the holder of the checkout
+ok   … and NOTHING was kickstarted
+ok   … so the missing neighbour is still missing
+ok   … and the live one is untouched
+ok   claude-relaunch TASK obeys the same rule
+ok   … it kickstarts nothing either
+ok   … and says who holds the checkout
+ok   … the session is still not there
+```
+
+What the verb prints for the case in question:
+
+```
+claude-relaunch: claude-smoke-18978-t2 is already up -- leaving it alone
+claude-relaunch: SKIPPED local.job.claudesmoke.t1 (claude-smoke-18978-t1) -- local.job.claudesmoke.t2 (claude-smoke-18978-t2) already holds this checkout /private/tmp/claudesmoke-18978/home/Repos/Claude_Smoke.18978; `claude --continue' resumes one conversation per checkout
+claude-relaunch: nothing kicked -- every missing session's checkout is already held by a live one
+local.job.claudesmoke.t1   claude-smoke-18978-t1   MISSING  …/Repos/Claude_Smoke.18978
+local.job.claudesmoke.t2   claude-smoke-18978-t2   up       …/Repos/Claude_Smoke.18978
+```
+
+### Open questions (continued)
+
+7. **The old rule would have bitten on `lim` and `ros2-classroom` specifically.**
+   Both carry two loaded agents on one checkout right now
+   (`local.job.lim.jobs` + `local.job.lim.stage-27`, and the `ros2-classroom`
+   pair). Worth the user deciding whether both agents in each pair should exist
+   at all, or whether one is a leftover — `claude-run` is designed around one
+   Claude job per checkout, and two agents per checkout is the configuration
+   that made this rule necessary.
