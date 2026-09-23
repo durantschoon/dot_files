@@ -446,11 +446,19 @@ job-note() {
   [[ -e $file ]] || _job_notes_template "$task" > "$file" || return
   local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-vi}}})
   (( $#ed )) || ed=(vi)
-  "${ed[@]}" "$file" || {
-    print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
-    sleep 3
-    return 1
-  }
+  if [[ ${ed[1]:t} == emacsclient ]]; then
+    script -q /dev/null "${ed[@]}" "$file" </dev/tty >/dev/tty || {
+      print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
+      sleep 3
+      return 1
+    }
+  else
+    "${ed[@]}" "$file" </dev/tty >/dev/tty || {
+      print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
+      sleep 3
+      return 1
+    }
+  fi
 }
 
 # (b) of the context block: the per-repo override, else this repo's own
@@ -1208,7 +1216,7 @@ _tmux_pick_preview_cmd() {
 }
 _tmux_pick_edit_cmd() {
   local script='source "$1" 2>/dev/null; _tmux_pick_edit "$2" "$3"'
-  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
 }
 
 # Does the fzf on PATH have every(N)? Probed once per shell from `fzf
