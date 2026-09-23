@@ -300,3 +300,9 @@ export GPG_TTY=$(tty)
 
 # end on a agood note, i.e. do something successful as the last step
 [[ -n $status ]]
+
+# Fix for emacsclient over SSH: force terminal frame so it doesn't hang waiting for a GUI
+if [[ -n "$SSH_CONNECTION" || -n "$SSH_CLIENT" || -n "$SSH_TTY" ]]; then
+    export EDITOR="emacsclient -t"
+    export VISUAL="emacsclient -t"
+fi
