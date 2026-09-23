@@ -446,7 +446,11 @@ job-note() {
   [[ -e $file ]] || _job_notes_template "$task" > "$file" || return
   local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-vi}}})
   (( $#ed )) || ed=(vi)
-  "${ed[@]}" "$file"
+  "${ed[@]}" "$file" || {
+    print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
+    sleep 3
+    return 1
+  }
 }
 
 # (b) of the context block: the per-repo override, else this repo's own
@@ -528,18 +532,19 @@ job-note-context() {
   fi
   [[ -n $act ]] && print -r -- "last activity: $(_job_ago "$act")"
 
-  local block
-  block=$(_job_note_stage "$task" "$root")          # (b)
-  [[ -n $block ]] && { print; print -r -- "$block" }
-  block=$(_job_note_recap "$task" "$root")          # (c)
-  [[ -n $block ]] && { print; print -r -- "$block" }
-
-  print                                             # (d)
+  print                                             # (b)
   print -r -- "notes:"
   local notes=$root/logs/$task.notes.md
   if [[ -r $notes ]]; then command cat -- "$notes"
   else print -r -- "(none — ctrl-e to start one)"
   fi
+
+  local block
+  block=$(_job_note_stage "$task" "$root")          # (c)
+  [[ -n $block ]] && { print; print -r -- "$block" }
+  block=$(_job_note_recap "$task" "$root")          # (d)
+  [[ -n $block ]] && { print; print -r -- "$block" }
+
   return 0
 }
 
@@ -1294,15 +1299,20 @@ tmux-pick() {
     # `tput cols' answers instead, and 80 when even that cannot.
     integer cols=${COLUMNS:-0}
     (( cols > 0 )) || cols=${$(command tput cols 2>/dev/null):-80}
-    local pwin=right,55%,border-left
-    (( cols >= 100 )) || pwin+=,hidden
+    local pwin fheight=50%
+    if (( cols < 105 )); then
+      pwin=bottom,60%,border-top
+      fheight=80%
+    else
+      pwin=right,55%,border-left
+    fi
     # --track --id-nth 1 keeps the cursor on the SAME session across a reload
     # (field 1 is the host|name key), instead of on whatever row now happens
     # to hold that index. Wanted for ctrl-r too, so it hangs off the version
     # probe rather than off the timer being on.
     local -a track; _tmux_fzf_has_every && track=(--track --id-nth 1)
     choice=$(print -l -- "${lines[@]}" \
-      | fzf --delimiter=$'\t' --with-nth=2 --height=50% --reverse --no-sort \
+      | fzf --delimiter=$'\t' --with-nth=2 --height=$fheight --reverse --no-sort \
             --prompt='attach> ' --header "$(command date "$stamp_fmt")" \
             --preview "$preview" --preview-window "$pwin" \
             "${track[@]}" "${binds[@]}" \
