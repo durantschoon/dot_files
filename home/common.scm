@@ -977,7 +977,7 @@ call, so extensions never collide; only genuine double ownership does."
                         (home-zsh-extension
                          (zshrc (list (plain-file
                                        "zshrc-browser"
-                                       (string-append "export BROWSER=" browser "\n")))))))))))
+                                       (string-append "export BROWSER=\"${BROWSER:-" browser "}\"\n")))))))))))
 
 ;; espanso: the text expander, Wayland only -- it reads evdev and injects
 ;; through the virtual-keyboard protocol, both meaningless without a
