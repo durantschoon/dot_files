@@ -12,6 +12,18 @@
 #   printf '%s' '🦀' | iconv -t UTF-32BE | xxd    # > 0000ffff => override it
 # Avoid nf-md-* glyphs (U+F0001 and up): they are outside the BMP too.
 
+# Scan timeout: milliseconds starship spends scanning files in the current
+# directory (default: 30ms). On WSL, filesystem latency (e.g. across 9p/drvfs
+# mounts or when starting a login shell before cache is warm) routinely exceeds
+# 30ms, triggering:
+#   "[WARN] - (starship::context): Scanning current directory timed out."
+#   "[WARN] - (starship::context): You can set scan_timeout in your config to a higher value..."
+scan_timeout = 1000
+
+# Command timeout: milliseconds starship waits for external commands to finish
+# (default: 500ms). Increased to prevent timeouts under WSL filesystem latency.
+command_timeout = 1000
+
 [package]
 symbol = " "   # nf-oct-package
 
