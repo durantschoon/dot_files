@@ -214,6 +214,8 @@ _agent_agent_mtime() {
 # none, every loaded agent-run agent, whether its session is up, and where.
 agent-status() {
   _agent_job_guard || return
+  local engine=$1
+  shift
   if (( $# == 0 )); then
     local -a labels; labels=(${(f)"$(_agent_job_labels)"})
     local label plist name wd state
@@ -267,7 +269,9 @@ agent-status() {
 # around the rule.
 agent-relaunch() {
   _agent_job_guard || return
-  local usage="usage: agent-relaunch [--all|TASK]"
+  local engine=$1
+  shift
+  local usage="usage: agent-relaunch ENGINE [--all|TASK]"
   local want=""
   case ${1-} in
     ""|--all|-a) ;;
@@ -374,7 +378,7 @@ agent-relaunch() {
   local -a kicked
   if (( ! ${#chosen} )); then
     print -u2 "agent-relaunch: nothing kicked -- every missing session's checkout is already held by a live one"
-    agent-status
+    agent-status "$engine"
     return 0
   fi
   for wd in "${(k)chosen[@]}"; do
@@ -403,12 +407,14 @@ agent-relaunch() {
       print -u2 "agent-relaunch: $name did NOT come back -- agent-status, then logs/${taskof[$label]}.launchd.log in $wdof[$label]"
     fi
   done
-  agent-status
+  agent-status "$engine"
 }
 
 agent-rm() {
   _agent_job_guard || return
-  local task=${1:?usage: agent-rm TASK}
+  local engine=$1
+  shift
+  local task=${1:?usage: agent-rm ENGINE TASK}
   local label; label=$(launchd-label "$task") || return
   _launchd_loaded "$label" && { launchd-rm "$task" || return }
   tmux has-session -t "=$(job-name "$task")" 2>/dev/null && { tmux-rm "$task" || return }
