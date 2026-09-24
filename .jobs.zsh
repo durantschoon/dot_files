@@ -428,9 +428,7 @@ job-recap() {
 # had not written. The worked example lives inside the hint, where it is inert.
 _job_notes_template() {
   local task=$1
-  print -r -- "<!-- Notes for task '$task' -- yours. job-note-context prints this file verbatim, and nothing but your editor ever writes it. -->"
-  print -r -- "<!-- The first line starting with \"> \" is this session's status in tmux-pick / tmux-dash, e.g.  > waiting on review -->"
-  print -r -- "> "
+  print -r -- "# "
 }
 
 # job-note [TASK]: open the task's notes in $VISUAL, else $EDITOR, else vi,
@@ -525,33 +523,39 @@ _job_note_recap() {
 # always now; the bottom is the user's own file, printed verbatim. A section
 # with nothing to say is left out rather than printed empty.
 job-note-context() {
-  local task; task=$(_job_task "$1") || return
-  local root repo name; root=$(job-root); repo=$(job-repo)
-  name=$(job-name "$task") || return
+  {
+    local task; task=$(_job_task "$1") || return
+    local root repo name; root=$(job-root); repo=$(job-repo)
+    name=$(job-name "$task") || return
 
-  # (a) what, where, and which runner holds it -- the same live lookups
-  #     job-status makes, plus the session's own last activity.
-  print -r -- "$repo · $task · $root"
-  job-status "$task" 2>/dev/null
-  local act=""
-  if _tmux_where "$name" 2>/dev/null; then
-    act=$(_job_tmux "$reply[1]" list-sessions -F '#{session_name}|#{session_activity}' 2>/dev/null \
-          | command awk -F'|' -v n="$name" '$1 == n { print $2; exit }')
-  fi
-  [[ -n $act ]] && print -r -- "last activity: $(_job_ago "$act")"
+    # (a) what, where, and which runner holds it -- the same live lookups
+    #     job-status makes, plus the session's own last activity.
+    print -r -- "## $repo · $task · $root"
+    print -r -- "\`\`\`"
+    job-status "$task" 2>/dev/null
+    local act=""
+    if _tmux_where "$name" 2>/dev/null; then
+      act=$(_job_tmux "$reply[1]" list-sessions -F '#{session_name}|#{session_activity}' 2>/dev/null \
+            | command awk -F'|' -v n="$name" '$1 == n { print $2; exit }')
+    fi
+    [[ -n $act ]] && print -r -- "last activity: $(_job_ago "$act")"
+    print -r -- "\`\`\`"
 
-  print                                             # (b)
-  print -r -- "notes:"
-  local notes=$root/logs/$task.notes.md
-  if [[ -r $notes ]]; then command cat -- "$notes"
-  else print -r -- "(none — ctrl-e to start one)"
-  fi
+    print                                             # (b)
+    print -r -- "### Notes"
+    local notes=$root/logs/$task.notes.md
+    if [[ -r $notes ]]; then command cat -- "$notes"
+    else print -r -- "*(none — ctrl-e to start one)*"
+    fi
 
-  local block
-  block=$(_job_note_stage "$task" "$root")          # (c)
-  [[ -n $block ]] && { print; print -r -- "$block" }
-  block=$(_job_note_recap "$task" "$root")          # (d)
-  [[ -n $block ]] && { print; print -r -- "$block" }
+    local block
+    block=$(_job_note_stage "$task" "$root")          # (c)
+    [[ -n $block ]] && { print; print -r -- "### Stage"; print -r -- "$block" }
+    block=$(_job_note_recap "$task" "$root")          # (d)
+    [[ -n $block ]] && { print; print -r -- "### Recap"; print -r -- "$block" }
+  } | if command -v glow >/dev/null 2>&1; then
+        if [[ -t 1 ]]; then glow -p -s dark -; else glow -s dark -; fi
+      else command cat; fi
 
   return 0
 }
@@ -900,7 +904,7 @@ while [ $# -gt 0 ]; do
   d=$1; t=$2; shift 2
   s=
   if [ -r "$d/logs/$t.notes.md" ]; then
-    s=$(sed -n "s/^> //p" "$d/logs/$t.notes.md" | sed -n "/./{p;q;}")
+    s=$(sed -E -n "s/^#+[[:space:]]*//p" "$d/logs/$t.notes.md" | sed -n "/./{p;q;}")
     [ -n "$s" ] && s="> $s"
   fi
   if [ -z "$s" ] && [ -r "$d/logs/$t.recap.md" ]; then
@@ -1214,6 +1218,53 @@ _tmux_pick_preview_cmd() {
   local script='source "$1" 2>/dev/null; _tmux_pick_preview "$2" "$3" 2>/dev/null'
   print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
+_tmux_pick_rename() {
+  local key=$1 spath=$2
+  _tmux_pick_row "$key" "$spath" || {
+    print -u2 "tmux-pick: there is no session yet to rename. (sleeping 3s)"; sleep 3
+    return 1
+  }
+  local new_name
+  printf "Rename session '%s' on %s to: " "$_tmux_pick_name" "$_tmux_pick_host"
+  read -r new_name
+  if [[ -n $new_name && $new_name != "$_tmux_pick_name" ]]; then
+    if [[ $_tmux_pick_host == local ]]; then
+      tmux rename-session -t "=$_tmux_pick_name" "$new_name"
+    else
+      _job_sh "$_tmux_pick_host" "tmux rename-session -t ${(qq):-=$_tmux_pick_name} ${(qq)new_name}"
+    fi
+  fi
+}
+
+_tmux_pick_kill() {
+  local key=$1 spath=$2
+  _tmux_pick_row "$key" "$spath" || {
+    print -u2 "tmux-pick: there is no session yet to kill. (sleeping 3s)"; sleep 3
+    return 1
+  }
+  local ans
+  if ! read -q ans"?Kill session '$_tmux_pick_name' on $_tmux_pick_host? [y/N] "; then
+    print -u2 ""
+    return 0
+  fi
+  print -u2 ""
+  if [[ $_tmux_pick_host == local ]]; then
+    tmux kill-session -t "=$_tmux_pick_name"
+  else
+    _job_sh "$_tmux_pick_host" "tmux kill-session -t ${(qq):-=$_tmux_pick_name}"
+  fi
+}
+
+_tmux_pick_rename_cmd() {
+  local script='source "$1" 2>/dev/null; _tmux_pick_rename "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
+}
+
+_tmux_pick_kill_cmd() {
+  local script='source "$1" 2>/dev/null; _tmux_pick_kill "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
+}
+
 _tmux_pick_edit_cmd() {
   local script='source "$1" 2>/dev/null; _tmux_pick_edit "$2" "$3"'
   print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
@@ -1271,12 +1322,14 @@ tmux-pick() {
 
   local choice
   if command -v fzf >/dev/null 2>&1; then
-    local reload preview editcmd timer=0
+    local reload preview editcmd renamecmd killcmd timer=0
     reload=$(_tmux_pick_reload_cmd $all)
     preview=$(_tmux_pick_preview_cmd)
     editcmd=$(_tmux_pick_edit_cmd)
+    renamecmd=$(_tmux_pick_rename_cmd)
+    killcmd=$(_tmux_pick_kill_cmd)
     (( poll > 0 )) && _tmux_fzf_has_every && timer=1
-    local hint="enter attach · ctrl-r refresh · ? notes · ctrl-e edit"
+    local hint="enter attach · ctrl-r refresh · ? notes · ctrl-e edit · ctrl-n rename · ctrl-k kill"
     if (( timer )); then                     hint+=" · auto every ${poll}s"
     elif (( poll > 0 )); then                hint+=" · no auto (fzf < 0.$_JOB_FZF_EVERY_MINOR)"
     else                                     hint+=" · auto off"
@@ -1301,6 +1354,8 @@ tmux-pick() {
     # row comes out of the file that was just edited and a list still showing
     # the old one would be lying about work the user had done a second ago.
     binds+=(--bind "ctrl-e:execute($editcmd)+reload($reload)+transform-header($stamp_cmd)")
+    binds+=(--bind "ctrl-n:execute($renamecmd)+reload($reload)+transform-header($stamp_cmd)")
+    binds+=(--bind "ctrl-k:execute($killcmd)+reload($reload)+transform-header($stamp_cmd)")
     # A preview eating half of a 60-column phone screen hides the list it is
     # describing, so it starts hidden on a narrow terminal and shown on a wide
     # one; `?' moves it either way. COLUMNS is 0 in a non-interactive shell, so
@@ -1334,7 +1389,7 @@ tmux-pick() {
     # Without the module there is no timer, and the prompt does not claim one.
     local ticker=0
     (( poll > 0 )) && zmodload zsh/zselect 2>/dev/null && ticker=1
-    local hint="attach> [number, n N=notes, e N=edit, r=refresh, q=quit"
+    local hint="attach> [number, n N=notes, e N=edit, m N=rename, k N=kill, r=refresh, q=quit"
     (( ticker )) && hint+="; auto-refresh ${poll}s"
     hint+="] "
     local ans i
@@ -1360,20 +1415,26 @@ tmux-pick() {
         # ctrl-e on. Everything they print goes to stderr, like the menu
         # itself: this function's STDOUT is the caller's, and a context block
         # on it would be read as an answer.
-        [nN]' '<->|[eE]' '<->)
+        [nN]' '<->|[eE]' '<->|[mM]' '<->|[kK]' '<->)
           local -a w; w=(${=ans}); local num=$w[2] l k p
           if (( num >= 1 && num <= $#lines )); then
             l=$lines[num]; k=${l%%$'\t'*}; p=${l##*$'\t'}
             if [[ ${w[1]:l} == n ]]; then
               _tmux_pick_preview "$k" "$p" >&2
-            else
+            elif [[ ${w[1]:l} == e ]]; then
               _tmux_pick_edit "$k" "$p" >&2
+              _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
+            elif [[ ${w[1]:l} == k ]]; then
+              _tmux_pick_kill "$k" "$p" >&2
+              _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
+            else
+              _tmux_pick_rename "$k" "$p" >&2
               _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
             fi
           else
             print -u2 "tmux-pick: there is no row $num"
           fi ;;
-        *) print -u2 "tmux-pick: enter a row number, \`n N' for that row's notes, \`e N' to edit them, r to refresh, or q to quit" ;;
+        *) print -u2 "tmux-pick: enter a row number, \`n N' for that row's notes, \`e N' to edit them, \`m N' to rename, r to refresh, or q to quit" ;;
       esac
     done
     [[ -n $choice ]] || return 1
@@ -1455,6 +1516,39 @@ tmux-run() {
   print -u2 "tmux-run: started '$task' in session '$name' on $host  (tmux-go $task to watch, tmux-logs $task to tail)"
 }
 
+# tmux-help: Print a quick reference guide to the tmux job runner and its keys.
+tmux-help() {
+  command cat << 'EOF'
+Tmux Job Runner - Quick Reference
+
+Commands:
+  tmux-new [TASK]       Create a new background session (default task: main)
+  tmux-run [TASK] cmd.. Run a command in a background session
+  tmux-go [TASK]        Attach to a session (also: tmux-take)
+  tmux-ls               List sessions in the current repo
+  tmux-status [TASK]    Show status of a session
+  tmux-logs [TASK]      Tail the logs of a session
+  tmux-stop [TASK]      Stop a session (prompts for confirmation)
+  tmux-rm [TASK|--all]  Kill the task's session(s)
+  
+  tmux-pick [--all]     Interactive fzf menu to pick a session in this repo
+  tmux-dash             Interactive menu of ALL sessions across all repos
+  tmux-peek             Attach a detached session in take-over mode
+
+Interactive Keys (tmux-pick / tmux-dash):
+  enter    Attach to the selected session
+  ctrl-r   Refresh the list of sessions
+  ?        Toggle the notes preview window
+  ctrl-e   Edit the notes for the selected session
+  ctrl-n   Rename the selected session
+  ctrl-k   Kill the selected session (prompts for confirmation)
+  esc      Quit the menu
+  
+  (Without fzf, you can type the row number to attach, or 'e 1', 'n 1', 
+   'm 1', or 'k 1' to edit, preview, rename, or kill row 1 respectively.)
+EOF
+}
+
 # tmux-ls: this repo's sessions on every reachable host.
 tmux-ls() {
   local r; local -a rows
@@ -1483,6 +1577,17 @@ tmux-stop() {
   local task name host; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
   _tmux_where "$name" || { print -u2 "tmux-stop: no session '$name'"; return 0; }
   host=$reply[1]
+  
+  if [[ -t 0 && $JOB_CONFIRM != no ]]; then
+    tmux-ls
+    local ans
+    if ! read -q ans"?Stop tmux task '$task'? [y/N] "; then
+      print
+      return 1
+    fi
+    print
+  fi
+
   if _tmux_has_window "$host" "$name" "$task"; then
     _job_tmux "$host" kill-window -t "=$name:$task" && print -u2 "tmux-stop: closed window '$task' in '$name' on $host"
   else

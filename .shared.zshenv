@@ -101,3 +101,7 @@ add_to_front_of_path "$PNPM_HOME"
 
 # Set PAGER for all platforms
 export PAGER='less -R'
+
+# for my obsidian-drift repo
+export DRIFT_HOME="$HOME/Repos/enveloped/obsidian-drift/obsidian-drift"
+export DRIFT_CONFIG="/Users/durant/Repos/enveloped/obsidian-drift/obsidian-drift/test.toml"
