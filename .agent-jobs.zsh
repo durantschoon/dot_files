@@ -462,9 +462,19 @@ agy-run()      { agent-run agy "$@" }
 agy-status()   { agent-status agy "$@" }
 agy-relaunch() { agent-relaunch agy "$@" }
 agy-rm()       { agent-rm agy "$@" }
+agy-help()       { agent-help agy "$@" }
 
 # claude wrappers (backwards compatibility)
 claude-run()      { agent-run claude "$@" }
 claude-status()   { agent-status claude "$@" }
 claude-relaunch() { agent-relaunch claude "$@" }
 claude-rm()       { agent-rm claude "$@" }
+claude-help()       { agent-help claude "$@" }
+
+agent-help() {
+  local engine=${1:-agent}
+  # Find the script path dynamically using the functions lookup or default to dot_files
+  local script_path=${${(%):-%x}:-$HOME/dot_files/.agent-jobs.zsh}
+  
+  awk '/^# -*- mode: sh; -*-/ {next} /^#/ { gsub(/agent-/, "'$engine'-"); gsub(/Claude Code|Claude/, "'$engine'"); print } /^[^#]/ {exit}' "$script_path" | sed 's/^#//g; s/^ //g'
+}
