@@ -473,8 +473,21 @@ claude-help()       { agent-help claude "$@" }
 
 agent-help() {
   local engine=${1:-agent}
-  # Find the script path dynamically using the functions lookup or default to dot_files
   local script_path=${${(%):-%x}:-$HOME/dot_files/.agent-jobs.zsh}
   
-  awk '/^# -*- mode: sh; -*-/ {next} /^#/ { gsub(/agent-/, "'$engine'-"); gsub(/Claude Code|Claude/, "'$engine'"); print } /^[^#]/ {exit}' "$script_path" | sed 's/^#//g; s/^ //g'
+  perl -e '
+    $e = shift;
+    while (<>) {
+      last if !/^#/;
+      next if /^# -\*-/;
+      s/^# ?//;
+      s/agent-/$e-/g;
+      s/Claude Code|Claude/$e/g;
+      s/^\s*(\d+\.)/\033[1;35m$1\033[0m/;
+      s/(\[.*?\])/\033[33m$1\033[0m/g;
+      s/\b([A-Z_]{2,})\b/\033[32m$1\033[0m/g;
+      s/^($e-[a-z]+)/\033[1;36m$1\033[0m/;
+      print;
+    }
+  ' "$engine" "$script_path"
 }
