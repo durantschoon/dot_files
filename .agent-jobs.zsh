@@ -220,12 +220,20 @@ agent-status() {
     local -a labels; labels=(${(f)"$(_agent_job_labels)"})
     local label plist name wd state
     integer any=0
+    
+    local c_label=$'\e[36m' c_name=$'\e[33m' c_wd=$'\e[90m'
+    local c_up=$'\e[32m' c_missing=$'\e[31m' c_reset=$'\e[0m'
+    
     for label in "${labels[@]}"; do
       plist=$(_launchd_plist "$label"); [[ -f $plist ]] || continue
       name=$(_agent_agent_session "$plist") || continue
       wd=$(_agent_agent_wd "$plist"); any=1
-      if tmux has-session -t "=$name" 2>/dev/null; then state=up; else state=MISSING; fi
-      printf '%-38s %-28s %-8s %s\n' "$label" "$name" "$state" "$wd"
+      if tmux has-session -t "=$name" 2>/dev/null; then
+        state="${c_up}up      ${c_reset}"
+      else
+        state="${c_missing}MISSING ${c_reset}"
+      fi
+      printf "${c_label}%-38s${c_reset} ${c_name}%-28s${c_reset} %s ${c_wd}%s${c_reset}\n" "$label" "$name" "$state" "$wd"
     done
     (( any )) || print -u2 "agent-status: no agent-run agents are loaded (agent-run TASK loads one)"
     return 0
