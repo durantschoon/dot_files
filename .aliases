@@ -1081,4 +1081,4 @@ alias ebn-lab='ebn-lab-start'
 # job-*, tmux-*, launchd-*, docker-* -- see .jobs.zsh and README "Long-running local jobs".
 [[ -n "$ZSH_VERSION" && -f ~/dot_files/.jobs.zsh ]] && source ~/dot_files/.jobs.zsh
 # claude-run / claude-status / claude-rm -- a Claude Code session as a job (tmux + launchd relaunch).
-[[ -n "$ZSH_VERSION" && -f ~/dot_files/.claude-jobs.zsh ]] && source ~/dot_files/.claude-jobs.zsh
+[[ -n "$ZSH_VERSION" && -f ~/dot_files/.agent-jobs.zsh ]] && source ~/dot_files/.agent-jobs.zsh
