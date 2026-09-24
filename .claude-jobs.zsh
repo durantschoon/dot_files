@@ -29,7 +29,7 @@
 #
 # The vocabulary is deliberately skill-agnostic: TASK is whatever the repo's
 # own workflow calls a unit of work (a numbered stage here, something else
-# elsewhere) and the PROMPT is what starts it. A repo's MODELS.md is the place
+# elsewhere) and the PROMPT is what starts it. A repo's AGENTS.md is the place
 # to say which words it uses.
 #
 # What survives a reboot is the transcript, not tmux: `--continue` resumes the

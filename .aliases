@@ -472,7 +472,12 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias ctags='=ctags -eR'
 
-    alias funcs='print -l ${(ok)functions}' # list all functions
+    # Clear the old alias when reloading this file in an existing shell.
+    unalias funcs 2>/dev/null
+    function funcs() {
+        print -l ${(Mok)functions:#*$1*}
+    }
+    alias fng='funcs' # funcs grep
 
     if [[ -f /usr/local/bin/pup ]] && command -v pup >/dev/null && alias pup >/dev/null 2>&1; then
         unalias pup

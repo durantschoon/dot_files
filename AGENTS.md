@@ -1,4 +1,4 @@
-# Agent Orientation Guide (MODELS.md)
+# Agent Orientation Guide (AGENTS.md)
 
 Welcome! This document is designed to help AI agents (like Claude, Gemini, or ChatGPT) quickly orient themselves in this `dot_files` repository. 
 

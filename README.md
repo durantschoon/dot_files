@@ -576,7 +576,7 @@ must be off for that). After the Mac comes back, `tmux-go` and type `continue`.
 The vocabulary is skill-agnostic on purpose: `TASK` is whatever the repo's own
 workflow calls a unit of work (a numbered stage under one person's stage skill,
 something else under someone else's) and `PROMPT` is what starts it. A repo's
-`MODELS.md` is the place to record which words it uses.
+`AGENTS.md` is the place to record which words it uses.
 
 `make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
 test: a scratch `$HOME`, a private tmux server reached only through
