@@ -1,0 +1,132 @@
+#!/usr/bin/env -S zsh -f
+# -*- mode: sh; -*-
+#
+# tests/jobs/private-tmux -- the ONLY way a test or a probe in this repo may
+# reach tmux.
+#
+#   PRIVATE_TMUX_DIR=DIR tests/jobs/private-tmux [tmux ARGS...]
+#   tests/jobs/private-tmux --print-socket
+#   PRIVATE_TMUX_DEFAULT_DIR=/tmp tests/jobs/private-tmux --default-ls
+#
+# Why this file exists, measured (stage 14 D1, and the reason stage 15 was
+# written): a throwaway measurement harness set TMUX_TMPDIR to a path under the
+# agent scratchpad.  The socket tmux would have bound came to 126 bytes; a Unix
+# socket path is capped at 104 bytes (`sun_path', the same cap this repo already
+# documents for ssh's ControlPath).  tmux did not fail.  It fell back to the
+# DEFAULT server -- the one carrying the user's live Claude Code sessions -- and
+# the harness's `kill-server' destroyed seven of them, twice.
+#
+# The variable was set.  The grant said "private servers only".  Neither helped,
+# because nothing CHECKED.  So the check lives in a tool, and every tmux
+# invocation in tests/ goes through the tool:
+#
+#   1. it resolves a private TMUX_TMPDIR (given, or a short `mktemp -d' one),
+#   2. it computes the socket path tmux will actually bind,
+#   3. it REFUSES, loudly, with exit 78, if that path is over the limit --
+#      rather than letting tmux silently choose the user's own server,
+#   4. only then does it exec tmux.
+#
+# The limit enforced here is 100 bytes, not 104: four bytes of headroom, because
+# the failure mode of being one byte over is not an error message but somebody
+# else's work being killed.
+#
+# `-S' is refused outright: it names a socket path directly and so would walk
+# straight past everything above.  The single exception is `--default-ls', a
+# hard-coded, read-only listing of the user's default server -- the one thing
+# the suites are allowed to ask it, so that they can prove they left it alone.
+#
+# Exit statuses:  78  the socket path is too long (EX_CONFIG)
+#                 64  usage: an argument that would bypass containment
+#                 *   whatever tmux exited with
+
+emulate -L zsh
+setopt no_nomatch
+
+typeset -gri PRIVATE_TMUX_LIMIT=100        # what this helper enforces
+typeset -gri PRIVATE_TMUX_SUN_PATH_MAX=104 # what the kernel enforces
+
+_pt_die() { print -u2 -- "private-tmux: $1"; exit ${2:-1} }
+
+if [[ $1 == --help || $1 == -h ]]; then
+  command sed -n '3,42p' -- "${0:A}"
+  exit 0
+fi
+
+# --------------------------------------------------------------------------
+# --default-ls: the one permitted read of the user's DEFAULT tmux server
+# --------------------------------------------------------------------------
+# Hard-coded to `list-sessions'.  There is deliberately no way to spell any
+# other subcommand against that socket through this tool, so "a probe that
+# creates, kills or attaches on the default server" is not a discipline anyone
+# has to remember -- it is not expressible.
+#
+# The directory comes from PRIVATE_TMUX_DEFAULT_DIR because by the time a suite
+# runs its guard it has already exported TMUX_TMPDIR at its own private server;
+# the caller captures the original value before doing that and passes it here.
+# Prints one session name per line, sorted, and exits 0 when no server is
+# running at all (no server and an empty server are both "no sessions of mine").
+if [[ $1 == --default-ls ]]; then
+  typeset -g _pt_ddir=${PRIVATE_TMUX_DEFAULT_DIR:-/tmp}
+  typeset -g _pt_dsock=${_pt_ddir%/}/tmux-${UID}/default
+  command tmux -S "$_pt_dsock" list-sessions -F '#{session_name}' 2>/dev/null | command sort
+  exit 0
+fi
+
+# --------------------------------------------------------------------------
+# The private server
+# --------------------------------------------------------------------------
+
+typeset -g _pt_dir=${PRIVATE_TMUX_DIR:-}
+if [[ -z $_pt_dir ]]; then
+  # Short by construction: directly under $TMPDIR, one component, six random
+  # characters.  Not under any deeper scratch tree, which is how stage 14 got
+  # to 126 bytes in the first place.
+  _pt_dir=$(command mktemp -d "${${TMPDIR:-/tmp}%/}/ptmux.XXXXXX") \
+    || _pt_die "mktemp -d under ${TMPDIR:-/tmp} failed"
+fi
+
+# The socket name tmux will use: `default', unless -L says otherwise. -S is
+# refused: it would name the socket path outright and bypass every line above.
+# Both the separated and the attached spellings of each flag are covered,
+# because tmux accepts both and only one of them would have been caught.
+typeset -g _pt_name=default
+typeset -i _pt_i
+for (( _pt_i = 1; _pt_i <= $#argv; _pt_i++ )); do
+  case $argv[_pt_i] in
+    -S|-S?*)
+      _pt_die "-S names a socket path directly and would bypass containment; use PRIVATE_TMUX_DIR (or --default-ls to READ the default server)" 64 ;;
+    -L)    _pt_name=${argv[_pt_i+1]:-default} ;;
+    -L?*)  _pt_name=${argv[_pt_i]#-L} ;;
+  esac
+done
+
+# The path as tmux will construct it, and as the kernel will bind it: from
+# TMUX_TMPDIR verbatim, NOT from its resolved form. `/tmp/x' and
+# `/private/tmp/x' are the same directory and two different sun_path lengths,
+# and it is the bytes actually handed to bind(2) that count.
+typeset -g _pt_sock=${_pt_dir%/}/tmux-${UID}/$_pt_name
+
+if (( ${#_pt_sock} > PRIVATE_TMUX_LIMIT )); then
+  print -u2 -- "private-tmux: refusing -- the socket path is ${#_pt_sock} bytes, over the ${PRIVATE_TMUX_LIMIT}-byte limit enforced here (the kernel's sun_path cap is ${PRIVATE_TMUX_SUN_PATH_MAX} bytes)."
+  print -u2 -- "private-tmux: over-long TMUX_TMPDIR makes tmux fall back to the DEFAULT server, which carries live sessions that are not this test's to touch."
+  print -u2 -- "private-tmux: socket path was: $_pt_sock"
+  print -u2 -- "private-tmux: set PRIVATE_TMUX_DIR to something shorter (at most $(( PRIVATE_TMUX_LIMIT - ${#_pt_sock} + ${#_pt_dir} )) bytes)."
+  exit 78
+fi
+
+# Created only once the path is known to be usable: a directory made for a
+# server that is being refused is litter, and litter in $TMPDIR is how a later
+# reader loses track of which trees are live.
+command mkdir -p -- "$_pt_dir" || _pt_die "cannot create the private socket dir $_pt_dir"
+
+if [[ $1 == --print-socket ]]; then
+  print -r -- "$_pt_sock"
+  exit 0
+fi
+
+# TMUX/TMUX_PANE would tell tmux it is nested inside whatever server the caller
+# happens to be sitting in -- which, for a probe run from the user's own
+# terminal, is exactly the server this file exists to keep away from.
+unset TMUX TMUX_PANE
+export TMUX_TMPDIR=$_pt_dir
+exec tmux "$@"

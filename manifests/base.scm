@@ -50,5 +50,6 @@ releases and other GitHub features to the terminal.")
 
      ;; Python package/venv manager used by .aliases (see home/common.scm)
      "uv"
+     "glow"
      ))
   (list github-cli)))

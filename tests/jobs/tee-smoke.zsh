@@ -83,6 +83,21 @@ mkdir -p -- "$REPO" || exit 1
 # trap therefore puts the mode back before removing anything, unconditionally,
 # rather than trusting the assertion body to have got there.
 
+# --------------------------------------------------------------------------
+# Containment (stage 15): this suite starts no tmux server, and proves it
+# --------------------------------------------------------------------------
+# job-tee needs no tmux, so there is nothing here to contain -- which is
+# exactly why the guard is worth having. A suite that believes it never talks
+# to tmux is the one that would not notice if something it ran did. The check
+# costs one `list-sessions' against the user's default server at each end, and
+# that read is the only thing tests/jobs/private-tmux can even express against
+# it.
+typeset -g PT=${0:A:h}/private-tmux
+[[ -x $PT ]] || { print -u2 "tee-smoke: cannot execute $PT"; exit 1 }
+typeset -g PT_DEFAULT_DIR=${TMUX_TMPDIR:-/tmp}
+pt_default_sessions() { PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
+typeset -g TEE_DEFAULT_BEFORE="$(pt_default_sessions)"
+
 typeset -ga BG_PIDS=()
 typeset -g TEE_CLEANED=0
 
@@ -599,6 +614,10 @@ eq    "7  ... and 7 out of the failing one" "$(smoke_sed "$LOGS/t2.latest.log")"
 
 tee_cleanup
 eq "8  the cleanup removed the scratch tree" "$([[ -e $BASE ]] && print left-behind)" ""
+# And the suite-wide guard, after the cleanup, in every suite in this
+# directory: the user's default tmux server lists what it listed before.
+eq "8  the user's default tmux server is untouched" \
+   "$(pt_default_sessions)" "$TEE_DEFAULT_BEFORE"
 
 # Run and skipped, separately and always, in smoke.zsh's format and for its
 # reason: a suite that silently shrank on a host it could not fully exercise

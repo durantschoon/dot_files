@@ -175,3 +175,8 @@ if type "ng" > /dev/null; then
    # Load Angular CLI autocompletion.
    source <(ng completion script)  
 fi
+
+# glowtmux: render markdown via glow, using tmux pane width for wrapping
+glowtmux() {
+    glow -s dark -w $(( $(tmux display -p '#{pane_width}') - 4 )) "$1" | less -R
+}

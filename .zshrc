@@ -10,6 +10,18 @@ typeset -U >& /dev/null
 
 # completion
 
+mkdir -p ~/.zfunc
+if [[ -L /usr/share/zsh/vendor-completions/_docker && ! -e /usr/share/zsh/vendor-completions/_docker && ! -f ~/.zfunc/_docker ]]; then
+    cat << 'EOF' > ~/.zfunc/_docker
+#compdef docker
+# Fallback stub for Docker Desktop when stopped on WSL
+if [[ -r /mnt/wsl/docker-desktop/cli-tools/usr/share/zsh/vendor-completions/_docker ]]; then
+    source /mnt/wsl/docker-desktop/cli-tools/usr/share/zsh/vendor-completions/_docker "$@"
+fi
+EOF
+fi
+fpath=(~/.zsh ~/.zfunc $fpath)
+
 autoload -Uz compinit
 if [[ "$OSTYPE" == "darwin"* ]]; then
     FPATH="/opt/homebrew/share/zsh-completions:$FPATH"
@@ -189,11 +201,6 @@ bindkey "^S" history-incremental-pattern-search-forward
 # causes an error now that I set up .bash files
 # zstyle ':completion:*:*:git:*' script ~/.git-completion.zsh
 
-# look for file in ~/.zsh/_git
-# ~/.zfunc added for poetry
-
-fpath=(~/.zsh ~/.zfunc $fpath)
-
 if [[ -n "$INSIDE_EMACS" ]]; then
     # Disable ANSI title escape sequence in Emacs shell
     unset precmd
@@ -293,3 +300,9 @@ export GPG_TTY=$(tty)
 
 # end on a agood note, i.e. do something successful as the last step
 [[ -n $status ]]
+
+# Fix for emacsclient over SSH: force terminal frame so it doesn't hang waiting for a GUI
+if [[ -n "$SSH_CONNECTION" || -n "$SSH_CLIENT" || -n "$SSH_TTY" ]]; then
+    export EDITOR="emacsclient -t"
+    export VISUAL="emacsclient -t"
+fi

@@ -41,7 +41,45 @@ When this skill is invoked (e.g., via `/recap` or when the user asks for a recap
      1. <Immediate next action 1>
      2. <Next action 2>
 
-3. **Style Guidelines:**
+3. **Persist the recap** (so it outlives this conversation):
+
+   A recap printed into the chat is lost the moment the session is detached.
+   The picker (`tmux-pick` / `tmux-dash`) reads the latest recap back out of
+   the task's own file, so write it there as well as showing it.
+
+   - **The task name is `$JOB_TASK`.** Every tmux session created by the
+     user's `.jobs.zsh` — `tmux-new`, `tmux-go`, `tmux-run`, `claude-run` —
+     carries `JOB_TASK` (and `JOB_REPO`) in its environment, so you do not
+     have to be told which task this session is. If `$JOB_TASK` is unset, the
+     task is `main`.
+   - **Preferred:** pipe the recap body into `job-recap`, which writes the
+     file atomically and prints its path:
+
+     ```sh
+     job-recap --writer gemini <<'RECAP'
+     <the recap body, exactly as printed above>
+     RECAP
+     ```
+
+     Pass the task explicitly (`job-recap "$JOB_TASK" --writer gemini`) only
+     when it has to be overridden.
+   - **If `job-recap` is not available** (a shell that has not sourced
+     `~/dot_files/.jobs.zsh`), write the file directly, in the documented
+     format: `logs/<task>.recap.md` under the repo root, whose **first line**
+     is
+
+     ```
+     # recap <ISO-8601 local time> gemini
+     ```
+
+     — for example `# recap 2026-09-22T14:03:01-0400 gemini` — followed by the
+     recap body. **Replace the file; never append to it.** The latest recap
+     wins, and a pile of stale ones is not a recap.
+   - Keep `**Current Subtask:**` in the body exactly as spelled above: with no
+     notes file of the user's own, that value is what the picker shows as the
+     session's one-line status.
+
+4. **Style Guidelines:**
    - Keep it concise, high-signal, and easy to scan.
    - Always include clickable markdown links for touched files (`file:///absolute/path`).
    - If no files were touched or no active subtask exists, explicitly state "None".

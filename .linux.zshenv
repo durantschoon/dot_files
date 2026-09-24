@@ -21,6 +21,11 @@
 #     (( $+commands[setxkbmap] )) && setxkbmap -layout us -option ctrl:swapcaps
 # fi
 
+# WSL (Windows Subsystem for Linux): use Windows default browser via wslview
+if [[ -n "$WSL_DISTRO_NAME" ]] || grep -qi microsoft /proc/version 2>/dev/null; then
+    export BROWSER=wslview
+fi
+
 [[ -s /usr/share/powerline/bindings/bash/powerline.sh ]] && source /usr/share/powerline/bindings/bash/powerline.sh
 
 [[ -s "$HOME/.cargo/env" ]] && . $HOME/.cargo/env

@@ -4,6 +4,78 @@ Measured facts that changed a decision, kept so the decision does not get
 re-litigated from memory. Newest first. Each entry records the question, the
 measurement (command and result), and what was decided because of it.
 
+## 2026-09-21 — an over-long `TMUX_TMPDIR` does not fail; tmux silently uses the default server
+
+**Question.** Stage 14's D1 records that a throwaway measurement harness set
+`TMUX_TMPDIR` to a path under the agent scratchpad, and that its `kill-server`
+destroyed seven of the user's live Claude Code sessions — twice. The variable was
+set and the grant said "private servers only", so what actually happened? Is an
+over-long `TMUX_TMPDIR` an error, and if not, how much headroom do this repo's
+own suites have?
+
+**Measurement.** A Unix domain socket path is capped by `sun_path`, 104 bytes on
+macOS — the same cap this repo already documents for ssh's `ControlPath`
+(`.jobs.zsh`, `_JOB_SSH_CONTROL_PATH`, and smoke.zsh's N5c). tmux binds
+`$TMUX_TMPDIR/tmux-$UID/default`. The stage 14 harness's path was 126 bytes.
+tmux did **not** fail, did not warn, and did not skip the command: it fell back
+to the default socket, so every subsequent command — including `kill-server` —
+addressed the user's own server.
+
+Socket path lengths measured on minius (macOS 27, tmux 3.7c, uid 502), with the
+suites' scratch trees resolved as the suites resolve them (`${BASE:A}`, so `/tmp`
+becomes `/private/tmp`):
+
+| suite | socket path | bytes | margin to 104 |
+|---|---|---|---|
+| `smoke.zsh` local  | `/private/tmp/jobsmoke-<pid>/tmux-local/tmux-502/default`  | 55 | 49 |
+| `smoke.zsh` remote | `/private/tmp/jobsmoke-<pid>/tmux-remote/tmux-502/default` | 56 | 48 |
+| `claude-smoke.zsh` | `/private/tmp/claudesmoke-<pid>/tmux/tmux-502/default`      | 52 | 52 |
+
+Unresolved (`/tmp/...`) the same three are 47, 48 and 44 bytes. That is the
+comfortable case, and it is the one `make check-jobs` gets from a Claude Code
+shell, whose `TMPDIR` is `/tmp`.
+
+From the user's *interactive* shell it is not comfortable. There `TMPDIR` is
+`/var/folders/0f/c4fs11jx0y1dxqh41m7x339r0000gp/T/` (49 bytes), and because each
+suite resolves its scratch root with `${BASE:A}` — `/var` is a symlink to
+`/private/var` — eight more bytes go on before anything else does:
+
+| suite | as given | resolved | margin to 104 |
+|---|---|---|---|
+| `smoke.zsh` local  | 91 | 99  | 5 |
+| `smoke.zsh` remote | 92 | **100** | **4** |
+| `claude-smoke.zsh` | 88 | 96  | 8 |
+
+(with a five-digit pid; a six-digit one costs one more byte each). So the longest
+socket this repo's own tests bind, run the way the user runs them, is four bytes
+short of the cap that killed seven sessions. Nothing about that was visible
+before it was measured, and nothing would have reported it.
+
+**Decision.** Containment is enforced by a tool, not by a sentence in a prompt.
+`tests/jobs/private-tmux` is the only route to tmux for any test or probe in this
+repo: it resolves a short private `TMUX_TMPDIR`, computes the socket path tmux
+will bind, **refuses with exit 78** if it exceeds 100 bytes (four bytes of
+headroom, because the failure mode of being one byte over is not an error message
+but somebody else's work being killed), and only then `exec`s tmux. `-S` is
+refused outright — it would name a socket path directly and walk past all of
+that. The one thing any test may ask the user's own server is `--default-ls`, a
+hard-coded `list-sessions`, so "no probe creates, kills or attaches on the
+default server" is not a discipline to remember but something that cannot be
+spelled. Each suite prints its socket lengths at start-up, asserts them under the
+limit, and ends by checking that the default server lists exactly what it listed
+before; that guard is itself exercised against a deliberate mismatch by
+`./tests/jobs/smoke.zsh --guard-self-test`, because a guard that has only ever
+passed has proved nothing.
+
+The 100-byte limit is chosen so the measured worst case above still runs (it is
+exactly 100) while anything worse stops rather than guesses. If `make check-jobs`
+ever does start refusing from an interactive shell, the fix is a shorter scratch
+root — `TMPDIR=/tmp make check-jobs` — not a larger limit.
+
+**Pointers.** `tests/jobs/private-tmux`; `docs/stages/stage-14-REPORT.md` D1;
+`docs/stages/stage-15-REPORT.md`; `docs/stages/README.md`, "Added at the stage 15
+retro".
+
 ## 2026-09-19 — `set -m` does not fix `job-tee`'s SIGINT forwarding; escalation does
 
 **Question.** `bin/job-tee` forwards a received SIGINT to its background child with
