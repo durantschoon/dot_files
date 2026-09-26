@@ -252,7 +252,7 @@ help-text:
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
-	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .claude-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
+	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
 	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
 	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"

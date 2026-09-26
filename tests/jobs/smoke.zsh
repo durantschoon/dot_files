@@ -1041,7 +1041,7 @@ eq "9o ... and the menu really was drawn twice" \
 # rather than three. The literal is updated rather than loosened: what the
 # prompt says is the only documentation this branch has.
 haslit "9o ... the prompt says what the keys are" \
-       "$(command cat "$MENU_ERR1")" "[number, n N=notes, e N=edit, r=refresh, q=quit; auto-refresh 120s]"
+       "$(command cat "$MENU_ERR1")" "[number, n N=notes, e N=edit, m N=rename, k N=kill, r=refresh, q=quit; auto-refresh 120s]"
 
 out=$( unfunction fzf; PATH=$NOFZF_PATH; print q | tmux-pick 2>/dev/null; print "rc=$?" )
 eq "9o q quits with status 0 and attaches nothing" "$out" "rc=0"
@@ -1215,9 +1215,9 @@ haslit "16b ... with the body under it" "$out" "the recap body"
 
 print -r -- '> waiting on review'      >  "$CTX/logs/stage-03.notes.md"
 print -r -- 'and the detail under it'  >> "$CTX/logs/stage-03.notes.md"
-haslit "16b the notes are printed verbatim after 'notes:'" \
+haslit "16b the notes are printed verbatim after the Notes heading" \
        "$(job-note-context stage-03 2>/dev/null)" \
-       "notes:"$'\n'"> waiting on review"$'\n'"and the detail under it"
+       "### Notes"$'\n'"> waiting on review"$'\n'"and the detail under it"
 
 # --- item 4: job-note, through the recorded $EDITOR -------------------------
 typeset -g CTX_NOTES=$CTX/logs/n1.notes.md
@@ -1341,7 +1341,7 @@ smoke_ctx_pair "$(smoke_fzf_subst "$PV_CMD" "local|$SLUG-t1" "$REPO")" "$REPO" t
   || fail "16e the clock ticked on all 20 tries" "$PV_CMD"
 eqlit "16e the preview prints exactly what job-note-context prints for that row" \
       "$CTX_RUN" "$CTX_WANT"
-haslit "16e ... and what it printed really is the context block" "$CTX_RUN" "notes:"
+haslit "16e ... and what it printed really is the context block" "$CTX_RUN" "### Notes"
 
 # The remote row: same preview command, answered on the other host.
 # Short on purpose: these two statuses are asserted in a REAL row further
@@ -1453,7 +1453,7 @@ out=$( unfunction fzf; PATH=$NOFZF_PATH; print -l 'n 1' q | tmux-pick 2>"$MENU_E
 typeset -g MENU3="$(command cat "$MENU_ERR3")"
 haslit "16g the menu prompt offers the two new verbs" \
        "$MENU3" "[number, n N=notes, e N=edit, r=refresh, q=quit"
-haslit "16g \`n 1' prints row 1's context block" "$MENU3" "notes:"
+haslit "16g \`n 1' prints row 1's context block" "$MENU3" "### Notes"
 eq "16g ... and none of it reaches stdout, which is the caller's" "$out" ""
 command rm -f -- "$ED_ARGV"
 out=$( unfunction fzf; PATH=$NOFZF_PATH; EDITOR=$SHADOWBIN/fake-editor

@@ -553,7 +553,7 @@ job-note-context() {
     [[ -n $block ]] && { print; print -r -- "### Stage"; print -r -- "$block" }
     block=$(_job_note_recap "$task" "$root")          # (d)
     [[ -n $block ]] && { print; print -r -- "### Recap"; print -r -- "$block" }
-  } | if command -v glow >/dev/null 2>&1; then
+  } | if command -v glow >/dev/null 2>&1 && [[ -z ${NO_COLOR-} ]]; then
         if [[ -t 1 ]]; then glow -p -s dark -; else glow -s dark -; fi
       else command cat; fi
 
@@ -781,11 +781,12 @@ _job_ago() {
 # tmux: interactive sessions, one per repo (+ one per task), on any host
 # ---------------------------------------------------------------------------
 
-# Session rows "host|name|windows|attached|activity|path" from one host,
-# optionally filtered by a name regex.
+# Session rows "host|name|windows|attached|activity|path|agent" from one host,
+# optionally filtered by a name regex. `agent` is the optional tmux session
+# user option set by .agent-jobs.zsh (claude, agy, codex, ...).
 _tmux_rows() {
   local host=$1 re=${2:-.}
-  _job_tmux "$host" list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}|#{session_activity}|#{session_path}' 2>/dev/null \
+  _job_tmux "$host" list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}|#{session_activity}|#{session_path}|#{@agent-job-engine}' 2>/dev/null \
     | awk -F'|' -v h="$host" -v re="$re" '$1 ~ re { print h "|" $0 }'
 }
 # This repo's sessions (<repo> and <repo>-*) on every host, most recent first.
@@ -847,6 +848,10 @@ _tmux_row_task() {
   else                              print -r -- "$f[2]"
   fi
 }
+_tmux_row_agent() {
+  local -a f; f=("${(@s:|:)1}")
+  print -r -- "${f[7]-}"
+}
 
 # _tmux_label_widths [--all] ROW... -- size the columns for this row set.
 # Callers run it once over the rows they are about to print, then _tmux_label
@@ -860,6 +865,9 @@ _tmux_label_widths() {
     if (( all )); then
       v=$(_tmux_row_repo "$r"); (( ${#v} > wr )) && wr=${#v}
       v=$(_tmux_row_task "$r"); (( ${#v} > ws )) && ws=${#v}
+      v=$(_tmux_row_agent "$r")
+      [[ -n $v ]] && v="$(_tmux_row_task "$r") [$v]"
+      (( ${#v} > ws )) && ws=${#v}
     else
       v=${${(@s:|:)r}[2]};      (( ${#v} > ws )) && ws=${#v}
     fi
@@ -954,10 +962,11 @@ _tmux_row_statuses() {
 # synonym for $?, and a `local status=' inside a function is an error.)
 _tmux_label() {
   local -a f; f=("${(@s:|:)1}")
-  local all=${2:-0} rowstat=${3-} repo="" sess=$f[2]
+  local all=${2:-0} rowstat=${3-} repo="" sess=$f[2] agent=${f[7]-}
   if (( all )); then
     repo=$(printf '%-*s ' "$_JOB_W_REPO" "$(_tmux_row_repo "$1")")
     sess=$(_tmux_row_task "$1")
+    [[ -n $agent ]] && sess+=" [$agent]"
   fi
   local line
   line=$(printf '%-8s %s%-*s %2s win  %-8s %s' "$f[1]" "$repo" "$_JOB_W_SESS" "$sess" "$f[3]" \
