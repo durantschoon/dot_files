@@ -1,8 +1,9 @@
 #!/usr/bin/env -S zsh -f
 # -*- mode: sh; -*-
 #
-# tests/jobs/claude-smoke.zsh -- smoke test for .claude-jobs.zsh (claude-run,
-# claude-status, claude-rm) on top of .jobs.zsh.
+# tests/jobs/claude-smoke.zsh -- smoke test for .agent-jobs.zsh, covering the
+# Claude, Codex and AGY wrappers on top of .jobs.zsh. Historical filename kept
+# so existing make/CI invocations still run the suite.
 #
 #   zsh -f tests/jobs/claude-smoke.zsh
 #
@@ -23,7 +24,7 @@ typeset -g WT=${${0:A:h}:h:h}
 # The launchd gate
 # --------------------------------------------------------------------------
 # claude-run's second half IS a launchd agent, and launchd is macOS's init:
-# _claude_job_guard refuses outright off darwin ("the relaunch half is launchd,
+# _agent_job_guard refuses outright off darwin ("the relaunch half is launchd,
 # macOS only"), so on Linux every claude-* verb below returns before it does
 # anything at all. This is a feature probe, not a `uname' switch, for the
 # reason _docker_guard is one.
@@ -117,6 +118,7 @@ if (( ! $+commands[launchctl] )); then
     "agent unloaded" \
     "plist deleted" \
     "the agent's program-name directory went with it" \
+    "Codex/AGY startup, recovery, ownership, compatibility and help cases" \
     "the user's default tmux server is untouched"
   do
     skip "$m" "no launchctl on this host"
@@ -163,6 +165,7 @@ ptmux() { PRIVATE_TMUX_DIR=$BASE/tmux "$PT" "$@" }
 pt_default_sessions() { PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
 typeset -g CS_DEFAULT_BEFORE="$(pt_default_sessions)"
 typeset -g CS_SOCK="$(PRIVATE_TMUX_DIR=$BASE/tmux "$PT" --print-socket)"
+[[ -n $CS_SOCK ]] || exit 1
 
 # The launchd label of this suite is the one artefact that is NOT per-run: a
 # label is a row in macOS's Login Items, and a fresh one per run means a fresh
@@ -194,10 +197,29 @@ FAKE
 chmod +x "$FAKEBIN/claude"
 ln -sfn -- "$WT/bin/job-tee" "$FAKEBIN/job-tee"
 
+# A space and apostrophe in the executable path exercise BOTH quoting layers:
+# the initial tmux pane command and the launchd -> tmux -> shell resume command.
+mkdir -p "$BASE/agent tools"
+typeset -g CODEX_FAKE="$BASE/agent tools/it's codex"
+for fake_engine in codex agy; do
+  fake_path=$FAKEBIN/$fake_engine
+  [[ $fake_engine == codex ]] && fake_path=$CODEX_FAKE
+  cat > "$fake_path" <<FAKE
+#!/bin/sh
+printf 'pwd=%s\n' "\$PWD" >> "$BASE/$fake_engine-argv.txt"
+printf '%s\n' "\$@" >> "$BASE/$fake_engine-argv.txt"
+printf -- '--\n' >> "$BASE/$fake_engine-argv.txt"
+exec sleep 300
+FAKE
+  chmod +x "$fake_path"
+done
+
 export HOME=$HOME_LOCAL
 export TMUX_TMPDIR=$BASE/tmux
 export PATH=$FAKEBIN:$PATH
 export CLAUDE_JOB_BIN=$FAKEBIN/claude
+export CODEX_JOB_BIN=$CODEX_FAKE
+export AGY_JOB_BIN=$FAKEBIN/agy
 unset TMUX
 
 typeset -g FAILS=0 N=0
@@ -208,7 +230,7 @@ refute() { local msg=$1; shift; if "$@" >/dev/null 2>&1; then fail "$msg"; else 
 # Pane shells take up to about a second to start, so the fake claude's argv
 # record lands some time AFTER the tmux session exists. Poll for the line,
 # bounded (10 s in 0.5 s steps); never a fixed sleep.
-wait_for_argv() { local pat=$1 i; for i in {1..20}; do grep -qx -- "$pat" "$ARGV_FILE" 2>/dev/null && return 0; sleep 0.5; done; return 1 }
+wait_for_argv() { local pat=$1 file=${2:-$ARGV_FILE} i; for i in {1..20}; do grep -qx -- "$pat" "$file" 2>/dev/null && return 0; sleep 0.5; done; return 1 }
 # `launchctl bootstrap' returns before the RunAtLoad program has run, and that
 # program's whole job is to recreate a missing session. A session killed in
 # that window therefore comes straight back on its own, and a test that then
@@ -249,6 +271,7 @@ cleanup() {
   cd "$REPO" 2>/dev/null && claude-rm t1 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && claude-rm t2 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && claude-rm t3 >/dev/null 2>&1
+  cd "$REPO" 2>/dev/null && codex-rm cx >/dev/null 2>&1
   local l
   for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.*.plist(N); do
     launchctl bootout "gui/$(id -u)/${${l:t}%.plist}" >/dev/null 2>&1
@@ -264,14 +287,14 @@ cleanup() {
 trap cleanup EXIT
 
 source "$WT/.jobs.zsh" || exit 1
-source "$WT/.claude-jobs.zsh" || exit 1
+source "$WT/.agent-jobs.zsh" || exit 1
 # No tty here: record the attach instead of doing it.
 _job_tmux_attach() { print -r -- "attach $1 $2" >> "$BASE/attach.txt" }
 # The reminder-and-Enter before a new session would block on a terminal
 # stdin; shadow it, after checking the real one is a no-op off a terminal.
-_claude_job_confirm </dev/null t0 claude-smoke-t0; typeset -g RC=$?
-assert "_claude_job_confirm is a no-op when stdin is not a terminal" test $RC -eq 0
-_claude_job_confirm() { print -r -- "confirm $1 $2" >> "$BASE/confirm.txt" }
+_agent_job_confirm </dev/null t0 claude-smoke-t0 claude; typeset -g RC=$?
+assert "_agent_job_confirm is a no-op when stdin is not a terminal" test $RC -eq 0
+_agent_job_confirm() { print -r -- "confirm $1 $2" >> "$BASE/confirm.txt" }
 
 cd "$REPO" || exit 1
 print "claude-smoke: $SLUG in $BASE"
@@ -436,6 +459,29 @@ refute "… while nothing was skipped this time" grep -q -- "SKIPPED .*$SLUG2" <
 print "  note claude-relaunch, a lone missing session in its own checkout:"
 print -r -- "$RL_OUT" | sed 's/^/       | /'
 cd "$REPO" || exit 1
+
+# 3(c). Codex uses the shared runner with its own resume syntax and ownership
+# marker. A Codex task cannot take over a Claude task with the same name.
+refute_codex_resume() { ! grep -qx -- 'resume' "$1" && ! grep -qx -- '--last' "$1"; }
+refute_codex_session() { ! ptmux has-session -t "=$1"; }
+codex-run t1 "conflicting engine" 2>"$BASE/codex-conflict.err"; RC=$?
+assert "codex refuses a Claude-owned task" test $RC -ne 0
+assert "… and identifies the ownership conflict" grep -q -- "conflicts" "$BASE/codex-conflict.err"
+codex-run cx "codex prompt" 2>"$BASE/codex-run.err" >/dev/null; RC=$?
+assert "codex-run exits 0" test $RC -eq 0
+assert "Codex session exists" ptmux has-session -t "=$SLUG-cx"
+assert "Codex engine marker is set" test "$(ptmux show-options -qv -t "$SLUG-cx" @agent-job-engine)" = codex
+assert "fake Codex received its prompt" wait_for_argv "codex prompt" "$BASE/codex-argv.txt"
+assert "Codex did not resume on first start" refute_codex_resume "$BASE/codex-argv.txt"
+assert "Codex plist uses resume" grep -q -- 'resume' "$HOME_LOCAL/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.cx.plist"
+assert "Codex plist uses --last" grep -q -- --last "$HOME_LOCAL/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.cx.plist"
+typeset -g CODEX_DASH; CODEX_DASH="$(_tmux_pick_lines --all)"
+assert "tmux-dash labels Codex tasks" grep -q -- "$SLUG-cx.*\[codex\]" <<<"$CODEX_DASH"
+typeset -g CODEX_STATUS; CODEX_STATUS="$(codex-status 2>&1)"
+assert "codex-status lists Codex only" grep -q -- "$SLUG-cx" <<<"$CODEX_STATUS"
+refute "codex-status omits Claude tasks" grep -q -- "$SLUG-t2" <<<"$CODEX_STATUS"
+codex-rm cx >/dev/null 2>&1
+assert "codex-rm removes the Codex session" refute_codex_session "$SLUG-cx"
 
 # Report question 3: a checkout whose `claude --continue' finds no
 # conversation (seen in ~/Repos/ds on 2026-09-20). The fake claude exits 1, so

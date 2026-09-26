@@ -333,6 +333,11 @@ columns and line up. Values are never truncated to fit — an over-long name
 makes its row longer, because a session name you cannot paste into `tmux-go` is
 not worth having.
 
+Agent sessions are identified in the dashboard. `claude-run`, `agy-run`, and
+`codex-run` record their engine as tmux session metadata at launch, so a
+`tmux-dash` row shows `stage-24 [codex]`; plain tmux sessions have no bracketed
+engine. The marker survives detaching, reboot recovery, and dashboard refresh.
+
 Examples:
 
 ```sh
@@ -520,7 +525,8 @@ job-promote train --image pytorch/pytorch --restart always --now
 
 ### A Claude Code session as a job (`claude-run`)
 
-[`.claude-jobs.zsh`](./.claude-jobs.zsh) adds one verb family on top of the
+[`.agent-jobs.zsh`](./.agent-jobs.zsh) adds the `claude-*`, `agy-*`, and
+`codex-*` verb families on top of the
 tmux and launchd runners for the case "an interactive Claude session that
 outlives this terminal, that I can attach to from the phone, and that comes
 back after a reboot":
@@ -534,6 +540,11 @@ tmux-go stage-24                # attach, from here or from the phone
 claude-run stage-24             # re-attach; or recreate after a reboot if the agent missed it
 claude-relaunch                 # after a tmux server dies: bring back every missing session
 claude-rm stage-24              # tmux-rm + launchd-rm; the transcript stays
+
+codex-run review "Review this repository"
+codex-status                    # Codex jobs only
+codex-relaunch --all            # recover missing Codex sessions
+codex-rm review
 ```
 
 `claude-relaunch [--all|TASK]` is the verb for "the tmux server went away and
@@ -577,6 +588,11 @@ The vocabulary is skill-agnostic on purpose: `TASK` is whatever the repo's own
 workflow calls a unit of work (a numbered stage under one person's stage skill,
 something else under someone else's) and `PROMPT` is what starts it. A repo's
 `MODELS.md` is the place to record which words it uses.
+
+The shared implementation is `agent-run ENGINE TASK [PROMPT ...]`; the named
+wrappers supply the engine. Codex starts with `codex PROMPT` and recovers with
+`codex resume --last`; AGY starts with `agy` and recovers with `agy continue`.
+Set `CODEX_JOB_BIN`, `AGY_JOB_BIN`, or `AGENT_JOB_BIN` to choose an executable.
 
 `make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
 test: a scratch `$HOME`, a private tmux server reached only through
