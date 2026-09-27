@@ -4,6 +4,10 @@ Welcome! This document is designed to help AI agents (like Claude, Gemini, or Ch
 
 When you are asked to work on or understand a specific topic, you should **only load the files listed in the relevant section below** and skip the rest of the repository. This speeds up your reading time, saves context window, and prevents you from hallucinating cross-dependencies that don't exist.
 
+## Reusable Skills and Workflows
+
+When a reusable workflow is needed, first look for an existing global skill or workflow that fits. If none exists, write and validate one, then save it in your agent's standard global skill or workflow directory so other agents and later sessions can reuse it. Keep shared instructions accessible across model families, and add a pointer in this guide when relevant to this repository. Creating a workflow does not itself authorize performing the actions it describes.
+
 ## 1. Tmux and Job Runner Commands (`tmux-*`, `job-*`, `docker-*`, `launchd-*`)
 The repository contains a unified job runner abstraction for `tmux`, `launchd`, and `docker` to handle long-running local tasks. All three runners use the same verb convention (`-run`, `-ls`, `-status`, `-logs`).
 *   **Core Implementation:** `.jobs.zsh`
@@ -11,6 +15,10 @@ The repository contains a unified job runner abstraction for `tmux`, `launchd`, 
 *   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/private-tmux`
 
 **Agent Instruction:** If the user asks about `tmux-new`, `tmux-run`, `tmux-ls`, `job-recap`, etc., load `.jobs.zsh` and skip everything else.
+
+### Sibling agent outreach (`herdr-hug`)
+
+When asked to greet or reach out to another agy process in tmux, read [the herdr-hug skill](skills/herdr-hug/SKILL.md). This shared workflow applies to all model families: discover sessions with `tmux ls`, inspect their agent UI with `tmux capture-pane`, prefer your own family (Codex to Codex, Gemini to Gemini, Claude to Claude) and the same working directory, then send one hug with `tmux send-keys`. Follow an explicitly requested recipient first. For this task, load the skill instead of `.jobs.zsh`.
 
 ## 2. Guix Configuration (`guix home`, `guix system`)
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
