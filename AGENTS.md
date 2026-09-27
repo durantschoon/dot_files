@@ -16,9 +16,9 @@ The repository contains a unified job runner abstraction for `tmux`, `launchd`, 
 
 **Agent Instruction:** If the user asks about `tmux-new`, `tmux-run`, `tmux-ls`, `job-recap`, etc., load `.jobs.zsh` and skip everything else.
 
-### Sibling agent outreach (`herdr-hug`)
+### Getting the user's attention (`herdr-notify`)
 
-When asked to greet or reach out to another agy process in tmux, read [the herdr-hug skill](skills/herdr-hug/SKILL.md). This shared workflow applies to all model families: discover sessions with `tmux ls`, inspect their agent UI with `tmux capture-pane`, prefer your own family (Codex to Codex, Gemini to Gemini, Claude to Claude) and the same working directory, then send one hug with `tmux send-keys`. Follow an explicitly requested recipient first. For this task, load the skill instead of `.jobs.zsh`.
+When you are stuck, blocked (a merge conflict, a question only the user can answer) or have finished a long-running task, do not just print it to the terminal: read [the herdr-notify skill](skills/herdr-notify/SKILL.md) and push a notification to the Herdr UI with `herdr notification show "<Title>" --body "<what you need>"` (`--sound request` when you need the user to proceed, `--sound done` when only reporting completion). This applies to every model family and needs no relay through another agent.
 
 ## 2. Guix Configuration (`guix home`, `guix system`)
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
