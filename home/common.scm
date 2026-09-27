@@ -721,6 +721,9 @@ call, so extensions never collide; only genuine double ownership does."
      (list
       (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                     `(".tmux.conf" ,(local-file "../.tmux.conf" "tmux.conf"))
+                     `(".config/herdr/config.toml"
+                       ,(local-file "../herdr/config.toml" "herdr-config.toml"))
                      ;; mg's startup file: backup-to-home-directory, so mg's
                      ;; foo~ backups land in ~/.mg.d rather than beside the
                      ;; file.  Emacs needs no counterpart -- .spacemacs.d sets

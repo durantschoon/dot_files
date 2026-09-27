@@ -115,6 +115,11 @@ make apply           # Update base configuration
 make apply-wayland   # Update wayland/espanso configuration
 ```
 
+The shared tmux and Herdr configs live at [`.tmux.conf`](./.tmux.conf) and
+[`herdr/config.toml`](./herdr/config.toml). Guix Home deploys them from
+`home/common.scm`; native setups link them into `~/.tmux.conf` and
+`~/.config/herdr/config.toml` with `make set_up_links`.
+
 ## Installation
 
 ### 1. Install Guix (Linux / WSL)

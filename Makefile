@@ -506,6 +506,9 @@ ifneq (,$(wildcard "~/.zshrc"))
 endif
 	ln -si ~/dot_files/.zshrc.starship ~/.zshrc || echo
 	ln -si ~/dot_files/.aliases ~ || echo
+	ln -si ~/dot_files/.tmux.conf ~/.tmux.conf || echo
+	@mkdir -p ~/.config/herdr
+	ln -si ~/dot_files/herdr/config.toml ~/.config/herdr/config.toml || echo
 
 # DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv

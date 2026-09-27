@@ -1,0 +1,8 @@
+# reload with
+# herdr server reload-config
+
+[keys]
+prefix = "f12"
+
+previous_tab = "alt+left"
+next_tab = "alt+right"
