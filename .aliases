@@ -32,6 +32,7 @@ alias eg=egrep
 alias espanso_edit="espanso stop; sleep 0.5s; open ~/.espanso_config_link/match/base.yml"
 alias espanso_start='espanso start'
 alias g=grep
+alias glow='glow -p'
 alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
 alias git_id_help='git_email; echo Check your git_id aliases for more info which are set in .private_aliases.'
