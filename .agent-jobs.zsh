@@ -93,7 +93,14 @@ agent-run() {
     _agent_job_confirm "$task" "$name" "$engine" || return
     job-init || return
     local start_args=$(_agent_start_args "$engine")
-    local -a cmd; cmd=("$bin" ${(z)start_args} "$@")
+    local -a cmd; cmd=("$bin" ${(z)start_args})
+    if (( $# > 0 )); then
+      if [[ $engine == agy ]]; then
+        cmd+=("-i" "$*")
+      else
+        cmd+=("$@")
+      fi
+    fi
     # Quote each argument for the sh -c tmux uses. Done OUTSIDE double quotes:
     # inside them zsh would join the array into one word before (qq) applies
     # (the same trap tmux-run documents).
