@@ -118,7 +118,9 @@ make apply-wayland   # Update wayland/espanso configuration
 The shared tmux and Herdr configs live at [`.tmux.conf`](./.tmux.conf) and
 [`herdr/config.toml`](./herdr/config.toml). Guix Home deploys them from
 `home/common.scm`; native setups link them into `~/.tmux.conf` and
-`~/.config/herdr/config.toml` with `make set_up_links`.
+`~/.config/herdr/config.toml` with `make set_up_links`, which on macOS also
+links `~/Library/Application Support/herdr/config.toml`, the path Herdr
+actually reads there.
 
 ## Installation
 
@@ -416,7 +418,17 @@ task's logs, in the checkout on the host that runs it:
 job-recap [TASK] [--writer NAME]   # replace logs/<task>.recap.md with stdin; prints the path
 job-note [TASK]                    # open logs/<task>.notes.md in $VISUAL/$EDITOR
 job-note-context [TASK]            # the generated block: state, stage, latest recap, notes
+herdr-notes-sync [-q]              # push each Herdr workspace's notes headline into its sidebar row
 ```
+
+**In Herdr**, the same headline shows under the workspace. `herdr-notes-sync`
+maps every workspace to a repo through its panes' cwd (`herdr api snapshot`),
+takes the first `#` heading of the most recently written `logs/*.notes.md`
+with one, and stores it as the workspace token `note`; the `[ui.sidebar.spaces]`
+rows in [`herdr/config.toml`](./herdr/config.toml) render `$note` as a dim
+third row. `job-note` runs the sync in the background after your editor exits.
+Tokens live in the Herdr server, so run it once by hand after
+`herdr server stop`.
 
 `TASK` defaults to **`$JOB_TASK`**, then `main`. Every tmux session `tmux-new`,
 `tmux-go`, `tmux-run` and `claude-run` create — local or remote — now carries

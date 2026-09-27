@@ -509,6 +509,11 @@ endif
 	ln -si ~/dot_files/.tmux.conf ~/.tmux.conf || echo
 	@mkdir -p ~/.config/herdr
 	ln -si ~/dot_files/herdr/config.toml ~/.config/herdr/config.toml || echo
+ifeq ($(UNAME_S),Darwin)
+	@# Herdr on macOS reads its config from Application Support, not ~/.config
+	@mkdir -p ~/Library/Application\ Support/herdr
+	ln -si ~/dot_files/herdr/config.toml ~/Library/Application\ Support/herdr/config.toml || echo
+endif
 
 # DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv

@@ -46,6 +46,9 @@
 #   job-note [TASK]      open ./logs/<task>.notes.md in $VISUAL/$EDITOR
 #   job-note-context [TASK]
 #                        the generated context block: state, stage, recap, notes
+#   herdr-notes-sync [-q]
+#                        push each Herdr workspace's notes headline into its
+#                        sidebar row (job-note does this for you on save)
 #   job-promote TASK [--to tmux|launchd|docker] [--image IMG]
 #                        [--restart POLICY] [--now]
 #                        stop TASK where it is and start the SAME command
@@ -457,6 +460,90 @@ job-note() {
       return 1
     }
   fi
+  # The sidebar follows the file: see "Herdr" below. Backgrounded and
+  # disowned so the picker that called this is not held up by the socket.
+  (( $+commands[herdr] )) && { herdr-notes-sync -q >/dev/null 2>&1 &! }
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Herdr: the notes headline in the sidebar
+# ---------------------------------------------------------------------------
+# Herdr's sidebar lists one workspace per repo and, like the old tmux-dash,
+# says only its name. Herdr has no notes of its own, but a workspace accepts
+# custom metadata tokens (`herdr workspace report-metadata --token NAME=VALUE`)
+# and `[ui.sidebar.spaces] rows` in its config.toml renders any token as a row
+# (`$note`). So the headline of the notes file goes in as the token `note',
+# under the source `jobs-notes' (a source is Herdr's way of keeping one
+# writer's tokens apart from another's).
+#
+# Which repo a workspace IS: the git toplevel of its panes' cwds, read from
+# `herdr api snapshot', not its label -- a label is renamed freely and need not
+# be a repo name at all. The first pane that sits inside a repo decides.
+#
+# Which notes file: logs/*.notes.md newest-first by mtime, and the first one
+# with a non-empty headline wins, so a repo with several tasks shows the note
+# most recently written and a fresh template (`# ' and nothing after it) does
+# not mask a real headline under it. The headline is the first `#' heading,
+# the same rule the picker's _JOB_STATUS_SH applies to a row.
+#
+# Tokens live in the Herdr server: they outlive this shell but not `herdr
+# server stop', so a restarted server shows nothing until the next sync. A
+# workspace whose repo has no headline gets its token CLEARED, so a deleted or
+# emptied note leaves no ghost in the sidebar.
+#
+#   herdr-notes-sync [-q]    push every workspace's headline; -q says nothing
+#
+# job-note runs it after the editor returns, in the background and quietly, so
+# saving a note updates the sidebar and a Mac without Herdr notices nothing.
+typeset -g _HERDR_NOTES_SOURCE=jobs-notes
+
+# The first `#' heading of a notes file, stripped of its marks; nothing when
+# the file is unreadable or has no non-empty heading. Same sed as
+# _JOB_STATUS_SH, kept in step by hand: that one is POSIX sh text shipped to
+# other hosts, this one runs here.
+_job_notes_headline() {
+  [[ -r $1 ]] || return 1
+  sed -E -n 's/^#+[[:space:]]*//p' "$1" | sed -n '/./{p;q;}'
+}
+
+herdr-notes-sync() {
+  local quiet=0
+  case $1 in
+    -q|--quiet) quiet=1 ;;
+    "") ;;
+    *) print -u2 "usage: herdr-notes-sync [-q]"; return 64 ;;
+  esac
+  (( $+commands[herdr] )) || { (( quiet )) || print -u2 "herdr-notes-sync: no herdr on PATH"; return 1 }
+  (( $+commands[jq] ))    || { (( quiet )) || print -u2 "herdr-notes-sync: needs jq"; return 1 }
+  local snap
+  snap=$(herdr api snapshot 2>/dev/null) \
+    || { (( quiet )) || print -u2 "herdr-notes-sync: no Herdr server answered (is it running?)"; return 1 }
+
+  # workspace -> git toplevel, from the first pane whose cwd is in a repo.
+  local -A roots
+  local ws cwd root
+  while IFS=$'\t' read -r ws cwd; do
+    [[ -n ${roots[$ws]} ]] && continue
+    root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || continue
+    roots[$ws]=$root
+  done < <(print -r -- "$snap" | jq -r '.result.snapshot.panes[] | [.workspace_id, .cwd] | @tsv')
+
+  local file headline
+  for ws in ${(ko)roots}; do
+    headline=""
+    for file in "${roots[$ws]}"/logs/*.notes.md(N.om); do
+      headline=$(_job_notes_headline "$file") && [[ -n $headline ]] && break
+    done
+    if [[ -n $headline ]]; then
+      herdr workspace report-metadata "$ws" --source "$_HERDR_NOTES_SOURCE" \
+        --token note="$headline" >/dev/null || continue
+      (( quiet )) || print -r -- "$ws  ${roots[$ws]:t}  $headline"
+    else
+      herdr workspace report-metadata "$ws" --source "$_HERDR_NOTES_SOURCE" \
+        --clear-token note >/dev/null 2>&1
+    fi
+  done
 }
 
 # (b) of the context block: the per-repo override, else this repo's own

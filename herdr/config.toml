@@ -1,8 +1,25 @@
+# Herdr config. Source of truth is ~/dot_files/herdr/config.toml; `make
+# set_up_links` symlinks it to ~/.config/herdr/config.toml and, on macOS,
+# to ~/Library/Application Support/herdr/config.toml (the path Herdr reads).
+#
 # reload with
 # herdr server reload-config
 
+onboarding = false
+
 [keys]
+# Keep Herdr's own prefix off Ctrl+backslash so tmux can use it.
 prefix = "f12"
 
+# Direct Herdr tab switching. iTerm must pass Option-arrow through as alt+left/right.
 previous_tab = "alt+left"
 next_tab = "alt+right"
+
+# Move the active selection in the left workspace sidebar.
+previous_workspace = "alt+up"
+next_workspace = "alt+down"
+
+# Sidebar rows for each workspace. `$note` is the notes headline pushed by
+# `herdr-notes-sync` (~/dot_files/.jobs.zsh); job-note refreshes it on save.
+[ui.sidebar.spaces]
+rows = [["state_icon", "workspace"], ["branch", "git_status"], [{ token = "$note", dim = true }]]
