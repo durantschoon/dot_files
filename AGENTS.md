@@ -36,6 +36,7 @@ For standard shell setup not related to the background job runners:
 *   **Core Zsh:** `.zshrc`, `.zprofile`, `.aliases`, `.shared.zshenv`, `.shared.zshrc`
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
 *   **Prompt configuration:** `.zshrc.starship`
+*   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`
 
 ## 5. Emacs Integration
 *   **Installer script:** `install_emacs.zsh`

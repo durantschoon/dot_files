@@ -37,6 +37,22 @@ alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
 alias git_id_help='git_email; echo Check your git_id aliases for more info which are set in .private_aliases.'
 alias git_personal_ignore='$EDITOR .git/info/exclude'
+# myrepos (mr): the committed ~/.mrconfig lists the repos EVERY machine has.
+# A repo that exists only on this host goes in ~/.mrconfig.local, which
+# .mrconfig includes.  Plain `mr register' appends to ~/.mrconfig itself --
+# a read-only store symlink under Guix Home, and the repo file on native
+# hosts -- so registration is routed to the local file.  Run it inside the
+# repo, or pass the repo's path.  See docs/MYREPOS.md.
+mr-register() {
+    mr -c "$HOME/.mrconfig.local" register "$@"
+}
+# mr only acts on repos at or below the current directory, AFTER resolving
+# symlinks.  ~/Robotics points onto the 2TB volume on the Mac, so from ~ it
+# is out of scope.  Rooting the walk at / takes every listed repo wherever
+# it really lives:  mr-all status, mr-all -j4 update, mr-all push.
+mr-all() {
+    mr -d / "$@"
+}
 # `history' in zsh is `fc -l', which defaults to the LAST 16 EVENTS -- unlike
 # bash, where it prints everything. The "1" means "from event 1", i.e. all of
 # it. Without it `hg' greps only the last 16 lines and quietly reports nothing

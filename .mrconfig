@@ -1,0 +1,257 @@
+# -*- mode: toml -*-
+# ~/.mrconfig -- myrepos (mr): one git command over every working repo.
+#
+# `mr` is Joey Hess's multi-repo driver (the same author as moreutils, which
+# is why the two get confused).  Package names: `myrepos` on Guix and apt,
+# `mr` in Homebrew.  It reads this file and runs one action in each repo:
+#
+#   mr ls                  list the repos in scope
+#   mr status              what is dirty / ahead / behind, per repo
+#   mr update              git pull in every repo   (mr -j4 update: 4 at once)
+#   mr push                git push in every repo
+#   mr --force checkout    clone every listed repo that is missing (new host)
+#
+# SCOPE: mr acts on the repos at or below the current directory, and it
+# resolves symlinks first.  From ~ that is everything in this file that
+# really lives under ~.  A repo reached through a symlink to another volume
+# (~/Robotics -> /Volumes/2TB_Durant/... on the Mac) is out of scope from ~;
+# `mr-all` in .aliases (= mr -d /) takes every repo, wherever it resolves.
+#
+# Section names are paths RELATIVE TO THIS FILE'S DIRECTORY.  The file is
+# deployed as ~/.mrconfig (Guix Home via home/common.scm, native hosts via
+# `make set_up_links`), so `[dot_files]` means ~/dot_files on every host.
+#
+# Where a repo belongs:
+#   every machine   -> a section in THIS file (committed, shared)
+#   this host only  -> ~/.mrconfig.local, pulled in by the include below and
+#                      never committed.  `mr-register` (.aliases) appends the
+#                      current repo there.  Plain `mr register` would write
+#                      to ~/.mrconfig, which on Guix Home hosts is a read-only
+#                      store symlink and on native hosts is this repo file.
+#
+# `skip = lazy` below means a listed repo that is not cloned on this host is
+# silently skipped by every action, checkout included -- so the shared list
+# can name repos only some hosts carry.  `mr --force checkout` overrides the
+# skip and clones whatever is missing.  Without it, `mr update` would clone
+# every absent repo and `mr status` would report each one as a failure.
+# See docs/MYREPOS.md for the longer story.
+
+[DEFAULT]
+skip = lazy
+# local_only: for repos with NO remote.  Skip when absent (like lazy) and
+# skip the network verbs, so `mr update' / `mr push' stay quiet while
+# `mr status', `mr diff', `mr log' still cover them.  Used as
+#   skip = local_only "$1"
+lib =
+    local_only() {
+        [ ! -d "$MR_REPO" ] && return 0
+        case "$1" in update|push|fetch) return 0 ;; *) return 1 ;; esac
+    }
+# Host-only repos.  `include` runs a shell command and parses its output as
+# more config; a missing file is silently fine.
+include = cat "$HOME/.mrconfig.local" 2>/dev/null || true
+
+[dot_files]
+# This repo.  On the Mac the origin is the ssh host alias `github.com-ds`
+# (its own deploy key); the plain host works everywhere and checkout only
+# runs when the directory is absent, so an existing clone keeps its remote.
+# Submodules (espanso/private, claude) are handled by `make submodule-pull`
+# and `make submodule-push`, not by mr.
+checkout = git clone 'git@github.com:durantschoon/dot_files.git' 'dot_files'
+
+[guix-config]
+checkout = git clone 'git@github.com:durantschoon/guix-config.git' 'guix-config'
+
+[Robotics]
+# On the Mac this is a symlink onto the 2TB volume, so it is only in scope
+# for `mr-all` (or `mr -d ~/Robotics ...`); on a host that clones it here
+# it is an ordinary ~/Robotics.
+checkout = git clone 'git@github.com:durantschoon/RoboticsDesignEnv.git' 'Robotics'
+
+# ---------------------------------------------------------------------------
+# ~/Repos/ds -- personal projects (github/codeberg), one clone each.
+# Repos with no remote carry `skip = local_only "$1"' (see [DEFAULT]).
+# ---------------------------------------------------------------------------
+
+[Repos/ds/cargo-poly]
+checkout = git clone 'ssh://git@codeberg.org/durantschoon/cargo-poly.git' 'cargo-poly'
+
+[Repos/ds/consistent-lib]
+checkout = git clone 'git@github.com:durantschoon/consistent-lib.git' 'consistent-lib'
+
+[Repos/ds/cookiecutter_drf]
+checkout = git clone 'git@github.com:durantschoon/cookiecutter_drf.git' 'cookiecutter_drf'
+
+[Repos/ds/django_react_fullstack]
+# no remote yet
+skip = local_only "$1"
+
+[Repos/ds/durantschoon.github.io]
+checkout = git clone 'git@github.com:durantschoon/durantschoon.github.io.git' 'durantschoon.github.io'
+
+[Repos/ds/eigenblade-site]
+checkout = git clone 'git@github.com:durantschoon/eigenblade-site.git' 'eigenblade-site'
+
+[Repos/ds/embodied-tamp]
+checkout = git clone 'https://github.com/durantschoon/embodied-tamp' 'embodied-tamp'
+
+[Repos/ds/forecast-lab]
+# no remote yet
+skip = local_only "$1"
+
+[Repos/ds/free-up-space-macos]
+checkout = git clone 'https://github.com/durantschoon/free-up-space-macos.git' 'free-up-space-macos'
+
+[Repos/ds/freeplane-customizations]
+checkout = git clone 'git@github.com:durantschoon/freeplane-customizations' 'freeplane-customizations'
+
+[Repos/ds/GA-Mech]
+checkout = git clone 'https://github.com/durantschoon/GA-Mech.git' 'GA-Mech'
+
+[Repos/ds/gafro-benchmarks]
+checkout = git clone 'git@github.com:durantschoon/gafro-benchmarks.git' 'gafro-benchmarks'
+
+[Repos/ds/gafro-cpp]
+checkout = git clone 'git@github.com:durantschoon/gafro-cpp.git' 'gafro-cpp'
+
+[Repos/ds/gafro-fstar]
+checkout = git clone 'git@github.com:durantschoon/gafro-fstar.git' 'gafro-fstar'
+
+[Repos/ds/gafro-idris2]
+checkout = git clone 'git@github.com:durantschoon/gafro-idris2.git' 'gafro-idris2'
+
+[Repos/ds/gafro-julia]
+checkout = git clone 'git@github.com:durantschoon/gafro-julia.git' 'gafro-julia'
+
+[Repos/ds/gafro-lean]
+checkout = git clone 'git@github.com:durantschoon/gafro-lean.git' 'gafro-lean'
+
+[Repos/ds/gafro-rust]
+checkout = git clone 'git@github.com:durantschoon/gafro-rust.git' 'gafro-rust'
+
+[Repos/ds/gemini_conductor_test]
+# no remote yet
+skip = local_only "$1"
+
+[Repos/ds/GIPS]
+# Radicle-hosted: origin is the `rad' remote (tracking rad/main), so
+# pull/push go through the rad CLI; no git-clone checkout line.
+
+[Repos/ds/guix-actions]
+checkout = git clone 'git@github.com:durantschoon/guix-actions.git' 'guix-actions'
+
+[Repos/ds/idris2-agent-tools]
+checkout = git clone 'git@github.com:durantschoon/idris2-agent-tools.git' 'idris2-agent-tools'
+
+[Repos/ds/julia-agent-tools]
+checkout = git clone 'git@github.com:durantschoon/julia-agent-tools.git' 'julia-agent-tools'
+
+[Repos/ds/layout_system]
+# no remote yet
+skip = local_only "$1"
+
+[Repos/ds/learn-cpp]
+checkout = git clone 'git@github.com:durantschoon/learn-cpp.git' 'learn-cpp'
+
+[Repos/ds/media-announce]
+checkout = git clone 'git@github.com:durantschoon/media-announce.git' 'media-announce'
+
+[Repos/ds/popos-setup]
+# no remote yet
+skip = local_only "$1"
+
+[Repos/ds/ReactNativeJobApp]
+# no remote yet
+skip = local_only "$1"
+
+[Repos/ds/RoboticsDesignEnv]
+checkout = git clone 'git@github.com:durantschoon/RoboticsDesignEnv.git' 'RoboticsDesignEnv'
+
+[Repos/ds/ros2-classroom]
+checkout = git clone 'git@github.com:durantschoon/ros2-classroom.git' 'ros2-classroom'
+
+[Repos/ds/ros2-classroom.unredacted]
+checkout = git clone 'git@github.com:durantschoon/ros2-classroom-unredacted.git' 'ros2-classroom.unredacted'
+
+[Repos/ds/screenshot2code]
+# no remote yet
+skip = local_only "$1"
+
+[Repos/ds/spaceline-fork]
+# origin is the UPSTREAM (TheBB), so `mr push' will be refused here.
+checkout = git clone 'https://github.com/TheBB/spaceline.git' 'spaceline-fork'
+
+[Repos/ds/tree-sitter-idris2]
+checkout = git clone 'git@github.com:durantschoon/tree-sitter-idris2.git' 'tree-sitter-idris2'
+
+[Repos/ds/unhola_python]
+checkout = git clone 'git@github.com:durantschoon/unhola_python.git' 'unhola_python'
+
+[Repos/ds/unhola_typescript]
+checkout = git clone 'git@github.com:durantschoon/unhola_typescript.git' 'unhola_typescript'
+
+[Repos/ds/wedgeGA-symbols]
+checkout = git clone 'git@github.com:durantschoon/wedgeGA-symbols.git' 'wedgeGA-symbols'
+
+[Repos/ds/woolybear]
+# no remote yet
+skip = local_only "$1"
+
+# ---------------------------------------------------------------------------
+# ~/Repos/si -- Systematic Improvement work (bitbucket).
+# ---------------------------------------------------------------------------
+
+[Repos/si/bdlinks-viz-rpt]
+checkout = git clone 'git@bitbucket.org:systematic-improvement/bdlinks-viz-rpt.git' 'bdlinks-viz-rpt'
+
+[Repos/si/momentum_clone]
+checkout = git clone 'https://sulumis@bitbucket.org/mac-setup/momentum_clone.git' 'momentum_clone'
+
+[Repos/si/sankeyfin]
+checkout = git clone 'git@bitbucket.org:systematic-improvement/sankeyfin.git' 'sankeyfin'
+
+[Repos/si/system]
+checkout = git clone 'git@bitbucket.org:systematic-improvement/system.git' 'system'
+
+[Repos/si/teacher-student]
+checkout = git clone 'git@bitbucket.org:systematic-improvement/teacher-student.git' 'teacher-student'
+
+[Repos/si/testcafe-test-suites-copy]
+checkout = git clone 'git@github.com:tallyfor/testcafe-test-suites.git' 'testcafe-test-suites-copy'
+
+# ---------------------------------------------------------------------------
+# ~/Repos/enveloped -- ONE repo (envelope.git) checked out as git worktrees,
+# one directory per branch, named after the branch.  LIM holds the real .git
+# and is created first (order = 5); every other entry is
+# `git worktree add' off it, which is what a fresh host needs to rebuild the
+# same layout with `mr --force checkout'.  update/push/status work per
+# worktree as usual.
+# ---------------------------------------------------------------------------
+
+[Repos/enveloped/LIM]
+order = 5
+checkout = git clone -b LIM 'git@bitbucket.org:systematic-improvement/envelope.git' 'LIM'
+
+[Repos/enveloped/gafro-benchmarks]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-benchmarks'
+
+[Repos/enveloped/gafro-cpp]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-cpp'
+
+[Repos/enveloped/gafro-idris2]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-idris2'
+
+[Repos/enveloped/gafro-rust]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-rust'
+
+[Repos/enveloped/guix-platform-install]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'guix-platform-install'
+
+[Repos/enveloped/main]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'main'
+
+[Repos/enveloped/obsidian-drift]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'obsidian-drift'
+
+[Repos/enveloped/tree-sitter-idris2]
+checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'tree-sitter-idris2'

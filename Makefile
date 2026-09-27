@@ -384,7 +384,7 @@ guard-native-over-guix:
 	  echo "  *** refusing to run set_up_links: Guix Home owns this account ***"; \
 	  echo "  $$HOME/.guix-home exists, so a home generation is active and already"; \
 	  echo "  owns .zshenv (and through ZDOTDIR, ~/.config/zsh), .aliases, .mg,"; \
-	  echo "  .wayland.zshenv and bin."; \
+	  echo "  .mrconfig, .wayland.zshenv and bin."; \
 	  echo "  Overwriting them with native symlinks would revert your shell to"; \
 	  echo "  whatever the store snapshot holds, silently."; \
 	  echo ""; \
@@ -447,7 +447,9 @@ ifeq ($(PACKAGE_MANAGER),apt)
 	@# path at all because set_up_links installs ~/.mg on EVERY platform, and a
 	@# startup file for an editor that is not there is just a dangling symlink.
 	@# The guix side gets mg from manifests/base.scm and home/common.scm.
-	sudo apt-get install build-essential cmake curl file mg -y
+	@# myrepos (mr) rides along for the same reason: ~/.mrconfig is linked on
+	@# every platform (see docs/MYREPOS.md); guix gets it from home/common.scm.
+	sudo apt-get install build-essential cmake curl file mg myrepos -y
 	@# fastfetch is not packaged before Ubuntu 24.04, so ask for it but fall
 	@# back to neofetch; .aliases defines a fastfetch shim when only neofetch
 	@# is present, so the command name is the same on every machine.
@@ -488,6 +490,10 @@ ifeq ("$(os)","$(OS_MAC)")
 	@brew list --cask $(NERD_FONT_CASK) > /dev/null 2>&1 \
 		&& echo "Found $(NERD_FONT), not installing" \
 		|| brew install --cask $(NERD_FONT_CASK)
+	@# myrepos: `mr status/update/push' across every repo in ~/.mrconfig.
+	@# Homebrew names the formula after the command.  Linux gets it from
+	@# home/common.scm (guix) or the apt line above.
+	@command -v mr > /dev/null 2>&1 || brew install mr
 endif
 	@echo "Skipping oh-my-zsh installation - using starship instead"
 # 2>/dev/null matters more than it looks: ifneq is evaluated at Makefile PARSE
@@ -521,6 +527,9 @@ endif
 	@# mg's startup file. Sets backup-to-home-directory so mg's foo~ backups land
 	@# in ~/.mg.d instead of beside the file being edited.
 	ln -si ~/dot_files/.mg ~/.mg || echo
+	@# myrepos config: which repos `mr update' / `mr push' walk.  Host-only
+	@# repos go in ~/.mrconfig.local (see the include in .mrconfig).
+	ln -si ~/dot_files/.mrconfig ~/.mrconfig || echo
 	@# $(wildcard) is a make function: it does not expand ~ (a shell thing) and
 	@# the quotes were literal pattern characters, so the pattern never matched
 	@# and the guard collapsed to `[ -f  ]' -- one-argument test, which is TRUE

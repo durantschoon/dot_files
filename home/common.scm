@@ -739,6 +739,12 @@ call, so extensions never collide; only genuine double ownership does."
                      ;; symlink with a detached regular file -- edit
                      ;; dot_files/.gitconfig and re-apply instead.
                      `(".gitconfig" ,(local-file "../.gitconfig" "gitconfig"))
+                     ;; myrepos: `mr status/update/push' over every repo
+                     ;; listed in ~/.mrconfig.  Same read-only caveat as
+                     ;; .gitconfig: `mr register' cannot append to a store
+                     ;; symlink, so host-only repos go to ~/.mrconfig.local
+                     ;; through `mr-register' in .aliases (docs/MYREPOS.md).
+                     `(".mrconfig" ,(local-file "../.mrconfig" "mrconfig"))
                      `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))
                      `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
                      `(".ipython/profile_default/startup/money_value.py"
