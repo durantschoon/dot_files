@@ -423,8 +423,8 @@ herdr-notes-sync [-q]              # push each Herdr workspace's notes headline 
 
 **In Herdr**, the same headline shows under the workspace. `herdr-notes-sync`
 maps every workspace to a repo through its panes' cwd (`herdr api snapshot`),
-takes the first `#` heading of the most recently written `logs/*.notes.md`
-with one, and stores it as the workspace token `note`; the `[ui.sidebar.spaces]`
+takes the first `#` heading or `> ` status line of the most recently written
+`logs/*.notes.md` that has one, and stores it as the workspace token `note`; the `[ui.sidebar.spaces]`
 rows in [`herdr/config.toml`](./herdr/config.toml) render `$note` as a dim
 third row. `job-note` runs the sync in the background after your editor exits.
 Tokens live in the Herdr server, so run it once by hand after
@@ -468,8 +468,9 @@ host, through the same ssh path the picker already uses, by a fresh `zsh`
 sourcing that machine's `~/dot_files/.jobs.zsh`.
 
 **The `> ` status convention.** The first non-empty notes line beginning `> `
-is that session's one-line status and appears in the row itself, after two
-spaces, **with its `> ` still on it**; with no such line, the recap's
+or `#` (a status line and a heading are the same thing written two ways) is
+that session's one-line status and appears in the row itself, after two
+spaces, **with a `> ` marker on it**; with no such line, the recap's
 `Current Subtask` value is used, *without* a marker. That difference is the
 point of having both sources: a leading `> ` in a row means "I wrote this",
 and its absence means "the recap said this", so a dashboard can be read at a

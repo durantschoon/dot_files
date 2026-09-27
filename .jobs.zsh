@@ -362,8 +362,8 @@ job-status() {
 #   line 2+   the recap body, exactly as the skill produced it
 #
 # and the STATUS CONTRACT, which is what a picker shows in the row itself:
-# the first notes line beginning `> ' is that session's one-line status, MARKER
-# AND ALL; with no such line, the recap body's `Current Subtask' value is used
+# the first non-empty notes line beginning `#' (a heading) or `> ' (a status)
+# is that session's one-line status, shown with a `> ' MARKER; with no such line, the recap body's `Current Subtask' value is used
 # instead, without one. A leading `> ' in a row therefore means exactly "a
 # human wrote this", and its absence "this was derived from the recap".
 
@@ -484,8 +484,9 @@ job-note() {
 # Which notes file: logs/*.notes.md newest-first by mtime, and the first one
 # with a non-empty headline wins, so a repo with several tasks shows the note
 # most recently written and a fresh template (`# ' and nothing after it) does
-# not mask a real headline under it. The headline is the first `#' heading,
-# the same rule the picker's _JOB_STATUS_SH applies to a row.
+# not mask a real headline under it. The headline is the first non-empty `#'
+# heading or `> ' status line, the same rule the picker's _JOB_STATUS_SH
+# applies to a row.
 #
 # Tokens live in the Herdr server: they outlive this shell but not `herdr
 # server stop', so a restarted server shows nothing until the next sync. A
@@ -498,13 +499,13 @@ job-note() {
 # saving a note updates the sidebar and a Mac without Herdr notices nothing.
 typeset -g _HERDR_NOTES_SOURCE=jobs-notes
 
-# The first `#' heading of a notes file, stripped of its marks; nothing when
-# the file is unreadable or has no non-empty heading. Same sed as
+# The first `#' heading or `> ' status line of a notes file, stripped of its
+# marker; nothing when the file is unreadable or has neither. Same sed as
 # _JOB_STATUS_SH, kept in step by hand: that one is POSIX sh text shipped to
 # other hosts, this one runs here.
 _job_notes_headline() {
   [[ -r $1 ]] || return 1
-  sed -E -n 's/^#+[[:space:]]*//p' "$1" | sed -n '/./{p;q;}'
+  sed -E -n 's/^(#+|>)[[:space:]]*//p' "$1" | sed -E -n '/./{s/[[:space:]]+$//;p;q;}'
 }
 
 herdr-notes-sync() {
@@ -983,8 +984,10 @@ _tmux_label_widths() {
 # side is somebody else's machine. It reads path/task pairs as positional
 # parameters and prints one line per pair, empty when there is nothing to say.
 #
-# `/./{p;q;}' rather than `1p': the first NON-EMPTY `> ' line wins. A notes
-# file starts life with an empty `> ' line waiting to be filled in, and with
+# `/./{p;q;}' rather than `1p': the first NON-EMPTY `#' or `> ' line wins,
+# whichever comes first -- a heading and a status line are the same thing
+# written two ways, and both have been used. A notes file starts life with an
+# empty marker line waiting to be filled in, and with
 # `1p' that empty line would beat both a real status written under it and the
 # recap -- a template silencing the row it exists to describe.
 #
@@ -999,7 +1002,7 @@ while [ $# -gt 0 ]; do
   d=$1; t=$2; shift 2
   s=
   if [ -r "$d/logs/$t.notes.md" ]; then
-    s=$(sed -E -n "s/^#+[[:space:]]*//p" "$d/logs/$t.notes.md" | sed -n "/./{p;q;}")
+    s=$(sed -E -n "s/^(#+|>)[[:space:]]*//p" "$d/logs/$t.notes.md" | sed -E -n "/./{s/[[:space:]]+$//;p;q;}")
     [ -n "$s" ] && s="> $s"
   fi
   if [ -z "$s" ] && [ -r "$d/logs/$t.recap.md" ]; then
