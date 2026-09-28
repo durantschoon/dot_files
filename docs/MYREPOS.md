@@ -16,6 +16,9 @@ deployed by Guix Home (`home/common.scm`) or symlinked by `make set_up_links`.
 
 ## Daily use
 
+`mr-help` prints a one-screen version of this document, with the
+`mr-brief` legend in colour.
+
 ```sh
 mr ls                  # which repos are in scope from here
 mr status              # dirty / ahead / behind, one block per repo
@@ -28,17 +31,42 @@ mr --force checkout    # fresh machine: clone every listed repo that is missing
 
 `mr` acts on the repos at or below the current directory. From `~` that is
 everything in the list that really lives under `~`; from inside a repo it is
-that repo alone. It resolves symlinks before deciding, which matters on the
-Mac: `~/Robotics` points at `/Volumes/2TB_Durant/Shared/RoboticsDesignEnv`,
-so from `~` it is out of scope and `mr status` quietly shows two repos, not
-three. Two ways around that:
+that repo alone. It resolves symlinks before deciding, which matters when a
+`~/<name>` entry is a symlink onto an external volume: from `~` that repo is
+out of scope and `mr status` quietly leaves it out. Two ways around that:
 
 ```sh
-mr -d ~/Robotics status    # one repo, by path
+mr -d ~/<name> status      # one repo, by path
 mr-all status              # .aliases: mr -d /  -- every repo, wherever it resolves
 ```
 
 `mr-all` is the one to reach for when the point is "all of them".
+
+### `mr-brief`: the whole estate on one screen
+
+`mr status` prints full `git status` per repo, which is a lot across fifty
+of them. `mr-brief` runs the custom `brief` action from `.mrconfig` and
+prints one line per repo that has anything to report, nothing for the clean
+ones:
+
+```
+Repos/ds/embodied-tamp                     main                 ^ 0 v 0  M10 ? 2 S 0
+Repos/ds/wedgeGA-symbols                   main                 ^ - v -  M 0 ? 0 S 0
+Repos/ds/gafro-benchmarks                  docs/design-improve~ ^ 4 v 0  M 1 ? 0 S 0
+~lumes/External/Shared/some-long-repo-name main                 ^ 1 v 0  M 3 ? 1 S 0
+dot_files                                  main                 ^ 0 v 0  M 3 ? 0 S 2
+```
+
+Columns: repo, branch, commits ahead `^` (green) and behind `v` (red) of
+upstream, `-` (yellow) when there is no upstream, which is itself worth a
+line; then `M` modified tracked files (yellow), `?` untracked (magenta),
+`S` stashes (blue). Zero counts are dimmed. Long branch names are cut to 19
+characters plus `~`; long repo paths are cut from the left, keeping the
+name, so a repo on an external volume shows the tail of its resolved path.
+
+Colour appears only when stdout is a terminal, so `mr-brief | grep ...`
+stays plain. `-m` also drops mr's closing "finished" line; plain
+`mr -m brief` keeps mr's own header line per repo and no colour.
 
 ### Absent repos are skipped
 
@@ -57,21 +85,59 @@ mr --force checkout    # --force overrides the skip; clones what is missing
 
 `--force -d <path> checkout` clones just one.
 
+### `mr-brief-deluxe`: with the job-note headline
+
+`mr-brief-deluxe` is `mr-brief` with one more column: the repo's notes
+headline from the tmux/launchd job runner (`job-note` writes
+`logs/<task>.notes.md`; the headline is its first `#` heading or `> `
+line, newest notes file first, the same rule `herdr-notes-sync` uses for
+the Herdr sidebar). A repo with a headline gets a line even when it is
+otherwise clean.
+
+```
+Repos/ds/embodied-tamp                     main                 ^ 0 v 0  M 0 ? 2 S 0  (w/agy) stage 12 green, writing lesson 18
+dot_files                                  main                 ^ 0 v 0  M 1 ? 0 S 0  (w/claude) splitting .mrconfig public/private
+```
+
+### `mr-push-ahead`: push only what is ahead
+
+`mr push` runs `git push` in every repo, which is noisy and fails in repos
+that have no upstream or whose origin is someone else's. `mr-push-ahead`
+runs the custom `pushahead` action: repos whose branch is ahead of upstream
+(the `^N` column of `mr-brief`) get a `git push`; the rest exit quietly and
+`-m` hides them.
+
+```sh
+mr-push-ahead --dry-run    # which repos would push, and what
+mr-push-ahead              # do it
+```
+
+Arguments pass straight to `git push`.
+
 ## Adding a repo
 
-Two places, by intent:
+dot_files is a public repository, so the list is split in three, and the
+public `.mrconfig` merges the other two at run time through its `include`
+line. Same syntax everywhere: section names are relative to `~` (the
+config's directory) and the `checkout` line is what a new machine runs to
+clone it.
 
-- **Every machine should have it:** add a section to `dot_files/.mrconfig`
-  and commit. Section names are relative to `~` (the config's directory);
-  the `checkout` line is what a new machine runs to clone it.
+- **Public repo, every machine:** a section in `dot_files/.mrconfig`.
 
   ```ini
   [src/thing]
   checkout = git clone 'git@github.com:durantschoon/thing.git' 'thing'
   ```
 
-- **Only this host:** register it into `~/.mrconfig.local`, which the
-  committed file includes and git never sees:
+- **Private repo, every machine:** the same section, in
+  `dot_files/private/mrconfig`. Private remotes, private forks, repos with
+  no remote yet, and anything whose name alone says too much go here. That
+  directory is the private submodule `dot_files-private`, like
+  `espanso/private`; `make submodule-update` checks it out on a new host,
+  and it has its own commits and pushes.
+
+- **Only this host:** register it into `~/.mrconfig.local`, which is also
+  merged in and git never sees:
 
   ```sh
   cd ~/src/scratch-thing
@@ -92,7 +158,7 @@ Any action can be overridden per section, or for all in `[DEFAULT]`.
 # pull submodules along with the main repo
 update = git pull && git submodule update --init --recursive
 
-[Robotics]
+[src/mirror-only]
 # never push this one from mr, even with `mr push`
 push = :
 

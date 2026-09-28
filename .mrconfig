@@ -12,22 +12,24 @@
 #   mr --force checkout    clone every listed repo that is missing (new host)
 #
 # SCOPE: mr acts on the repos at or below the current directory, and it
-# resolves symlinks first.  From ~ that is everything in this file that
-# really lives under ~.  A repo reached through a symlink to another volume
-# (~/Robotics -> /Volumes/2TB_Durant/... on the Mac) is out of scope from ~;
-# `mr-all` in .aliases (= mr -d /) takes every repo, wherever it resolves.
+# resolves symlinks first.  From ~ that is everything listed that really
+# lives under ~.  A repo reached through a symlink onto another volume is
+# out of scope from ~; `mr-all` in .aliases (= mr -d /) takes every repo,
+# wherever it resolves.
 #
 # Section names are paths RELATIVE TO THIS FILE'S DIRECTORY.  The file is
 # deployed as ~/.mrconfig (Guix Home via home/common.scm, native hosts via
 # `make set_up_links`), so `[dot_files]` means ~/dot_files on every host.
 #
-# Where a repo belongs:
-#   every machine   -> a section in THIS file (committed, shared)
-#   this host only  -> ~/.mrconfig.local, pulled in by the include below and
-#                      never committed.  `mr-register` (.aliases) appends the
-#                      current repo there.  Plain `mr register` would write
-#                      to ~/.mrconfig, which on Guix Home hosts is a read-only
-#                      store symlink and on native hosts is this repo file.
+# Where a repo belongs -- dot_files is PUBLIC, so the list is split:
+#   public repo     -> a section in THIS file (committed here, shared)
+#   private repo    -> dot_files/private/mrconfig, a private submodule the
+#                      include below merges in; same syntax, never public
+#   this host only  -> ~/.mrconfig.local, also merged in and never committed.
+#                      `mr-register` (.aliases) appends the current repo
+#                      there.  Plain `mr register` would write to ~/.mrconfig,
+#                      which on Guix Home hosts is a read-only store symlink
+#                      and on native hosts is this repo file.
 #
 # `skip = lazy` below means a listed repo that is not cloned on this host is
 # silently skipped by every action, checkout included -- so the shared list
@@ -42,14 +44,72 @@ skip = lazy
 # skip the network verbs, so `mr update' / `mr push' stay quiet while
 # `mr status', `mr diff', `mr log' still cover them.  Used as
 #   skip = local_only "$1"
+# brief: one line per repo that has something to report, nothing for the
+# clean ones.  `mr-brief' in .aliases wraps it (mr -d / -m brief, headers
+# stripped) so the whole estate fits on one screen:
+#   Repos/ds/embodied-tamp     main        ^ 0 v 0  M10 ? 2 S 0
+# columns: repo, branch, commits ahead ^ / behind v of upstream (- = no
+# upstream), Modified tracked files, ? untracked, S stashes.
+brief =
+    branch=$(git symbolic-ref --short -q HEAD || git rev-parse --short HEAD)
+    # keep the branch column aligned: cut long names to 19 chars plus `~'
+    [ ${#branch} -gt 20 ] && branch="$(printf '%.19s' "$branch")~"
+    if git rev-parse -q --verify '@{u}' >/dev/null 2>&1; then
+        ahead=$(git rev-list --count '@{u}..HEAD')
+        behind=$(git rev-list --count 'HEAD..@{u}')
+    else
+        ahead=-; behind=-
+    fi
+    st=$(git status --porcelain 2>/dev/null)
+    # mr runs actions under `set -e' and grep -c exits 1 on a zero count
+    mod=$(printf '%s\n' "$st" | grep -c '^[^?]' || true)
+    unt=$(printf '%s\n' "$st" | grep -c '^??' || true)
+    stash=$(git stash list 2>/dev/null | wc -l | tr -d ' ')
+    # same for the repo column, but cut from the LEFT so the repo's own name
+    # survives (a repo outside ~ shows its resolved path, which is long)
+    repo="${MR_REPO#$HOME/}"
+    [ ${#repo} -gt 42 ] && repo="~$(printf '%s' "$repo" | tail -c 41)"
+    # MR_BRIEF_NOTE=1 (mr-brief-deluxe) adds the repo's jobs-notes headline:
+    # newest logs/*.notes.md first, first non-empty `#' heading or `> ' line
+    # wins -- the same rule as herdr-notes-sync in .jobs.zsh.  A note counts
+    # as something to report, so a clean repo with a note still gets a line.
+    note=
+    if [ -n "$MR_BRIEF_NOTE" ]; then
+        for f in $(ls -t "$MR_REPO"/logs/*.notes.md 2>/dev/null); do
+            [ -r "$f" ] || continue
+            note=$(sed -E -n 's/^(#+|>)[[:space:]]*//p' "$f" | sed -E -n '/./{s/[[:space:]]+$//;p;q;}')
+            [ -n "$note" ] && break
+        done
+    fi
+    if [ "$ahead$behind$mod$unt$stash" != "00000" ] || [ -n "$note" ]; then
+        # fixed layout -- mr-brief colours by column position:
+        # repo 1-42, branch 44-63, ^aa vbb  Mcc ?dd See from column 65,
+        # and the note (if any) after two spaces from column 85
+        printf '%-42s %-20s ^%2s v%2s  M%2s ?%2s S%2s%s\n' \
+            "$repo" "$branch" "$ahead" "$behind" "$mod" "$unt" "$stash" "${note:+  $note}"
+    fi
+# pushahead: `git push' only where the branch is ahead of its upstream.
+# Repos with no upstream or nothing to push exit quietly, so with -m they
+# vanish from the output and `mr push' noise (and its failures on repos
+# that cannot push) is gone.  Extra arguments reach git push:
+#   mr-push-ahead --dry-run     (.aliases wrapper: mr -d / -m pushahead)
+pushahead =
+    git rev-parse -q --verify '@{u}' >/dev/null 2>&1 || exit 0
+    [ "$(git rev-list --count '@{u}..HEAD')" -gt 0 ] || exit 0
+    git push "$@"
 lib =
     local_only() {
         [ ! -d "$MR_REPO" ] && return 0
         case "$1" in update|push|fetch) return 0 ;; *) return 1 ;; esac
     }
-# Host-only repos.  `include` runs a shell command and parses its output as
-# more config; a missing file is silently fine.
-include = cat "$HOME/.mrconfig.local" 2>/dev/null || true
+# The private list and the host-only list.  `include` runs a shell command
+# and parses its output as more config, relative to this file's directory
+# like everything else; a missing file is silently fine.
+include = cat "$HOME/dot_files/private/mrconfig" "$HOME/.mrconfig.local" 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# PUBLIC repos.  Everything else lives in private/mrconfig.
+# ---------------------------------------------------------------------------
 
 [dot_files]
 # This repo.  On the Mac the origin is the ssh host alias `github.com-ds`
@@ -62,29 +122,11 @@ checkout = git clone 'git@github.com:durantschoon/dot_files.git' 'dot_files'
 [guix-config]
 checkout = git clone 'git@github.com:durantschoon/guix-config.git' 'guix-config'
 
-[Robotics]
-# On the Mac this is a symlink onto the 2TB volume, so it is only in scope
-# for `mr-all` (or `mr -d ~/Robotics ...`); on a host that clones it here
-# it is an ordinary ~/Robotics.
-checkout = git clone 'git@github.com:durantschoon/RoboticsDesignEnv.git' 'Robotics'
-
-# ---------------------------------------------------------------------------
-# ~/Repos/ds -- personal projects (github/codeberg), one clone each.
-# Repos with no remote carry `skip = local_only "$1"' (see [DEFAULT]).
-# ---------------------------------------------------------------------------
-
 [Repos/ds/cargo-poly]
 checkout = git clone 'ssh://git@codeberg.org/durantschoon/cargo-poly.git' 'cargo-poly'
 
 [Repos/ds/consistent-lib]
 checkout = git clone 'git@github.com:durantschoon/consistent-lib.git' 'consistent-lib'
-
-[Repos/ds/cookiecutter_drf]
-checkout = git clone 'git@github.com:durantschoon/cookiecutter_drf.git' 'cookiecutter_drf'
-
-[Repos/ds/django_react_fullstack]
-# no remote yet
-skip = local_only "$1"
 
 [Repos/ds/durantschoon.github.io]
 checkout = git clone 'git@github.com:durantschoon/durantschoon.github.io.git' 'durantschoon.github.io'
@@ -95,50 +137,11 @@ checkout = git clone 'git@github.com:durantschoon/eigenblade-site.git' 'eigenbla
 [Repos/ds/embodied-tamp]
 checkout = git clone 'https://github.com/durantschoon/embodied-tamp' 'embodied-tamp'
 
-[Repos/ds/forecast-lab]
-# no remote yet
-skip = local_only "$1"
-
 [Repos/ds/free-up-space-macos]
 checkout = git clone 'https://github.com/durantschoon/free-up-space-macos.git' 'free-up-space-macos'
 
-[Repos/ds/freeplane-customizations]
-checkout = git clone 'git@github.com:durantschoon/freeplane-customizations' 'freeplane-customizations'
-
-[Repos/ds/GA-Mech]
-checkout = git clone 'https://github.com/durantschoon/GA-Mech.git' 'GA-Mech'
-
 [Repos/ds/gafro-benchmarks]
 checkout = git clone 'git@github.com:durantschoon/gafro-benchmarks.git' 'gafro-benchmarks'
-
-[Repos/ds/gafro-cpp]
-checkout = git clone 'git@github.com:durantschoon/gafro-cpp.git' 'gafro-cpp'
-
-[Repos/ds/gafro-fstar]
-checkout = git clone 'git@github.com:durantschoon/gafro-fstar.git' 'gafro-fstar'
-
-[Repos/ds/gafro-idris2]
-checkout = git clone 'git@github.com:durantschoon/gafro-idris2.git' 'gafro-idris2'
-
-[Repos/ds/gafro-julia]
-checkout = git clone 'git@github.com:durantschoon/gafro-julia.git' 'gafro-julia'
-
-[Repos/ds/gafro-lean]
-checkout = git clone 'git@github.com:durantschoon/gafro-lean.git' 'gafro-lean'
-
-[Repos/ds/gafro-rust]
-checkout = git clone 'git@github.com:durantschoon/gafro-rust.git' 'gafro-rust'
-
-[Repos/ds/gemini_conductor_test]
-# no remote yet
-skip = local_only "$1"
-
-[Repos/ds/GIPS]
-# Radicle-hosted: origin is the `rad' remote (tracking rad/main), so
-# pull/push go through the rad CLI; no git-clone checkout line.
-
-[Repos/ds/guix-actions]
-checkout = git clone 'git@github.com:durantschoon/guix-actions.git' 'guix-actions'
 
 [Repos/ds/idris2-agent-tools]
 checkout = git clone 'git@github.com:durantschoon/idris2-agent-tools.git' 'idris2-agent-tools'
@@ -146,36 +149,8 @@ checkout = git clone 'git@github.com:durantschoon/idris2-agent-tools.git' 'idris
 [Repos/ds/julia-agent-tools]
 checkout = git clone 'git@github.com:durantschoon/julia-agent-tools.git' 'julia-agent-tools'
 
-[Repos/ds/layout_system]
-# no remote yet
-skip = local_only "$1"
-
-[Repos/ds/learn-cpp]
-checkout = git clone 'git@github.com:durantschoon/learn-cpp.git' 'learn-cpp'
-
-[Repos/ds/media-announce]
-checkout = git clone 'git@github.com:durantschoon/media-announce.git' 'media-announce'
-
-[Repos/ds/popos-setup]
-# no remote yet
-skip = local_only "$1"
-
-[Repos/ds/ReactNativeJobApp]
-# no remote yet
-skip = local_only "$1"
-
-[Repos/ds/RoboticsDesignEnv]
-checkout = git clone 'git@github.com:durantschoon/RoboticsDesignEnv.git' 'RoboticsDesignEnv'
-
 [Repos/ds/ros2-classroom]
 checkout = git clone 'git@github.com:durantschoon/ros2-classroom.git' 'ros2-classroom'
-
-[Repos/ds/ros2-classroom.unredacted]
-checkout = git clone 'git@github.com:durantschoon/ros2-classroom-unredacted.git' 'ros2-classroom.unredacted'
-
-[Repos/ds/screenshot2code]
-# no remote yet
-skip = local_only "$1"
 
 [Repos/ds/spaceline-fork]
 # origin is the UPSTREAM (TheBB), so `mr push' will be refused here.
@@ -184,74 +159,5 @@ checkout = git clone 'https://github.com/TheBB/spaceline.git' 'spaceline-fork'
 [Repos/ds/tree-sitter-idris2]
 checkout = git clone 'git@github.com:durantschoon/tree-sitter-idris2.git' 'tree-sitter-idris2'
 
-[Repos/ds/unhola_python]
-checkout = git clone 'git@github.com:durantschoon/unhola_python.git' 'unhola_python'
-
-[Repos/ds/unhola_typescript]
-checkout = git clone 'git@github.com:durantschoon/unhola_typescript.git' 'unhola_typescript'
-
 [Repos/ds/wedgeGA-symbols]
 checkout = git clone 'git@github.com:durantschoon/wedgeGA-symbols.git' 'wedgeGA-symbols'
-
-[Repos/ds/woolybear]
-# no remote yet
-skip = local_only "$1"
-
-# ---------------------------------------------------------------------------
-# ~/Repos/si -- Systematic Improvement work (bitbucket).
-# ---------------------------------------------------------------------------
-
-[Repos/si/bdlinks-viz-rpt]
-checkout = git clone 'git@bitbucket.org:systematic-improvement/bdlinks-viz-rpt.git' 'bdlinks-viz-rpt'
-
-[Repos/si/momentum_clone]
-checkout = git clone 'https://sulumis@bitbucket.org/mac-setup/momentum_clone.git' 'momentum_clone'
-
-[Repos/si/sankeyfin]
-checkout = git clone 'git@bitbucket.org:systematic-improvement/sankeyfin.git' 'sankeyfin'
-
-[Repos/si/system]
-checkout = git clone 'git@bitbucket.org:systematic-improvement/system.git' 'system'
-
-[Repos/si/teacher-student]
-checkout = git clone 'git@bitbucket.org:systematic-improvement/teacher-student.git' 'teacher-student'
-
-[Repos/si/testcafe-test-suites-copy]
-checkout = git clone 'git@github.com:tallyfor/testcafe-test-suites.git' 'testcafe-test-suites-copy'
-
-# ---------------------------------------------------------------------------
-# ~/Repos/enveloped -- ONE repo (envelope.git) checked out as git worktrees,
-# one directory per branch, named after the branch.  LIM holds the real .git
-# and is created first (order = 5); every other entry is
-# `git worktree add' off it, which is what a fresh host needs to rebuild the
-# same layout with `mr --force checkout'.  update/push/status work per
-# worktree as usual.
-# ---------------------------------------------------------------------------
-
-[Repos/enveloped/LIM]
-order = 5
-checkout = git clone -b LIM 'git@bitbucket.org:systematic-improvement/envelope.git' 'LIM'
-
-[Repos/enveloped/gafro-benchmarks]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-benchmarks'
-
-[Repos/enveloped/gafro-cpp]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-cpp'
-
-[Repos/enveloped/gafro-idris2]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-idris2'
-
-[Repos/enveloped/gafro-rust]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'gafro-rust'
-
-[Repos/enveloped/guix-platform-install]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'guix-platform-install'
-
-[Repos/enveloped/main]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'main'
-
-[Repos/enveloped/obsidian-drift]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'obsidian-drift'
-
-[Repos/enveloped/tree-sitter-idris2]
-checkout = git -C "$MR_REPO/../LIM" worktree add "$MR_REPO" 'tree-sitter-idris2'

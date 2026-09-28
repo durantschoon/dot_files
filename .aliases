@@ -47,11 +47,98 @@ mr-register() {
     mr -c "$HOME/.mrconfig.local" register "$@"
 }
 # mr only acts on repos at or below the current directory, AFTER resolving
-# symlinks.  ~/Robotics points onto the 2TB volume on the Mac, so from ~ it
-# is out of scope.  Rooting the walk at / takes every listed repo wherever
+# symlinks, so a repo reached through a symlink onto another volume is out
+# of scope from ~.  Rooting the walk at / takes every listed repo wherever
 # it really lives:  mr-all status, mr-all -j4 update, mr-all push.
 mr-all() {
     mr -d / "$@"
+}
+# One line per repo with something to report (see `brief' in .mrconfig);
+# -m drops clean repos.  The awk drops mr's per-repo header line and the
+# blank line it prints after every repo, then colours the columns when
+# stdout is a terminal (mr itself strips ANSI codes once it is piped, so the
+# colour cannot come from the action).  Column positions are the fixed
+# layout the brief action prints; see its comment in .mrconfig.
+# mr-help: the cheat sheet for all of the above, colours matching mr-brief
+# when stdout is a terminal.  Long form: docs/MYREPOS.md in dot_files.
+mr-help() {
+    local B= D= R= CY= GR= RD= YL= MG= BL=
+    if [ -t 1 ]; then
+        B=$'\033[1m'; D=$'\033[2m'; R=$'\033[0m'; CY=$'\033[36m'
+        GR=$'\033[32m'; RD=$'\033[31m'; YL=$'\033[33m'; MG=$'\033[35m'; BL=$'\033[34m'
+    fi
+    cat <<EOF
+${B}myrepos (mr) -- one git command over every working repo${R}
+config: ~/.mrconfig (dot_files, PUBLIC repos)  +  dot_files/private/mrconfig (private)
+        +  ~/.mrconfig.local (this host only)
+
+${B}COMMANDS${R}
+  mr-brief             one line per repo with something to report; clean ones hidden
+  mr-brief | grep si/  plain text when piped, so grep/sort work
+  mr-brief-deluxe      the same plus each repo's job-note headline (logs/*.notes.md)
+  mr-push-ahead        git push only where ^ is > 0   (--dry-run to preview)
+  mr-all <action>      every repo wherever it resolves (mr alone = at or below cwd,
+                       after following symlinks, so a symlink onto another volume is out)
+  mr-all -j4 update    git pull everywhere, four at a time
+  mr-all status        full git status per repo (the long form of mr-brief)
+  mr-register          add the repo you are in to ~/.mrconfig.local (never bare
+                       \`mr register': it would edit the shared file / fail on Guix)
+  mr --force checkout  new host: clone every listed repo that is missing
+  mr -d <path> <act>   one repo, by path
+
+${B}READING mr-brief${R}
+  ${B}Repos/ds/embodied-tamp                     ${R}${CY}main                ${R} ^${D} 0${R} v${D} 0${R}  M${YL}10${R} ?${MG} 2${R} S${D} 0${R}
+  ${B}repo${R}    path under ~; cut from the LEFT (~...) when long, keeping the name
+  ${CY}branch${R}  cut to 19 chars + ~ when long
+  ^${GR}N${R}      commits ahead of upstream  -> mr-push-ahead sends these
+  v${RD}N${R}      commits behind upstream    -> mr-all update
+  ^${YL}-${R} v${YL}-${R}   no upstream: cannot push/pull until \`git push -u origin <branch>'
+  M${YL}N${R}      modified tracked files (uncommitted)
+  ?${MG}N${R}      untracked files
+  S${BL}N${R}      stashes
+  ${D}dimmed${R}  zero, nothing to see
+
+${B}WHICH REPOS${R}
+  listed + cloned here      acted on
+  listed, not cloned here   skipped silently (skip = lazy); mr --force checkout clones
+  no remote                 status/diff/log only; update/push skipped (local_only)
+  worktree checkouts        one section per worktree; the one holding .git has order = 5
+
+more: ~/dot_files/docs/MYREPOS.md   man mr
+EOF
+}
+# Push only the repos that are ahead of upstream (the ^N column of
+# mr-brief); everything else stays silent.  Arguments go to git push, so
+# `mr-push-ahead --dry-run' previews.  See `pushahead' in .mrconfig.
+mr-push-ahead() {
+    mr -d / -m pushahead "$@"
+}
+mr-brief() {
+    # decided here, not inside $(...), where fd 1 is the capture pipe
+    local color=0; [ -t 1 ] && color=1
+    mr -d / -m brief "$@" 2>&1 | awk -v color="$color" '
+    BEGIN {
+        if (color) {
+            B = "\033[1m"; D = "\033[2m"; R = "\033[0m"; CY = "\033[36m"
+            GR = "\033[32m"; RD = "\033[31m"; YL = "\033[33m"; MG = "\033[35m"; BL = "\033[34m"
+        }
+    }
+    # a count: dim when zero, yellow when "-" (no upstream), else its own colour
+    function num(v, on) { return (v ~ /-/) ? YL v R : (v + 0 == 0) ? D v R : on v R }
+    /^mr brief: \// || /^$/ { next }
+    {
+        repo = substr($0, 1, 42); br = substr($0, 44, 20); rest = substr($0, 65)
+        ah = substr(rest, 2, 2); be = substr(rest, 6, 2); mo = substr(rest, 11, 2)
+        un = substr(rest, 15, 2); st = substr(rest, 19, 2); note = substr(rest, 21)
+        printf "%s%s%s %s%s%s ^%s v%s  M%s ?%s S%s%s\n", B, repo, R, CY, br, R,
+            num(ah, GR), num(be, RD), num(mo, YL), num(un, MG), num(st, BL), note
+    }'
+}
+# mr-brief plus each repo's jobs-notes headline (job-note, logs/*.notes.md)
+# as a trailing column; a repo with a note but nothing else to report is
+# shown too.  MR_BRIEF_NOTE is read by the brief action in .mrconfig.
+mr-brief-deluxe() {
+    MR_BRIEF_NOTE=1 mr-brief "$@"
 }
 # `history' in zsh is `fc -l', which defaults to the LAST 16 EVENTS -- unlike
 # bash, where it prints everything. The "1" means "from event 1", i.e. all of

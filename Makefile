@@ -234,7 +234,7 @@ help-text:
 	@echo "  make emacs-env     - Regenerate ~/.spacemacs.d/.spacemacs.env from a clean"
 	@echo "                       login shell and push it into a running Emacs."
 	@echo "                       Runs automatically after apply/apply-wayland/update."
-	@echo "  make submodule-update - Init and update submodules (espanso/private)"
+	@echo "  make submodule-update - Init and update submodules (espanso/private, private)"
 	@echo "  make submodule-pull  - Fast-forward each initialized submodule to the tip of its"
 	@echo "                       remote default branch, detached HEAD included (the state"
 	@echo "                       'make apply' leaves behind). Never forces, never merges a"
@@ -1092,6 +1092,10 @@ apply-wayland: warn-dotfiles-home
 	fi
 	@echo "==> git submodule update --init (espanso/private)"
 	@git submodule update --init espanso/private 2>/dev/null || true
+	@# private/: the private half of ~/.mrconfig (see .mrconfig).  Optional like
+	@# espanso/private: without it mr simply knows only the public repos.
+	@echo "==> git submodule update --init (private)"
+	@git submodule update --init private 2>/dev/null || true
 	@echo "==> git submodule update --init claude"
 	@# Unlike espanso/private this is NOT optional: home/wayland.scm reads
 	@# ../claude/* unconditionally, so let git's error stop the build.

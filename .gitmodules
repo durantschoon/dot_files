@@ -4,3 +4,6 @@
 [submodule "claude"]
 	path = claude
 	url = git@github.com:durantschoon/claude-config.git
+[submodule "private"]
+	path = private
+	url = git@github.com:durantschoon/dot_files-private.git
