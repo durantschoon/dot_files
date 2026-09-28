@@ -30,4 +30,4 @@ delivery = "herdr"        # in-app toast; "terminal" or "system" for a desktop n
 delay_seconds = 1
 
 [ui.toast.herdr]
-position = "top-right"
+position = "top-left"
