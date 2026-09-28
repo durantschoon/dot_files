@@ -23,3 +23,11 @@ next_workspace = "alt+down"
 # `herdr-notes-sync` (~/dot_files/.jobs.zsh); job-note refreshes it on save.
 [ui.sidebar.spaces]
 rows = [["state_icon", "workspace"], ["branch", "git_status"], [{ token = "$note", dim = true }]]
+
+# Toast notifications
+[ui.toast]
+delivery = "herdr"        # in-app toast; "terminal" or "system" for a desktop notification
+delay_seconds = 1
+
+[ui.toast.herdr]
+position = "top-right"
