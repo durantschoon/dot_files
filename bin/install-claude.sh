@@ -25,7 +25,9 @@
 # macOS and FHS Linuxen just use the official installer.
 #
 # Safe to re-run at any time: if `claude` already runs, this script exits
-# without touching anything (pass --force to reinstall/update anyway). That
+# without touching anything (pass --force to reinstall/update anyway). The
+# legacy npm-local install (~/.claude/local/claude, reached via the zsh alias
+# in .aliases and so invisible to `command -v` from bash) counts too. That
 # also makes it self-healing on Guix -- if Claude's auto-updater replaces
 # the wrapper with a symlink to a new unwrapped binary, --version fails and
 # a re-run rebuilds the wrapper around the freshly downloaded version.
@@ -175,10 +177,13 @@ EOF
 # OS dispatch
 # ---------------------------------------------------------------------------
 
-# True when a working claude is already reachable (PATH or ~/.local/bin).
+# True when a working claude is already reachable: PATH, ~/.local/bin, or
+# the legacy npm-local install that .aliases points the `claude` alias at.
 claude_already_works() {
     local candidate
-    for candidate in "$(command -v claude 2>/dev/null || true)" "$HOME/.local/bin/claude"; do
+    for candidate in "$(command -v claude 2>/dev/null || true)" \
+                     "$HOME/.local/bin/claude" \
+                     "$HOME/.claude/local/claude"; do
         [ -n "$candidate" ] && [ -x "$candidate" ] || continue
         "$candidate" --version >/dev/null 2>&1 && return 0
     done

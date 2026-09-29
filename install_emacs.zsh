@@ -9,7 +9,23 @@
 #    which is a variable recognized by the spacemacs code
 
 # this script is intended to be called by another script which has determined the operating system
-[[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--wsl|--linux|--windows]" && exit 1
+[[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--wsl|--linux|--windows] [--force]" && exit 1
+
+# Idempotent: when emacs runs, ~/.emacs.d is already a Spacemacs checkout and
+# ~/.spacemacs.d exists, there is nothing to do -- re-running would move
+# ~/.emacs.d aside and re-clone everything.  --force skips this check.
+FORCE=0
+for arg in "$@"; do [[ "$arg" == --force ]] && FORCE=1; done
+set -- "${(@)@:#--force}"
+already_installed() {
+    command -v emacs > /dev/null 2>&1 \
+        && [[ -f $HOME/.emacs.d/core/core-load-paths.el ]] \
+        && [[ -d ${SPACEMACSDIR:-$HOME/.spacemacs.d} ]]
+}
+if [[ $FORCE -eq 0 ]] && already_installed; then
+    echo "==> Emacs + Spacemacs already installed ($(command -v emacs)); nothing to do (--force to reinstall)"
+    exit 0
+fi
 
 echo "Preparing to install spacemacs..."
 

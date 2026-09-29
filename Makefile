@@ -309,8 +309,9 @@ all: setup-native
 setup-native: set_up_links install-claude install-uv install-agy
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
-# when `claude` already runs) and handles the Guix System non-FHS case by
-# patchelf'ing the official binary; see bin/install-claude.sh for details.
+# when `claude` already runs, including the legacy ~/.claude/local install)
+# and handles the Guix System non-FHS case by running the unmodified binary
+# through the Guix glibc loader; see bin/install-claude.sh for details.
 # Native Windows has no bash, so just point at winget there.
 .PHONY: install-claude
 install-claude:
@@ -498,6 +499,16 @@ ifeq ("$(os)","$(OS_MAC)")
 	@# Homebrew names the formula after the command.  Linux gets it from
 	@# home/common.scm (guix) or the apt line above.
 	@command -v mr > /dev/null 2>&1 || brew install mr
+	@# starship prompt: without it .zshrc.starship falls back to a plain
+	@# prompt and nags on every shell.  Linux gets it from Guix Home (or the
+	@# curl installer above); macOS only from here.
+	@command -v starship > /dev/null 2>&1 || brew install starship
+	@# zsh completions: compinit refuses a group-writable dir in fpath or any
+	@# of its parents ("insecure directories, run compaudit") and stops to ask
+	@# on every new shell.  /opt/homebrew/share, the parent of Homebrew's
+	@# zsh-completions dir, ends up g+w whenever brew ran under a 002 umask.
+	@# This is Homebrew's documented fix; a no-op when already clean.
+	@chmod -R go-w "$$(brew --prefix)/share"
 endif
 	@echo "Skipping oh-my-zsh installation - using starship instead"
 # 2>/dev/null matters more than it looks: ifneq is evaluated at Makefile PARSE
@@ -564,11 +575,15 @@ endif
 		echo "NOTE: ~/.ipython is a directory, not a symlink. Move config to ~/dot_files/.ipython/, remove ~/.ipython, then run make set_up_links again."; \
 	fi
 
-	@if [ -t 0 ]; then \
+	@if [ -e ~/.HOME ]; then \
+		echo "Already set up for HOME (~/.HOME exists)"; \
+	elif [ -e ~/.WORK ]; then \
+		echo "Already set up for WORK (~/.WORK exists)"; \
+	elif [ -t 0 ]; then \
 		./unix_work_or_home.sh; \
 	else \
 		echo "Non-interactive mode: defaulting to HOME setup"; \
-		touch ~/.HOME && echo "See ~/.aliases for the use of this file" >> ~/.HOME && echo "You are now set up for HOME"; \
+		echo "See ~/.aliases for the use of this file" > ~/.HOME && echo "You are now set up for HOME"; \
 	fi
 
 else ifeq ($(os),$(OS_WINDOWS))
@@ -591,7 +606,7 @@ endif
 	ZSH_DIR=""; \
 	EXTRA_PATHS=""; \
 	if command -v zsh >/dev/null 2>&1; then \
-		ZSH_CMD=zsh; \
+		ZSH_CMD=$$(command -v zsh); \
 	elif [ -f ~/.guix-profile/bin/zsh ]; then \
 		ZSH_CMD=~/.guix-profile/bin/zsh; \
 		ZSH_DIR=~/.guix-profile/bin; \
@@ -607,7 +622,7 @@ endif
 			fi; \
 		done; \
 	fi; \
-	if [ -n "$$ZSH_CMD" ] && [ -f "$$ZSH_CMD" ]; then \
+	if [ -n "$$ZSH_CMD" ] && [ -x "$$ZSH_CMD" ]; then \
 		echo "Installing Emacs with zsh (found at: $$ZSH_CMD)..."; \
 		GUIX_BIN=""; \
 		if command -v guix >/dev/null 2>&1; then \
@@ -653,7 +668,7 @@ endif
 		else \
 			FINAL_PATH="$$EXTRA_PATHS:$$PATH"; \
 		fi; \
-		PATH="$$FINAL_PATH" GIT_SSL_NO_VERIFY=1 $$ZSH_CMD ./install_emacs.zsh --$(emacs_flag); \
+		PATH="$$FINAL_PATH" GIT_SSL_NO_VERIFY=1 $$ZSH_CMD ./install_emacs.zsh --$(emacs_flag) $(if $(EMACS_FORCE),--force); \
 	else \
 		echo "⚠️  zsh not available - skipping Emacs installation"; \
 		echo "   The install_emacs.zsh script requires zsh."; \
