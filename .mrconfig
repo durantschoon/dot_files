@@ -106,9 +106,24 @@ brief =
 # that cannot push) is gone.  Extra arguments reach git push:
 #   mr-push-ahead --dry-run     (.aliases wrapper: mr -d / -m pushahead)
 pushahead =
-    git rev-parse -q --verify '@{u}' >/dev/null 2>&1 || exit 0
-    [ "$(git rev-list --count '@{u}..HEAD')" -gt 0 ] || exit 0
-    git push "$@"
+    super_ahead=0
+    if git rev-parse -q --verify '@{u}' >/dev/null 2>&1 && [ "$(git rev-list --count '@{u}..HEAD')" -gt 0 ]; then
+        super_ahead=1
+    fi
+    subs=$(git submodule foreach --quiet --recursive '
+        git remote | grep -q . || exit 0
+        [ "$(git rev-list --count HEAD --not --remotes)" -gt 0 ] && echo "$displaypath"
+        true' 2>/dev/null || true)
+    [ "$super_ahead" -eq 1 ] || [ -n "$subs" ] || exit 0
+    if [ -n "$subs" ]; then
+        for sub in $subs; do
+            echo "Pushing submodule $sub"
+            git -C "$sub" push "$@"
+        done
+    fi
+    if [ "$super_ahead" -eq 1 ]; then
+        git push "$@"
+    fi
 lib =
     local_only() {
         [ ! -d "$MR_REPO" ] && return 0
@@ -189,3 +204,6 @@ checkout = git clone 'git@github.com:durantschoon/tree-sitter-idris2.git' 'tree-
 
 [Repos/ds/wedgeGA-symbols]
 checkout = git clone 'git@github.com:durantschoon/wedgeGA-symbols.git' 'wedgeGA-symbols'
+
+test_action = echo 'Hello from worktree .mrconfig'
+

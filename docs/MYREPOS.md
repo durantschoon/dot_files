@@ -69,7 +69,7 @@ up as nothing more than `M 1` (its moved pointer). So a trailing
 `sub path^N` names each submodule (recursively) whose HEAD has N commits on
 no remote, as of the last fetch; push inside that submodule. It counts
 "on no remote" rather than "ahead of upstream" so a detached submodule HEAD
-still counts. `mr-push-ahead` does not push submodules.
+still counts. `mr-push-ahead` will push these submodules as well.
 
 Colour appears only when stdout is a terminal, so `mr-brief | grep ...`
 stays plain. `-m` also drops mr's closing "finished" line; plain
