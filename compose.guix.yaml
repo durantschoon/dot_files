@@ -12,6 +12,14 @@ services:
       LC_ALL: C.utf8
       GUIX_LOCPATH: /root/.guix-profile/lib/locale
       XDG_RUNTIME_DIR: /tmp/xdg-runtime-root
+      # The Mac's gpg-agent, via the loopback socat LaunchAgent that
+      # `make setup-gpg-bridge' installs.  Port must match GPG_BRIDGE_PORT.
+      GPG_AGENT_BRIDGE: host.docker.internal:45123
+      # git signs through a wrapper that warns when the passphrase must be
+      # entered on the Mac's own screen.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: gpg.program
+      GIT_CONFIG_VALUE_0: /root/dot_files/build-aux/guix-container-gpg
     # Guix sets personality when spawning builders. Docker's default filter
     # rejects it even when a profile only links packages already in the store.
     security_opt:

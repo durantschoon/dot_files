@@ -266,6 +266,9 @@ help-text:
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
+	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
+	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
+	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
 	@echo "  make emacs-unserve - Stop the Emacs daemon"
@@ -1552,7 +1555,7 @@ else
 	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-protondrive check-protondrive
+.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-gpg-bridge check-gpg-bridge setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -1629,13 +1632,88 @@ endif
 setup-guix-container:
 	 $(GUIX_DOCKER) volume create guix-dev-home
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml up -d
-	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl openssh guile nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl openssh socat guile nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
 	 $(MAKE) check-guix-container
 
 # Create a key that belongs only to the persistent Guix container volume.  The
 # private key never comes from the host and is never checked into this repo.
 setup-guix-github-key: setup-guix-container
 	 $(GUIX_DOCKER) exec -it guix-dev /root/dot_files/build-aux/setup-guix-github-key.sh
+
+# Commit signing inside guix-dev through the Mac's gpg-agent.
+#
+# OrbStack refuses connections to a macOS Unix socket bind-mounted into a
+# container, so the socket travels as TCP instead: a LaunchAgent runs socat on
+# 127.0.0.1:$(GPG_BRIDGE_PORT) in front of the agent's restricted extra socket,
+# and build-aux/guix-container-gpg-bridge.sh turns host.docker.internal:PORT
+# back into /root/.gnupg/S.gpg-agent.  The container gets the public key and
+# ownertrust only; the secret key stays on the Mac.  Unlike the OrbStack plist,
+# this one is a template (socat's brew prefix, the socket path), so the drift
+# check compares against a fresh render.  GPG_BRIDGE_PORT must match
+# GPG_AGENT_BRIDGE in compose.guix.yaml.
+GPG_BRIDGE_LABEL     := com.durantschoon.gpg-agent-bridge
+GPG_BRIDGE_PLIST_SRC := system/launchd/$(GPG_BRIDGE_LABEL).plist
+GPG_BRIDGE_PLIST_DST := $(HOME)/Library/LaunchAgents/$(GPG_BRIDGE_LABEL).plist
+GPG_BRIDGE_PORT      := 45123
+GPG_BRIDGE_SOCAT     := $(firstword $(wildcard /opt/homebrew/bin/socat /usr/local/bin/socat))
+GPG_SIGNING_KEY      := $(shell git config -f .gitconfig user.signingkey 2>/dev/null)
+render-gpg-bridge-plist = sed -e 's|@SOCAT@|$(GPG_BRIDGE_SOCAT)|' -e 's|@PORT@|$(GPG_BRIDGE_PORT)|' \
+	  -e "s|@SOCKET@|$$(gpgconf --list-dirs agent-extra-socket)|" $(GPG_BRIDGE_PLIST_SRC)
+
+setup-gpg-bridge:
+ifneq ("$(os)","$(OS_MAC)")
+	@echo "  *** setup-gpg-bridge is mac-only (detected $(os)) ***"
+	@exit 1
+else
+	@test -n "$(GPG_BRIDGE_SOCAT)" || { echo "  *** socat not found: brew install socat ***"; exit 1; }
+	@echo "==> installing the gpg-agent bridge LaunchAgent (127.0.0.1:$(GPG_BRIDGE_PORT))"
+	@gpgconf --launch gpg-agent
+	@mkdir -p "$(HOME)/Library/LaunchAgents"
+	@$(render-gpg-bridge-plist) > $(GPG_BRIDGE_PLIST_DST)
+	@launchctl bootout gui/$$(id -u)/$(GPG_BRIDGE_LABEL) 2>/dev/null || true
+	@launchctl bootstrap gui/$$(id -u) $(GPG_BRIDGE_PLIST_DST)
+	@# First, so its no-autostart is in place before the import below runs gpg.
+	@echo "==> (re)starting the container end (the entrypoint also starts it on every container start)"
+	@$(GUIX_DOCKER) exec -d guix-dev /root/dot_files/build-aux/guix-container-gpg-bridge.sh --restart
+	@sleep 2
+	@echo "==> importing the public key $(GPG_SIGNING_KEY) and its ownertrust into guix-dev"
+	@gpg --export $(GPG_SIGNING_KEY) | $(GUIX_DOCKER) exec -i guix-dev sh -lc 'gpg --batch --quiet --import'
+	@gpg --export-ownertrust | grep "^$$(gpg --with-colons --fingerprint $(GPG_SIGNING_KEY) | awk -F: '/^fpr/{print $$10; exit}'):" \
+	  | $(GUIX_DOCKER) exec -i guix-dev sh -lc 'gpg --batch --quiet --import-ownertrust'
+	@$(MAKE) --no-print-directory check-gpg-bridge
+endif
+
+check-gpg-bridge:
+	@echo "==> gpg-agent bridge into guix-dev"
+ifneq ("$(os)","$(OS_MAC)")
+	@echo "    skipped: mac-only (detected $(os))"
+else
+	@rc=0; \
+	if [ ! -f $(GPG_BRIDGE_PLIST_DST) ]; then \
+	  rc=1; echo "    [--] LaunchAgent : not deployed; fix: make setup-gpg-bridge"; \
+	elif ! $(render-gpg-bridge-plist) | diff -u - $(GPG_BRIDGE_PLIST_DST) > /dev/null; then \
+	  rc=1; echo "    [--] LaunchAgent : deployed plist differs from a fresh render; fix: make setup-gpg-bridge"; \
+	elif ! launchctl print gui/$$(id -u)/$(GPG_BRIDGE_LABEL) 2>/dev/null | grep -q 'state = running'; then \
+	  rc=1; echo "    [--] LaunchAgent : loaded but not running; see: launchctl print gui/$$(id -u)/$(GPG_BRIDGE_LABEL)"; \
+	else \
+	  echo "    [ok] LaunchAgent : socat on 127.0.0.1:$(GPG_BRIDGE_PORT)"; \
+	fi; \
+	if ! $(GUIX_DOCKER) exec guix-dev sh -lc 'gpg-connect-agent "GETINFO version" /bye' 2>/dev/null | grep -q '^D '; then \
+	  rc=1; echo "    [--] container   : gpg in guix-dev cannot reach the Mac agent"; \
+	  echo "         fix: make setup-gpg-bridge  (or gpgconf --launch gpg-agent here, if the Mac agent is down)"; \
+	else \
+	  echo "    [ok] container   : /root/.gnupg/S.gpg-agent answers from the Mac agent"; \
+	fi; \
+	grip=$$(gpg --with-colons --with-keygrip --list-keys $(GPG_SIGNING_KEY) | awk -F: '/^grp/{print $$10; exit}'); \
+	if ! $(GUIX_DOCKER) exec guix-dev sh -lc "gpg --list-keys $(GPG_SIGNING_KEY) >/dev/null 2>&1 && gpg-connect-agent 'HAVEKEY $$grip' /bye" 2>/dev/null | grep -qx OK; then \
+	  rc=1; echo "    [--] signing key : $(GPG_SIGNING_KEY) not usable in guix-dev; fix: make setup-gpg-bridge"; \
+	else \
+	  echo "    [ok] signing key : $(GPG_SIGNING_KEY) held by the Mac agent (secret part stays on the Mac)"; \
+	fi; \
+	echo "    note: the container has its own passphrase cache and cannot choose where it is"; \
+	echo "          asked; see docs/GPG.md, \"Signing inside the guix-dev container\""; \
+	exit $$rc
+endif
 
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps

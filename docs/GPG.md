@@ -96,6 +96,49 @@ each key. (`make check-ssh-agent` still works as an alias.)
   `gpg --armor --export 0x6A2DAE7008D4F938 | pbcopy` (mac) or `| wl-copy`
   (wayland) and paste it under Settings, SSH and GPG keys.
 
+## Signing inside the guix-dev container (OrbStack)
+
+The container borrows the Mac's agent instead of holding the key:
+
+```sh
+brew install socat
+make setup-gpg-bridge     # LaunchAgent + public key in guix-dev, then check-gpg-bridge
+make check-gpg-bridge     # any time
+```
+
+OrbStack refuses connections to a macOS socket bind-mounted into a
+container, so the agent's **extra** socket (the restricted one made for
+forwarding: sign and decrypt only) travels as TCP. The Mac-side socat is a
+LaunchAgent, `com.durantschoon.gpg-agent-bridge`, listening on
+`127.0.0.1:45123` only. On the container side,
+`build-aux/guix-container-gpg-bridge.sh` turns `host.docker.internal:45123`
+back into `/root/.gnupg/S.gpg-agent`. The container entrypoint starts that
+script. It also writes `no-autostart` to the container's
+`~/.gnupg/common.conf`, because a local agent there has no key and would
+take over the socket.
+
+What the restricted socket means in practice:
+
+- **The container has its own passphrase cache.** Unlocking on the Mac does
+  not unlock the container, and the reverse is also true.
+- **The container cannot choose where it is asked.** Loopback, its tty and
+  `PINENTRY_USER_DATA` are all `Forbidden`, so the Mac agent prompts from
+  its *startup* environment. If the agent was started from the Mac's desktop,
+  that is a pinentry-mac window on the Mac screen; unlock once there and the
+  container signs for 8 h. If the agent was started, or last registered
+  (`updatestartuptty`), from an ssh shell, that environment is
+  `USE_TTY=1` plus that shell's tty. Once the tty closes, container signing
+  fails with **`Inappropriate ioctl for device`**. Fix it from the Mac's own
+  desktop: `gpgconf --kill gpg-agent && gpgconf --launch gpg-agent`, then
+  sign once in the container to get the window.
+- **git warns you.** In the container, git's `gpg.program` is
+  `build-aux/guix-container-gpg` (set through `GIT_CONFIG_*` in
+  `compose.guix.yaml`). Before it signs, it checks the container's cache
+  with `KEYINFO`. If the cache is cold, it prints `gpg: passphrase needed ...
+  unlock in the pinentry window on the Mac's own screen` to the terminal.
+- `gpg: problem with fast path key listing: Forbidden - ignored` is noise from
+  the same restriction.
+
 ## When the key expires (2027-02-08)
 
 Extend it on one machine, then re-export to the others and re-upload the
