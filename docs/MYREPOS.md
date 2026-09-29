@@ -64,6 +64,13 @@ line; then `M` modified tracked files (yellow), `?` untracked (magenta),
 characters plus `~`; long repo paths are cut from the left, keeping the
 name, so a repo on an external volume shows the tail of its resolved path.
 
+Those columns see only the superproject, where an unpushed submodule shows
+up as nothing more than `M 1` (its moved pointer). So a trailing
+`sub path^N` names each submodule (recursively) whose HEAD has N commits on
+no remote, as of the last fetch; push inside that submodule. It counts
+"on no remote" rather than "ahead of upstream" so a detached submodule HEAD
+still counts. `mr-push-ahead` does not push submodules.
+
 Colour appears only when stdout is a terminal, so `mr-brief | grep ...`
 stays plain. `-m` also drops mr's closing "finished" line; plain
 `mr -m brief` keeps mr's own header line per repo and no colour.
