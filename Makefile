@@ -259,7 +259,7 @@ help-text:
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
 	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
 	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
-	@echo "  make check-ssh-agent - Check gpg-agent is serving ssh keys to this shell, with fix hints"
+	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
 	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
 	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
 	@echo "                       + add the [include] of .gitconfig to ~/.gitconfig (see docs/GPG.md)"
@@ -1097,8 +1097,8 @@ check-gpg:
 # hour, so it would make `check' fail for reasons that are not config drift.
 # The socket test comes before any gpg-connect-agent call, because that
 # command autostarts an agent and this target must not have side effects.
-.PHONY: check-ssh-agent
-check-ssh-agent:
+.PHONY: check-ssh check-ssh-agent
+check-ssh:
 	@echo "==> gpg-agent as ssh agent"
 	@if ! command -v gpgconf >/dev/null 2>&1; then \
 	  echo "    skipped: no gpgconf here (gpg-ssh-agent layer not deployed)"; \
@@ -1143,6 +1143,10 @@ check-ssh-agent:
 	  done; \
 	fi; \
 	[ $$rc = 0 ] && echo "==> ssh agent OK" || { echo "==> ssh agent: fix the [--] lines above"; exit 1; }
+
+# The old name, kept so muscle memory and any notes still work.  `check-ssh'
+# pairs with `check-gpg'.
+check-ssh-agent: check-ssh
 
 # Offer to unlock the ssh keys that the restart-gpg-agent step of an apply just
 # locked again.  Nothing needs RE-ADDING: an agent restart only empties the
