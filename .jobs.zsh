@@ -445,8 +445,12 @@ job-note() {
   local root file; root=$(job-root); file=$root/logs/$task.notes.md
   mkdir -p -- "$root/logs" || return
   [[ -e $file ]] || _job_notes_template "$task" > "$file" || return
-  local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-vi}}})
-  (( $#ed )) || ed=(vi)
+  local default_ed="mg"
+  if command -v emacsclient >/dev/null 2>&1; then
+    default_ed="emacsclient -t"
+  fi
+  local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-$default_ed}}})
+  (( $#ed )) || ed=(${(z)default_ed})
   if [[ ${ed[1]:t} == emacsclient ]]; then
     script -q /dev/null "${ed[@]}" "$file" </dev/tty >/dev/tty || {
       print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
