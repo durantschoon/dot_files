@@ -12,7 +12,7 @@ When a reusable workflow is needed, first look for an existing global skill or w
 The repository contains a unified job runner abstraction for `tmux`, `launchd`, and `docker` to handle long-running local tasks. All three runners use the same verb convention (`-run`, `-ls`, `-status`, `-logs`).
 *   **Core Implementation:** `.jobs.zsh`
 *   **Logging utility:** `bin/job-tee`
-*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/private-tmux`
+*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/tee-smoke.zsh`, `tests/jobs/private-tmux` (`make check-jobs`); `tests/jobs/podman-live.zsh` needs a real container engine (`make check-jobs-live`)
 
 **Agent Instruction:** If the user asks about `tmux-new`, `tmux-run`, `tmux-ls`, `job-recap`, etc., load `.jobs.zsh` and skip everything else.
 
@@ -23,27 +23,29 @@ When you are stuck, blocked (a merge conflict, a question only the user can answ
 ## 2. Guix Configuration (`guix home`, `guix system`)
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
 *   **Entry points:** `Makefile` (Look at targets like `apply`, `reconfigure`, `guix-config`)
-*   **Home Layer (User prefs):** `home/base.scm`, `home/common.scm`, `home/wayland.scm`
+*   **Home Layer (User prefs):** `home/base.scm`, `home/common.scm`, `home/wayland.scm`, `home/ewm.scm` (EWM trial, `make apply-ewm`)
 *   **System Layer (Host configs):** `system/`, `system/README.md`
 *   **Manifests & Channels:** `manifests/`, `channels.scm`, `system/channels-geeeks.scm`
-*   **Documentation:** `docs/GUIX_MIGRATION_PLAN.md`
+*   **Per-directory environments:** `direnv/direnvrc` (deployed by `home/common.scm`)
+*   **Documentation:** `docs/GUIX_MIGRATION_PLAN.md`, `docs/GENERATIONS_AND_ROLLBACK.md`, `docs/EWM_TRIAL_PLAN.md`
 
 **Agent Instruction:** If asked to modify Guix package manifests, home configurations, or system configurations, stick to these files.
 
-## 3. Claude & AI Agent Tooling (`claude-*`)
+## 3. Claude & AI Agent Tooling (`agent-*`, `claude-*`, `agy-*`, `codex-*`)
 There are dedicated tools for running interactive AI sessions as background jobs.
-*   **Core Implementation:** `.claude-jobs.zsh` (defines `claude-run`, `claude-status`, etc.)
-*   **Claude Configs/Docs:** `claude/CLAUDE.md`, `claude/README.md`, `claude/agent-roles.conf`
+*   **Core Implementation:** `.agent-jobs.zsh` (built on `.jobs.zsh`; defines `agent-run ENGINE TASK`, `agent-status`, `agent-relaunch`, `agent-rm`, `agent-help`, plus the `claude-*`, `agy-*` and `codex-*` wrappers that supply ENGINE)
+*   **Claude Configs/Docs:** `claude/CLAUDE.md`, `claude/README.md`, `claude/agent-roles.conf` (`claude/` is a git submodule; empty until `git submodule update --init claude`)
 *   **Testing:** `tests/jobs/claude-smoke.zsh`
-*   **Gemini Configs:** `gemini/hooks.json`, `gemini/skills/`
+*   **Gemini Configs:** `gemini/hooks.json`, `gemini/scripts/`, `gemini/skills/`
 
-**Agent Instruction:** When modifying AI workflows or CLI commands related to `claude-`, focus heavily on `.claude-jobs.zsh`.
+**Agent Instruction:** When modifying AI workflows or CLI commands related to `agent-`, `claude-`, `agy-` or `codex-`, focus heavily on `.agent-jobs.zsh`.
 
 ## 4. Shell & Environment Baseline
 For standard shell setup not related to the background job runners:
 *   **Core Zsh:** `.zshrc`, `.zprofile`, `.aliases`, `.shared.zshenv`, `.shared.zshrc`
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
-*   **Prompt configuration:** `.zshrc.starship`
+*   **Prompt configuration:** `.zshrc.starship`, `starship/starship.toml`
+*   **Herdr config:** `herdr/config.toml` (linked by `make set_up_links`)
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`
 *   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, and the `install-gnupg` / `check-gpg` targets in `Makefile`. The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`.
 
@@ -57,3 +59,12 @@ For standard shell setup not related to the background job runners:
 
 ## 7. Text Expansion (Espanso)
 *   **Configs:** `espanso/` directory (contains `match/`, `config/`, `private/`)
+
+## 8. Cloud-Backed Directories (Proton Drive)
+*   **Scripts:** `bin/cloud-dirs.sh`, `bin/cloud-sync.sh` (Linux only), `bin/cloud-creds.sh`
+*   **Make targets:** `setup-cloud-dirs`, `check-cloud-dirs`, `cloud-sync`, `check-cloud-creds`, `cloud-creds-login`, `cloud-creds-strip`
+*   **Testing:** `tests/cloud/dirs-smoke.zsh`, `tests/cloud/creds-smoke.zsh` (`make check-cloud`)
+
+## 9. Submodules (`claude`, `espanso/private`, `private`)
+*   **Publishing a bump:** `bin/submodule-publish` (`make claude-publish`, `make submodule-publish SUBMODULE=...`); also `submodule-update`, `submodule-pull`, `submodule-push` in `Makefile`
+*   **Testing:** `tests/submodule/publish-smoke.zsh` (`make check-submodule-publish`)

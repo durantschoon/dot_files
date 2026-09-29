@@ -64,6 +64,13 @@ line; then `M` modified tracked files (yellow), `?` untracked (magenta),
 characters plus `~`; long repo paths are cut from the left, keeping the
 name, so a repo on an external volume shows the tail of its resolved path.
 
+Those columns see only the superproject, where an unpushed submodule shows
+up as nothing more than `M 1` (its moved pointer). So a trailing
+`sub path^N` names each submodule (recursively) whose HEAD has N commits on
+no remote, as of the last fetch; push inside that submodule. It counts
+"on no remote" rather than "ahead of upstream" so a detached submodule HEAD
+still counts. `mr-push-ahead` does not push submodules.
+
 Colour appears only when stdout is a terminal, so `mr-brief | grep ...`
 stays plain. `-m` also drops mr's closing "finished" line; plain
 `mr -m brief` keeps mr's own header line per repo and no colour.
@@ -171,6 +178,21 @@ skip = ! test -d /Volumes/data
 `skip = [ "$1" = push ]` skips only pushes. A per-section `skip` replaces
 the `lazy` default from `[DEFAULT]`; combine them with
 `skip = lazy || [ "$1" = push ]`.
+
+For a repo with no remote, `.mrconfig`'s `lib` defines `local_only`:
+`skip = local_only "$1"` skips it when absent (like `lazy`) and skips the
+network verbs, so `mr update` / `mr push` stay quiet while `mr status`,
+`mr diff` and `mr log` still cover it.
+
+A repo that resolves onto an external drive (`/Volumes`, `/media`,
+`/run/media`, `/mnt`, e.g. `~/Robotics` as a symlink onto the 2TB volume)
+is skipped by `offline_volume`, which the default `skip = lazy ||
+offline_volume` and `local_only` both call, unless the drive is mounted
+**and** readable from this process. Mounted alone is not enough on macOS:
+privacy settings can refuse a terminal, or a tmux server started by
+launchd, a removable volume, and every git inside then fails with
+`getcwd: ... Operation not permitted`. A section with its own `skip =`
+must add `|| offline_volume` itself.
 
 ## Reference
 

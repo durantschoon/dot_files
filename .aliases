@@ -96,12 +96,14 @@ ${B}READING mr-brief${R}
   M${YL}N${R}      modified tracked files (uncommitted)
   ?${MG}N${R}      untracked files
   S${BL}N${R}      stashes
+  sub p^${GR}N${R}  submodule p has N commits on no remote (push inside it)
   ${D}dimmed${R}  zero, nothing to see
 
 ${B}WHICH REPOS${R}
   listed + cloned here      acted on
   listed, not cloned here   skipped silently (skip = lazy); mr --force checkout clones
   no remote                 status/diff/log only; update/push skipped (local_only)
+  on an external drive      skipped unless mounted AND readable here (offline_volume)
   worktree checkouts        one section per worktree; the one holding .git has order = 5
 
 more: ~/dot_files/docs/MYREPOS.md   man mr
@@ -130,6 +132,13 @@ mr-brief() {
         repo = substr($0, 1, 42); br = substr($0, 44, 20); rest = substr($0, 65)
         ah = substr(rest, 2, 2); be = substr(rest, 6, 2); mo = substr(rest, 11, 2)
         un = substr(rest, 15, 2); st = substr(rest, 19, 2); note = substr(rest, 21)
+        # "  sub path^N ..." (unpushed submodule commits): the counts go green
+        # like ^N; the jobs note, if any, follows after two more spaces
+        if (note ~ /^  sub /) {
+            s = note; n = ""
+            if (match(s, /[^ ]  [^ ]/)) { n = substr(s, RSTART + 1); s = substr(s, 1, RSTART) }
+            gsub(/\^[0-9]+/, GR "&" R, s); note = s n
+        }
         printf "%s%s%s %s%s%s ^%s v%s  M%s ?%s S%s%s\n", B, repo, R, CY, br, R,
             num(ah, GR), num(be, RD), num(mo, YL), num(un, MG), num(st, BL), note
     }'

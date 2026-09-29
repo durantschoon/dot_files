@@ -65,7 +65,7 @@ not me. I know it exists, and choosing not to use it (yet) was deliberate:
   on. Maintaining it is maintaining a config, not a framework, and writing it
   taught the extension model that debugging *any* Guix setup (rde included)
   eventually requires.
-- **Scale doesn't demand it.** Two sessions, one user, seven layers. rde
+- **Scale doesn't demand it.** Three sessions (one an EWM trial), one user, ten layers. rde
   earns its weight when you want its feature *library* — whole desktops,
   mail stacks, dozens of curated features — not when you'd use three.
 
@@ -88,6 +88,11 @@ so the port is bounded, not a rewrite.
 | `check-channels-sync` | the install-time channel pin vs the one the system deploys |
 | `check-system-secrets` | no credentials inlined into `system/*.scm` |
 
+It also runs the read-only per-machine probes `check-tailscale`,
+`check-orbstack`, `check-protondrive`, `check-espanso-windows`,
+`check-home-ownership` and `check-cloud-dirs`; each one that does not apply to
+this platform prints a single skip line.
+
 The `system/` duplication these guard is deliberate: a host class config
 inlines what it needs so it stays evaluable by root from an installer ISO, and
 duplication that can't be removed can at least be made checkable. The *home*
@@ -99,9 +104,9 @@ entries into `home/common.scm`, removing the copies instead of checking them.
 make install-hooks   # once per clone
 ```
 
-points `core.hooksPath` at [`githooks/`](./githooks), so `check-system` also runs
-from a pre-commit hook whenever `system/`, `keyd.conf` or the `Makefile` are
-staged. It checks the staged tree rather than the working tree, so it validates
+points `core.hooksPath` at [`githooks/`](./githooks), so `check-system` and
+`check-session-coupling` also run from a pre-commit hook whenever `home/`,
+`system/`, `keyd.conf` or the `Makefile` are staged. It checks the staged tree rather than the working tree, so it validates
 what you are actually committing. `git commit --no-verify` bypasses it.
 
 ### Guix Home Note: Updating Dotfiles
@@ -158,7 +163,8 @@ make apply
 ```
 
 Bare `make` also runs `apply`. Use `make setup-native` for the traditional
-symlink setup; `make all` remains a compatibility alias for `setup-native`.
+symlink setup (it also installs Claude Code, uv and agy if missing, then runs
+`check-cloud-dirs`); `make all` remains a compatibility alias for `setup-native`.
 
 ### 2. MacOS
 
@@ -182,7 +188,7 @@ OrbStack, and selects Docker's `orbstack` context. It intentionally preserves
 contain containers, images, or volumes; those can be deleted separately after
 their contents are no longer needed.
 
-Create or reconcile the Guix container, install make/git/zsh/less/curl/openssh/guile/certificates/UTF-8 locales,
+Create or reconcile the Guix container, install make/git/zsh/less/curl/openssh/socat/guile/certificates/UTF-8 locales,
 and test a real Guix build from the Mac:
 
 ```sh
@@ -236,6 +242,12 @@ the container with `docker --context orbstack exec guix-dev ssh -T git@github.co
 The key is named `github_orbstack_guix`, is used only for `github.com`, and is
 never written to this repository. On WSL, omit `--context orbstack` from the
 test command (or use the context selected by `GUIX_DOCKER_CONTEXT`).
+
+Commit signing inside the container goes through the Mac's gpg-agent instead
+of a copied secret key: `make setup-gpg-bridge` (mac only; needs
+`brew install socat`) installs a loopback socat LaunchAgent and imports only
+the public key and its ownertrust into `guix-dev`; `make check-gpg-bridge`
+verifies it. See [`docs/GPG.md`](./docs/GPG.md).
 
 The same Compose setup works under WSL with Docker Desktop's WSL integration
 or a Docker Engine in WSL. `make setup-guix-container` selects Docker's
@@ -416,7 +428,7 @@ task's logs, in the checkout on the host that runs it:
 
 ```sh
 job-recap [TASK] [--writer NAME]   # replace logs/<task>.recap.md with stdin; prints the path
-job-note [TASK]                    # open logs/<task>.notes.md in $VISUAL/$EDITOR
+job-note [TASK]                    # open logs/<task>.notes.md in $VISUAL/$EDITOR (else emacsclient -t, else mg)
 job-note-context [TASK]            # the generated block: state, stage, latest recap, notes
 herdr-notes-sync [-q]              # push each Herdr workspace's notes headline into its sidebar row
 ```
@@ -487,7 +499,9 @@ tmux-dash                             # the row now ends in "  > waiting on revi
 job-recap --writer gemini < recap.md  # from inside the session; $JOB_TASK names it
 ```
 
-`make check-jobs` runs the end-to-end test in
+`make check-jobs` runs the `bin/job-tee` test
+[`tests/jobs/tee-smoke.zsh`](./tests/jobs/tee-smoke.zsh) (it needs none of the
+below), then the end-to-end test in
 [`tests/jobs/smoke.zsh`](./tests/jobs/smoke.zsh). It is deliberately not part
 of `make check`: it starts two tmux servers, a container and a launchd agent
 (all inside a scratch `$TMPDIR` its exit trap removes), while everything in
@@ -589,7 +603,8 @@ build is not what this verb is for. A session that comes back and dies again
 (`--continue` with no conversation to continue, for instance) is reported as
 "did NOT come back", with the log to read.
 
-`claude-run` starts `claude --permission-mode $CLAUDE_JOB_MODE PROMPT` in tmux
+`claude-run` starts `claude --permission-mode $AGENT_JOB_MODE PROMPT` (falling
+back to `$CLAUDE_JOB_MODE`, default `auto`) in tmux
 session `myproj-stage-24` at the repo root, then loads
 `local.job.myproj.stage-24` — a RunAtLoad agent that at every login recreates
 that session with `claude … --continue` unless it already exists — and
@@ -609,8 +624,10 @@ something else under someone else's) and `PROMPT` is what starts it. A repo's
 
 The shared implementation is `agent-run ENGINE TASK [PROMPT ...]`; the named
 wrappers supply the engine. Codex starts with `codex PROMPT` and recovers with
-`codex resume --last`; AGY starts with `agy` and recovers with `agy continue`.
-Set `CODEX_JOB_BIN`, `AGY_JOB_BIN`, or `AGENT_JOB_BIN` to choose an executable.
+`codex resume --last`; AGY starts with `agy -i PROMPT` and recovers with
+`agy continue`. A `cursor` engine is also accepted through the generic
+`agent-*` verbs. Set `CODEX_JOB_BIN`, `AGY_JOB_BIN`, `CURSOR_JOB_BIN`, or
+`AGENT_JOB_BIN` (Claude; `CLAUDE_JOB_BIN` still works) to choose an executable.
 
 `make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
 test: a scratch `$HOME`, a private tmux server reached only through

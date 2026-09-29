@@ -88,9 +88,10 @@ for) — it needs a human at the keyboard.
 
 ## mispipe — report the exit status of a specific pipe stage
 
-`cmd1 | cmd2` normally reports `cmd2`'s exit status; zsh users already
-get `cmd1`'s status too via `set -o pipefail` (part of the standard zsh
-setup here), which fails the pipeline if *any* stage fails. `mispipe` is
+`cmd1 | cmd2` normally reports `cmd2`'s exit status; zsh can report
+`cmd1`'s status too via `set -o pipefail` (off by default, and nothing in
+this repo's shell setup turns it on), which fails the pipeline if *any*
+stage fails. `mispipe` is
 narrower and script-oriented: it always reports the exit status of the
 *first* command specifically, which is what you want when you genuinely
 only care whether the producer succeeded and the consumer is just along

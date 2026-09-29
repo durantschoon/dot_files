@@ -39,7 +39,7 @@
 # See docs/MYREPOS.md for the longer story.
 
 [DEFAULT]
-skip = lazy
+skip = lazy || offline_volume
 # local_only: for repos with NO remote.  Skip when absent (like lazy) and
 # skip the network verbs, so `mr update' / `mr push' stay quiet while
 # `mr status', `mr diff', `mr log' still cover them.  Used as
@@ -49,7 +49,8 @@ skip = lazy
 # stripped) so the whole estate fits on one screen:
 #   Repos/ds/embodied-tamp     main        ^ 0 v 0  M10 ? 2 S 0
 # columns: repo, branch, commits ahead ^ / behind v of upstream (- = no
-# upstream), Modified tracked files, ? untracked, S stashes.
+# upstream), Modified tracked files, ? untracked, S stashes, then
+# `sub path^N' for submodules holding N commits that are on no remote.
 brief =
     branch=$(git symbolic-ref --short -q HEAD || git rev-parse --short HEAD)
     # keep the branch column aligned: cut long names to 19 chars plus `~'
@@ -65,6 +66,16 @@ brief =
     mod=$(printf '%s\n' "$st" | grep -c '^[^?]' || true)
     unt=$(printf '%s\n' "$st" | grep -c '^??' || true)
     stash=$(git stash list 2>/dev/null | wc -l | tr -d ' ')
+    # Submodules with commits on no remote, as ` path^N' each.  The columns
+    # above see only the superproject, where an unpushed submodule is just
+    # `M 1' (its moved pointer).  "On no remote" rather than "ahead of @{u}"
+    # so a detached submodule HEAD -- the usual state -- still counts; a
+    # submodule with no remotes at all is skipped.  Uses the last fetch.
+    subs=$(git submodule foreach --quiet --recursive '
+        git remote | grep -q . || exit 0
+        n=$(git rev-list --count HEAD --not --remotes)
+        [ "$n" -gt 0 ] && printf " %s^%s" "$displaypath" "$n"
+        true' 2>/dev/null || true)
     # same for the repo column, but cut from the LEFT so the repo's own name
     # survives (a repo outside ~ shows its resolved path, which is long)
     repo="${MR_REPO#$HOME/}"
@@ -81,12 +92,13 @@ brief =
             [ -n "$note" ] && break
         done
     fi
-    if [ "$ahead$behind$mod$unt$stash" != "00000" ] || [ -n "$note" ]; then
+    if [ "$ahead$behind$mod$unt$stash" != "00000" ] || [ -n "$subs$note" ]; then
         # fixed layout -- mr-brief colours by column position:
         # repo 1-42, branch 44-63, ^aa vbb  Mcc ?dd See from column 65,
-        # and the note (if any) after two spaces from column 85
-        printf '%-42s %-20s ^%2s v%2s  M%2s ?%2s S%2s%s\n' \
-            "$repo" "$branch" "$ahead" "$behind" "$mod" "$unt" "$stash" "${note:+  $note}"
+        # then `  sub path^N ...' and the note, each after two spaces
+        printf '%-42s %-20s ^%2s v%2s  M%2s ?%2s S%2s%s%s\n' \
+            "$repo" "$branch" "$ahead" "$behind" "$mod" "$unt" "$stash" \
+            "${subs:+  sub$subs}" "${note:+  $note}"
     fi
 # pushahead: `git push' only where the branch is ahead of its upstream.
 # Repos with no upstream or nothing to push exit quietly, so with -m they
@@ -100,7 +112,23 @@ pushahead =
 lib =
     local_only() {
         [ ! -d "$MR_REPO" ] && return 0
+        offline_volume && return 0
         case "$1" in update|push|fetch) return 0 ;; *) return 1 ;; esac
+    }
+    # offline_volume: skip a repo that resolves onto an external drive
+    # (/Volumes, /media, /run/media, /mnt) unless that drive is here AND
+    # usable from this process.  Mounted is not enough: macOS privacy can
+    # refuse a terminal, or a launchd-started tmux, a removable volume, and
+    # then every git in it fails with "getcwd ... Operation not permitted".
+    # A repo not resolvable at all is left to lazy.
+    offline_volume() {
+        real=$(realpath "$MR_REPO" 2>/dev/null) || return 1
+        case "$real" in
+            /Volumes/*|/media/*|/run/media/*|/mnt/*) ;;
+            *) return 1 ;;
+        esac
+        (cd "$real" && /bin/pwd && ls .) >/dev/null 2>&1 && return 1
+        return 0
     }
 # The private list and the host-only list.  `include` runs a shell command
 # and parses its output as more config, relative to this file's directory
