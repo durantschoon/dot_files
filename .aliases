@@ -103,6 +103,7 @@ ${B}WHICH REPOS${R}
   listed + cloned here      acted on
   listed, not cloned here   skipped silently (skip = lazy); mr --force checkout clones
   no remote                 status/diff/log only; update/push skipped (local_only)
+  on an external drive      skipped unless mounted AND readable here (offline_volume)
   worktree checkouts        one section per worktree; the one holding .git has order = 5
 
 more: ~/dot_files/docs/MYREPOS.md   man mr

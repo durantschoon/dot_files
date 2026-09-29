@@ -184,6 +184,16 @@ For a repo with no remote, `.mrconfig`'s `lib` defines `local_only`:
 network verbs, so `mr update` / `mr push` stay quiet while `mr status`,
 `mr diff` and `mr log` still cover it.
 
+A repo that resolves onto an external drive (`/Volumes`, `/media`,
+`/run/media`, `/mnt`, e.g. `~/Robotics` as a symlink onto the 2TB volume)
+is skipped by `offline_volume`, which the default `skip = lazy ||
+offline_volume` and `local_only` both call, unless the drive is mounted
+**and** readable from this process. Mounted alone is not enough on macOS:
+privacy settings can refuse a terminal, or a tmux server started by
+launchd, a removable volume, and every git inside then fails with
+`getcwd: ... Operation not permitted`. A section with its own `skip =`
+must add `|| offline_volume` itself.
+
 ## Reference
 
 - `man mr` covers the rest: `-j` parallelism, `-q`, `-i` (interactive on
