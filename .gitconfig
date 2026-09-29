@@ -35,3 +35,6 @@
 	alias-sdiff = !git diff && git submodule foreach 'git diff'
 	alias-spush = push --recurse-submodules=on-demand
 	alias-supdate = submodule update --remote --merge
+[protocol "rad"]
+	allow = always
+
