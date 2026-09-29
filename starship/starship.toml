@@ -29,3 +29,6 @@ symbol = " "   # nf-oct-package
 
 [python]
 symbol = " "   # nf-dev-python
+
+[hostname]
+ssh_only = false
