@@ -9,6 +9,9 @@ export XDG_RUNTIME_DIR="$runtime_dir"
 # Only guix-dev may run a daemon against these volumes. A killed container
 # can leave its Unix socket behind; no process survives container recreation.
 rm -f /var/guix/daemon-socket/socket
+# Commit signing through the Mac's gpg-agent (make setup-gpg-bridge); a no-op
+# with a message on stderr until socat is in the profile.
+/root/dot_files/build-aux/guix-container-gpg-bridge.sh &
 exec /root/.config/guix/current/bin/guix-daemon \
     --disable-chroot --build-users-group=guixbuild \
     --substitute-urls='https://ci.guix.gnu.org https://bordeaux.guix.gnu.org'

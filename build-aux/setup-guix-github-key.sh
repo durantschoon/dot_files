@@ -15,8 +15,11 @@ chmod 600 "$key"
 chmod 644 "$key.pub"
 
 config=/root/.ssh/config
-if [ ! -f "$config" ] || ! grep -Fq 'github_orbstack_guix' "$config"; then
-    printf '%s\n' 'Host github.com' "  IdentityFile $key" '  IdentitiesOnly yes' >"$config"
+# The checkout is bind-mounted from the Mac, whose origin uses the host alias
+# github.com-ds (see .mrconfig), so the container must resolve that alias too.
+if [ ! -f "$config" ] || ! grep -Fq 'github.com-ds' "$config"; then
+    printf '%s\n' 'Host github.com github.com-ds' '  HostName github.com' \
+        "  IdentityFile $key" '  IdentitiesOnly yes' >"$config"
     chmod 600 "$config"
 fi
 

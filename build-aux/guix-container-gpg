@@ -1,0 +1,42 @@
+#!/bin/sh
+# git's gpg.program inside guix-dev (GIT_CONFIG_* in compose.guix.yaml): warn
+# before a signature that will need the passphrase, then run the real gpg.
+#
+# The container signs through the Mac agent's restricted extra socket
+# (build-aux/guix-container-gpg-bridge.sh), which has its own passphrase cache
+# and may not prompt here: the Mac agent asks on the Mac's own screen instead.
+# Without this note a cold cache looks like a hung `git commit' (the window is
+# waiting on a display you cannot see) or an unexplained "Inappropriate ioctl
+# for device" (the agent's startup tty was an ssh login that has since closed).
+#
+# KEYINFO is allowed on the extra socket; field 7 is "1" when the key's
+# passphrase is cached for restricted clients.  Anything unexpected stays quiet.
+
+signing=
+for arg in "$@"; do
+    case "$arg" in
+        --sign|--detach-sign|--clearsign|--clear-sign|-*[bs]*) signing=1 ;;
+    esac
+done
+
+if [ -n "$signing" ]; then
+    key=$(git config user.signingkey 2>/dev/null)
+    grip=$(gpg --with-colons --with-keygrip --list-keys ${key:+"$key"} 2>/dev/null |
+           awk -F: '/^grp/{print $10; exit}')
+    cached=$(gpg-connect-agent --no-autostart "KEYINFO $grip" /bye 2>/dev/null |
+             awk '$2 == "KEYINFO" {print $7}')
+    if [ -n "$grip" ] && [ "$cached" = - ]; then
+        # git captures gpg's stderr and shows it only on failure, so write to
+        # the terminal directly while the prompt is pending.
+        # (Probe in a subshell: a failed redirection on exec ends dash.)
+        if (exec 3>/dev/tty) 2>/dev/null; then exec 3>/dev/tty; else exec 3>&2; fi
+        cat >&3 <<'EOF'
+gpg: passphrase needed.  The container cannot prompt here: unlock in the
+     pinentry window on the Mac's own screen (once covers 8 h).  Only over
+     ssh?  This will fail ("Inappropriate ioctl for device"); do it at the
+     Mac.  docs/GPG.md, "Signing inside the guix-dev container".
+EOF
+    fi
+fi
+
+exec gpg "$@"
