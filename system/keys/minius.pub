@@ -1,0 +1,4 @@
+# minius (durant@minius, ed25519) -- durant's entire SSH allowlist on geeeks.
+# See the openssh-service-type block in system/geeeks.scm.  Public half only;
+# the private key never leaves minius.  Fetched from ~/.ssh/id_ed25519_ds.pub.
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPKi5+6UngkpToHHgDfy5PXFl7wOYuhVE7bUhSfw/5MN durant@minius

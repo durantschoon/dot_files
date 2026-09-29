@@ -63,6 +63,7 @@
                                        ;elogind-service-type, elogind-configuration
              (gnu services linux)      ;kernel-module-loader-service-type
              (gnu services shepherd)   ;shepherd-service, shepherd-root-service-type
+             (gnu services ssh)        ;openssh-service-type, openssh-configuration
              (gnu system accounts)     ;subid-range, for rootless Podman
              (gnu system nss)
              (guix build-system copy)  ;copy-build-system, for the tailscale tarball
@@ -525,6 +526,48 @@ leftcontrol = capslock
                   (rootless-podman-configuration
                    (subuids (list (subid-range (name "durant"))))
                    (subgids (list (subid-range (name "durant"))))))
+
+         ;; sshd, for reaching this machine from minius.
+         ;;
+         ;; This is a fresh (service ...) rather than a modify-services clause:
+         ;; %desktop-services does NOT carry openssh-service-type (unlike
+         ;; NetworkManager/elogind/gdm/udev, which it does -- see the note above
+         ;; the %desktop-services expression below), so declaring it here is the
+         ;; only instance and cannot collide.
+         ;;
+         ;; Both authentication routes a default sshd would accept are shut off,
+         ;; leaving exactly one way in -- durant, by key:
+         ;;
+         ;;   permit-root-login        defaults to #t in openssh-configuration.
+         ;;                            root has no business being an SSH identity
+         ;;                            here; `sudo' after a durant login is the
+         ;;                            path to root.
+         ;;   password-authentication? defaults to #t.  With it off, a stolen or
+         ;;                            guessed password is not a login, and the
+         ;;                            internet-facing brute-force traffic that
+         ;;                            every sshd sees has nothing to chew on.
+         ;;
+         ;; authorized-keys is an alist of (USER GEXP ...), and the service
+         ;; writes each entry to /etc/ssh/authorized_keys.d/USER.  That directory
+         ;; is fully declarative: a key pasted into ~/.ssh/authorized_keys by
+         ;; hand is NOT consulted, so minius.pub below is the whole allowlist.
+         ;;
+         ;; local-file resolves a relative path against the directory of the .scm
+         ;; file it appears in, not the caller's cwd -- so this is
+         ;; system/keys/minius.pub, and `guix system reconfigure' finds it the
+         ;; same way from the repo root or from anywhere else.
+         ;;
+         ;; CAUTION when changing any of this: with passwords off and root off,
+         ;; a wrong or stale minius.pub means no SSH login at all, and the only
+         ;; remaining way in is the physical console.  Keep a console session
+         ;; open across the reconfigure that first applies it, and verify the new
+         ;; key from a SECOND connection before closing the one you have.
+         (service openssh-service-type
+                  (openssh-configuration
+                   (permit-root-login #f)
+                   (password-authentication? #f)
+                   (authorized-keys
+                    `(("durant" ,(local-file "keys/minius.pub"))))))
 
          ;; keyd, as a SYSTEM service.
          ;;
