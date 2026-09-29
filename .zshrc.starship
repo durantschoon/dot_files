@@ -1,8 +1,11 @@
 # -*- mode: shell-script -*-
 
-# Set umask for better file permissions (group-writable)
-# This helps when working as root in Docker containers with mounted volumes
-umask 002
+# umask 002 (group-writable files) helps when working as root in Docker
+# containers with mounted volumes.  Not on macOS: there it makes every
+# directory Homebrew creates group-writable, and compinit then refuses the
+# completion dirs under /opt/homebrew/share ("insecure directories") on every
+# new shell.  macOS keeps the default 022.
+[[ "$OSTYPE" == darwin* ]] || umask 002
 
 # Custom completion function path (must precede compinit so completions are indexed)
 mkdir -p ~/.zfunc
@@ -17,9 +20,26 @@ EOF
 fi
 fpath=(~/.zsh ~/.zfunc $fpath)
 
-# Enable completion system
-autoload -Uz compinit
-compinit
+# Enable completion system.
+#
+# Plain `compinit' stops to ask "Ignore insecure directories and continue?"
+# whenever compaudit dislikes a dir in fpath or one of its PARENTS -- on macOS
+# typically a group-writable /opt/homebrew/share, the parent of Homebrew's
+# zsh-completions dir.  Homebrew's own fix is `chmod -R go-w $(brew
+# --prefix)/share'; `make set_up_links' runs it.  A new shell must never block
+# on that question, so audit first: if something is insecure, say what and how
+# to fix it, then load with -i, which skips the insecure dirs instead of asking.
+# ZSH_DISABLE_COMPFIX in .mac.zshenv does not help here -- oh-my-zsh reads
+# it, compinit does not.  compaudit lists the dirs on stdout, header on stderr.
+autoload -Uz compinit compaudit
+if _insecure_dirs=$(compaudit 2>/dev/null); [[ -z "$_insecure_dirs" ]]; then
+    compinit
+else
+    print -u2 "compinit: skipping insecure completion dirs: ${(f)_insecure_dirs}"
+    print -u2 "          fix: chmod -R go-w ${(f)_insecure_dirs}   (then open a new shell)"
+    compinit -i
+fi
+unset _insecure_dirs
 
 # History configuration
 HISTFILE=~/.zsh_history
@@ -70,7 +90,11 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 if command -v starship >/dev/null 2>&1; then
     eval "$(starship init zsh)"
 else
-    echo "Starship not found. Install with: guix install starship"
+    if [[ "$OSTYPE" == darwin* ]]; then
+        echo "Starship not found. Install with: brew install starship  (make set_up_links does this)"
+    else
+        echo "Starship not found. Install with: guix install starship"
+    fi
     # Fallback prompt
     PROMPT='%n@%m %2~ %# '
 fi
