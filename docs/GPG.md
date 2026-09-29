@@ -34,22 +34,40 @@ signing: `git commit --no-gpg-sign`.
    - mac: `brew install gnupg pinentry-mac`
    - linux (guix): nothing; `gnupg` and `pinentry-gnome3` come from the
      home layers with `make apply`.
-2. Bring the key over. On a machine that already has it:
+2. Bring the key over. If the NEW machine can ssh to a machine that has it
+   (Tailscale makes this the common case), stream it -- the key then never
+   touches the new machine's disk outside the keyring, and ownertrust needs
+   no file at all:
+
+   ```sh
+   # 1. the EXPORT needs a pinentry, and pinentry needs a terminal, so a
+   #    plain `ssh src 'gpg --export...'` dies with "Inappropriate ioctl for
+   #    device".  Export to a file on the source, from a real terminal:
+   ssh -t <src> 'umask 077; gpg --export-secret-keys --armor 0x6A2DAE7008D4F938 > ~/gpg-xfer.asc'
+
+   # 2. stream it into the keyring and delete the source copy in one go:
+   ssh <src> 'cat ~/gpg-xfer.asc; rm ~/gpg-xfer.asc' | gpg --import
+   ssh <src> 'gpg --export-ownertrust' | gpg --import-ownertrust
+   ```
+
+   (Worked end to end minius -> geeeks, 2026-09-28.)  With no ssh path
+   between the machines, fall back to two files moved by USB stick --
+   **not** through a repo, chat or cloud drive:
 
    ```sh
    gpg --export-secret-keys --armor 0x6A2DAE7008D4F938 > ~/gpg-secret.asc
    gpg --export-ownertrust > ~/gpg-ownertrust.txt
+   # ...move, import as above, then on both machines:
+   command rm ~/gpg-secret.asc ~/gpg-ownertrust.txt
    ```
 
-   Move both files with `scp`, a USB stick or Tailscale, **not** through a
-   repo, chat or cloud drive. The secret export is still protected by the
-   passphrase, but treat it like the key. Then on the new machine:
-
-   ```sh
-   gpg --import ~/gpg-secret.asc
-   gpg --import-ownertrust ~/gpg-ownertrust.txt
-   command rm -P ~/gpg-secret.asc ~/gpg-ownertrust.txt   # and on the source machine
-   ```
+   The export is still passphrase-protected, but treat it like the key.  And
+   be honest about what `rm` does: it unlinks, it does not erase -- on APFS
+   and every journalling/CoW filesystem the blocks can survive in free space
+   or snapshots.  (An earlier revision said `rm -P`; that flag is BSD-only
+   -- GNU rm rejects it -- and even on a Mac it cannot overwrite what a
+   snapshot already holds.)  If a copy may have rested where you cannot
+   account for it, the real remedy is changing the key's passphrase.
 
    If ownertrust was not moved, mark the key as yours so gpg stops warning
    about it: `gpg --edit-key 0x6A2DAE7008D4F938`, then `trust`, `5`, `save`.
@@ -71,8 +89,9 @@ signing: `git commit --no-gpg-sign`.
    agent, which is exactly what `git commit` does.
 
 Optional, once: if gpg-agent should also serve ssh keys on this machine,
-`ssh-add ~/.ssh/id_ed25519` imports them and `make check-ssh` shows the
-state: the `ssh-add -l` of the gpg world, with the unlocked/locked state of
+`ssh-add ~/.ssh/<your key>` imports them and `make check-ssh` shows the
+state (there is no one canonical key name -- minius, for one, has
+`id_ed25519_ds`): the `ssh-add -l` of the gpg world, with the unlocked/locked state of
 each key. (`make check-ssh-agent` still works as an alias.)
 
 ## Day to day
