@@ -10,7 +10,8 @@ story: what is tracked, how a new machine gets the key, and what to do when
 |------------------------------|--------------------------------|--------------------------------|--------------------------------------------------|
 | gpg CLI options              | `gnupg/gpg.conf`               | `~/.gnupg/gpg.conf`            | `make install-gnupg` (symlink, both OSes)        |
 | keyserver                    | `gnupg/dirmngr.conf`           | `~/.gnupg/dirmngr.conf`        | `make install-gnupg` (symlink, both OSes)        |
-| agent: pinentry + cache TTLs | `gnupg/gpg-agent.mac.conf`     | `~/.gnupg/gpg-agent.conf`      | mac: `make install-gnupg` renders `@BREW_PREFIX@` |
+| agent: pinentry + cache TTLs | `gnupg/gpg-agent.mac.conf`     | `~/.gnupg/gpg-agent.conf`      | mac: `make install-gnupg` renders `@DOTFILES@`   |
+| mac pinentry chooser         | `bin/pinentry-auto`            | called by gpg-agent            | pinentry-mac window, or curses over ssh          |
 |                              | `%gpg-ssh-agent-layer`, `home/common.scm` | same                | linux: `make apply` (guix home)                   |
 | git signing settings         | `.gitconfig`                   | `~/.gitconfig`                 | linux: store symlink via guix home; mac: `[include]` added by `make install-gnupg` |
 | `GPG_TTY`                    | `.zshrc.starship`, `.zshrc`    | every interactive shell        | already sourced by `make set_up_links`           |
@@ -81,6 +82,14 @@ the state.
   unlock keeps signing.
 - **Commits from Emacs / magit** go through the same agent, so the mac
   pinentry-mac window or the GNOME prompter appears. No `GPG_TTY` games.
+- **Over ssh into a Mac** the prompt comes to your terminal, not to the
+  Mac's screen: the shell exports `PINENTRY_USER_DATA=USE_TTY=1` when
+  `SSH_CONNECTION` is set, and `bin/pinentry-auto` (the agent's pinentry)
+  runs pinentry-curses for such requests. The agent is shared, so a
+  passphrase entered over ssh is cached for local commits too. Over ssh into
+  a Linux box pinentry-gnome3 may still prompt on the desktop if a session
+  is logged in there; run `gpg-connect-agent updatestartuptty /bye` first
+  or unlock from the console.
 - **Verifying**: `git log --show-signature -1`, or `git verify-commit HEAD`.
 - **GitHub / Codeberg** need the public key uploaded once per key change:
   `gpg --armor --export 0x6A2DAE7008D4F938 | pbcopy` (mac) or `| wl-copy`
@@ -108,6 +117,11 @@ messages behind the usual failures:
   collected, `make apply` (or `make restart-gpg-agent`) fixes it. Inside a
   background job with no terminal the same message means the passphrase
   cache had expired; unlock from a shell (`make check-gpg`) and retry.
+- **Hangs after "signing a test message"** or on `git commit`, and you are
+  ssh'ed in. A pinentry-mac window opened on the Mac's own display. Ctrl-C,
+  `gpgconf --kill gpg-agent` to dismiss it, then open a new shell (or
+  `export PINENTRY_USER_DATA=USE_TTY=1`) and retry. `make check-gpg` now
+  checks for this before signing.
 - **`gpg failed to sign the data`** from git with nothing else. Run
   `echo x | gpg --sign -o /dev/null` to see the real gpg error, or
   `GIT_TRACE=1 git commit` to see which gpg git ran. A stale

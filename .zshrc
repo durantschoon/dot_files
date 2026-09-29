@@ -288,6 +288,11 @@ export HISTCONTROL=ignorespace:ignoredups
 
 # GPG stuff, works on mac anyway
 export GPG_TTY=$(tty)
+# Over ssh, prompt in this terminal rather than a pinentry-mac window on the
+# Mac's screen; bin/pinentry-auto reads this.  Same block as .zshrc.starship.
+if [[ -n "$SSH_CONNECTION" ]]; then
+    export PINENTRY_USER_DATA=USE_TTY=1
+fi
 
 ################################################################################
 # Don't put anything below this line except for profiling

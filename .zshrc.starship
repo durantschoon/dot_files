@@ -78,6 +78,15 @@ fi
 # GPG configuration
 export GPG_TTY=$(tty)
 
+# Over ssh, ask for the passphrase in THIS terminal.  gpg forwards
+# PINENTRY_USER_DATA to the pinentry that gpg-agent launches; on macOS that
+# is bin/pinentry-auto, which then runs pinentry-curses instead of opening a
+# pinentry-mac window on the Mac's own screen (invisible from here, so the
+# commit would hang).  On Linux pinentry-gnome3 ignores the variable.
+if [[ -n "$SSH_CONNECTION" ]]; then
+    export PINENTRY_USER_DATA=USE_TTY=1
+fi
+
 # Tell gpg-agent which terminal to prompt on for SSH.  GPG_TTY above only
 # reaches gpg-agent from gpg itself; ssh never passes it, so for a `git push'
 # the agent uses the terminal last registered by updatestartuptty.  Where there
