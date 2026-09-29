@@ -733,6 +733,45 @@ call, so extensions never collide; only genuine double ownership does."
                               (error "failed to clear GNOME AC suspend timeout")) ;[session]
                             (format #t "power: automatic suspend on AC disabled; battery policy unchanged~%"))))))))
 
+;; console-font: GNOME Console (kgx) has no per-profile font setting; it
+;; renders in the system monospace font, so that key is what puts
+;; CaskaydiaCove (the ligature-keeping cut -- CaskaydiaMono is the same face
+;; with ligatures removed) in the terminal.  The font files come from
+;; font-caskaydia-cove-nerd in %dotfiles-layer; this layer only selects them.
+;; dconf state lives in the user session, not in any file guix home can
+;; write, hence gsettings at activation, as in %power-layer.
+;;
+;; Verified by reading the key back, not by exit status: `gsettings set'
+;; exits 0 even when it cannot reach dconf -- measured 2026-09-28, it prints
+;; a dconf-WARNING to stderr and returns success -- so the exit code proves
+;; nothing.  And unlike %power-layer this never errors: a font is not worth
+;; aborting a reconfigure over, so the failure announces itself and moves on.
+(define %console-font-layer
+  (layer
+   #:name 'console-font
+   #:synopsis "select CaskaydiaCove Nerd Font as the system monospace font"
+   #:requires '(has-gsettings?)                                      ;[session]
+   #:services
+   (lambda (session)
+     (list
+      (simple-service
+       'console-font-activation home-activation-service-type
+       #~(begin
+           (use-modules (ice-9 format) (ice-9 popen) (ice-9 rdelim))
+           (let ((gsettings (string-append #$glib:bin "/bin/gsettings")) ;[session]
+                 (want "'CaskaydiaCove Nerd Font 12'"))
+             (system* gsettings "set" "org.gnome.desktop.interface"
+                      "monospace-font-name" "CaskaydiaCove Nerd Font 12")
+             (let* ((port (open-input-pipe
+                           (string-append
+                            gsettings
+                            " get org.gnome.desktop.interface monospace-font-name")))
+                    (got (read-line port)))
+               (close-pipe port)
+               (if (and (string? got) (string=? got want))
+                   (format #t "console-font: monospace-font-name is ~a~%" want)
+                   (format #t "console-font: could not set monospace-font-name (no session bus?); run by hand:~%  gsettings set org.gnome.desktop.interface monospace-font-name ~s~%" "CaskaydiaCove Nerd Font 12"))))))))))
+
 ;; dotfiles: baseline packages and the core dotfile symlinks.  Owns the
 ;; home-files instance; other layers extend it via simple-service.
 (define %dotfiles-layer
@@ -1288,6 +1327,7 @@ call, so extensions never collide; only genuine double ownership does."
 ;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
 (define %default-layers
   (list %power-layer
+        %console-font-layer
         %dotfiles-layer
         %zsh-layer
         %gpg-ssh-agent-layer
