@@ -28,8 +28,8 @@ WHICH_CMD := which
 # starship/starship.toml).  On Linux Guix Home installs it (the
 # font-caskaydia-cove-nerd package in home/common.scm); only macOS installs it
 # here.  Under WSL it belongs to Windows, which draws the terminal.
-NERD_FONT := CaskaydiaCove Nerd Font Mono
-NERD_FONT_CASK := font-caskaydia-cove-nerd-font
+NERD_FONT := Cascadia Code NF
+NERD_FONT_CASK := font-cascadia-code-nf
 
 ifeq ($(OS),Windows_NT)
 	os := $(OS_WINDOWS)
