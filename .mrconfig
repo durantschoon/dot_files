@@ -126,12 +126,12 @@ pushahead =
         for sub in $subs; do
             # Make the output bold cyan
             printf '\033[1;36mPushing submodule %s\033[0m\n' "$sub"
-            [ "$dry_run" -eq 1 ] || git -C "$sub" pull
+            [ "$dry_run" -eq 1 ] || git -C "$sub" pull --rebase --autostash
             git -C "$sub" push "$@"
         done
     fi
     if [ "$super_ahead" -eq 1 ]; then
-        [ "$dry_run" -eq 1 ] || git pull
+        [ "$dry_run" -eq 1 ] || git pull --rebase --autostash
         git push "$@"
     fi
 lib =
