@@ -775,6 +775,49 @@ leftcontrol = capslock
                  ;; -- tailscale0 is an additional interface, not a replacement.
                  (auto-start? #t))))
 
+         ;; Tailscale SSH, declared rather than remembered.
+         ;;
+         ;; This machine is reachable over Tailscale SSH today, but ONLY because
+         ;; somebody once ran `tailscale up --ssh' by hand.  That is a node
+         ;; PREFERENCE, not a daemon flag -- tailscaled has no --ssh -- so it
+         ;; lives in /var/lib/tailscale/tailscaled.state and in nothing this repo
+         ;; tracks.  A rebuilt geeeks would therefore come up with no Tailscale
+         ;; SSH and no hint in the config as to why, which is exactly the kind of
+         ;; drift the openssh service above exists to avoid.
+         ;;
+         ;; One-shot, because setting a preference is not a daemon: shepherd runs
+         ;; it once per boot, it converges, and it stays stopped.  Re-running it
+         ;; is harmless; `set --ssh' on a node that already has it is a no-op,
+         ;; which is what makes this safe to apply on every reconfigure.
+         ;;
+         ;; The retry loop is for ordering, not flakiness.  `requirement
+         ;; (tailscaled)' guarantees the daemon was STARTED, not that it has
+         ;; finished creating its socket, and the CLI talks to that socket -- so
+         ;; a first attempt can lose the race on a cold boot.  Failure is
+         ;; deliberately not fatal: Tailscale SSH is the convenience path, the
+         ;; openssh service above is the one that must not silently depend on the
+         ;; control plane being reachable.
+         (simple-service
+          'tailscale-ssh shepherd-root-service-type
+          (list (shepherd-service
+                 (provision '(tailscale-ssh))
+                 (requirement '(tailscaled))
+                 (documentation "Enable Tailscale SSH on this node.")
+                 (one-shot? #t)
+                 (start
+                  #~(lambda _
+                      (let loop ((tries 10))
+                        (if (zero? (system* #$(file-append tailscale-bin "/bin/tailscale")
+                                            "--socket=/var/run/tailscale/tailscaled.sock"
+                                            "set" "--ssh"))
+                            #t
+                            (if (> tries 0)
+                                (begin (sleep 2) (loop (- tries 1)))
+                                ;; #t on purpose: see the note above about not
+                                ;; failing the boot over the convenience path.
+                                #t)))))
+                 (auto-start? #t))))
+
          ;; The FHS dynamic loader, as one symlink.
          ;;
          ;; Guix has no /lib64, so a generic x86-64 Linux binary cannot be
