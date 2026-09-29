@@ -45,6 +45,7 @@ For standard shell setup not related to the background job runners:
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
 *   **Prompt configuration:** `.zshrc.starship`
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`
+*   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, and the `install-gnupg` / `check-gpg` targets in `Makefile`. The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`.
 
 ## 5. Emacs Integration
 *   **Installer script:** `install_emacs.zsh`

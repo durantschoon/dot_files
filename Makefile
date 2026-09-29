@@ -261,6 +261,10 @@ help-text:
 	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
 	@echo "  make check-ssh-agent - Check gpg-agent is serving ssh keys to this shell, with fix hints"
 	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
+	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
+	@echo "                       + add the [include] of .gitconfig to ~/.gitconfig (see docs/GPG.md)"
+	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
+	@echo "                       (not part of 'make check': may prompt for the passphrase)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
@@ -897,6 +901,161 @@ restart-gpg-agent:
 	@echo "==> restarting gpg-agent onto the new config"
 	@herd restart gpg-agent 2>/dev/null \
 	  || echo "    (skipped: no user shepherd -- the agent will pick this up at next login)"
+
+# Put the tracked gnupg config in place on this machine.  Three parts, each
+# idempotent, so it is safe to re-run after a pull:
+#   1. ~/.gnupg/gpg.conf and dirmngr.conf -> symlinks to gnupg/ here.  A
+#      pre-existing real file is moved to *.bak-<date>, never overwritten.
+#   2. gpg-agent.conf: on macOS rendered from gnupg/gpg-agent.mac.conf with
+#      `brew --prefix' filled in (pinentry-mac installed first if missing),
+#      then the running agent is killed so it re-reads the file -- which
+#      also drops any cached passphrase.  On Linux guix home owns this file
+#      (the gpg-ssh-agent layer), so it is left alone.
+#   3. ~/.gitconfig on macOS: prepend `[include] path = ~/dot_files/.gitconfig'
+#      so the tracked config (signing key, gpgsign) applies here too, with
+#      local settings later in the file still winning.  The old hard-coded
+#      signing keys (commit.gpgsign=false, gpg.program=/usr/local/bin/gpg,
+#      ...) are removed because they would otherwise override the include.
+#      On Linux ~/.gitconfig IS the tracked file (a store symlink), so skip.
+# The secret key itself is never touched: see docs/GPG.md for moving it.
+.PHONY: install-gnupg
+install-gnupg:
+	@echo "==> gnupg config"
+	@mkdir -p "$$HOME/.gnupg" && chmod 700 "$$HOME/.gnupg"
+	@for f in gpg.conf dirmngr.conf; do \
+	  dst="$$HOME/.gnupg/$$f"; src="$(CURDIR)/gnupg/$$f"; \
+	  if [ -L "$$dst" ] && [ "$$(readlink "$$dst")" = "$$src" ]; then \
+	    echo "    [ok] $$f already linked"; continue; \
+	  fi; \
+	  if [ -e "$$dst" ] && [ ! -L "$$dst" ]; then \
+	    mv "$$dst" "$$dst.bak-$$(date +%Y%m%d)"; \
+	    echo "    moved old $$f to $$f.bak-$$(date +%Y%m%d)"; \
+	  fi; \
+	  ln -sfn "$$src" "$$dst" && echo "    linked $$f"; \
+	done
+ifeq ($(os),$(OS_MAC))
+	@prefix=$$(brew --prefix 2>/dev/null); \
+	if [ -z "$$prefix" ]; then echo "    ERROR: brew not found; install Homebrew first"; exit 1; fi; \
+	command -v gpg >/dev/null 2>&1 || brew install gnupg; \
+	[ -x "$$prefix/bin/pinentry-mac" ] || brew install pinentry-mac; \
+	dst="$$HOME/.gnupg/gpg-agent.conf"; \
+	rendered=$$(sed "s|@BREW_PREFIX@|$$prefix|g" "$(CURDIR)/gnupg/gpg-agent.mac.conf"); \
+	if [ -e "$$dst" ] && [ "$$(cat "$$dst")" = "$$rendered" ]; then \
+	  echo "    [ok] gpg-agent.conf already current"; \
+	else \
+	  [ -e "$$dst" ] && cp "$$dst" "$$dst.bak-$$(date +%Y%m%d)" && echo "    backed up gpg-agent.conf"; \
+	  printf '%s\n' "$$rendered" > "$$dst" && chmod 600 "$$dst"; \
+	  echo "    rendered gpg-agent.conf (pinentry $$prefix/bin/pinentry-mac)"; \
+	  gpgconf --kill gpg-agent 2>/dev/null && echo "    restarted gpg-agent (passphrase cache cleared)"; \
+	fi
+	@gc="$$HOME/.gitconfig"; inc="$(CURDIR)/.gitconfig"; \
+	[ -e "$$gc" ] || touch "$$gc"; \
+	if [ -L "$$gc" ]; then \
+	  echo "    [ok] ~/.gitconfig is a symlink; not touching it"; \
+	elif grep -qF "path = $$inc" "$$gc" || grep -qF 'path = ~/dot_files/.gitconfig' "$$gc"; then \
+	  echo "    [ok] ~/.gitconfig already includes the tracked .gitconfig"; \
+	else \
+	  cp "$$gc" "$$gc.bak-$$(date +%Y%m%d)"; \
+	  for k in commit.gpgsign tag.gpgsign gpg.program user.signingkey; do \
+	    git config --global --unset-all "$$k" 2>/dev/null && echo "    removed local $$k (now comes from the include)"; \
+	  done; \
+	  { printf '[include]\n\tpath = ~/dot_files/.gitconfig\n'; cat "$$gc"; } > "$$gc.tmp" \
+	    && mv "$$gc.tmp" "$$gc"; \
+	  echo "    prepended [include] path = ~/dot_files/.gitconfig to ~/.gitconfig (backup: .bak-$$(date +%Y%m%d))"; \
+	fi
+else
+	@echo "    gpg-agent.conf and ~/.gitconfig are managed by guix home here: make apply"
+endif
+	@echo "==> gnupg config done; now: make check-gpg"
+
+# Can `git commit' sign on THIS machine?  Walks the chain in the order it
+# fails in practice and prints the fix at the first broken link:
+#   1. a gpg on PATH (git runs `gpg' unless gpg.program overrides it)
+#   2. git knows which key to sign with (user.signingkey)
+#   3. the SECRET half of that key is in this machine's keyring, and when it
+#      expires -- the usual silent failure a year after setting up a machine
+#   4. the pinentry gpg-agent.conf names exists (macOS: pinentry-mac; Linux:
+#      the store path, which guix gc can remove -- see restart-gpg-agent)
+#   5. commit.gpgsign is on, so this repo's commits actually get signed
+#   6. a real signature, through the agent (only from a terminal, since it
+#      may prompt; a background job skips this step)
+# Deliberately NOT a prerequisite of `check': step 6 can prompt, and the
+# answer depends on this machine's keyring rather than on the repo.
+.PHONY: check-gpg
+check-gpg:
+	@echo "==> gpg commit signing"
+	@rc=0; \
+	if ! command -v gpg >/dev/null 2>&1; then \
+	  echo "    [--] gpg      : not on PATH"; \
+	  echo "         fix: brew install gnupg   (mac)  /  make apply  (guix: gnupg is in the profile)"; \
+	  exit 1; \
+	fi; \
+	echo "    [ok] gpg      : $$(command -v gpg) ($$(gpg --version | head -1 | awk '{print $$3}'))"; \
+	prog=$$(git config --get gpg.program); \
+	if [ -n "$$prog" ] && ! command -v "$$prog" >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] gpg.program = $$prog does not exist"; \
+	  echo "         fix: git config --global --unset gpg.program   (git then uses gpg from PATH)"; \
+	fi; \
+	key=$$(git config --get user.signingkey); \
+	if [ -z "$$key" ]; then \
+	  echo "    [--] key      : user.signingkey is not set"; \
+	  echo "         fix: make install-gnupg   (mac: adds the include of .gitconfig)  /  make apply  (linux)"; \
+	  exit 1; \
+	fi; \
+	echo "    [ok] key      : user.signingkey = $$key"; \
+	sec=$$(gpg --batch --with-colons --list-secret-keys "$$key" 2>/dev/null | grep '^sec:' | head -1); \
+	if [ -z "$$sec" ]; then \
+	  echo "    [--] secret   : no secret key for $$key in $$HOME/.gnupg"; \
+	  echo "         fix: import it from a machine that has it -- docs/GPG.md, \"New machine\""; \
+	  exit 1; \
+	fi; \
+	exp=$$(echo "$$sec" | cut -d: -f7); now=$$(date +%s); \
+	if [ -z "$$exp" ]; then \
+	  echo "    [ok] secret   : present, never expires"; \
+	elif [ "$$exp" -lt "$$now" ]; then \
+	  rc=1; echo "    [--] secret   : present but EXPIRED on $$(date -r "$$exp" +%Y-%m-%d 2>/dev/null || date -d "@$$exp" +%Y-%m-%d)"; \
+	  echo "         fix: gpg --edit-key $$key expire   (then re-export the public key: docs/GPG.md)"; \
+	elif [ $$(( (exp - now) / 86400 )) -lt 30 ]; then \
+	  echo "    [!!] secret   : present, expires in $$(( (exp - now) / 86400 )) days -- extend it soon: gpg --edit-key $$key expire"; \
+	else \
+	  echo "    [ok] secret   : present, expires $$(date -r "$$exp" +%Y-%m-%d 2>/dev/null || date -d "@$$exp" +%Y-%m-%d)"; \
+	fi; \
+	pin=$$(sed -n 's/^pinentry-program[[:space:]]*//p' "$$HOME/.gnupg/gpg-agent.conf" 2>/dev/null); \
+	if [ -n "$$pin" ] && [ ! -x "$$pin" ]; then \
+	  rc=1; echo "    [--] pinentry : $$pin is missing"; \
+	  echo "         fix: make install-gnupg   (mac)  /  make apply  (linux, after a guix gc)"; \
+	elif [ -z "$$pin" ] && [ "$(os)" = "$(OS_MAC)" ]; then \
+	  rc=1; echo "    [--] pinentry : none configured; gpg falls back to curses, which Emacs and background jobs cannot drive"; \
+	  echo "         fix: make install-gnupg"; \
+	else \
+	  echo "    [ok] pinentry : $${pin:-gpg default}"; \
+	fi; \
+	sign=$$(git config --get commit.gpgsign); \
+	if [ "$$sign" = true ]; then \
+	  echo "    [ok] git      : commit.gpgsign = true"; \
+	else \
+	  rc=1; echo "    [--] git      : commit.gpgsign = $${sign:-<unset>}"; \
+	  echo "         fix: make install-gnupg   (mac)  /  make apply  (linux)"; \
+	fi; \
+	stale=$$(find "$$HOME/.gnupg" -maxdepth 1 -name '.#lk*' 2>/dev/null | wc -l | tr -d ' '); \
+	if [ "$$stale" -gt 0 ]; then \
+	  echo "    [..] locks    : $$stale stale .#lk* lock files in ~/.gnupg (harmless; from killed gpg processes)"; \
+	  echo "         tidy: find ~/.gnupg -maxdepth 1 -name '.#lk*' -delete   (with no gpg running)"; \
+	fi; \
+	if [ $$rc != 0 ]; then echo "==> gpg signing: fix the [--] lines above"; exit 1; fi; \
+	if [ -t 0 ]; then \
+	  echo "    signing a test message through the agent (may prompt for the passphrase)..."; \
+	  if echo "make check-gpg" | gpg --sign --local-user "$$key" -o /dev/null 2>/tmp/check-gpg.$$$$; then \
+	    echo "    [ok] sign     : works"; \
+	  else \
+	    echo "    [--] sign     : $$(tail -1 /tmp/check-gpg.$$$$)"; \
+	    echo "         fix: see docs/GPG.md, \"Troubleshooting\""; \
+	    command rm -f /tmp/check-gpg.$$$$; exit 1; \
+	  fi; command rm -f /tmp/check-gpg.$$$$; \
+	else \
+	  echo "    [..] sign     : skipped (no terminal to prompt on; run make check-gpg from a shell)"; \
+	fi; \
+	echo "==> gpg signing OK"
 
 # Is the gpg-ssh-agent layer actually usable from THIS shell?  Walks the chain
 # a `git push' depends on, in order, and prints the fix at the first broken

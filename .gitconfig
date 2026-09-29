@@ -3,9 +3,23 @@
 # in ~/dot_files for the change to take effect.
 # Do NOT use `git config --global` -- it would replace the symlink
 # with a detached copy that stops tracking this repo.
+#
+# On macOS ~/.gitconfig is a real file that pulls this one in with
+# `[include] path = ~/dot_files/.gitconfig' (make install-gnupg adds it);
+# anything set later in ~/.gitconfig overrides what is here.
 [user]
 	name = Durant Schoon
 	email = durant.schoon@gmail.com
+	# Long id of the key in gnupg/gpg.conf's default-key.  The secret key
+	# must be on every machine that commits: docs/GPG.md, "New machine".
+	signingkey = 0x6A2DAE7008D4F938
+[commit]
+	gpgsign = true
+[tag]
+	gpgsign = true
+# No gpg.program: git runs `gpg' from PATH, which is Homebrew's on macOS and
+# the guix profile's on Linux.  Hard-coding a path (the old
+# /usr/local/bin/gpg -> MacGPG2) breaks on the next machine.
 [init]
 	defaultBranch = main
 [core]
