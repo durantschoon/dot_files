@@ -536,7 +536,11 @@ ifeq ($(UNAME_S),Darwin)
 	ln -si ~/dot_files/herdr/config.toml ~/Library/Application\ Support/herdr/config.toml || echo
 endif
 
-# DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
+	@# ~/.zprofile used to be a hand-maintained copy that also sourced
+	@# ~/.bash_profile and ~/.zshrc (so every rc ran twice on macOS) and held
+	@# API keys.  Secrets now live in ~/.secrets.env; the rest is in
+	@# .mac.zshenv.  A login shell's PATH repair lives in this file.
+	ln -si ~/dot_files/.zprofile ~/.zprofile || echo
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
 	@# mg's startup file. Sets backup-to-home-directory so mg's foo~ backups land

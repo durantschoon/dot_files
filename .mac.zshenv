@@ -29,6 +29,16 @@ export CPATH="/opt/homebrew/opt/gcc/include"
 # Suggested by Antigravity
 add_to_front_of_path /Users/durant/.antigravity/antigravity/bin
 
+# elan (Lean toolchain manager)
+add_to_end_of_path "$HOME/.elan/bin"
+
+# OrbStack: its bin dir and zsh completions.  The installer appends this to
+# ~/.zprofile; it lives here so ~/.zprofile can stay a link into this repo.
+[[ -f ~/.orbstack/shell/init.zsh ]] && source ~/.orbstack/shell/init.zsh
+
+# Local Ollama endpoint (aider: `aider --model ollama_chat/<model>')
+export OLLAMA_API_BASE=http://127.0.0.1:11434
+
 # pixi is for ros2 on macos.  This lived in .shared.zshenv, where it was both
 # macOS-only and miscalled as add_to_front_of_path "<dir>:$PATH" -- the function
 # takes a single directory, so the colon-joined string never passed [ -d ] and
