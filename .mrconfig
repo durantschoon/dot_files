@@ -115,13 +115,23 @@ pushahead =
         [ "$(git rev-list --count HEAD --not --remotes)" -gt 0 ] && echo "$displaypath"
         true' 2>/dev/null || true)
     [ "$super_ahead" -eq 1 ] || [ -n "$subs" ] || exit 0
+    dry_run=0
+    for arg in "$@"; do
+        if [ "$arg" = "--dry-run" ] || [ "$arg" = "-n" ]; then
+            dry_run=1
+            break
+        fi
+    done
     if [ -n "$subs" ]; then
         for sub in $subs; do
-            echo "Pushing submodule $sub"
+            # Make the output bold cyan
+            printf '\033[1;36mPushing submodule %s\033[0m\n' "$sub"
+            [ "$dry_run" -eq 1 ] || git -C "$sub" pull
             git -C "$sub" push "$@"
         done
     fi
     if [ "$super_ahead" -eq 1 ]; then
+        [ "$dry_run" -eq 1 ] || git pull
         git push "$@"
     fi
 lib =
