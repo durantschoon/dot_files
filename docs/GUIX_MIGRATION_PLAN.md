@@ -7,10 +7,17 @@ _A comprehensive roadmap for converting legacy dotfiles and language toolchains 
 ## TL;DR (Bootstrap)
 
 ```bash
-git clone https://github.com/durantschoon/dot_files -b convert-to-guix ~/guix-config
-cd ~/guix-config
-make setup
+git clone https://github.com/durantschoon/dot_files ~/dot_files
+cd ~/dot_files
+make apply                  # foreign distro (home/base.scm); Guix System: make apply-wayland
 ```
+
+_Status (2026-09-29): the repo stayed at `~/dot_files` rather than a separate
+`~/guix-config` checkout, and there is no `make setup`. The home layer is
+`home/common.scm` with thin entry points (`home/base.scm`, `home/wayland.scm`,
+`home/ewm.scm`) instead of the per-language/per-OS layout sketched in Phase 2;
+the Guix System host is `system/geeeks.scm` (`make reconfigure`); macOS uses the
+`guix-dev` container (`make setup-guix-container`, see README)._
 
 ---
 
@@ -208,7 +215,7 @@ sudo guix archive --authorize < signing-key.pub
 |-----------|-----------|
 | **Pop!_OS** | Native Guix Home with systemd user service. |
 | **WSL** | Disable chroot, start daemon manually. |
-| **macOS (Docker/OrbStack)** | Run the custom image with OrbStack's Docker engine, using named volumes `guix-gnu` and `guix-var` for persistent stores. |
+| **macOS (Docker/OrbStack)** | Run the custom image with OrbStack's Docker engine, using the external volumes `guix-actions-store` and `guix-actions-var` for persistent stores (`compose.guix.yaml`). |
 
 ---
 

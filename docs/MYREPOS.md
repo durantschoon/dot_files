@@ -172,6 +172,11 @@ skip = ! test -d /Volumes/data
 the `lazy` default from `[DEFAULT]`; combine them with
 `skip = lazy || [ "$1" = push ]`.
 
+For a repo with no remote, `.mrconfig`'s `lib` defines `local_only`:
+`skip = local_only "$1"` skips it when absent (like `lazy`) and skips the
+network verbs, so `mr update` / `mr push` stay quiet while `mr status`,
+`mr diff` and `mr log` still cover it.
+
 ## Reference
 
 - `man mr` covers the rest: `-j` parallelism, `-q`, `-i` (interactive on

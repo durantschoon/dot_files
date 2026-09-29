@@ -25,6 +25,12 @@ does not care.
 | `geeeks.scm` | Framework 13 (AMD Ryzen AI 300), dual-booting Pop!_OS (its GRUB entry is omitted when Pop!_OS is absent) |
 | `channels-geeeks.scm` | the channel pin that class installs from |
 
+The two subdirectories are not host classes: `keys/` holds public keys a class
+config reads with `local-file` (`geeeks.scm` takes its sshd allowlist from
+`keys/minius.pub`), and `launchd/` holds macOS launchd plists for the Mac
+side (`make setup-tailscale`, `setup-orbstack`, `setup-gpg-bridge`), unrelated
+to Guix System.
+
 `geeeks` is not one particular laptop. It is a **host class**: a name for a set
 of installs similar enough to share a single config — same silicon, same
 firmware, same disk layout, same answer to *"what does any user need here?"*.

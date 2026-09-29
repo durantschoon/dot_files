@@ -2,7 +2,8 @@
 
 Reviewed 2026-09-27 against `6bec5f9`, including the current working tree.
 This is a review and proposed migration; no runner implementation, submodule,
-remote repository, or existing local edit was changed.
+remote repository, or existing local edit was changed. Line links below are
+pinned to `6bec5f9`; the current `.jobs.zsh` has moved on.
 
 The [stage-ready implementation plan](MODULE_EXTRACTION_PLAN.md) is the source of
 truth for generating future branching stages. This document retains the original
@@ -28,8 +29,8 @@ Names and public URLs below are proposals, not existing repositories.
 
 ### R1 — P1: repository filtering can select and kill another repo's sessions
 
-Location: [`.jobs.zsh:799`](../.jobs.zsh#L799), consumed by
-[`tmux-rm --all`](../.jobs.zsh#L1608). This predates the recent UI additions.
+Location: [`.jobs.zsh:799`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L799), consumed by
+[`tmux-rm --all`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L1608). This predates the recent UI additions.
 
 The filter `^$(job-repo)(-|$)` treats a repository named `foo-bar` as a task of
 `foo`. In a guarded private tmux server, a session named `foo-bar` rooted in a
@@ -46,7 +47,7 @@ all-session dashboard must not grant ownership.
 
 ### R2 — P1: the new rename action breaks task lookup and notes
 
-Location: [`_tmux_pick_rename`](../.jobs.zsh#L1230).
+Location: [`_tmux_pick_rename`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L1230).
 
 The action changes only the tmux session name. After renaming `foo-build` to
 `review-renamed`, the private-server probe observed:
@@ -69,23 +70,30 @@ together. Do not silently rename the user's notes files through a UI label edit.
 
 ### R3 — P2: Markdown status parsing drops existing notes
 
-Location: [`.jobs.zsh:915`](../.jobs.zsh#L915), changed in `c5df622`.
+Location: [`.jobs.zsh:915`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L915), changed in `c5df622`.
 
 The row reader now accepts Markdown headings only. A notes file containing
 `> waiting on review` produces an empty status, or loses priority to a recap.
-That format remains the documented contract in [README](../README.md#L458)
-and is asserted by [the smoke suite](../tests/jobs/smoke.zsh#L1391).
+That format remains the documented contract in [README](https://github.com/durantschoon/dot_files/blob/6bec5f9/README.md#L458)
+and is asserted by [the smoke suite](https://github.com/durantschoon/dot_files/blob/6bec5f9/tests/jobs/smoke.zsh#L1391).
 
 Support the previous marker during migration and define precedence when both
 headings and explicit status lines exist. Keep rich Markdown rendering separate
 from status extraction. Update the template, documentation, and compatibility
 tests together; do not rewrite existing personal notes automatically.
 
+**Status (2026-09-29): parsing fixed in `4ecacd6`**, which landed just before this
+review was committed. The picker's `_JOB_STATUS_SH` and `_job_notes_headline`
+now take the first non-empty `#` heading or `> ` line, whichever comes first,
+and README says so. Still open: regression tests. Smoke 16f's notes are all
+`> ` lines under an empty `# `; no case has a filled-in `#` heading, or both
+forms filled in.
+
 ### R4 — P2: missing option values cause an infinite parse loop
 
-Locations: [`_tmux_args`](../.jobs.zsh#L998),
-[`_job_parse_run`](../.jobs.zsh#L292), and
-[`tmux-pick`](../.jobs.zsh#L1306). These predate the recent additions.
+Locations: [`_tmux_args`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L998),
+[`_job_parse_run`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L292), and
+[`tmux-pick`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L1306). These predate the recent additions.
 
 Each of these probes exceeded a 0.5-second process timeout:
 
@@ -102,7 +110,7 @@ runner parsers.
 
 ### R5 — P2: nested polite attach does not provide read-only access
 
-Location: [`_job_tmux_attach`](../.jobs.zsh#L748). Existing behavior.
+Location: [`_job_tmux_attach`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L748). Existing behavior.
 
 For a local target with `$TMUX` set, the implementation ignores the requested
 `ro` mode and issues `tmux switch-client -t ...`. A command-dispatch probe
@@ -117,7 +125,7 @@ attached-session behavior.
 
 ### R6 — P2: the new rendering pipeline masks context errors
 
-Location: [`job-note-context`](../.jobs.zsh#L525), changed in `c5df622`.
+Location: [`job-note-context`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L525), changed in `c5df622`.
 
 `job-note-context bad/name` prints the invalid-task diagnostic but returns 0.
 Validation now occurs inside the producer side of a rendering pipeline, followed
@@ -127,16 +135,16 @@ preserve producer and renderer failures explicitly.
 ### Other extraction concerns
 
 - `JOB_HOSTS` defaults to the personal host `minius` at
-  [line 582](../.jobs.zsh#L582). Public defaults should be local-only, with no
+  [line 582](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L582). Public defaults should be local-only, with no
   Tailscale probe or warning unless remote discovery was requested.
-- [`_job_tee`](../.jobs.zsh#L133) falls back to `~/dot_files/bin/job-tee`;
-  remote notes [source `~/dot_files/.jobs.zsh`](../.jobs.zsh#L1146).
+- [`_job_tee`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L133) falls back to `~/dot_files/bin/job-tee`;
+  remote notes [source `~/dot_files/.jobs.zsh`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L1146).
   Resolve bundled assets relative to the module and configure remote entry
   points independently of the superproject location.
-- [`tmux-logs`](../.jobs.zsh#L1581) always reads local logs, even when
+- [`tmux-logs`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L1581) always reads local logs, even when
   `tmux-run` selected a remote host. Define remote log retrieval or clearly
   report the host instead of presenting a potentially stale local log.
-- [`job-note`](../.jobs.zsh#L439) uses macOS-style `script` arguments for
+- [`job-note`](https://github.com/durantschoon/dot_files/blob/6bec5f9/.jobs.zsh#L439) uses macOS-style `script` arguments for
   emacsclient. Validate the editor path separately on Linux and Termux.
 - `.agent-jobs.zsh` is explicitly macOS-only and calls private runner helpers.
   Keep that platform boundary explicit in its first standalone release; Linux

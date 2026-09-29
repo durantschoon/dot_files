@@ -176,7 +176,7 @@ messages behind the usual failures:
 
 - **`gpg: signing failed: No pinentry`** or **`Timeout`**. gpg-agent has no
   usable prompter. mac: `make install-gnupg` installs pinentry-mac and names
-  it in gpg-agent.conf. linux: the store path in gpg-agent.conf was garbage
+  `bin/pinentry-auto` (which runs it) in gpg-agent.conf. linux: the store path in gpg-agent.conf was garbage
   collected, `make apply` (or `make restart-gpg-agent`) fixes it. Inside a
   background job with no terminal the same message means the passphrase
   cache had expired; unlock from a shell (`make check-gpg`) and retry.

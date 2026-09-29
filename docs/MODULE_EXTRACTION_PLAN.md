@@ -232,3 +232,11 @@ do not present recommendations here as already approved answers.
 
 The next action is to generate the charter and first milestone's stage contracts
 from this plan when requested. Implementation and forecast sealing have not begun.
+
+## Amendments
+
+- **2026-09-29.** R3's parsing half already landed in `4ecacd6`, just before the
+  review was committed: notes headlines take the first non-empty `#` heading or
+  `> ` line. W03 still owns R3's regression tests (both forms, precedence) and
+  R4/R6. No other R-finding has changed; `.jobs.zsh` has had only the editor
+  default change (`60ee8aa`) since the review commit (`cc93b8e`).

@@ -16,5 +16,7 @@ Wrap `emacsclient -t` in the macOS `script` utility:
 script -q /dev/null emacsclient -t filename
 ```
 
+In this repo the wrapper lives in `job-note` in `.jobs.zsh` (the editor behind the `tmux-pick` `ctrl-e` binding), applied only when the editor is `emacsclient`.
+
 ### Why this works:
 `script -q /dev/null` creates a brand new pseudoterminal (PTY) for the executed command. This makes `emacsclient` the foreground process group leader of that new PTY. When it attempts to `open("/dev/tty")`, it opens its *new* PTY successfully, avoiding the macOS restriction entirely.

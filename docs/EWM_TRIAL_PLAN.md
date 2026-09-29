@@ -302,13 +302,16 @@ What is actually tied to GNOME, and what happens to each if you commit to EWM.
 
 ### Declared in this repo
 
+_Locations re-pointed 2026-09-29: the 2026-08-08 line numbers had drifted, and
+`home/base.scm` / `wayland.scm` are now thin entry points onto `home/common.scm`._
+
 | Where | What | Fate under EWM |
 |---|---|---|
-| `system/geeeks.scm:393` | `(service gnome-desktop-service-type)` | **This is the thing you remove.** Everything below follows from it. |
-| `system/geeeks.scm:360` | GDM, inherited from `%desktop-services` | EWM launches from a TTY, so GDM becomes pointless. Either drop it or keep it purely as a GNOME fallback during the trial. |
-| `home/base.scm:158`, `home/wayland.scm:203` | `gsettings set org.gnome.desktop.interface gtk-key-theme Emacs` | **Survives.** This is dconf plus `gsettings-desktop-schemas`, not gnome-shell; GTK apps still read it. Ironically less relevant, since your window manager would already be Emacs. |
-| `Makefile:826` | `gsettings set org.gnome.desktop.input-sources xkb-options` | GNOME-specific, becomes a no-op. EWM does its own keyboard config. **keyd is unaffected** — it is a system service operating below the compositor. |
-| `home/*.scm` | `xdg-utils` / `xdg-settings set default-web-browser librewolf.desktop` | ⚠️ `xdg-settings` takes GNOME-specific code paths when it detects GNOME. Likely needs a plain `~/.config/mimeapps.list` instead. |
+| `system/geeeks.scm:510` | `(service gnome-desktop-service-type)` | **This is the thing you remove.** Everything below follows from it. |
+| `system/geeeks.scm:855` | GDM, inherited from `%desktop-services` | EWM launches from a TTY, so GDM becomes pointless. Either drop it or keep it purely as a GNOME fallback during the trial. |
+| `home/common.scm:952` | `gsettings set org.gnome.desktop.interface gtk-key-theme Emacs` | **Survives.** This is dconf plus `gsettings-desktop-schemas`, not gnome-shell; GTK apps still read it. Ironically less relevant, since your window manager would already be Emacs. |
+| `Makefile` (`setup-keyd`) | `gsettings set org.gnome.desktop.input-sources xkb-options` (printed as a hint, not run) | GNOME-specific, becomes a no-op. EWM does its own keyboard config. **keyd is unaffected** — it is a system service operating below the compositor. |
+| `home/common.scm` (`%browser-layer`) | `xdg-utils` / `xdg-settings set default-web-browser` (`firefox.desktop` where substitutable, else `librewolf.desktop`) | ⚠️ `xdg-settings` takes GNOME-specific code paths when it detects GNOME. Likely needs a plain `~/.config/mimeapps.list` instead. |
 | `home/*.scm` | `espanso-wayland` | ⚠️ **unverified.** Espanso's Wayland support leans on specific protocols; whether a Smithay compositor exposes what it needs is an open question. Test during Stage 3. |
 
 ### Not declared, but relied on at runtime
@@ -320,7 +323,7 @@ What is actually tied to GNOME, and what happens to each if you commit to EWM.
 | `gh` auth token | `gh auth status` reports `Logged in … (keyring)` | Depends on the keyring above, so it survives — provided something can unlock it. |
 | **XWayland / `DISPLAY=:0`** | spawned by **mutter**; `XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.*` | **Dies with GNOME.** EWM must provide its own XWayland (the wiki has a page on it). Anything X11-only depends on this working. |
 | `xdg-desktop-portal-gnome` | installed | Replace with `xdg-desktop-portal-gtk` or `-wlr`. Governs file choosers, screen sharing, and Flatpak app integration. |
-| `%desktop-services` (NetworkManager, dbus, polkit, elogind, ntp) | — | **Not GNOME. All of it stays.** Only `gnome-desktop-service-type` is the GNOME part. Do not let a cleanup sweep take these out — `system/geeeks.scm:342` already documents why removing them breaks the build. |
+| `%desktop-services` (NetworkManager, dbus, polkit, elogind, ntp) | — | **Not GNOME. All of it stays.** Only `gnome-desktop-service-type` is the GNOME part. Do not let a cleanup sweep take these out — `system/geeeks.scm:453` already documents why removing them breaks the build. |
 
 ### The pinentry problem, specifically
 
@@ -341,7 +344,7 @@ useless `agent refused operation` that started this whole investigation.
 shepherd-launched gpg-agent has none.
 
 **The right answer is already in the config:** `allow-emacs-pinentry`, which is
-in both `home/base.scm` and `home/wayland.scm` today. With `M-x pinentry-start`,
+in `%gpg-ssh-agent-layer` in `home/common.scm` today, for every session. With `M-x pinentry-start`,
 prompts render inside Emacs over its own channel, needing neither a display nor
 a tty. On a desktop where Emacs *is* the session, that is strictly better than
 what you have now. Flip `pinentry-program` when you commit to EWM, not before.

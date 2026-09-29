@@ -434,8 +434,9 @@ _job_notes_template() {
   print -r -- "# "
 }
 
-# job-note [TASK]: open the task's notes in $VISUAL, else $EDITOR, else vi,
-# creating the file with its hint the first time. Returns the EDITOR's status,
+# job-note [TASK]: open the task's notes in $VISUAL, else $EDITOR, else
+# `emacsclient -t' (or mg where emacsclient is missing), creating the file
+# with its hint the first time. Returns the EDITOR's status,
 # so a picker that ran this knows whether to believe the file changed.
 #
 # The variable is split into words, so an EDITOR of `emacsclient -t' works as
