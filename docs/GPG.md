@@ -71,8 +71,9 @@ signing: `git commit --no-gpg-sign`.
    agent, which is exactly what `git commit` does.
 
 Optional, once: if gpg-agent should also serve ssh keys on this machine,
-`ssh-add ~/.ssh/id_ed25519` imports them and `make check-ssh-agent` shows
-the state.
+`ssh-add ~/.ssh/id_ed25519` imports them and `make check-ssh` shows the
+state: the `ssh-add -l` of the gpg world, with the unlocked/locked state of
+each key. (`make check-ssh-agent` still works as an alias.)
 
 ## Day to day
 
