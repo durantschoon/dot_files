@@ -31,3 +31,6 @@ delay_seconds = 1
 
 [ui.toast.herdr]
 position = "top-left"
+
+[ui.sound]
+enabled = false
