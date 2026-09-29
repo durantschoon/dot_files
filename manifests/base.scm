@@ -32,6 +32,35 @@
 releases and other GitHub features to the terminal.")
     (license #f)))
 
+;; Glow is absent from the pinned Guix and Nonguix channels, so install the
+;; upstream static Go release.  Keep this in sync with home/common.scm.
+(define glow
+  (package
+    (name "glow")
+    (version "3.0.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/charmbracelet/glow/releases/download/v"
+                    version "/glow_" version "_Linux_x86_64.tar.gz"))
+              (sha256
+               (base32 "0y1zqcxqw3kqz861lqqv6bn7gc15cgzax4a2wjpd466c595mxq0k"))))
+    (build-system copy-build-system)
+    (arguments
+     '(#:install-plan '(("glow" "bin/glow")
+                        ("completions/glow.bash"
+                         "share/bash-completion/completions/glow")
+                        ("completions/glow.zsh" "share/zsh/site-functions/_glow")
+                        ("completions/glow.fish"
+                         "share/fish/vendor_completions.d/glow.fish")
+                        ("manpages/glow.1.gz" "share/man/man1/glow.1.gz"))
+       #:phases (modify-phases %standard-phases
+                  (delete 'install-license-files))))
+    (home-page "https://github.com/charmbracelet/glow")
+    (synopsis "Render Markdown in the terminal")
+    (description "Glow is a terminal-based Markdown reader with a TUI.")
+    (license #f)))
+
 (packages->manifest
  (append
   (specifications->packages
@@ -50,6 +79,5 @@ releases and other GitHub features to the terminal.")
 
      ;; Python package/venv manager used by .aliases (see home/common.scm)
      "uv"
-     "glow"
      ))
-  (list github-cli)))
+  (list github-cli glow)))

@@ -191,6 +191,36 @@
 releases and other GitHub features to the terminal.")
     (license #f)))
 
+;; Glow: Guix proper and Nonguix have no package at the pinned channels.scm
+;; commits, so install Charmbracelet's static Go release binary.  Keep this
+;; expression in sync with manifests/base.scm.
+(define glow
+  (package
+    (name "glow")
+    (version "3.0.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/charmbracelet/glow/releases/download/v"
+                    version "/glow_" version "_Linux_x86_64.tar.gz"))
+              (sha256
+               (base32 "0y1zqcxqw3kqz861lqqv6bn7gc15cgzax4a2wjpd466c595mxq0k"))))
+    (build-system copy-build-system)
+    (arguments
+     '(#:install-plan '(("glow" "bin/glow")
+                        ("completions/glow.bash"
+                         "share/bash-completion/completions/glow")
+                        ("completions/glow.zsh" "share/zsh/site-functions/_glow")
+                        ("completions/glow.fish"
+                         "share/fish/vendor_completions.d/glow.fish")
+                        ("manpages/glow.1.gz" "share/man/man1/glow.1.gz"))
+       #:phases (modify-phases %standard-phases
+                  (delete 'install-license-files))))
+    (home-page "https://github.com/charmbracelet/glow")
+    (synopsis "Render Markdown in the terminal")
+    (description "Glow is a terminal-based Markdown reader with a TUI.")
+    (license #f)))
+
 ;; Freeplane: mind mapping.  Guix packages neither this nor FreeMind, which it
 ;; forked from and whose .mm files it still reads -- FreeMind itself has had no
 ;; release since 2014, so the fork is the live one.
@@ -541,7 +571,6 @@ installed either way."
     "xdg-utils"
     ;; gpg CLI, matching the gpg-agent the gpg-ssh-agent layer runs
     "gnupg"
-    "glow"
     "perl"
     "tree"
     "zig"))
@@ -715,7 +744,8 @@ call, so extensions never collide; only genuine double ownership does."
              (if (session-ref session 'wayland?) %wayland-packages '())
              ;; Package OBJECTS (defined above), not specs -- the fold
              ;; resolves both.
-             (list github-cli freeplane babashka font-caskaydia-cove-nerd)))
+             (list github-cli glow freeplane babashka
+                   font-caskaydia-cove-nerd)))
    #:services
    (lambda (session)
      (list
