@@ -67,7 +67,7 @@ releases and other GitHub features to the terminal.")
    '(
      ;; core
      "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain" "cmake"
-     "ripgrep" "fd" "fzf" "eza" "jq" "fastfetch"
+     "ripgrep" "fd" "fzf" "eza" "jq" "rsync" "fastfetch"
 
      ;; editor stack for Spacemacs (holy-mode).  mg is the microscopic Emacs
      ;; clone -- the one that starts instantly for a commit message or a quick
