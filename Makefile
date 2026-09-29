@@ -253,6 +253,21 @@ help-text:
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
+	@echo "  make setup-cloud-dirs - Walk through the cloud-backed dirs: ~/Org/<location> and"
+	@echo "                       ~/MindMaps and ~/.freeplane (links into Proton Drive), plus"
+	@echo "                       ~/Obsidian (Obsidian Sync). Creates what is safe, prints the rest"
+	@echo "  make check-cloud-dirs - Report those dirs without changing anything (advisory; runs"
+	@echo "                       automatically at the end of apply/apply-wayland/setup-native)"
+	@echo "  make cloud-sync    - Linux only: two-way rclone bisync of those dirs with Proton"
+	@echo "                       Drive (RESYNC=1 for the first run, DRY_RUN=1 to preview)"
+	@echo "  make check-cloud-creds - Report what the rclone remote stores: password, stale 2FA"
+	@echo "                       code, cached session, and whether the config is encrypted"
+	@echo "  make cloud-creds-strip - Remove the Proton password from the rclone config once the"
+	@echo "                       remote has a session; verifies and restores on failure"
+	@echo "  make cloud-creds-login - Re-authenticate the rclone remote when the session expires,"
+	@echo "                       then remove the password again automatically"
+	@echo "  make check-cloud   - Run the bin/cloud-dirs.sh smoke test (hermetic: scratch HOME and"
+	@echo "                       a stand-in Proton root, so it needs no account; not part of 'make check')"
 	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
 	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
 	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
@@ -307,6 +322,7 @@ endif
 all: setup-native
 
 setup-native: set_up_links install-claude install-uv install-agy
+	@$(MAKE) --no-print-directory check-cloud-dirs
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
 # when `claude` already runs, including the legacy ~/.claude/local install)
@@ -1271,6 +1287,7 @@ apply: warn-dotfiles-home
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
+	@$(MAKE) --no-print-directory check-cloud-dirs
 	@$(MAKE) --no-print-directory unlock-ssh-keys
 
 apply-wayland: warn-dotfiles-home
@@ -1315,6 +1332,7 @@ apply-wayland: warn-dotfiles-home
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
+	@$(MAKE) --no-print-directory check-cloud-dirs
 	@$(MAKE) --no-print-directory unlock-ssh-keys
 
 # apply-ewm -- deploy the EWM TRIAL home generation (docs/EWM_TRIAL_PLAN.md,
@@ -1337,6 +1355,7 @@ apply-ewm: warn-dotfiles-home
 	@echo "    GNOME keeps running on its VT; launch EWM from a fresh TTY"
 	@echo "    per docs/EWM_TRIAL_PLAN.md.  Return to the GNOME-tuned home"
 	@echo "    with:  guix home roll-back"
+	@$(MAKE) --no-print-directory check-cloud-dirs
 
 submodule-update:
 	@echo "==> git submodule update --init --recursive"
@@ -1623,6 +1642,61 @@ ifeq ($(flavor),wsl)
 else
 	@echo "check-protondrive: WSL only ($(os)/$(flavor) here)."
 endif
+
+.PHONY: setup-cloud-dirs check-cloud-dirs cloud-sync
+
+# The cloud-backed home directories: ~/Org/<location>, ~/MindMaps and
+# ~/.freeplane (links into Proton Drive), plus ~/Obsidian (a real directory,
+# filled by Obsidian Sync rather than Proton).  bin/cloud-dirs.sh holds the
+# layout, the per-platform discovery, and the reasoning; these are thin wrappers
+# so that `make' stays the one interface.
+#
+# check- is advisory on purpose: it prints what is missing and exits 0, which is
+# why apply/apply-wayland/apply-ewm/setup-native can all call it without a fresh
+# machine losing its reconfigure over an unmounted cloud folder.  --strict is
+# for the test suite.
+setup-cloud-dirs:
+	@bash bin/cloud-dirs.sh setup
+
+check-cloud-dirs:
+	@bash bin/cloud-dirs.sh check
+
+# Linux only -- macOS and WSL have a native Proton client that owns the folder.
+# RESYNC=1 establishes the bisync baseline, which a first run needs.
+cloud-sync:
+	@bash bin/cloud-sync.sh $(if $(RESYNC),--resync,) $(if $(DRY_RUN),--dry-run,)
+
+# The credential half of the same story.  rclone's protondrive backend has no
+# OAuth, so `rclone config' takes the real Proton ACCOUNT password -- which in
+# one-password mode also derives the mailbox keys -- and stores it "obscured",
+# which `rclone reveal' undoes.  Once a login has cached a session in the
+# remote, the password is no longer needed; cloud-creds-strip removes it and
+# proves the sync still works, restoring the config if it does not.
+# bin/cloud-creds.sh holds the reasoning.
+#
+# check- is advisory here too, for the same reason check-cloud-dirs is.
+.PHONY: check-cloud-creds cloud-creds-strip cloud-creds-login
+check-cloud-creds:
+	@bash bin/cloud-creds.sh check
+
+# The recovery path, as one command.  A session expires months after setup and
+# surfaces as a failing `make cloud-sync', so bin/cloud-sync.sh diagnoses that
+# case and names this target rather than leaving the steps to memory.
+cloud-creds-login:
+	@bash bin/cloud-creds.sh login
+
+cloud-creds-strip:
+	@bash bin/cloud-creds.sh strip $(if $(DRY_RUN),--dry-run,)
+
+# The cloud test suites.  Both hermetic -- dirs-smoke uses a scratch HOME and a
+# scratch stand-in for the Proton root; creds-smoke puts a stub rclone in front
+# of the real one on PATH -- so neither needs an account, a network or rclone
+# itself.  Kept out of `make check' for the same reason check-jobs is: `check'
+# reports on THIS machine's state, while these prove the scripts' behaviour.
+.PHONY: check-cloud
+check-cloud:
+	@./tests/cloud/dirs-smoke.zsh
+	@./tests/cloud/creds-smoke.zsh
 
 # The external store/database volumes must be restored together when moving
 # machines. Compose deliberately refuses to silently replace a missing store.
@@ -2413,7 +2487,7 @@ check-home-ownership:
 # WSL the target degrades to a single printed line.  (check-guix-container is
 # absent by contrast because it needs a running container, not because reaching
 # across to Windows is itself disqualifying.)
-check: check-system check-session-coupling check-tailscale check-orbstack check-protondrive check-espanso-windows check-home-ownership
+check: check-system check-session-coupling check-tailscale check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
