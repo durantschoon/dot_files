@@ -30,6 +30,8 @@ command_timeout = 1000
 # machine, the history event number to recall with !N, and the time and date
 # (the old zsh RPROMPT's "[%h]" and "[%* on %D]").  Modules named in
 # right_format drop out of $all, so the left prompt no longer repeats them.
+# The left prompt leads with an ssh marker, as it did when hostname lived there.
+format = "${env_var.SSH_CONNECTION}$all"
 right_format = "${custom.guix}$hostname ${env_var.STARSHIP_HISTNO}$time"
 
 [package]
@@ -43,8 +45,15 @@ symbol = " "   # nf-dev-python
 
 [hostname]
 ssh_only = false
-format = "[$ssh_symbol$hostname]($style)"   # default adds "in ", pointless on the right
+format = "[$hostname]($style)"   # default adds "in ", pointless on the right; ssh marker is on the left
 style = "bold bright-green"
+
+# ssh marker for the left prompt: hostname's default ssh_symbol (U+1F310, like
+# the buffalo outside the BMP), shown whenever $SSH_CONNECTION is set, which is
+# also how hostname decides a session is remote.  An env_var module needs no
+# subprocess.
+[env_var.SSH_CONNECTION]
+format = "\U0001F310 "
 
 [java]
 style = "bold bright-red"
@@ -72,6 +81,8 @@ disabled = true
 [custom.guix]
 when = 'test -n "$GUIX_ENVIRONMENT"'
 command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
-symbol = "\uf325 "   # nf-linux-gnu_guix; default 🐃 is U+1F403, outside the BMP
+# The water buffalo (gnu) is U+1F403, outside the BMP, so ConEmu draws it as �;
+# chosen anyway.  \uf325 (nf-linux-gnu_guix) is the BMP alternative.
+symbol = "\U0001F403 "
 style = "bold yellow"
 format = "[$symbol($output )]($style)"
