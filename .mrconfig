@@ -126,15 +126,48 @@ pushahead =
         for sub in $subs; do
             # Make the output bold cyan
             printf '\033[1;36mPushing submodule %s\033[0m\n' "$sub"
-            [ "$dry_run" -eq 1 ] || git -C "$sub" pull --rebase --autostash
-            git -C "$sub" push "$@"
+            [ "$dry_run" -eq 1 ] || { rad_sync_fetch "$sub"; git -C "$sub" pull --rebase --autostash; }
+            if [ "$dry_run" -eq 1 ] && is_rad "$sub"; then
+                echo "(dry run) rad remote: would push $(git -C "$sub" log --oneline HEAD --not --remotes | wc -l | tr -d ' ') commit(s)"
+            else
+                git -C "$sub" push "$@"
+            fi
         done
     fi
     if [ "$super_ahead" -eq 1 ]; then
-        [ "$dry_run" -eq 1 ] || git pull --rebase --autostash
-        git push "$@"
+        [ "$dry_run" -eq 1 ] || { rad_sync_fetch .; git pull --rebase --autostash; }
+        if [ "$dry_run" -eq 1 ] && is_rad .; then
+            echo "(dry run) rad remote: would push $(git rev-list --count '@{u}..HEAD') commit(s)"
+        else
+            git push "$@"
+        fi
     fi
 lib =
+    # rad_sync_fetch DIR: for a Radicle repo (origin is rad://...), pull the
+    # peers' latest refs into local storage first.  git-remote-rad serves
+    # `git fetch'/`git pull' from ~/.radicle/storage only, so without this a
+    # pull --rebase sees a stale origin and the push is refused as non-fast-
+    # forward.  The repo id is passed explicitly: bare `rad sync' finds the
+    # repo through a remote NAMED `rad', and a clone whose Radicle remote is
+    # `origin' (every submodule) gets "Current directory is not a Radicle
+    # repository".  The push itself needs nothing extra: git-remote-rad signs
+    # it and the running node announces it -- but git-remote-rad refuses
+    # --dry-run, so pushahead only reports rad pushes in that mode.
+    # A no-op for every other remote.
+    is_rad() {
+        case "$(git -C "$1" remote get-url origin 2>/dev/null)" in
+            rad://*) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+    rad_sync_fetch() {
+        is_rad "$1" || return 0
+        command -v rad >/dev/null 2>&1 || return 0
+        # rad://<RID>[/<NID>] -> rad:<RID>
+        rid=$(git -C "$1" remote get-url origin)
+        rid=${rid#rad://}
+        rad sync --fetch "rad:${rid%%/*}" || true
+    }
     local_only() {
         [ ! -d "$MR_REPO" ] && return 0
         offline_volume && return 0

@@ -121,6 +121,20 @@ mr-push-ahead              # do it
 
 Arguments pass straight to `git push`.
 
+**Radicle repos** (origin is `rad://...`, e.g. the `GIPS` submodule of
+`Repos/enveloped/GIPS`) go through the same action, with two differences:
+
+- before the `pull --rebase`, `rad sync --fetch rad:<RID>` brings the peers'
+  refs into `~/.radicle/storage`, which is all `git pull` from a `rad://`
+  remote ever reads. The RID is passed explicitly because bare `rad sync`
+  looks for a remote *named* `rad` and fails ("Current directory is not a
+  Radicle repository") when the Radicle remote is `origin`.
+- `--dry-run` only reports the commit count: `git-remote-rad` does not
+  support dry runs.
+
+The push is a plain `git push`; it needs `radicle-node` running
+(`rad node status`, `rad node start`) to announce it to the seeds.
+
 ## Adding a repo
 
 dot_files is a public repository, so the list is split in three, and the
