@@ -54,3 +54,9 @@ if [ -n "$SSH_CLIENT" ]; then
     emulate sh -c '. /etc/profile'
     path=(${(s.:.)PATH})
 fi
+
+# GPG-Agent as SSH agent (when not already set by session manager)
+if [[ -z "$SSH_AUTH_SOCK" ]] && (( $+commands[gpgconf] )); then
+    export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket 2>/dev/null)"
+    unset SSH_AGENT_PID
+fi

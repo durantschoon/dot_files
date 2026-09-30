@@ -293,6 +293,9 @@ export GPG_TTY=$(tty)
 if [[ -n "$SSH_CONNECTION" ]]; then
     export PINENTRY_USER_DATA=USE_TTY=1
 fi
+if [[ -t 0 && "$SSH_AUTH_SOCK" == *gpg-agent* ]] && (( $+commands[gpg-connect-agent] )); then
+    gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1
+fi
 
 ################################################################################
 # Don't put anything below this line except for profiling

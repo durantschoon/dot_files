@@ -17,6 +17,7 @@ arch := $(ARCH_UNKNOWN)
 
 FLAVOR_WSL := ubuntu # not currently used, but maybe someday?
 FLAVOR_WSL := wsl
+FLAVOR_TERMUX := termux
 FLAVOR_UNKNOWN := unknown
 flavor := $(FLAVOR_UNKNOWN)
 
@@ -44,13 +45,16 @@ else
 		os := $(OS_MAC)
     endif
     UNAME_P := $(shell uname -p)
+    ifeq ($(UNAME_P),unknown)
+		UNAME_P := $(shell uname -m)
+    endif
     ifeq ($(UNAME_P),x86_64)
 		arch := $(ARCH_AMD64)
     endif
     ifneq ($(filter %86,$(UNAME_P)),)
 		arch := $(ARCH_X86)
     endif
-    ifneq ($(filter arm%,$(UNAME_P)),)
+    ifneq ($(filter arm% aarch64,$(UNAME_P)),)
 		arch := $(ARCH_ARM)
     endif
 endif
@@ -69,6 +73,11 @@ endif
 ORBSTACK_CHECK := $(shell grep -i orbstack /proc/version 2>/dev/null)
 ifneq ($(ORBSTACK_CHECK),)
 	flavor := orbstack
+endif
+
+TERMUX_CHECK := $(if $(TERMUX_VERSION),$(TERMUX_VERSION),$(wildcard /data/data/com.termux))
+ifneq ($(TERMUX_CHECK),)
+	flavor := $(FLAVOR_TERMUX)
 endif
 
 # The OrbStack foreign container runs guix-daemon with --disable-chroot.  Guix
@@ -108,6 +117,11 @@ ifneq ($(shell which yum 2>/dev/null),)
 endif
 ifneq ($(shell which pacman 2>/dev/null),)
 	PACKAGE_MANAGER := pacman
+endif
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+ifneq ($(shell which pkg 2>/dev/null),)
+	PACKAGE_MANAGER := pkg
+endif
 endif
 
 # Detect the login shell from the account database rather than $$SHELL, which
@@ -338,6 +352,11 @@ ifeq ($(os),$(OS_WINDOWS))
 	@echo "Native Windows: install Claude Code with:"
 	@echo "  winget install Anthropic.ClaudeCode"
 	@echo "(from WSL, run 'make install-claude' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@command -v claude >/dev/null 2>&1 && echo "  Claude Code found ($$(which claude))" || { \
+		echo "  Termux: install Claude via npm:"; \
+		echo "    pkg install nodejs-lts && npm install -g @anthropic-ai/claude-code"; \
+	}
 else
 	@bash bin/install-claude.sh
 endif
@@ -357,6 +376,8 @@ ifeq ($(os),$(OS_WINDOWS))
 	@echo "Native Windows: install uv with:"
 	@echo "  winget install astral-sh.uv"
 	@echo "(from WSL, run 'make install-uv' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@echo "  Termux: uv has no native Android binary; use python3 -m pip instead"
 else
 	@bash bin/install-uv.sh
 endif
@@ -371,6 +392,9 @@ ifeq ($(os),$(OS_WINDOWS))
 	@echo "Native Windows: install agy from PowerShell with:"
 	@echo "  irm https://antigravity.google/cli/install.ps1 | iex"
 	@echo "(from WSL, run 'make install-agy' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@command -v agy >/dev/null 2>&1 && echo "  agy found ($$(which agy))" || \
+		echo "  Termux: agy has no native Android binary"
 else
 	@bash bin/install-agy.sh
 endif
@@ -479,6 +503,11 @@ ifeq ($(PACKAGE_MANAGER),apt)
 	@# is present, so the command name is the same on every machine.
 	sudo apt-get install fastfetch -y || sudo apt-get install neofetch -y
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
+else ifeq ($(PACKAGE_MANAGER),pkg)
+	@echo "Detected Termux pkg package manager - installing required packages"
+	pkg update -y
+	pkg install -y openssh zsh git tmux fzf curl file make mg
+	pkg install -y cmake myrepos fastfetch starship gnupg || true
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
 	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
@@ -985,6 +1014,33 @@ ifeq ($(os),$(OS_MAC))
 	  [ -e "$$dst" ] && cp "$$dst" "$$dst.bak-$$(date +%Y%m%d)" && echo "    backed up gpg-agent.conf"; \
 	  printf '%s\n' "$$rendered" > "$$dst" && chmod 600 "$$dst"; \
 	  echo "    rendered gpg-agent.conf (pinentry $(CURDIR)/bin/pinentry-auto)"; \
+	  gpgconf --kill gpg-agent 2>/dev/null && echo "    restarted gpg-agent (passphrase cache cleared)"; \
+	fi
+	@gc="$$HOME/.gitconfig"; inc="$(CURDIR)/.gitconfig"; \
+	[ -e "$$gc" ] || touch "$$gc"; \
+	if [ -L "$$gc" ]; then \
+	  echo "    [ok] ~/.gitconfig is a symlink; not touching it"; \
+	elif grep -qF "path = $$inc" "$$gc" || grep -qF 'path = ~/dot_files/.gitconfig' "$$gc"; then \
+	  echo "    [ok] ~/.gitconfig already includes the tracked .gitconfig"; \
+	else \
+	  cp "$$gc" "$$gc.bak-$$(date +%Y%m%d)"; \
+	  for k in commit.gpgsign tag.gpgsign gpg.program user.signingkey; do \
+	    git config --global --unset-all "$$k" 2>/dev/null && echo "    removed local $$k (now comes from the include)"; \
+	  done; \
+	  { printf '[include]\n\tpath = ~/dot_files/.gitconfig\n'; cat "$$gc"; } > "$$gc.tmp" \
+	    && mv "$$gc.tmp" "$$gc"; \
+	  echo "    prepended [include] path = ~/dot_files/.gitconfig to ~/.gitconfig (backup: .bak-$$(date +%Y%m%d))"; \
+	fi
+else ifeq ($(PACKAGE_MANAGER),pkg)
+	@command -v gpg >/dev/null 2>&1 || pkg install -y gnupg pinentry
+	@dst="$$HOME/.gnupg/gpg-agent.conf"; \
+	pin=$$(command -v pinentry-curses 2>/dev/null || command -v pinentry 2>/dev/null); \
+	if [ -e "$$dst" ] && grep -qF "pinentry-program" "$$dst"; then \
+	  echo "    [ok] gpg-agent.conf already current"; \
+	else \
+	  [ -e "$$dst" ] && cp "$$dst" "$$dst.bak-$$(date +%Y%m%d)" && echo "    backed up gpg-agent.conf"; \
+	  printf '# ~/.gnupg/gpg-agent.conf for Termux\npinentry-program %s\n\ndefault-cache-ttl 28800\nmax-cache-ttl 86400\n\nenable-ssh-support\ndefault-cache-ttl-ssh 3600\nmax-cache-ttl-ssh 28800\n' "$$pin" > "$$dst" && chmod 600 "$$dst"; \
+	  echo "    rendered gpg-agent.conf (pinentry $$pin)"; \
 	  gpgconf --kill gpg-agent 2>/dev/null && echo "    restarted gpg-agent (passphrase cache cleared)"; \
 	fi
 	@gc="$$HOME/.gitconfig"; inc="$(CURDIR)/.gitconfig"; \
