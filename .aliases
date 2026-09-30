@@ -298,6 +298,21 @@ eam() {
 }
 
 # -----------------------------------------------------------------------------
+# gpg-agent / ssh debugging  (see docs/GPG.md, "Troubleshooting")
+# -----------------------------------------------------------------------------
+
+# gpg-here: point gpg-agent's pinentry at THIS terminal.  A function, not a
+# make target, because GPG_TTY must change in the calling shell.  Fixes
+# "agent refused operation" on git push and unlock prompts that land in a
+# different window (.zshrc.starship registers whichever shell opened last).
+# Triage order: make check-ssh, then gpg-here, then make check-ssh-github.
+gpg-here() {
+    export GPG_TTY=$(tty)
+    gpg-connect-agent updatestartuptty /bye >/dev/null \
+        && echo "gpg-agent now prompts on $GPG_TTY"
+}
+
+# -----------------------------------------------------------------------------
 # OS Specific Aliases
 # -----------------------------------------------------------------------------
 

@@ -244,6 +244,13 @@ messages behind the usual failures:
 - **Piles of `.#lk0x...` files in `~/.gnupg`**. Lock files from gpg
   processes that were killed. Harmless; tidy with
   `find ~/.gnupg -maxdepth 1 -name '.#lk*' -delete` while no gpg is running.
+- **`Permission denied (publickey)`** or **`agent refused operation`** on
+  `git push`. Walk it in order: `make check-ssh` (is the local agent chain
+  intact? if `SSH_AUTH_SOCK` is gpg-agent's socket, debug the agent and
+  pinentry, not GitHub), then `gpg-here` (from `.aliases`: sets `GPG_TTY` and
+  runs `updatestartuptty` so the prompt comes to this terminal), then
+  `make check-ssh-github` (live `ssh -T`; its failure hint prints the
+  `ssh -vvvT` filter that shows which key was offered).
 - **The prompt appears in the wrong terminal (linux)**. gpg-agent asks on the
   tty last registered with `updatestartuptty`; `.zshrc.starship` registers
   each new shell, so open a new one or run

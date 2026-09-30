@@ -290,6 +290,8 @@ help-text:
 	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
 	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
 	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
+	@echo "  make check-ssh-github - check-ssh, then a live 'ssh -T git@github.com' with triage hints"
+	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
 	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
 	@echo "                       + add the [include] of .gitconfig to ~/.gitconfig (see docs/GPG.md)"
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
@@ -1240,6 +1242,34 @@ check-ssh:
 # The old name, kept so muscle memory and any notes still work.  `check-ssh'
 # pairs with `check-gpg'.
 check-ssh-agent: check-ssh
+
+# The live half of check-ssh: can this shell actually authenticate to GitHub?
+# check-ssh runs first, so a broken local chain (socket, pinentry,
+# SSH_AUTH_SOCK, keys) stops here with its own fix hint -- if the agent is
+# broken, debug the agent, not GitHub.  Only when every local link is [ok]
+# does the push-shaped `ssh -T' run, and a failure then means the GitHub side:
+# the key is not uploaded to the account, or ssh offered a different key
+# (an IdentityFile/IdentitiesOnly in ~/.ssh/config bypasses the agent).
+#
+# Separate from check-ssh because it needs the network and may prompt for the
+# passphrase.  `ssh -T git@github.com' exits 1 even on success (no shell
+# access), so success is read from the greeting instead.
+SSH_TEST_HOST ?= git@github.com
+.PHONY: check-ssh-github
+check-ssh-github: check-ssh
+	@echo "==> ssh to $(SSH_TEST_HOST)"
+	@out=$$(ssh -o ConnectTimeout=10 -T $(SSH_TEST_HOST) 2>&1); \
+	if echo "$$out" | grep -q 'successfully authenticated'; then \
+	  echo "    [ok] remote   : $$(echo "$$out" | grep 'successfully authenticated' | sed 's/!.*//')"; \
+	  echo "==> ssh to $(SSH_TEST_HOST) OK"; \
+	else \
+	  echo "    [--] remote   : $$(echo "$$out" | tail -1)"; \
+	  echo "         the local agent chain is fine, so look at what ssh offered:"; \
+	  echo "              ssh -vvvT $(SSH_TEST_HOST) 2>&1 | grep -E 'identity file|Offering|Server accepts|denied'"; \
+	  echo "         then compare 'ssh-add -l -E sha256' with GitHub -> Settings -> SSH and GPG keys"; \
+	  echo "         (agent refused operation: run gpg-here in this shell and retry)"; \
+	  exit 1; \
+	fi
 
 # Offer to unlock the ssh keys that the restart-gpg-agent step of an apply just
 # locked again.  Nothing needs RE-ADDING: an agent restart only empties the
