@@ -581,6 +581,9 @@ endif
 	ln -si ~/dot_files/.zshrc.starship ~/.zshrc || echo
 	ln -si ~/dot_files/.aliases ~ || echo
 	ln -si ~/dot_files/.tmux.conf ~/.tmux.conf || echo
+	@# Starship prompt config (Guix Home deploys it on Linux via home/common.scm)
+	@mkdir -p ~/.config
+	ln -si ~/dot_files/starship/starship.toml ~/.config/starship.toml || echo
 	@mkdir -p ~/.config/herdr
 	ln -si ~/dot_files/herdr/config.toml ~/.config/herdr/config.toml || echo
 ifeq ($(UNAME_S),Darwin)

@@ -1,5 +1,5 @@
 # Starship prompt config.  Deployed to ~/.config/starship.toml by
-# home/common.scm (home-files-service-type).
+# home/common.scm (home-files-service-type) on Linux, by `make set_up_links' on macOS.
 #
 # Why this file exists: Starship's default symbols for some modules are colour
 # emoji above U+FFFF (package 📦 U+1F4E6, python 🐍 U+1F40D).  ConEmu cannot
@@ -24,6 +24,12 @@ scan_timeout = 1000
 # (default: 500ms). Increased to prevent timeouts under WSL filesystem latency.
 command_timeout = 1000
 
+# Right-hand prompt: which machine, and whether this shell is inside a
+# `guix shell' environment (guix_shell keys off $GUIX_ENVIRONMENT; nothing is
+# shown outside one).  Modules named in right_format drop out of $all, so the
+# left prompt no longer repeats them.
+right_format = "$guix_shell$hostname"
+
 [package]
 symbol = " "   # nf-oct-package
 
@@ -32,3 +38,8 @@ symbol = " "   # nf-dev-python
 
 [hostname]
 ssh_only = false
+format = "[$ssh_symbol$hostname]($style)"   # default adds "in ", pointless on the right
+
+[guix_shell]
+symbol = "\uf325 "   # nf-linux-gnu_guix; default 🐃 is U+1F403, outside the BMP
+format = "[$symbol]($style)"
