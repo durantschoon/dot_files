@@ -24,15 +24,15 @@ scan_timeout = 1000
 # (default: 500ms). Increased to prevent timeouts under WSL filesystem latency.
 command_timeout = 1000
 
-# Right-hand prompt: whether this shell is inside a `guix shell' environment,
-# with the Guix version (custom.guix keys off $GUIX_ENVIRONMENT; nothing is
-# shown outside one), which
-# machine, the history event number to recall with !N, and the time and date
+# Right-hand prompt: the Guix version on a Guix System host or inside a
+# `guix shell' environment (a shell follows the buffalo inside one; nothing is
+# shown on other hosts outside one), which machine, the history event number
+# to recall with !N, and the time and date
 # (the old zsh RPROMPT's "[%h]" and "[%* on %D]").  Modules named in
 # right_format drop out of $all, so the left prompt no longer repeats them.
 # The left prompt leads with an ssh marker, as it did when hostname lived there.
 format = "${env_var.SSH_CONNECTION}$all"
-right_format = "${custom.guix}$hostname ${env_var.STARSHIP_HISTNO}$time"
+right_format = "${custom.guix_shell}${custom.guix_system}$hostname ${env_var.STARSHIP_HISTNO}$time"
 
 [package]
 symbol = " "   # nf-oct-package
@@ -78,11 +78,22 @@ style = "bold yellow"
 [guix_shell]
 disabled = true
 
-[custom.guix]
+# Two modules with the same command, since a custom module's symbol is fixed:
+# buffalo and spiral shell inside a guix shell, the buffalo alone on a Guix
+# System host outside one (so there `guix --version' runs on every prompt).
+# The water buffalo (gnu) is U+1F403 and the shell U+1F41A, both outside the
+# BMP, so ConEmu draws them as �; chosen anyway.  \uf325 (nf-linux-gnu_guix)
+# is the BMP alternative.
+[custom.guix_shell]
 when = 'test -n "$GUIX_ENVIRONMENT"'
 command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
-# The water buffalo (gnu) is U+1F403, outside the BMP, so ConEmu draws it as �;
-# chosen anyway.  \uf325 (nf-linux-gnu_guix) is the BMP alternative.
+symbol = "\U0001F403\U0001F41A "
+style = "bold yellow"
+format = "[$symbol($output )]($style)"
+
+[custom.guix_system]
+when = 'test -e /run/current-system && test -z "$GUIX_ENVIRONMENT"'
+command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
 symbol = "\U0001F403 "
 style = "bold yellow"
 format = "[$symbol($output )]($style)"
