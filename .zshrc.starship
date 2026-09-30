@@ -106,7 +106,10 @@ export GPG_TTY=$(tty)
 # PINENTRY_USER_DATA to the pinentry that gpg-agent launches; on macOS that
 # is bin/pinentry-auto, which then runs pinentry-curses instead of opening a
 # pinentry-mac window on the Mac's own screen (invisible from here, so the
-# commit would hang).  On Linux pinentry-gnome3 ignores the variable.
+# commit would hang).  On Linux pinentry-gnome3 ignores the variable, but
+# under WSL the agent's pinentry is the pinentry-auto chooser from
+# home/common.scm (session-pinentry), which honours it the same way: a
+# terminal prompt here rather than a WSLg window on the Windows desktop.
 if [[ -n "$SSH_CONNECTION" ]]; then
     export PINENTRY_USER_DATA=USE_TTY=1
 fi
@@ -114,9 +117,11 @@ fi
 # Tell gpg-agent which terminal to prompt on for SSH.  GPG_TTY above only
 # reaches gpg-agent from gpg itself; ssh never passes it, so for a `git push'
 # the agent uses the terminal last registered by updatestartuptty.  Where there
-# is no graphical prompter (WSL: WSLg has a display but no GNOME gcr-prompter,
-# so pinentry-gnome3 falls back to the terminal), an unregistered or closed
-# terminal means "agent refused operation" and the push fails.
+# is no graphical prompter (a headless box, where pinentry-gnome3 finds no gcr
+# prompter and falls back to the terminal), an unregistered or closed terminal
+# means "agent refused operation" and the push fails.  WSL was that case until
+# the pinentry-auto chooser gave it a WSLg window; `make check-ssh' says which
+# one a machine is in.
 #
 # Trade-off: this points the agent at the most recently opened shell, so an
 # unlock prompt can land in a different window from the one you pushed from.

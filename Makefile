@@ -1165,7 +1165,12 @@ check-gpg:
 # link:
 #   1. gpg-agent's ssh socket exists (the shepherd service is up)
 #   2. the pinentry named in gpg-agent.conf still exists -- see the GC trap
-#      described above restart-gpg-agent
+#      described above restart-gpg-agent -- and can reach a prompter.  The
+#      second half is a warning, not a failure: pinentry-gnome3 with no gcr
+#      prompter (WSL before the pinentry-auto chooser, a headless box) still
+#      works from the one registered terminal, which is exactly why every
+#      other line here read [ok] while pushes from anywhere else failed.
+#      The probe sends only BYE, so no prompt is ever shown.
 #   3. $SSH_AUTH_SOCK in the calling shell points at that socket, not at a
 #      dead /tmp/ssh-* left by an `eval $(ssh-agent -s)'
 #   4. keys have been imported (the one-time `ssh-add' per machine)
@@ -1196,6 +1201,12 @@ check-ssh:
 	  rc=1; \
 	  echo "    [--] pinentry : $$pin is gone (guix gc'd it)"; \
 	  echo "         fix: make apply   (or at least: make restart-gpg-agent)"; \
+	elif [ -n "$$pin" ] && echo BYE | "$$pin" 2>&1 | grep -q 'falling back to curses'; then \
+	  echo "    [!!] pinentry : $$pin has no graphical prompter here (no gcr system prompter on the bus)"; \
+	  echo "         it can only ask in the terminal last registered with updatestartuptty, so a push from"; \
+	  echo "         anywhere else (Emacs, a background job, a closed terminal) gets \"agent refused operation\""; \
+	  echo "         fix: make apply   (WSL: deploys a pinentry that opens a WSLg window)"; \
+	  echo "         now: make unlock-ssh-keys   (from a plain terminal; lasts one cache-TTL)"; \
 	else \
 	  echo "    [ok] pinentry : $${pin:-gpg default}"; \
 	fi; \

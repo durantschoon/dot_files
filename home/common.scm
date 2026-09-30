@@ -352,7 +352,13 @@ field below follows this file's convention of not importing
 ;;   pinentry-*           Which pinentry, as package name AND binary name --
 ;;                        Guix does not keep those in sync across flavours
 ;;                        (pinentry-gtk2 ships bin/pinentry-gtk-2).
-;;   has-gsettings?       gsettings reaches a schema daemon here.  The
+;;   wslg-pinentry        #f, or a (PACKAGE . BINARY) pair naming the pinentry
+;;                        to run when the host turns out to be WSL with WSLg.
+;;                        Only a session that CAN land on WSL names one: the
+;;                        foreign record is shared by Pop!_OS, Docker and WSL,
+;;                        and which of those it is cannot be known until the
+;;                        agent asks for a prompt.  See session-pinentry.
+;;   has-gsettings?     gsettings reaches a schema daemon here.  The
 ;;                        foreign session keeps #t deliberately: base.scm ran
 ;;                        unGated on Pop!_OS-with-GNOME for years, and the
 ;;                        call is best-effort -- on a truly headless host it
@@ -383,6 +389,7 @@ field below follows this file's convention of not importing
     (nonguix-substitutes? . #t)
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
+    (wslg-pinentry        . #f)                                     ;[session]
     (has-gsettings?       . #t)                                     ;[session]
     (never-suspend-on-ac? . #t)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
@@ -392,12 +399,23 @@ field below follows this file's convention of not importing
 ;; else's OS (Pop!_OS, Docker, WSL).  No espanso (needs a compositor this
 ;; config does not manage), no firefox (see nonguix-substitutes? above),
 ;; plain emacs.
+;;
+;;   wslg-pinentry      pinentry-gtk2, measured on barnowl (WSL 2) 2026-09-30:
+;;                      WSLg offers a display but no gcr system prompter, so
+;;                      the pinentry above announces "No Gcr System Prompter
+;;                      available, falling back to curses" and can then only
+;;                      prompt in the terminal last registered with
+;;                      updatestartuptty -- a push from anywhere else dies
+;;                      with "agent refused operation".  pinentry-gtk-2 and
+;;                      pinentry-qt both opened a window on :0; gtk2 is the
+;;                      one kept, for a closure a fraction the size of Qt's.
 (define %foreign-session
   '((name                 . foreign)
     (wayland?             . #f)
     (nonguix-substitutes? . #f)
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
+    (wslg-pinentry        . ("pinentry-gtk2" . "pinentry-gtk-2"))   ;[session]
     (has-gsettings?       . #t)                                     ;[session]
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
@@ -448,6 +466,7 @@ field below follows this file's convention of not importing
     (nonguix-substitutes? . #t)
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
+    (wslg-pinentry        . #f)                                     ;[session]
     (has-gsettings?       . #f)                                     ;[session]
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
@@ -499,6 +518,51 @@ Key is cached in.  Both bite hardest through the default handler, where you
 do not get to pick the browser at the point of use.  LibreWolf stays
 installed either way."
   (if (session-ref session 'nonguix-substitutes?) "firefox" "librewolf"))
+
+(define (session-pinentry session)
+  "The file gpg-agent.conf names as pinentry-program.
+
+For a session with no wslg-pinentry fact this is the session's own pinentry,
+unchanged.  For one that names a pair it is pinentry-auto, a chooser that
+decides per request, because the foreign record cannot know at build time
+whether it was deployed to WSL (the Linux sibling of bin/pinentry-auto, which
+makes the same kind of choice for macOS):
+
+  WSLg present, no USE_TTY=1   the window pinentry, with DISPLAY defaulted to
+                               WSLg's :0 -- shepherd starts the agent with no
+                               DISPLAY, and an ssh request carries none.
+  anything else                the session's own pinentry, as before.  That
+                               covers PINENTRY_USER_DATA=USE_TTY=1 on WSL too
+                               (.zshrc.starship sets it for ssh logins): with
+                               no gcr prompter there it prompts on the tty
+                               instead of opening a window nobody is watching.
+
+WSLg is recognized by /mnt/wslg plus the X socket it serves, not by the X
+socket alone, which any Linux X session has."
+  (let ((session-program
+         (file-append (specification->package
+                       (session-ref session 'pinentry-package))
+                      (string-append "/bin/"
+                                     (session-ref session 'pinentry-binary))))
+        (wslg-pinentry (session-ref session 'wslg-pinentry)))
+    (if (not wslg-pinentry)
+        session-program
+        (let ((wslg-program
+               (file-append (specification->package (car wslg-pinentry))
+                            (string-append "/bin/" (cdr wslg-pinentry)))))
+          (program-file
+           "pinentry-auto"
+           #~(let* ((wslg-display ":0")
+                    (wslg? (and (file-exists? "/mnt/wslg")
+                                (file-exists? "/tmp/.X11-unix/X0")))
+                    (tty-requested?
+                     (string-contains (or (getenv "PINENTRY_USER_DATA") "")
+                                      "USE_TTY=1"))
+                    (window? (and wslg? (not tty-requested?)))
+                    (program (if window? #$wslg-program #$session-program)))
+               (when (and window? (not (getenv "DISPLAY")))
+                 (setenv "DISPLAY" wslg-display))
+               (apply execl program program (cdr (command-line)))))))))
 
 ;; Packages every session gets.  `make add-pkg PKG=<spec>' edits this list
 ;; (the define's name and quoted-list shape are its anchor -- see the header
@@ -894,12 +958,10 @@ call, so extensions never collide; only genuine double ownership does."
          ;; reaches the desktop over D-Bus (DBUS_SESSION_BUS_ADDRESS *is* in
          ;; the agent's environment) and falls back to curses on a bare TTY.
          ;; WHICH pinentry is a session fact; both name entries exist because
-         ;; Guix's package and binary names do not always agree.
-         (pinentry-program
-          (file-append (specification->package
-                        (session-ref session 'pinentry-package))
-                       (string-append "/bin/"
-                                      (session-ref session 'pinentry-binary))))
+         ;; Guix's package and binary names do not always agree.  WSL is the
+         ;; exception to all of the above -- no gcr prompter, but one fixed
+         ;; display -- and session-pinentry is where that is handled.
+         (pinentry-program (session-pinentry session))
          (ssh-support? #t)
          (default-cache-ttl 28800)
          (max-cache-ttl 86400)

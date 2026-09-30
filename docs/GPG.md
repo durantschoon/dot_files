@@ -13,6 +13,7 @@ story: what is tracked, how a new machine gets the key, and what to do when
 | agent: pinentry + cache TTLs | `gnupg/gpg-agent.mac.conf`     | `~/.gnupg/gpg-agent.conf`      | mac: `make install-gnupg` renders `@DOTFILES@`   |
 | mac pinentry chooser         | `bin/pinentry-auto`            | called by gpg-agent            | pinentry-mac window, or curses over ssh          |
 |                              | `%gpg-ssh-agent-layer`, `home/common.scm` | same                | linux: `make apply` (guix home)                   |
+| linux/WSL pinentry chooser   | `session-pinentry`, `home/common.scm` | called by gpg-agent      | foreign session only: a WSLg window under WSL, pinentry-gnome3 elsewhere or over ssh |
 | git signing settings         | `.gitconfig`                   | `~/.gitconfig`                 | linux: store symlink via guix home; mac: `[include]` added by `make install-gnupg` |
 | `GPG_TTY`                    | `.zshrc.starship`, `.zshrc`    | every interactive shell        | already sourced by `make set_up_links`           |
 | the key itself               | **never tracked**              | `~/.gnupg/private-keys-v1.d/`  | moved by hand once per machine, below            |
@@ -34,6 +35,9 @@ signing: `git commit --no-gpg-sign`.
    - mac: `brew install gnupg pinentry-mac`
    - linux (guix): nothing; `gnupg` and `pinentry-gnome3` come from the
      home layers with `make apply`.
+   - WSL: the same `make apply`, which also brings `pinentry-gtk2`. WSLg has
+     a display but no GNOME prompter, so the agent's pinentry there is a
+     chooser (`pinentry-auto`) that opens a window on the Windows desktop.
 2. Bring the key over. If the NEW machine can ssh to a machine that has it
    (Tailscale makes this the common case), stream it -- the key then never
    touches the new machine's disk outside the keyring, and ownertrust needs
@@ -102,6 +106,11 @@ each key. (`make check-ssh-agent` still works as an alias.)
   unlock keeps signing.
 - **Commits from Emacs / magit** go through the same agent, so the mac
   pinentry-mac window or the GNOME prompter appears. No `GPG_TTY` games.
+- **Under WSL** the prompt is a small GTK window on the Windows desktop
+  (WSLg), wherever the request came from: a terminal, Emacs, or a
+  background job.
+  Over ssh into the WSL box it comes to your terminal instead, by the same
+  `PINENTRY_USER_DATA=USE_TTY=1` rule as on a Mac.
 - **Over ssh into a Mac** the prompt comes to your terminal, not to the
   Mac's screen: the shell exports `PINENTRY_USER_DATA=USE_TTY=1` when
   `SSH_CONNECTION` is set, and `bin/pinentry-auto` (the agent's pinentry)
@@ -185,6 +194,14 @@ messages behind the usual failures:
   `gpgconf --kill gpg-agent` to dismiss it, then open a new shell (or
   `export PINENTRY_USER_DATA=USE_TTY=1`) and retry. `make check-gpg` now
   checks for this before signing.
+- **`sign_and_send_pubkey: signing failed ... agent refused operation`** on
+  `git push` or `ssh`, while `ssh-add -l` lists the key. The key is locked
+  and the agent could not ask for its passphrase. `make check-ssh` says why:
+  a `[!!] pinentry` line means pinentry-gnome3 found no gcr prompter and can
+  only ask in the last registered terminal. That was WSL before the
+  `pinentry-auto` chooser (measured on barnowl, 2026-09-30); `make apply`
+  deploys it. Until then, or on a headless box: `make unlock-ssh-keys` from
+  a plain terminal, good for one cache-TTL (1 h idle, 8 h cap).
 - **`gpg failed to sign the data`** from git with nothing else. Run
   `echo x | gpg --sign -o /dev/null` to see the real gpg error, or
   `GIT_TRACE=1 git commit` to see which gpg git ran. A stale
