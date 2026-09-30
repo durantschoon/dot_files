@@ -89,6 +89,11 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 # Initialize starship prompt
 if command -v starship >/dev/null 2>&1; then
     eval "$(starship init zsh)"
+    # Starship's right prompt shows the history event number (%h, the N in
+    # !N), but starship is a child process: hand it over in the environment.
+    _starship_export_histno() { export STARSHIP_HISTNO=${(%):-%h} }
+    autoload -Uz add-zsh-hook
+    add-zsh-hook precmd _starship_export_histno
 else
     if [[ "$OSTYPE" == darwin* ]]; then
         echo "Starship not found. Install with: brew install starship  (make set_up_links does this)"

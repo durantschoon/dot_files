@@ -24,11 +24,12 @@ scan_timeout = 1000
 # (default: 500ms). Increased to prevent timeouts under WSL filesystem latency.
 command_timeout = 1000
 
-# Right-hand prompt: which machine, and whether this shell is inside a
-# `guix shell' environment (guix_shell keys off $GUIX_ENVIRONMENT; nothing is
-# shown outside one).  Modules named in right_format drop out of $all, so the
-# left prompt no longer repeats them.
-right_format = "$guix_shell$hostname"
+# Right-hand prompt: whether this shell is inside a `guix shell' environment
+# (guix_shell keys off $GUIX_ENVIRONMENT; nothing is shown outside one), which
+# machine, the history event number to recall with !N, and the time and date
+# (the old zsh RPROMPT's "[%h]" and "[%* on %D]").  Modules named in
+# right_format drop out of $all, so the left prompt no longer repeats them.
+right_format = "$guix_shell$hostname ${env_var.STARSHIP_HISTNO}$time"
 
 [package]
 symbol = " "   # nf-oct-package
@@ -36,9 +37,28 @@ symbol = " "   # nf-oct-package
 [python]
 symbol = " "   # nf-dev-python
 
+# Colours: the defaults for hostname ("bold dimmed green") and java ("red
+# dimmed") are unreadable on a dark background; "dimmed" is the culprit.
+
 [hostname]
 ssh_only = false
 format = "[$ssh_symbol$hostname]($style)"   # default adds "in ", pointless on the right
+style = "bold bright-green"
+
+[java]
+style = "bold bright-red"
+
+# History event number (zsh's %h), exported by a precmd hook in .zshrc.starship;
+# starship runs as a child process and cannot read the shell's history itself.
+[env_var.STARSHIP_HISTNO]
+format = "[\\[$env_value\\]]($style) "
+style = "bold bright-blue"
+
+[time]
+disabled = false
+time_format = "%H:%M:%S on %y-%m-%d"
+format = "[\\[$time\\]]($style)"
+style = "bold yellow"
 
 [guix_shell]
 symbol = "\uf325 "   # nf-linux-gnu_guix; default 🐃 is U+1F403, outside the BMP
