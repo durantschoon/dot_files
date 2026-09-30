@@ -8,6 +8,10 @@ When you are asked to work on or understand a specific topic, you should **only 
 
 When a reusable workflow is needed, first look for an existing global skill or workflow that fits. If none exists, write and validate one, then save it in your agent's standard global skill or workflow directory so other agents and later sessions can reuse it. Keep shared instructions accessible across model families, and add a pointer in this guide when relevant to this repository. Creating a workflow does not itself authorize performing the actions it describes.
 
+### Committing through a worktree (`worktree-ship`)
+
+To commit in a new worktree, then merge, push and clean up, follow [the worktree-ship skill](claude/skills/worktree-ship/SKILL.md). It moves only the task's own paths out of the shared checkout, so other agents' uncommitted edits stay where they are.
+
 ## 1. Tmux and Job Runner Commands (`tmux-*`, `job-*`, `docker-*`, `launchd-*`)
 The repository contains a unified job runner abstraction for `tmux`, `launchd`, and `docker` to handle long-running local tasks. All three runners use the same verb convention (`-run`, `-ls`, `-status`, `-logs`).
 *   **Core Implementation:** `.jobs.zsh`
