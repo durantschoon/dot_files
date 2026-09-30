@@ -24,8 +24,21 @@
 	defaultBranch = main
 [core]
 	editor = emacs
+[pull]
+	# Rebase local commits onto upstream instead of merging; also silences
+	# git's "divergent branches" prompt on fresh machines.
+	rebase = true
 [rebase]
 	autosquash = true
+	# Stash a dirty tree around pull/rebase (matches mr-push-ahead).
+	autoStash = true
+	# Move stacked branch refs along when rebasing the branch under them.
+	updateRefs = true
+[rerere]
+	# Remember conflict resolutions and replay them on the next rebase.
+	enabled = true
+[fetch]
+	prune = true
 [push]
 	autoSetupRemote = true
 [diff]
