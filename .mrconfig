@@ -226,9 +226,6 @@ checkout = git clone 'https://github.com/durantschoon/embodied-tamp' 'embodied-t
 [Repos/ds/free-up-space-macos]
 checkout = git clone 'https://github.com/durantschoon/free-up-space-macos.git' 'free-up-space-macos'
 
-[Repos/ds/gafro-benchmarks]
-checkout = git clone 'git@github.com:durantschoon/gafro-benchmarks.git' 'gafro-benchmarks'
-
 [Repos/ds/idris2-agent-tools]
 checkout = git clone 'git@github.com:durantschoon/idris2-agent-tools.git' 'idris2-agent-tools'
 
@@ -237,10 +234,6 @@ checkout = git clone 'git@github.com:durantschoon/julia-agent-tools.git' 'julia-
 
 [Repos/ds/ros2-classroom]
 checkout = git clone 'git@github.com:durantschoon/ros2-classroom.git' 'ros2-classroom'
-
-[Repos/ds/spaceline-fork]
-# origin is the UPSTREAM (TheBB), so `mr push' will be refused here.
-checkout = git clone 'https://github.com/TheBB/spaceline.git' 'spaceline-fork'
 
 [Repos/ds/tree-sitter-idris2]
 checkout = git clone 'git@github.com:durantschoon/tree-sitter-idris2.git' 'tree-sitter-idris2'
