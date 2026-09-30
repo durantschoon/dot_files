@@ -278,6 +278,13 @@ alias guix-shell-zsh='guix-container-shell zsh'
 alias guix-shell-bash='guix-container-shell bash'
 
 # -----------------------------------------------------------------------------
+# ssh to home machines
+# -----------------------------------------------------------------------------
+
+alias minius='ssh durant@minius'
+alias geeeks='ssh durant@geeeks'
+
+# -----------------------------------------------------------------------------
 # Emacs daemon over ssh  (see `make emacs-serve` on the host machine)
 # -----------------------------------------------------------------------------
 
