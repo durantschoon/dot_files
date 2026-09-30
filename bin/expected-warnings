@@ -18,28 +18,46 @@
 # forwarded as it arrives; only a fragment that could be the start of an
 # expected warning is held back until its line completes.
 #
-# Trade-off: CMD's stderr is a pipe rather than your terminal, so guix draws
-# plainer progress output.
+# Colors and guix's full progress bars need a terminal, so when this runs
+# on one and util-linux `script' is available (Guix System, WSL, most
+# distros), CMD runs inside a pseudo-terminal made by `script' and sees a tty
+# on stdout and stderr.  Both then come through the filter, merged.  Without
+# `script', or when output is not a terminal, only stderr is filtered,
+# through a plain pipe, and guix prints its plainer non-tty output.
+# Patterns allow ANSI color codes anywhere, since guix and GLib color their
+# warnings on a terminal.
 
 use strict;
 use warnings;
 use File::Path qw(make_path);
 use POSIX qw(WIFEXITED WEXITSTATUS WIFSIGNALED WTERMSIG);
 
-# name => [pattern, why it is safe to hide].  Each pattern includes its
-# trailing newline, so removing it leaves no blank line behind.
+# ANSI SGR (color) sequences, which may appear anywhere inside a warning
+# once CMD runs on a terminal.
+my $ANSI = qr/(?:\e\[[0-9;]*m)*/;
+
+# lit(TEXT) -- TEXT as a regex that tolerates color codes between characters.
+sub lit { join $ANSI, map { quotemeta } split //, $_[0] }
+
+# A complete expected-warning pattern: its pieces, plus surrounding color
+# codes and the line end, so removing it leaves no blank line behind.
+sub warning_pattern { my $body = join '', @_; qr/$ANSI$body$ANSI\r?\n?/ }
+
+# name => [pattern, why it is safe to hide].
 my %EXPECTED = (
     oniguruma => [
-        qr{warning: 'oniguruma' is deprecated, use '\(\@ \(gnu packages regex\) oniguruma\)' instead\n?},
+        warning_pattern(lit("warning: 'oniguruma' is deprecated, use '(@ (gnu packages regex) oniguruma)' instead")),
         "a channel still names guix's deprecated alias; guix resolves it to the same package",
     ],
     dconf => [
-        qr{\(process:\d+\): dconf-WARNING \*\*: [0-9:.]+: failed to commit changes to dconf: Could not connect: No such file or directory\n?},
+        warning_pattern(lit("(process:"), '[0-9]+', lit("): dconf-WARNING **: "),
+                        "(?:[0-9:.]|\\e\\[[0-9;]*m)+",
+                        lit(": failed to commit changes to dconf: Could not connect: No such file or directory")),
         "gsettings had no desktop session bus (applied over ssh); GNOME settings from earlier applies stay, re-apply from the desktop to write new ones",
     ],
 );
 # Fragments that may begin an expected warning; held until the line is whole.
-my @MARKERS = ("warning: '", "(process:");
+my @MARKERS = ("warning:", "(process:");
 
 my $state_dir = ($ENV{XDG_STATE_HOME} || "$ENV{HOME}/.local/state") . "/dot_files";
 my $state     = "$state_dir/expected-warnings";
@@ -87,23 +105,44 @@ sub hold_from {
             }
         }
     }
+    # Color codes just before the hold point belong to the warning (guix
+    # colors "warning:"), and a trailing escape may be one arriving.
+    my $before = substr $tail, 0, $hold;
+    $hold = length($1) if $before =~ /^(.*?)(?:\e(?:\[[0-9;]*m?)?)+$/s;
     return $hold;
 }
+
+# util-linux's `script' specifically: BSD's (macOS) takes other arguments.
+sub have_util_linux_script {
+    my $version = `script --version 2>/dev/null`;
+    return defined $version && $version =~ /util-linux/;
+}
+
+sub shell_quote { my ($word) = @_; $word =~ s/'/'\\''/g; "'$word'" }
 
 sub run_filtered {
     my @command = @_;
     die "usage: expected-warnings run -- CMD [ARGS...]\n" unless @command;
+    my $pty = -t STDIN && -t STDOUT && -t STDERR && have_util_linux_script();
     pipe(my $reader, my $writer) or die "expected-warnings: pipe: $!\n";
     my $pid = fork // die "expected-warnings: fork: $!\n";
     if ($pid == 0) {
         close $reader;
+        if ($pty) {
+            # -q no banner, -e CMD's exit status, -f flush as it goes,
+            # /dev/null so no typescript file is kept.
+            open STDOUT, '>&', $writer or die "expected-warnings: dup: $!\n";
+            exec 'script', '-qefc', join(' ', map { shell_quote($_) } @command), '/dev/null'
+                or die "expected-warnings: script: $!\n";
+        }
         open STDERR, '>&', $writer or die "expected-warnings: dup: $!\n";
         exec { $command[0] } @command or die "expected-warnings: $command[0]: $!\n";
     }
     close $writer;
     local $SIG{INT}  = 'IGNORE';   # the child gets Ctrl-C; we exit with it
     local $SIG{TERM} = sub { kill 'TERM', $pid };
-    STDERR->autoflush(1);
+    my $out = $pty ? \*STDOUT : \*STDERR;
+    $out->autoflush(1);
 
     my $pending = "";
     while (sysread $reader, my $chunk, 4096) {
@@ -111,10 +150,10 @@ sub run_filtered {
         my $last_nl = rindex $pending, "\n";
         my $tail    = substr $pending, $last_nl + 1;
         my $emit    = $last_nl + 1 + hold_from($tail);
-        print STDERR substr($pending, 0, $emit);
+        print $out substr($pending, 0, $emit);
         $pending = substr $pending, $emit;
     }
-    print STDERR strip_expected($pending);
+    print $out strip_expected($pending);
 
     waitpid $pid, 0;
     exit WEXITSTATUS($?) if WIFEXITED($?);
