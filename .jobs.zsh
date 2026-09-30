@@ -56,6 +56,9 @@
 #
 # tmux sessions form ONE namespace across machines: see "Hosts" below.
 #
+# <TAB> after any verb completes this repo's TASK names (never the <repo>-
+# session names `tmux ls' shows): see "Completion" at the end.
+#
 # Sourced from ~/.aliases. Needs zsh; launchd-* need macOS.
 
 # ---------------------------------------------------------------------------
@@ -116,6 +119,19 @@ job-name() {
   task=$(_job_task "$1") || return
   repo=$(job-repo)
   if [[ $task == main ]]; then print -r -- "$repo"; else print -r -- "$repo-$task"; fi
+}
+
+# Every verb takes a TASK and derives the runner name from it, so typing what
+# `tmux ls' shows doubles the prefix: `tmux-rm lim-LIM-claude' looks for
+# session lim-lim-LIM-claude.  Called where a lookup came up empty, to say
+# what was probably meant.  Silent unless TASK starts with this repo's slug.
+_job_prefix_hint() {
+  local repo; repo=$(job-repo)
+  if [[ $1 == $repo-?* ]]; then
+    print -u2 "  (a TASK has no '$repo-' prefix -- did you mean '${1#$repo-}'? <TAB> completes tasks)"
+  elif [[ -n $1 && $1 == $repo ]]; then
+    print -u2 "  (session '$repo' is the default task: leave TASK out, or say 'main')"
+  fi
 }
 
 # Prepare the repo for jobs: create ./logs and make sure git ignores it.
@@ -1551,7 +1567,7 @@ tmux-pick() {
 tmux-peek() {
   _tmux_args "$@" || return
   local name host; name=$(job-name "$_tmux_arg_task") || return
-  _tmux_where "$name" || { _job_hosts; print -u2 "tmux-peek: no session '$name' on ${(j:, :)reply} (tmux-go $_tmux_arg_task creates one)"; return 1; }
+  _tmux_where "$name" || { _job_hosts; print -u2 "tmux-peek: no session '$name' on ${(j:, :)reply} (tmux-go $_tmux_arg_task creates one)"; _job_prefix_hint "$_tmux_arg_task"; return 1; }
   host=$reply[1]
   _job_tmux_attach_polite "$host" "$name"
 }
@@ -1665,7 +1681,7 @@ tmux-ls() {
 tmux-status() {
   local task name host; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
   if ! _tmux_where "$name"; then
-    _job_hosts; print "tmux:    no session '$name' on ${(j:, :)reply}"; return 1
+    _job_hosts; print "tmux:    no session '$name' on ${(j:, :)reply}"; _job_prefix_hint "$task"; return 1
   fi
   host=$reply[1]
   print "tmux:    session '$name' on $host"
@@ -1679,7 +1695,7 @@ tmux-logs() { job-logs "$@"; }
 # no window named TASK, i.e. a plain interactive session), wherever it lives.
 tmux-stop() {
   local task name host; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
-  _tmux_where "$name" || { print -u2 "tmux-stop: no session '$name'"; return 0; }
+  _tmux_where "$name" || { print -u2 "tmux-stop: no session '$name'"; _job_prefix_hint "$task"; return 0; }
   host=$reply[1]
   
   if [[ -t 0 && $JOB_CONFIRM != no ]]; then
@@ -1711,7 +1727,7 @@ tmux-rm() {
     return 0
   fi
   name=$(job-name "$1") || return
-  _tmux_where "$name" || { print -u2 "tmux-rm: no session '$name'"; return 0; }
+  _tmux_where "$name" || { print -u2 "tmux-rm: no session '$name'"; _job_prefix_hint "$1"; return 0; }
   host=$reply[1]
   _job_tmux "$host" kill-session -t "=$name" && print -u2 "tmux-rm: killed session '$name' on $host"
 }
@@ -2277,3 +2293,99 @@ job-promote() {
   print -u2 "job-promote: '$task' promoted $src -> $to (source last exit status ${last:-unknown})"
   print -u2 "             logs continue at logs/$task.latest.log"
 }
+
+# ---------------------------------------------------------------------------
+# Completion: offer TASK names, never session names
+# ---------------------------------------------------------------------------
+# The prefix rule above (<repo>-<task>) is easy to forget at the prompt, so
+# <TAB> offers this repo's tasks with the prefix already stripped.  A task is
+# gathered from every place one leaves a trace: tmux sessions on every host
+# (the same walk as tmux-ls, so --on hosts are included), this repo's launchd
+# plists, and ./logs/<task>.job records -- which also cover Docker tasks
+# without asking a container engine, and tasks that are not running now.
+
+# This repo's tasks, in the assoc _job_task_where: task -> where it was seen.
+_job_task_candidates() {
+  typeset -gA _job_task_where; _job_task_where=()
+  local repo r host name task l f
+  local -a fields
+  repo=$(job-repo)
+  _tmux_repo_rows                       # host|name|windows|attached|activity|path|engine
+  for r in "${reply[@]}"; do
+    fields=("${(@s:|:)r}"); host=$fields[1]; name=$fields[2]
+    if [[ $name == $repo ]]; then task=main; else task=${name#$repo-}; fi
+    _job_task_add "$task" "tmux@$host${${fields[4]:#0}:+ attached}"
+  done
+  if [[ $OSTYPE == darwin* ]]; then
+    for l in $(_launchd_repo_labels); do _job_task_add "${l##*.}" launchd; done
+  fi
+  for f in "$(job-root)"/logs/*.job(N); do _job_task_add "${${f:t}%.job}" log; done
+}
+_job_task_add() { _job_task_where[$1]+="${_job_task_where[$1]:+, }$2"; }
+
+# The completion itself, shared by every verb registered below.
+_job_complete() {
+  local i opt_arg=0 npos=0 first_pos=0
+  # An option that takes a value, per the verbs' own parsers.
+  local -a valued=(--on --restart --image --to --writer -n)
+  # The *-run verbs: everything after `--' (or after TASK) is a command line.
+  for (( i = 2; i < CURRENT; i++ )); do
+    if [[ ${words[i]} == -- ]]; then
+      shift $i words; (( CURRENT -= i )); _normal; return
+    fi
+  done
+  case ${words[CURRENT-1]} in
+    --on)      _job_hosts; compadd -- "${reply[@]}"; return ;;
+    --restart) compadd -- no on-failure always; return ;;
+    --to)      compadd -- tmux launchd docker; return ;;
+    --image|--writer|-n) return 1 ;;
+  esac
+  # How many positional words precede the cursor?
+  for (( i = 2; i < CURRENT; i++ )); do
+    if (( opt_arg )); then opt_arg=0; continue; fi
+    if [[ ${words[i]} == -* ]]; then (( ${valued[(Ie)${words[i]}]} )) && opt_arg=1; continue; fi
+    (( npos++ )); (( first_pos )) || first_pos=$i
+  done
+  local verb=$service want_task_at=0
+  if [[ $verb == agent-* ]]; then
+    # agent-VERB ENGINE TASK
+    (( npos == 0 )) && [[ $PREFIX != -* ]] && { compadd -- claude agy codex cursor; return }
+    want_task_at=1
+  fi
+  if [[ $PREFIX == -* ]]; then
+    local -a opts
+    case $verb in
+      *-rm)                     opts=(--all) ;;
+      tmux-go|tmux-take|tmux-new|tmux-peek) opts=(--on) ;;
+      *-run)                    opts=(--restart --image --on --) ;;
+      job-promote)              opts=(--to --image --restart --now) ;;
+      job-logs|tmux-logs|launchd-logs|docker-logs) opts=(-n --no-follow -l) ;;
+      job-recap)                opts=(--writer) ;;
+    esac
+    (( $#opts )) && compadd -- "${opts[@]}"
+    return
+  fi
+  if (( npos == want_task_at )); then
+    _job_task_candidates
+    local -a described; local t
+    for t in ${(ok)_job_task_where}; do described+=("$t:${_job_task_where[$t]}"); done
+    _describe -t job-tasks "task (no '$(job-repo)-' prefix)" described
+    return
+  fi
+  # A *-run verb with its TASK given: the rest is the command.
+  if [[ $verb == *-run && $verb != agent-run && $verb != (claude|agy|codex)-run ]]; then
+    shift $(( first_pos + want_task_at )) words; (( CURRENT -= first_pos + want_task_at )); _normal
+  fi
+}
+
+# Registered only when the completion system is up (compinit runs before
+# ~/.aliases sources this file); a plain `zsh -f' source stays silent.
+if (( $+functions[compdef] )); then
+  compdef _job_complete \
+    tmux-{run,status,logs,stop,rm,go,take,new,peek} \
+    launchd-{run,status,logs,stop,start,rm,label} \
+    docker-{run,status,logs,stop,start,rm} \
+    job-{status,logs,record,recap,note,note-context,promote,name,logfile} \
+    {claude,agy,codex}-{run,status,relaunch,rm} \
+    agent-{run,status,relaunch,rm}
+fi

@@ -2300,6 +2300,59 @@ has "N12e and cleanup is guarded, so no path can run it twice" \
     "$SIG_SRC" "(( SMOKE_CLEANED )) && return"
 
 # --------------------------------------------------------------------------
+# N15. TASK completion and the doubled-prefix hint
+# --------------------------------------------------------------------------
+# Every verb takes a TASK, but `tmux ls' shows <repo>-<task>, and typing that
+# doubles the prefix.  _job_task_candidates must offer tasks WITHOUT the
+# prefix, from a live session and from a logs/<task>.job record alike; the
+# no-session paths must say what was probably meant; and _job_complete must
+# route values and the *-run command line correctly.  The completion system is
+# not loaded under -f, so its three entry points are stubbed in a subshell.
+
+cd -- "$REPO" || exit 1
+tmux-new comptask >/dev/null 2>&1
+waitfor ltmux has-session -t "=$SLUG-comptask" || fail "N15 setup: tmux-new comptask made no session"
+mkdir -p logs && print -r -- "at=now" > logs/comprec.job
+
+_job_task_candidates
+haslit "N15a a live session is offered as its bare task" "${_job_task_where[comptask]}" "tmux@local"
+eq  "N15a a logs/<task>.job record is offered too"    "${_job_task_where[comprec]}" "log"
+hasnt "N15a no candidate carries the repo prefix" "${(j: :)${(k)_job_task_where}}" "$SLUG-"
+
+out=$(tmux-status "$SLUG-comptask" 2>&1)
+has "N15b tmux-status with the prefix says which task was meant" "$out" "did you mean 'comptask'?"
+out=$(tmux-stop "$SLUG-nosuch" 2>&1)
+has "N15b tmux-stop with the prefix says it too" "$out" "did you mean 'nosuch'?"
+out=$(tmux-status nosuch 2>&1)
+hasnt "N15b a plain unknown task gets no prefix hint" "$out" "did you mean"
+out=$(tmux-status "$SLUG" 2>&1)
+has "N15b the bare repo name points at the default task" "$out" "leave TASK out, or say 'main'"
+
+out=$(
+  compadd()   { print -r -- "compadd: ${(j: :)@:#--}" }
+  _describe() { local -a d; d=("${(@P)4}"); print -r -- "describe: ${(j:; :)d}" }
+  _normal()   { print -r -- "normal: ${words[*]} @$CURRENT" }
+  try() { local PREFIX=$1; shift; local -a words=("$@"); local CURRENT=$# service=$1; _job_complete }
+  try '' tmux-stop ''
+  try '' tmux-go --on ''
+  try '' launchd-run t --restart ''
+  try - tmux-rm -
+  try '' agent-rm ''
+  try '' tmux-run t make ''
+  try '' docker-run t --image i -- git ''
+)
+has "N15c TASK position offers bare tasks with where they were seen" "$out" "describe: "
+haslit "N15c ... including the live session"     "$out" "comptask:tmux@local"
+has "N15c --on offers hosts"                      "$out" "compadd: local"
+has "N15c --restart offers its policies"          "$out" "compadd: no on-failure always"
+has "N15c '-' on an rm verb offers --all"         "$out" "compadd: --all"
+has "N15c agent-* asks for the engine first"      "$out" "compadd: claude agy codex cursor"
+has "N15c *-run hands the words after TASK to _normal" "$out" "normal: make  @2"
+has "N15c ... and the words after --"             "$out" "normal: git  @2"
+
+tmux-rm comptask >/dev/null 2>&1; command rm -f -- logs/comprec.job
+
+# --------------------------------------------------------------------------
 # 13(b). Measurement for question 3 -- not a pass/fail assertion
 # --------------------------------------------------------------------------
 
