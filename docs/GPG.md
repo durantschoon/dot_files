@@ -46,15 +46,46 @@ signing: `git commit --no-gpg-sign`.
    ```sh
    # 1. the EXPORT needs a pinentry, and pinentry needs a terminal, so a
    #    plain `ssh src 'gpg --export...'` dies with "Inappropriate ioctl for
-   #    device".  Export to a file on the source, from a real terminal:
-   ssh -t <src> 'umask 077; gpg --export-secret-keys --armor 0x6A2DAE7008D4F938 > ~/gpg-xfer.asc'
+   #    device".  Export to a file on the source, from a real terminal.
+   #    The two exports are not decoration: `ssh host 'cmd'` runs a
+   #    NON-interactive shell, which never reads .zshrc, so neither variable
+   #    is set.  Without them a Mac source opens its pinentry-mac window on
+   #    its own screen and the export ends with "error receiving key from
+   #    agent: Operation cancelled" / "WARNING: nothing exported".
+   ssh -t <src> 'export GPG_TTY=$(tty) PINENTRY_USER_DATA=USE_TTY=1; umask 077; gpg --export-secret-keys --armor 0x6A2DAE7008D4F938 > ~/gpg-xfer.asc'
 
    # 2. stream it into the keyring and delete the source copy in one go:
    ssh <src> 'cat ~/gpg-xfer.asc; rm ~/gpg-xfer.asc' | gpg --import
    ssh <src> 'gpg --export-ownertrust' | gpg --import-ownertrust
    ```
 
-   (Worked end to end minius -> geeeks, 2026-09-28.)  With no ssh path
+   What success looks like (minius -> barnowl, 2026-09-30). The export
+   prints nothing after the passphrase prompt, and the ownertrust import
+   prints nothing at all; the import and the listing are the evidence:
+
+   ```
+   ❯ ssh minius 'cat ~/gpg-xfer.asc; rm ~/gpg-xfer.asc' | gpg --import
+   gpg: key 0x6A2DAE7008D4F938: "Durant Schoon <durant.schoon@gmail.com>" not changed
+   gpg: key 0x6A2DAE7008D4F938: secret key imported
+   gpg: Total number processed: 1
+   gpg:              unchanged: 1
+   gpg:       secret keys read: 1
+   gpg:   secret keys imported: 1
+
+   ❯ gpg --list-secret-keys --keyid-format long 0x6A2DAE7008D4F938
+   sec   rsa4096/6A2DAE7008D4F938 2024-08-29 [SC] [expires: 2027-02-08]
+         Key fingerprint = 7CE8 1696 7443 FCEC CE0B  F1B7 6A2D AE70 08D4 F938
+   uid                 [ultimate] Durant Schoon <durant.schoon@gmail.com>
+   uid                 [ultimate] [jpeg image of size 10080]
+   ssb   rsa3072/2F87B7B7FD06F067 2026-02-08 [E] [expires: 2027-02-08]
+   ```
+
+   `secret key imported` and a `sec` line are the key itself; `[ultimate]`
+   is the ownertrust (`[unknown]` there means that import did not take).
+   `not changed` only says the public half was already in this keyring; on
+   an empty one that line reads `public key ... imported` instead.
+
+   (Also worked end to end minius -> geeeks, 2026-09-28.)  With no ssh path
    between the machines, fall back to two files moved by USB stick --
    **not** through a repo, chat or cloud drive:
 
