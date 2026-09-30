@@ -46,7 +46,7 @@ symbol = " "   # nf-dev-python
 [hostname]
 ssh_only = false
 format = "[$hostname]($style)"   # default adds "in ", pointless on the right; ssh marker is on the left
-style = "bold bright-green"
+style = "bold underline bright-green"
 
 # ssh marker for the left prompt: hostname's default ssh_symbol (U+1F310, like
 # the buffalo outside the BMP), shown whenever $SSH_CONNECTION is set, which is
