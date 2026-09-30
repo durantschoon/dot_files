@@ -39,6 +39,9 @@
 	enabled = true
 [fetch]
 	prune = true
+[advice]
+	# pull.rebase drops commits already upstream; don't hint about it each time.
+	skippedCherryPicks = false
 [push]
 	autoSetupRemote = true
 [diff]
