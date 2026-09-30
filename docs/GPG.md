@@ -13,7 +13,7 @@ story: what is tracked, how a new machine gets the key, and what to do when
 | agent: pinentry + cache TTLs | `gnupg/gpg-agent.mac.conf`     | `~/.gnupg/gpg-agent.conf`      | mac: `make install-gnupg` renders `@DOTFILES@`   |
 | mac pinentry chooser         | `bin/pinentry-auto`            | called by gpg-agent            | pinentry-mac window, or curses over ssh          |
 |                              | `%gpg-ssh-agent-layer`, `home/common.scm` | same                | linux: `make apply` (guix home)                   |
-| linux/WSL pinentry chooser   | `session-pinentry`, `home/common.scm` | called by gpg-agent      | foreign session only: a WSLg window under WSL, pinentry-gnome3 elsewhere or over ssh |
+| linux pinentry chooser       | `session-pinentry`, `home/common.scm` | called by gpg-agent      | pinentry-curses over ssh (`USE_TTY=1`); a WSLg window under WSL; pinentry-gnome3 otherwise |
 | git signing settings         | `.gitconfig`                   | `~/.gitconfig`                 | linux: store symlink via guix home; mac: `[include]` added by `make install-gnupg` |
 | `GPG_TTY`                    | `.zshrc.starship`, `.zshrc`    | every interactive shell        | already sourced by `make set_up_links`           |
 | the key itself               | **never tracked**              | `~/.gnupg/private-keys-v1.d/`  | moved by hand once per machine, below            |
@@ -30,6 +30,13 @@ silent unsigned commit is worse than a loud failure. To commit once without
 signing: `git commit --no-gpg-sign`.
 
 ## New machine
+
+`bin/gpg-new-machine` (or `make gpg-new-machine SOURCE=<host>`) walks these
+steps interactively on the new machine: it suggests Tailscale if it is not up,
+asks for the source machine (default `minius`), and before each command says
+what it does and what you will be asked for -- your login password for the
+source, then your GPG passphrase in a pinentry. `--dry-run` shows every step
+without running any. The steps by hand:
 
 1. Install gpg and a pinentry.
    - mac: `brew install gnupg pinentry-mac`
@@ -140,16 +147,18 @@ each key. (`make check-ssh-agent` still works as an alias.)
 - **Under WSL** the prompt is a small GTK window on the Windows desktop
   (WSLg), wherever the request came from: a terminal, Emacs, or a
   background job.
-  Over ssh into the WSL box it comes to your terminal instead, by the same
-  `PINENTRY_USER_DATA=USE_TTY=1` rule as on a Mac.
+  Over ssh into any Linux box it comes to your terminal instead, by the same
+  `PINENTRY_USER_DATA=USE_TTY=1` rule as on a Mac: the `pinentry-auto`
+  chooser runs pinentry-curses for such requests.
 - **Over ssh into a Mac** the prompt comes to your terminal, not to the
   Mac's screen: the shell exports `PINENTRY_USER_DATA=USE_TTY=1` when
   `SSH_CONNECTION` is set, and `bin/pinentry-auto` (the agent's pinentry)
   runs pinentry-curses for such requests. The agent is shared, so a
-  passphrase entered over ssh is cached for local commits too. Over ssh into
-  a Linux box pinentry-gnome3 may still prompt on the desktop if a session
-  is logged in there; run `gpg-connect-agent updatestartuptty /bye` first
-  or unlock from the console.
+  passphrase entered over ssh is cached for local commits too. The same
+  holds over ssh into Linux (above), and for `git push` too: ssh passes the
+  agent nothing, but every new shell's `updatestartuptty` registers its tty
+  and its `PINENTRY_USER_DATA`, so an ssh-key unlock prompts in the most
+  recently opened shell.
 - **Verifying**: `git log --show-signature -1`, or `git verify-commit HEAD`.
 - **GitHub / Codeberg** need the public key uploaded once per key change:
   `gpg --armor --export 0x6A2DAE7008D4F938 | pbcopy` (mac) or `| wl-copy`
@@ -220,6 +229,15 @@ messages behind the usual failures:
   collected, `make apply` (or `make restart-gpg-agent`) fixes it. Inside a
   background job with no terminal the same message means the passphrase
   cache had expired; unlock from a shell (`make check-gpg`) and retry.
+- **`gpg: signing failed: pinentry error`** on Linux, ssh'ed in (measured on
+  geeeks, 2026-09-30). The agent's log (`~/.local/state/shepherd/shepherd.log`)
+  says `Timeout: the Gcr system prompter was already in use`:
+  pinentry-gnome3 found the GNOME desktop's prompter, which cannot show a
+  prompt while that desktop is locked or idle, and it only falls back to
+  curses when there is no prompter at all. Fixed by the `pinentry-auto`
+  chooser, which runs pinentry-curses when `PINENTRY_USER_DATA=USE_TTY=1`:
+  `git pull`, then the host's apply target (`make apply-wayland` on geeeks,
+  which restarts gpg-agent), then a new ssh shell.
 - **Hangs after "signing a test message"** or on `git commit`, and you are
   ssh'ed in. A pinentry-mac window opened on the Mac's own display. Ctrl-C,
   `gpgconf --kill gpg-agent` to dismiss it, then open a new shell (or

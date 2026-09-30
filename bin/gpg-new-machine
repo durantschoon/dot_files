@@ -1,0 +1,193 @@
+#!/usr/bin/env zsh
+# gpg-new-machine -- walk through docs/GPG.md "New machine", one step at a time.
+#
+# Run it ON THE NEW MACHINE, from a real terminal (the export and the sign
+# test prompt for passphrases).  Before every command it says what the
+# command does and what you should expect to type or see, then waits:
+#
+#   Enter  run it        s  skip it        q  quit
+#
+# Usage:  bin/gpg-new-machine [--dry-run] [SOURCE_HOST]
+#         make gpg-new-machine
+#
+# SOURCE_HOST is a machine that already has the key and that this one can
+# ssh to (asked for when not given; default minius).  --dry-run prints every
+# step without running anything.
+
+emulate -L zsh
+setopt no_unset pipe_fail
+
+readonly KEY_ID=0x6A2DAE7008D4F938
+readonly DEFAULT_SOURCE=minius
+readonly DOTFILES_DIR=${0:A:h:h}
+readonly THIS_HOST=${(L)HOST%%.*}
+
+dry_run=false
+source_host=""
+for arg in "$@"; do
+    case $arg in
+        --dry-run) dry_run=true ;;
+        -h|--help) sed -n '2,16p' ${0:A} | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*) print -u2 "gpg-new-machine: unknown option $arg"; exit 2 ;;
+        *) source_host=$arg ;;
+    esac
+done
+
+# The export and the import prompt through pinentry, which needs to know
+# which terminal to draw on.  Over ssh, USE_TTY=1 keeps the prompt here
+# instead of on this machine's own screen (see .zshrc.starship).
+export GPG_TTY=$(tty)
+[[ -n ${SSH_CONNECTION:-} ]] && export PINENTRY_USER_DATA=USE_TTY=1
+
+# ---- presentation ----------------------------------------------------------
+
+bold()  { print -P "%B$*%b" }
+note()  { print -r -- "    $*" }
+
+# confirm -- "Enter runs, s skips, q quits".  Returns 0 to run, 1 to skip.
+confirm() {
+    local answer
+    $dry_run && { note "(dry run: not running it)"; return 1 }
+    read -r "answer?    [Enter] run   [s] skip   [q] quit > " </dev/tty
+    case $answer in
+        q|Q) print "Stopped.  Re-run bin/gpg-new-machine to pick up where you left off."; exit 0 ;;
+        s|S) note "skipped"; return 1 ;;
+        *)   return 0 ;;
+    esac
+}
+
+# step TITLE WHAT EXPECT COMMAND -- explain one command, then run it on
+# confirmation.  COMMAND is a string so it can be shown exactly as it runs.
+step() {
+    local title=$1 what=$2 expect=$3 command=$4
+    print
+    bold "==> $title"
+    note "What it does : $what"
+    note "Expect       : $expect"
+    note "Command      : $command"
+    confirm || return 0
+    if ! eval "$command"; then
+        print
+        bold "    That step failed."
+        note "Fix it and re-run this script (steps already done are safe to repeat),"
+        note "or see docs/GPG.md, \"Troubleshooting\"."
+        exit 1
+    fi
+}
+
+have_secret_key() { gpg --batch --list-secret-keys $KEY_ID >/dev/null 2>&1 }
+
+# The command that deploys dot_files here -- same table as the chpwd hint in
+# .zshrc.starship.  Empty on a Mac: `make install-gnupg' is the whole job.
+apply_command() {
+    [[ $OSTYPE == darwin* ]] && return 0
+    case $THIS_HOST in
+        geeeks) print "make apply-wayland" ;;
+        *)      print "make apply" ;;
+    esac
+}
+
+# ---- 0. tailscale and the source machine -----------------------------------
+
+bold "gpg-new-machine: bring signing key $KEY_ID to $THIS_HOST"
+note "Follows docs/GPG.md, \"New machine\".  Every step is safe to repeat."
+
+print
+bold "==> Network: can this machine reach the source over Tailscale?"
+if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
+    note "[ok] tailscale is up here."
+else
+    note "Tailscale is not running here (or not installed).  The key travels over"
+    note "ssh, and Tailscale is what normally lets this machine reach the source by"
+    note "name.  If you need it, set it up first, in another terminal:"
+    note "  mac   : brew install tailscale && sudo tailscale up   (or make check-tailscale)"
+    note "  guix  : tailscale comes with the system config; sudo tailscale up"
+    note "  other : https://tailscale.com/download, then sudo tailscale up"
+    note "Skip this if the source is reachable some other way (same LAN, ~/.ssh/config)."
+    if ! $dry_run; then
+        read -r "ready?    [Enter] when ready to go on   [q] quit > " </dev/tty
+        [[ $ready == [qQ] ]] && exit 0
+    fi
+fi
+
+if [[ -z $source_host ]]; then
+    if $dry_run; then
+        source_host=$DEFAULT_SOURCE
+    else
+        read -r "source_host?    Source machine that already has the key [$DEFAULT_SOURCE]: " </dev/tty
+        source_host=${source_host:-$DEFAULT_SOURCE}
+    fi
+fi
+note "source: $source_host"
+
+# ---- 1. gpg itself ---------------------------------------------------------
+
+print
+bold "==> gpg and a pinentry on this machine"
+if command -v gpg >/dev/null 2>&1; then
+    note "[ok] $(command -v gpg) ($(gpg --version | head -1))"
+elif [[ $OSTYPE == darwin* ]]; then
+    step "Install gpg" \
+        "installs gnupg and pinentry-mac from Homebrew" \
+        "brew output; no prompts" \
+        "brew install gnupg pinentry-mac"
+else
+    note "gpg is not on PATH.  On guix it comes from the home layers:"
+    note "  cd $DOTFILES_DIR && $(apply_command)"
+    note "Run that, open a new shell, then re-run this script."
+    exit 1
+fi
+
+# ---- 2. the key ------------------------------------------------------------
+
+if have_secret_key && ! $dry_run; then
+    print
+    bold "==> The secret key is already here"
+    note "[ok] gpg --list-secret-keys $KEY_ID finds it; skipping the transfer."
+else
+    step "Export the key to a file on $source_host" \
+        "logs in to $source_host with a terminal (-t) and has ITS gpg write the secret key, still passphrase-protected, to ~/gpg-xfer.asc there (mode 600)" \
+        "1) your LOGIN password for $source_host, if ssh asks (not with an ssh key or Tailscale SSH).  2) your GPG PASSPHRASE, in a text-mode pinentry box drawn in this terminal.  Then nothing is printed: silence is success." \
+        "ssh -t $source_host 'export GPG_TTY=\$(tty) PINENTRY_USER_DATA=USE_TTY=1; umask 077; gpg --export-secret-keys --armor $KEY_ID > ~/gpg-xfer.asc'"
+
+    step "Stream the key into this keyring" \
+        "reads ~/gpg-xfer.asc from $source_host, deletes it there in the same login, and pipes it into gpg --import here -- the key never lands on this disk outside the keyring" \
+        "your LOGIN password for $source_host again, if ssh asks.  Possibly your GPG PASSPHRASE in a pinentry on this machine.  Then: \"secret key imported\" and \"secret keys imported: 1\"." \
+        "ssh $source_host 'cat ~/gpg-xfer.asc; rm ~/gpg-xfer.asc' | gpg --import"
+
+    step "Copy the ownertrust" \
+        "copies $source_host's trust settings, so this machine marks the key as yours ([ultimate])" \
+        "your LOGIN password for $source_host, if ssh asks.  Then nothing at all is printed." \
+        "ssh $source_host 'gpg --export-ownertrust' | gpg --import-ownertrust"
+fi
+
+step "Show the key" \
+    "lists the secret key, to prove the import worked" \
+    "a \"sec   rsa4096/6A2DAE7008D4F938\" line, and uid lines that say [ultimate] ([unknown] means the ownertrust step did not take)" \
+    "gpg --list-secret-keys --keyid-format long $KEY_ID"
+
+# ---- 3. config -------------------------------------------------------------
+
+step "Link the tracked gnupg config" \
+    "links gnupg/gpg.conf and dirmngr.conf into ~/.gnupg; on a Mac also renders gpg-agent.conf (pinentry) and adds the .gitconfig include that turns on signing" \
+    "a few \"[ok]\" or \"linked\" lines; mac may run brew.  No prompts." \
+    "make -C $DOTFILES_DIR install-gnupg"
+
+apply=$(apply_command)
+if [[ -n $apply ]]; then
+    step "Deploy guix home (gpg-agent.conf, pinentry, ~/.gitconfig)" \
+        "rebuilds this machine's guix home generation, which owns gpg-agent.conf and ~/.gitconfig on Linux, then restarts gpg-agent onto it" \
+        "a long guix build (minutes if substitutes are missing); ends with the restart of gpg-agent.  May ask for your sudo password." \
+        "make -C $DOTFILES_DIR ${apply#make }"
+fi
+
+# ---- 4. prove it -----------------------------------------------------------
+
+step "Prove that signing works" \
+    "walks the signing chain and signs a test message through gpg-agent, exactly as git commit does" \
+    "your GPG PASSPHRASE once, in a pinentry (a window, or a text box in this terminal over ssh).  Every line [ok], ending \"==> gpg signing OK\"." \
+    "make -C $DOTFILES_DIR check-gpg"
+
+print
+bold "Done.  Commits on $THIS_HOST are signed with $KEY_ID."
+note "Optional: ssh-add ~/.ssh/<key> to let gpg-agent serve ssh keys too (make check-ssh)."
