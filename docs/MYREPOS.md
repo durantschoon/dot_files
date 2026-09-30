@@ -132,8 +132,11 @@ Arguments pass straight to `git push`.
 - `--dry-run` only reports the commit count: `git-remote-rad` does not
   support dry runs.
 
-The push is a plain `git push`; it needs `radicle-node` running
-(`rad node status`, `rad node start`) to announce it to the seeds.
+The push is a plain `git push`; it needs `radicle-node` running to announce
+it to the seeds. On the Mac `make setup-radicle` installs the node as a
+LaunchAgent (`com.durantschoon.radicle-node`) so it comes back after a
+reboot; `make check-radicle` checks rad, the identity, the agent and the
+node. Elsewhere, `rad node start`.
 
 ## Adding a repo
 

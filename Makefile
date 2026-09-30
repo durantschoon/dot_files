@@ -298,6 +298,9 @@ help-text:
 	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
 	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
 	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
+	@echo "  make setup-radicle - Run radicle-node as a LaunchAgent so it survives reboots (mac only;"
+	@echo "                       stops a hand-started node first, see docs/MYREPOS.md)"
+	@echo "  make check-radicle - Verify rad, the identity, the LaunchAgent and the node"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
 	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
 	@echo "  make emacs-unserve - Stop the Emacs daemon"
@@ -1641,7 +1644,7 @@ else
 	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-gpg-bridge check-gpg-bridge setup-protondrive check-protondrive
+.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -1855,6 +1858,83 @@ else
 	echo "          asked; see docs/GPG.md, \"Signing inside the guix-dev container\""; \
 	exit $$rc
 endif
+
+# The Radicle node (rad://... remotes, e.g. the GIPS submodule of
+# Repos/enveloped/GIPS) as a LaunchAgent, so it is up after a reboot instead
+# of only when someone remembered `rad node start'.  Mac only: the Guix hosts
+# would want a Shepherd service instead.  A template like the gpg bridge
+# (radicle-node's brew prefix, the log path), so the drift check compares
+# against a fresh render.  setup stops a node that is already running --
+# typically one from `rad node start' -- because two nodes cannot share
+# ~/.radicle/node/control.sock.  The identity itself (`rad auth') is NOT
+# created here: it is a key pair, made once per person, interactively.
+RADICLE_LABEL     := com.durantschoon.radicle-node
+RADICLE_PLIST_SRC := system/launchd/$(RADICLE_LABEL).plist
+RADICLE_PLIST_DST := $(HOME)/Library/LaunchAgents/$(RADICLE_LABEL).plist
+RADICLE_NODE_BIN  := $(firstword $(wildcard /opt/homebrew/bin/radicle-node /usr/local/bin/radicle-node))
+RADICLE_HOME      := $(or $(RAD_HOME),$(HOME)/.radicle)
+RADICLE_LOG       := $(RADICLE_HOME)/node/node.log
+render-radicle-plist = sed -e 's|@RADICLE_NODE@|$(RADICLE_NODE_BIN)|' \
+	  -e 's|@PATH@|$(patsubst %/,%,$(dir $(RADICLE_NODE_BIN))):/usr/bin:/bin:/usr/sbin:/sbin|' \
+	  -e 's|@LOG@|$(RADICLE_LOG)|' $(RADICLE_PLIST_SRC)
+
+setup-radicle:
+ifneq ("$(os)","$(OS_MAC)")
+	@echo "  *** setup-radicle is mac-only (detected $(os)) ***"
+	@exit 1
+else
+	@test -n "$(RADICLE_NODE_BIN)" || { echo "  *** radicle-node not found: brew install radicle ***"; exit 1; }
+	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
+	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
+	  echo "  *** $(RADICLE_HOME)/keys/radicle has a passphrase; launchd cannot type it. ***"; \
+	  echo "      keep using 'rad node start' in a terminal, or remove it: ssh-keygen -p -f $(RADICLE_HOME)/keys/radicle"; \
+	  exit 1; }
+	@echo "==> installing the radicle-node LaunchAgent ($(RADICLE_NODE_BIN))"
+	@mkdir -p "$(HOME)/Library/LaunchAgents" "$(RADICLE_HOME)/node"
+	@$(render-radicle-plist) > $(RADICLE_PLIST_DST)
+	@launchctl bootout gui/$$(id -u)/$(RADICLE_LABEL) 2>/dev/null || true
+	@if pgrep -qx radicle-node; then \
+	  echo "==> stopping the node that is already running (pid $$(pgrep -x radicle-node | tr '\n' ' '))"; \
+	  rad node stop >/dev/null 2>&1 || pkill -x radicle-node || true; \
+	  i=0; while pgrep -qx radicle-node && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	fi
+	@launchctl bootstrap gui/$$(id -u) $(RADICLE_PLIST_DST)
+	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
+	@$(MAKE) --no-print-directory check-radicle
+endif
+
+check-radicle:
+	@echo "==> Radicle"
+	@rc=0; \
+	if ! command -v rad >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] rad         : not installed; fix: brew install radicle (Guix: radicle)"; \
+	else \
+	  echo "    [ok] rad         : $$(rad --version)"; \
+	fi; \
+	if ! rad self --did >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] identity    : none; fix: rad auth"; \
+	else \
+	  echo "    [ok] identity    : $$(rad self --alias 2>/dev/null) $$(rad self --did)"; \
+	fi; \
+	if [ "$(os)" = "$(OS_MAC)" ]; then \
+	  if [ ! -f $(RADICLE_PLIST_DST) ]; then \
+	    rc=1; echo "    [--] LaunchAgent : not deployed (the node will not survive a reboot); fix: make setup-radicle"; \
+	  elif ! $(render-radicle-plist) | diff -u - $(RADICLE_PLIST_DST) > /dev/null; then \
+	    rc=1; echo "    [--] LaunchAgent : deployed plist differs from a fresh render; fix: make setup-radicle"; \
+	  elif ! launchctl print gui/$$(id -u)/$(RADICLE_LABEL) 2>/dev/null | grep -q 'state = running'; then \
+	    rc=1; echo "    [--] LaunchAgent : loaded but not running; see: launchctl print gui/$$(id -u)/$(RADICLE_LABEL)"; \
+	    echo "         and: tail $(RADICLE_LOG)"; \
+	  else \
+	    echo "    [ok] LaunchAgent : $(RADICLE_LABEL) running"; \
+	  fi; \
+	fi; \
+	if ! rad node status >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] node        : not running; fix: make setup-radicle (mac) or rad node start"; \
+	else \
+	  peers=$$(rad node status 2>/dev/null | grep -c 'z6Mk.*✓' || true); \
+	  echo "    [ok] node        : running, $$peers connected peer(s)"; \
+	fi; \
+	exit $$rc
 
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
