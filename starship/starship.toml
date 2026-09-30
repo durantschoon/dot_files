@@ -24,12 +24,13 @@ scan_timeout = 1000
 # (default: 500ms). Increased to prevent timeouts under WSL filesystem latency.
 command_timeout = 1000
 
-# Right-hand prompt: whether this shell is inside a `guix shell' environment
-# (guix_shell keys off $GUIX_ENVIRONMENT; nothing is shown outside one), which
+# Right-hand prompt: whether this shell is inside a `guix shell' environment,
+# with the Guix version (custom.guix keys off $GUIX_ENVIRONMENT; nothing is
+# shown outside one), which
 # machine, the history event number to recall with !N, and the time and date
 # (the old zsh RPROMPT's "[%h]" and "[%* on %D]").  Modules named in
 # right_format drop out of $all, so the left prompt no longer repeats them.
-right_format = "$guix_shell$hostname ${env_var.STARSHIP_HISTNO}$time"
+right_format = "${custom.guix}$hostname ${env_var.STARSHIP_HISTNO}$time"
 
 [package]
 symbol = " "   # nf-oct-package
@@ -60,6 +61,17 @@ time_format = "%H:%M:%S on %y-%m-%d"
 format = "[\\[$time\\]]($style)"
 style = "bold yellow"
 
+# The built-in guix_shell module has no $version, so a custom module stands in
+# for it and guix_shell is disabled (it would otherwise reappear via $all).
+# Guix's version is the commit it was pulled at; shown as the 7-character short
+# hash, as in `guix describe'.  The pulled guix is called by its full path
+# because `guix shell --pure' drops it from PATH (`guix --version' takes ~30ms).
 [guix_shell]
+disabled = true
+
+[custom.guix]
+when = 'test -n "$GUIX_ENVIRONMENT"'
+command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
 symbol = "\uf325 "   # nf-linux-gnu_guix; default 🐃 is U+1F403, outside the BMP
-format = "[$symbol]($style)"
+style = "bold yellow"
+format = "[$symbol($output )]($style)"
