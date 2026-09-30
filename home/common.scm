@@ -761,12 +761,12 @@ call, so extensions never collide; only genuine double ownership does."
            (use-modules (ice-9 format) (ice-9 popen) (ice-9 rdelim))
            (let ((gsettings (string-append #$glib:bin "/bin/gsettings")) ;[session]
                  (want "'CaskaydiaCove Nerd Font 12'"))
-             (system* gsettings "set" "org.gnome.desktop.interface"
+             (system* gsettings "set" "org.gnome.desktop.interface" ;[session]
                       "monospace-font-name" "CaskaydiaCove Nerd Font 12")
              (let* ((port (open-input-pipe
                            (string-append
-                            gsettings
-                            " get org.gnome.desktop.interface monospace-font-name")))
+                            gsettings                               ;[session]
+                            " get org.gnome.desktop.interface monospace-font-name"))) ;[session]
                     (got (read-line port)))
                (close-pipe port)
                (if (and (string? got) (string=? got want))
