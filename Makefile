@@ -1147,10 +1147,10 @@ check-gpg:
 	fi; \
 	if [ $$rc != 0 ]; then echo "==> gpg signing: fix the [--] lines above"; exit 1; fi; \
 	if [ -t 0 ]; then \
-	  if [ -n "$$SSH_CONNECTION" ] && [ "$(os)" = "$(OS_MAC)" ]; then \
+	  if [ -n "$$SSH_CONNECTION" ]; then \
 	    case "$$PINENTRY_USER_DATA" in *USE_TTY=1*) \
 	      echo "    [ok] ssh      : PINENTRY_USER_DATA=USE_TTY=1, so the prompt comes to this terminal";; \
-	    *) echo "    [--] ssh      : PINENTRY_USER_DATA is not set; pinentry-mac would open a window on the Mac's own screen and hang here"; \
+	    *) echo "    [--] ssh      : PINENTRY_USER_DATA is not set; the pinentry would prompt on this machine's own screen (mac: hangs here; GNOME: \"pinentry error\")"; \
 	       echo "         fix: open a new shell (.zshrc.starship sets it), or: export PINENTRY_USER_DATA=USE_TTY=1"; \
 	       echo "              if a request is already stuck: gpgconf --kill gpg-agent"; exit 1;; \
 	    esac; \

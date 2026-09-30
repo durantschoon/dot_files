@@ -520,49 +520,58 @@ installed either way."
   (if (session-ref session 'nonguix-substitutes?) "firefox" "librewolf"))
 
 (define (session-pinentry session)
-  "The file gpg-agent.conf names as pinentry-program.
+  "The file gpg-agent.conf names as pinentry-program: pinentry-auto, a chooser
+that decides per request (the Linux sibling of bin/pinentry-auto, which makes
+the same kind of choice for macOS):
 
-For a session with no wslg-pinentry fact this is the session's own pinentry,
-unchanged.  For one that names a pair it is pinentry-auto, a chooser that
-decides per request, because the foreign record cannot know at build time
-whether it was deployed to WSL (the Linux sibling of bin/pinentry-auto, which
-makes the same kind of choice for macOS):
+  PINENTRY_USER_DATA=USE_TTY=1  pinentry-curses from the session's pinentry
+                               package (every flavour ships it), on the
+                               requesting terminal.  .zshrc.starship sets the
+                               variable for ssh logins.
+  WSLg present                 the wslg-pinentry window, with DISPLAY
+                               defaulted to WSLg's :0 -- shepherd starts the
+                               agent with no DISPLAY, and an ssh request
+                               carries none.  Only for a session that names a
+                               wslg-pinentry pair: the foreign record cannot
+                               know at build time whether it landed on WSL.
+  anything else                the session's own pinentry.
 
-  WSLg present, no USE_TTY=1   the window pinentry, with DISPLAY defaulted to
-                               WSLg's :0 -- shepherd starts the agent with no
-                               DISPLAY, and an ssh request carries none.
-  anything else                the session's own pinentry, as before.  That
-                               covers PINENTRY_USER_DATA=USE_TTY=1 on WSL too
-                               (.zshrc.starship sets it for ssh logins): with
-                               no gcr prompter there it prompts on the tty
-                               instead of opening a window nobody is watching.
+The USE_TTY=1 branch is for EVERY session, measured on geeeks 2026-09-30:
+over ssh, the gcr-based pinentry still finds the desktop's gcr prompter on the
+default D-Bus socket, and with that desktop locked or idle it gets `Timeout:
+the Gcr system prompter was already in use' and fails with `pinentry error'
+-- it only falls back to curses when there is no prompter at all.
 
 WSLg is recognized by /mnt/wslg plus the X socket it serves, not by the X
 socket alone, which any Linux X session has."
-  (let ((session-program
-         (file-append (specification->package
-                       (session-ref session 'pinentry-package))
-                      (string-append "/bin/"
-                                     (session-ref session 'pinentry-binary))))
-        (wslg-pinentry (session-ref session 'wslg-pinentry)))
-    (if (not wslg-pinentry)
-        session-program
-        (let ((wslg-program
+  (let* ((pinentry-package (specification->package
+                            (session-ref session 'pinentry-package)))
+         (session-program
+          (file-append pinentry-package
+                       (string-append "/bin/"
+                                      (session-ref session 'pinentry-binary))))
+         (tty-program (file-append pinentry-package "/bin/pinentry-curses"))
+         (wslg-pinentry (session-ref session 'wslg-pinentry))
+         (wslg-program
+          (and wslg-pinentry
                (file-append (specification->package (car wslg-pinentry))
-                            (string-append "/bin/" (cdr wslg-pinentry)))))
-          (program-file
-           "pinentry-auto"
-           #~(let* ((wslg-display ":0")
-                    (wslg? (and (file-exists? "/mnt/wslg")
-                                (file-exists? "/tmp/.X11-unix/X0")))
-                    (tty-requested?
-                     (string-contains (or (getenv "PINENTRY_USER_DATA") "")
-                                      "USE_TTY=1"))
-                    (window? (and wslg? (not tty-requested?)))
-                    (program (if window? #$wslg-program #$session-program)))
-               (when (and window? (not (getenv "DISPLAY")))
-                 (setenv "DISPLAY" wslg-display))
-               (apply execl program program (cdr (command-line)))))))))
+                            (string-append "/bin/" (cdr wslg-pinentry))))))
+    (program-file
+     "pinentry-auto"
+     #~(let* ((wslg-display ":0")
+              (tty-requested?
+               (string-contains (or (getenv "PINENTRY_USER_DATA") "")
+                                "USE_TTY=1"))
+              (window? (and #$(and wslg-pinentry #t)
+                            (not tty-requested?)
+                            (file-exists? "/mnt/wslg")
+                            (file-exists? "/tmp/.X11-unix/X0")))
+              (program (cond (tty-requested? #$tty-program)
+                             (window? #$wslg-program)
+                             (else #$session-program))))
+         (when (and window? (not (getenv "DISPLAY")))
+           (setenv "DISPLAY" wslg-display))
+         (apply execl program program (cdr (command-line)))))))
 
 ;; Packages every session gets.  `make add-pkg PKG=<spec>' edits this list
 ;; (the define's name and quoted-list shape are its anchor -- see the header
