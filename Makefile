@@ -2678,7 +2678,7 @@ check-home-ownership:
 	    if [ -L "$$HOME/$$anc" ]; then via="$$anc"; break; fi; \
 	  done; \
 	  if [ -n "$$via" ]; then \
-	    printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
+	    printf '    %s%-38s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
 	    hazards=1; continue; \
 	  fi; \
 	  if [ ! -e "$$t" ] && [ ! -L "$$t" ]; then \
@@ -2701,16 +2701,16 @@ check-home-ownership:
 	  fi; \
 	  case "$$owner" in \
 	    "real directory") \
-	      printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: real directory where guix wants a symlink"; \
+	      printf '    %s%-38s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: real directory where guix wants a symlink"; \
 	      hazards=1 ;; \
 	    native|"real file") \
 	      if [ $$guix_home -eq 1 ]; then \
-	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "CONFLICT: $$owner, but Guix Home is active"; \
+	        printf '    %s%-38s%s %s\n' "$$c1" "$$p" "$$c0" "CONFLICT: $$owner, but Guix Home is active"; \
 	        conflicts=1; \
 	      else \
-	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
+	        printf '    %s%-38s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
 	      fi ;; \
-	    *) printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
+	    *) printf '    %s%-38s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
 	  esac; \
 	done; \
 	leftovers=0; \
@@ -2721,7 +2721,7 @@ check-home-ownership:
 	    n="$${t#$$HOME/}"; \
 	    case "$$(readlink -f "$$t" 2>/dev/null)" in "$$dfroot"/*) ;; *) continue ;; esac; \
 	    case "$$claimed_words" in *" $$n "*|*" $$n/"*) continue ;; esac; \
-	    printf '    %s%-28s%s %s\n' "$$c1" "$$n" "$$c0" "LEFTOVER: native link -> $$(readlink "$$t")"; \
+	    printf '    %s%-38s%s %s\n' "$$c1" "$$n" "$$c0" "LEFTOVER: native link -> $$(readlink "$$t")"; \
 	    leftovers=1; \
 	  done; \
 	fi; \
