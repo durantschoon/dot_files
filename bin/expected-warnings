@@ -1,0 +1,148 @@
+#!/usr/bin/env perl
+# expected-warnings -- hide the warnings `make apply' is known to print, and
+# count them instead.
+#
+# Usage:  expected-warnings reset             start a new tally
+#         expected-warnings run -- CMD ARGS   run CMD, filtering its stderr
+#         expected-warnings summary           print "Expected warnings: N (...)"
+#
+# Only stderr is filtered; stdout passes straight through, and CMD's exit
+# status is passed on as-is.  Anything that is NOT in %EXPECTED below is shown
+# exactly as before, so a new warning still reaches you.  The tally lives in
+# ${XDG_STATE_HOME:-~/.local/state}/dot_files/expected-warnings, which is why
+# `summary' works from a later recipe line than the `run' that counted.
+#
+# Filtering is by substring, not by line: guix draws its spinner on the same
+# line the warning lands on ("Computing Guix derivation ... |warning: ..."),
+# so dropping the whole line would eat the progress text too.  Output is
+# forwarded as it arrives; only a fragment that could be the start of an
+# expected warning is held back until its line completes.
+#
+# Trade-off: CMD's stderr is a pipe rather than your terminal, so guix draws
+# plainer progress output.
+
+use strict;
+use warnings;
+use File::Path qw(make_path);
+use POSIX qw(WIFEXITED WEXITSTATUS WIFSIGNALED WTERMSIG);
+
+# name => [pattern, why it is safe to hide].  Each pattern includes its
+# trailing newline, so removing it leaves no blank line behind.
+my %EXPECTED = (
+    oniguruma => [
+        qr{warning: 'oniguruma' is deprecated, use '\(\@ \(gnu packages regex\) oniguruma\)' instead\n?},
+        "a channel still names guix's deprecated alias; guix resolves it to the same package",
+    ],
+    dconf => [
+        qr{\(process:\d+\): dconf-WARNING \*\*: [0-9:.]+: failed to commit changes to dconf: Could not connect: No such file or directory\n?},
+        "gsettings had no desktop session bus (applied over ssh); GNOME settings from earlier applies stay, re-apply from the desktop to write new ones",
+    ],
+);
+# Fragments that may begin an expected warning; held until the line is whole.
+my @MARKERS = ("warning: '", "(process:");
+
+my $state_dir = ($ENV{XDG_STATE_HOME} || "$ENV{HOME}/.local/state") . "/dot_files";
+my $state     = "$state_dir/expected-warnings";
+
+sub reset_tally {
+    make_path($state_dir);
+    open my $fh, '>', $state or die "expected-warnings: $state: $!\n";
+    close $fh;
+}
+
+sub record {
+    my ($name) = @_;
+    make_path($state_dir);
+    open my $fh, '>>', $state or return;
+    print $fh "$name\n";
+    close $fh;
+}
+
+# Remove every expected warning from TEXT, recording each one hidden.
+sub strip_expected {
+    my ($text) = @_;
+    for my $name (sort keys %EXPECTED) {
+        my $pattern = $EXPECTED{$name}[0];
+        my $count = () = $text =~ /$pattern/g;
+        next unless $count;
+        $text =~ s/$pattern//g;
+        record($name) for 1 .. $count;
+    }
+    return $text;
+}
+
+# Index in TAIL (text after the last newline) from which output must wait:
+# the first full marker, or a suffix that is a prefix of one.
+sub hold_from {
+    my ($tail) = @_;
+    my $hold = length $tail;
+    for my $marker (@MARKERS) {
+        my $at = index $tail, $marker;
+        $hold = $at if $at >= 0 && $at < $hold;
+        for my $k (reverse 1 .. length($marker) - 1) {
+            if (substr($tail, -$k) eq substr($marker, 0, $k)) {
+                my $start = length($tail) - $k;
+                $hold = $start if $start < $hold;
+                last;
+            }
+        }
+    }
+    return $hold;
+}
+
+sub run_filtered {
+    my @command = @_;
+    die "usage: expected-warnings run -- CMD [ARGS...]\n" unless @command;
+    pipe(my $reader, my $writer) or die "expected-warnings: pipe: $!\n";
+    my $pid = fork // die "expected-warnings: fork: $!\n";
+    if ($pid == 0) {
+        close $reader;
+        open STDERR, '>&', $writer or die "expected-warnings: dup: $!\n";
+        exec { $command[0] } @command or die "expected-warnings: $command[0]: $!\n";
+    }
+    close $writer;
+    local $SIG{INT}  = 'IGNORE';   # the child gets Ctrl-C; we exit with it
+    local $SIG{TERM} = sub { kill 'TERM', $pid };
+    STDERR->autoflush(1);
+
+    my $pending = "";
+    while (sysread $reader, my $chunk, 4096) {
+        $pending = strip_expected($pending . $chunk);
+        my $last_nl = rindex $pending, "\n";
+        my $tail    = substr $pending, $last_nl + 1;
+        my $emit    = $last_nl + 1 + hold_from($tail);
+        print STDERR substr($pending, 0, $emit);
+        $pending = substr $pending, $emit;
+    }
+    print STDERR strip_expected($pending);
+
+    waitpid $pid, 0;
+    exit WEXITSTATUS($?) if WIFEXITED($?);
+    exit 128 + WTERMSIG($?) if WIFSIGNALED($?);
+    exit 1;
+}
+
+sub summary {
+    open my $fh, '<', $state or return;
+    my %seen;
+    my @order;
+    while (my $name = <$fh>) {
+        chomp $name;
+        push @order, $name unless $seen{$name}++;
+    }
+    close $fh;
+    return unless @order;
+    my $total = 0;
+    $total += $_ for values %seen;
+    my @labels = map { $seen{$_} > 1 ? "$_ x$seen{$_}" : $_ } @order;
+    print "Expected warnings: $total (" . join(", ", @labels) . ")\n";
+}
+
+my $verb = shift @ARGV // '';
+if    ($verb eq 'reset')   { reset_tally() }
+elsif ($verb eq 'summary') { summary() }
+elsif ($verb eq 'run')     { shift @ARGV if @ARGV && $ARGV[0] eq '--'; run_filtered(@ARGV) }
+else {
+    print STDERR "usage: expected-warnings reset | run -- CMD [ARGS...] | summary\n";
+    exit 2;
+}

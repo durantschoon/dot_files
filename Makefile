@@ -1365,9 +1365,20 @@ unlock-ssh-keys:
 # not exist until the `guix pull' a few lines earlier has finished -- a make
 # variable expanded at parse time would miss it.  Falls back to PATH's guix
 # where there is no per-user pull at all (Guix System before the first pull).
+# Prefix for the guix commands in apply / apply-wayland: bin/expected-warnings
+# hides the warnings those are known to print (oniguruma, dconf -- the list
+# and why each is harmless live in the script) and counts them, and
+# EXPECTED_WARNINGS_SUMMARY prints the tally at the end.  Empty when perl is
+# missing (a first apply on a bare machine), so the command then runs
+# unfiltered rather than not at all.
+EXPECTED_WARNINGS = $$(command -v perl >/dev/null 2>&1 && echo "$(CURDIR)/bin/expected-warnings run --")
+EXPECTED_WARNINGS_RESET = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/expected-warnings reset || true
+EXPECTED_WARNINGS_SUMMARY = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/expected-warnings summary || true
+
 PULLED_GUIX = $$( g="$$HOME/.config/guix/current/bin/guix"; [ -x "$$g" ] && echo "$$g" || echo guix )
 
 apply: warn-dotfiles-home
+	$(EXPECTED_WARNINGS_RESET)
 	@echo "==> git submodule update --init claude"
 	@# home/base.scm reads ../claude/* via local-file, so an uninitialized
 	@# submodule fails the reconfigure with an opaque "no such file" from the
@@ -1382,12 +1393,12 @@ apply: warn-dotfiles-home
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || $(EXPECTED_WARNINGS) guix pull ; \
 	else \
-	  guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull ; \
 	fi
 	@echo "==> guix home reconfigure home/base.scm  (guix: $(PULLED_GUIX))"
-	@$(PULLED_GUIX) home reconfigure $(GUIX_HOME_GRAFT_FLAGS) --allow-downgrades home/base.scm
+	@$(EXPECTED_WARNINGS) $(PULLED_GUIX) home reconfigure $(GUIX_HOME_GRAFT_FLAGS) --allow-downgrades home/base.scm
 	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
@@ -1412,14 +1423,16 @@ apply: warn-dotfiles-home
 	fi
 	@$(MAKE) --no-print-directory check-cloud-dirs
 	@$(MAKE) --no-print-directory unlock-ssh-keys
+	$(EXPECTED_WARNINGS_SUMMARY)
 
 apply-wayland: warn-dotfiles-home
+	$(EXPECTED_WARNINGS_RESET)
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || $(EXPECTED_WARNINGS) guix pull ; \
 	else \
-	  guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull ; \
 	fi
 	@echo "==> git submodule update --init (espanso/private)"
 	@git submodule update --init espanso/private 2>/dev/null || true
@@ -1432,7 +1445,7 @@ apply-wayland: warn-dotfiles-home
 	@# ../claude/* unconditionally, so let git's error stop the build.
 	@git submodule update --init claude
 	@echo "==> guix home reconfigure home/wayland.scm  (guix: $(PULLED_GUIX))"
-	@$(PULLED_GUIX) home reconfigure --allow-downgrades home/wayland.scm
+	@$(EXPECTED_WARNINGS) $(PULLED_GUIX) home reconfigure --allow-downgrades home/wayland.scm
 	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
@@ -1457,6 +1470,7 @@ apply-wayland: warn-dotfiles-home
 	fi
 	@$(MAKE) --no-print-directory check-cloud-dirs
 	@$(MAKE) --no-print-directory unlock-ssh-keys
+	$(EXPECTED_WARNINGS_SUMMARY)
 
 # apply-ewm -- deploy the EWM TRIAL home generation (docs/EWM_TRIAL_PLAN.md,
 # home/ewm.scm).  Deliberately leaner than apply/apply-wayland: no guix pull,
