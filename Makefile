@@ -1163,6 +1163,15 @@ check-gpg:
 	       echo "              if a request is already stuck: gpgconf --kill gpg-agent"; exit 1;; \
 	    esac; \
 	  fi; \
+	  if [ -z "$$GPG_TTY" ]; then \
+	    echo "    [--] tty      : GPG_TTY is not set, so a terminal pinentry has nowhere to draw (\"Inappropriate ioctl for device\")"; \
+	    echo "         fix: export GPG_TTY=\$$(tty)   (zsh sets it; a bash login -- Tailscale SSH falling back to /bin/sh -- does not: exec zsh -l)"; \
+	    exit 1; \
+	  elif [ ! -r "$$GPG_TTY" ] || [ ! -w "$$GPG_TTY" ]; then \
+	    echo "    [--] tty      : $$GPG_TTY is owned by $$(ls -l "$$GPG_TTY" | awk '{print $$3}'), so the pinentry cannot open it (\"Permission denied\")"; \
+	    echo "         fix: sudo chown $$USER $$GPG_TTY   (Tailscale SSH leaves its ptys owned by root; openssh does not)"; \
+	    exit 1; \
+	  fi; \
 	  echo "    signing a test message through the agent (may prompt for the passphrase)..."; \
 	  if echo "make check-gpg" | gpg --sign --local-user "$$key" -o /dev/null 2>/tmp/check-gpg.$$$$; then \
 	    echo "    [ok] sign     : works"; \

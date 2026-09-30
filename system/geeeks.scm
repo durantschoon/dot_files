@@ -717,6 +717,14 @@ leftcontrol = capslock
          ;; after startup looked fine.  SSL_CERT_* likewise: a static Go binary
          ;; with no certificate path cannot TLS to the control plane, and Guix
          ;; puts the bundle somewhere Go does not guess.
+         ;;
+         ;; glibc's bin is on that PATH for `getent', which is how Tailscale
+         ;; SSH finds the user's login shell (as far as can be told from
+         ;; outside; confirm with ps after reconfiguring).  Without it tailscaled
+         ;; falls back to /bin/sh (seen in ps as `be-child ssh --login-shell=/bin/sh'),
+         ;; so a Tailscale SSH login got bash, never read .zshrc.starship, and
+         ;; had no GPG_TTY: gpg signing failed with "Inappropriate ioctl for
+         ;; device" (measured 2026-09-30).
          (simple-service 'tailscale-state activation-service-type
                          ;; Recreated on every boot and every reconfigure.
                          ;; 0700 on the state directory is not cosmetic: it
@@ -754,7 +762,8 @@ leftcontrol = capslock
                             ;; is "iproute2".  `guix build iproute' fails and
                             ;; (file-append iproute2 ...) is unbound -- the two
                             ;; spellings are not interchangeable.
-                            #$(file-append iproute "/sbin"))
+                            #$(file-append iproute "/sbin") ":"
+                            #$(file-append glibc "/bin"))
                            "SSL_CERT_DIR=/etc/ssl/certs"
                            "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")))
                  (stop

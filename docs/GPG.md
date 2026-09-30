@@ -238,6 +238,18 @@ messages behind the usual failures:
   chooser, which runs pinentry-curses when `PINENTRY_USER_DATA=USE_TTY=1`:
   `git pull`, then the host's apply target (`make apply-wayland` on geeeks,
   which restarts gpg-agent), then a new ssh shell.
+- **`Inappropriate ioctl for device`** or **`Permission denied`** from
+  `make check-gpg` over **Tailscale SSH** into geeeks (2026-09-30).
+  Tailscale SSH gets two things wrong there, and check-gpg's `tty` line
+  names whichever one you have:
+  - The login shell is `/bin/sh`, not zsh, most likely because tailscaled could not run
+    `getent` to look up the real one. Bash never reads `.zshrc.starship`, so
+    `GPG_TTY` is unset. Fix for now: `exec zsh -l`. The permanent fix puts
+    glibc's `getent` on tailscaled's PATH in `system/geeeks.scm` (needs
+    `sudo guix system reconfigure`).
+  - The pty is owned by root, so the pinentry (which runs as you) cannot
+    open it. Fix for now: `sudo chown $USER $(tty)`. Openssh ptys do not
+    have this problem, so plain `ssh` to the LAN address avoids it.
 - **Hangs after "signing a test message"** or on `git commit`, and you are
   ssh'ed in. A pinentry-mac window opened on the Mac's own display. Ctrl-C,
   `gpgconf --kill gpg-agent` to dismiss it, then open a new shell (or
