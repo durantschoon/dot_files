@@ -158,3 +158,30 @@ if [[ -z "$INSIDE_EMACS" ]]; then
         echo -ne "\e]1;${PWD##*/}\a"
     }
 fi
+
+# On cd into ~/dot_files, remind which command applies this host's config.
+# Runs on cd only (not at shell start), and only in interactive shells.
+# The OrbStack guix container gets a random hostname, so it is recognised
+# by /proc/version, and Termux by $TERMUX_VERSION or its data directory,
+# as the Makefile's flavor detection does.
+function dotfiles_apply_hint() {
+    [[ -o interactive ]] || return
+    [[ "${PWD:A}" == "${${:-$HOME/dot_files}:A}" ]] || return
+    local short_host="${(L)HOST%%.*}"
+    local hint
+    if grep -qi orbstack /proc/version 2>/dev/null; then
+        hint="you're in orb-guix, you run: make apply"
+    elif [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux ]]; then
+        hint="you're on your android phone, just pull and source your z dots: git pull && source ~/.zshrc"
+    else
+        case "$short_host" in
+            barnowl) hint="you're on barnowl, you run: make apply" ;;
+            minius)  hint="you're on minius, you just pull and source your z dots: git pull && source ~/.zshrc (but see if you can do everything in orb-guix, where you run: make apply)" ;;
+            geeeks)  hint="you're on geeeks, you run: make apply-wayland" ;;
+            *)       return ;;
+        esac
+    fi
+    print -P "%F{yellow}${hint}%f"
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd dotfiles_apply_hint
