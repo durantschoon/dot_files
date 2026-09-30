@@ -31,6 +31,13 @@ signing: `git commit --no-gpg-sign`.
 
 ## New machine
 
+`bin/gpg-new-machine` (or `make gpg-new-machine SOURCE=<host>`) walks these
+steps interactively on the new machine: it suggests Tailscale if it is not up,
+asks for the source machine (default `minius`), and before each command says
+what it does and what you will be asked for -- your login password for the
+source, then your GPG passphrase in a pinentry. `--dry-run` shows every step
+without running any. The steps by hand:
+
 1. Install gpg and a pinentry.
    - mac: `brew install gnupg pinentry-mac`
    - linux (guix): nothing; `gnupg` and `pinentry-gnome3` come from the

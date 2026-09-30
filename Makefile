@@ -1071,6 +1071,14 @@ else
 endif
 	@echo "==> gnupg config done; now: make check-gpg"
 
+# First-time gpg setup on a new machine, interactively: bin/gpg-new-machine
+# walks docs/GPG.md "New machine" (Tailscale, key transfer from SOURCE --
+# default minius -- config, check-gpg), explaining each command and what it
+# will prompt for before running it.  make gpg-new-machine SOURCE=barnowl
+.PHONY: gpg-new-machine
+gpg-new-machine:
+	@$(CURDIR)/bin/gpg-new-machine $(SOURCE)
+
 # Can `git commit' sign on THIS machine?  Walks the chain in the order it
 # fails in practice and prints the fix at the first broken link:
 #   1. a gpg on PATH (git runs `gpg' unless gpg.program overrides it)
