@@ -235,6 +235,13 @@ checkout = git clone 'git@github.com:durantschoon/julia-agent-tools.git' 'julia-
 [Repos/ds/ros2-classroom]
 checkout = git clone 'git@github.com:durantschoon/ros2-classroom.git' 'ros2-classroom'
 
+[Repos/others/freeplane]
+# Fork of freeplane/freeplane on branch 1.12.x.  Cloned before the private
+# private-extensions/ clone that lives inside it (see private/mrconfig).
+order = 5
+checkout = git clone -b 1.12.x 'git@github.com:durantschoon/freeplane.git' 'freeplane' &&
+    git -C freeplane remote add upstream 'https://github.com/freeplane/freeplane.git'
+
 [Repos/ds/tree-sitter-idris2]
 checkout = git clone 'git@github.com:durantschoon/tree-sitter-idris2.git' 'tree-sitter-idris2'
 
