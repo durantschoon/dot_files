@@ -540,7 +540,13 @@ _agent_start_args() {
       fi
       ;;
     cursor) print -r -- "" ;;
-    codex)  print -r -- "" ;;
+    codex)
+      if [[ -n $CODEX_START_ARGS ]]; then
+        print -r -- "$CODEX_START_ARGS"
+      else
+        print -r -- ""
+      fi
+      ;;
   esac
 }
 
@@ -552,7 +558,7 @@ _agent_start_args() {
 agy-run() {
   local -x AGY_START_ARGS=""
   if (( ${+aliases[agy-auto]} )); then
-    echo "agy-auto alias detected, running with agy-auto..."
+    echo $'\e[1;37;41m agy-auto alias detected, running with agy-auto... \e[0m'
     local val="$aliases[agy-auto]"
     local args="${val#* }"
     [[ "$args" == "$val" ]] && args=""
@@ -566,7 +572,17 @@ agy-rm()       { agent-rm agy "$@" }
 agy-help()     { agent-help agy "$@" }
 
 # codex wrappers
-codex-run()      { agent-run codex "$@" }
+codex-run() {
+  local -x CODEX_START_ARGS=""
+  if (( ${+aliases[codex-auto-workspace]} )); then
+    echo $'\e[1;37;41m codex-auto-workspace alias detected, running with codex-auto-workspace... \e[0m'
+    local val="$aliases[codex-auto-workspace]"
+    local args="${val#* }"
+    [[ "$args" == "$val" ]] && args=""
+    CODEX_START_ARGS="$args"
+  fi
+  agent-run codex "$@"
+}
 codex-status()   { agent-status codex "$@" }
 codex-relaunch() { agent-relaunch codex "$@" }
 codex-rm()       { agent-rm codex "$@" }

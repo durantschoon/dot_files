@@ -17,6 +17,8 @@
 alias a='alias'
 alias ag='alias | grep'
 alias agy-auto='agy --dangerously-skip-permissions'
+alias codex-auto='codex --full-auto'
+alias codex-auto-workspace='dex --sandbox workspace-write --ask-for-approval never'
 alias c2n='tr ":" "\012"'
 alias cs='claude-sessions' # a link to ~/.claude/bin/claude-sessions
 alias cs_size='claude-sessions --sort=size --desc'
@@ -681,7 +683,7 @@ if [ -n "$ZSH_VERSION" ]; then
         pushd ~/dot_files >/dev/null || return 1
         make apply || { popd >/dev/null; return 1; }
         popd >/dev/null
-        source ~/.aliases 2>/dev/null
+        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; unset _f
     }
     alias da=dot-apply
 
@@ -689,8 +691,7 @@ if [ -n "$ZSH_VERSION" ]; then
         pushd ~/dot_files >/dev/null || return 1
         make apply-wayland || { popd >/dev/null; return 1; }
         popd >/dev/null
-        source ~/.zshenv 2>/dev/null
-        source ~/.aliases 2>/dev/null
+        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; unset _f
     }
     alias daw=dot-apply-wayland
 
