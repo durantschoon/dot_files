@@ -105,3 +105,6 @@ export PAGER='less -R'
 # for my obsidian-drift repo
 export DRIFT_HOME="$HOME/Repos/enveloped/obsidian-drift/obsidian-drift"
 export DRIFT_CONFIG="/Users/durant/Repos/enveloped/obsidian-drift/obsidian-drift/test.toml"
+
+# envelope vault
+export ENVELOPE_VAULT_DIR=~/.envelope_vault
