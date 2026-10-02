@@ -185,3 +185,10 @@ function dotfiles_apply_hint() {
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd dotfiles_apply_hint
+
+# zsh-autosuggestions
+if [ -f ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+    source ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+elif [ -f /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+    source /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+fi
