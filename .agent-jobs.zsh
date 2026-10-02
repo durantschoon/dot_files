@@ -532,7 +532,13 @@ _agent_resume_args() {
 _agent_start_args() {
   case $1 in
     claude) print -r -- "--permission-mode ${AGENT_JOB_MODE:-${CLAUDE_JOB_MODE:-auto}}" ;;
-    agy)    print -r -- "" ;;
+    agy)
+      if [[ -n $AGY_START_ARGS ]]; then
+        print -r -- "$AGY_START_ARGS"
+      else
+        print -r -- ""
+      fi
+      ;;
     cursor) print -r -- "" ;;
     codex)  print -r -- "" ;;
   esac
@@ -543,7 +549,17 @@ _agent_start_args() {
 # ---------------------------------------------------------------------------
 
 # agy wrappers
-agy-run()      { agent-run agy "$@" }
+agy-run() {
+  local -x AGY_START_ARGS=""
+  if (( ${+aliases[agy-auto]} )); then
+    echo "agy-auto alias detected, running with agy-auto..."
+    local val="$aliases[agy-auto]"
+    local args="${val#* }"
+    [[ "$args" == "$val" ]] && args=""
+    AGY_START_ARGS="$args"
+  fi
+  agent-run agy "$@"
+}
 agy-status()   { agent-status agy "$@" }
 agy-relaunch() { agent-relaunch agy "$@" }
 agy-rm()       { agent-rm agy "$@" }
