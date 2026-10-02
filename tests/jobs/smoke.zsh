@@ -2300,6 +2300,43 @@ has "N12e and cleanup is guarded, so no path can run it twice" \
     "$SIG_SRC" "(( SMOKE_CLEANED )) && return"
 
 # --------------------------------------------------------------------------
+# 16. tmux-hibernate and tmux-revive
+# --------------------------------------------------------------------------
+
+cd -- "$REPO" || exit 1
+out=$(tmux-run hib1 -- sh -c 'echo hib1 running; sleep 10' 2>&1); rc=$?
+eq "16a tmux-run hib1 starts successfully" "$rc" "0"
+
+out=$(tmux-run hib2 -- sh -c 'echo hib2 running; sleep 10' 2>&1); rc=$?
+eq "16b tmux-run hib2 starts successfully" "$rc" "0"
+
+out=$(JOB_CONFIRM=no tmux-hibernate 2>&1); rc=$?
+eq "16c tmux-hibernate succeeds" "$rc" "0"
+has "16c ... says it saved and stopped jobs" "$out" "jobs saved to "
+has "16c ... saved hib1" "$out" "saved and stopped 'hib1'"
+has "16c ... saved hib2" "$out" "saved and stopped 'hib2'"
+
+out=$(tmux-status hib1 2>&1)
+hasnt "16d hib1 is no longer running" "$out" "running"
+out=$(tmux-status hib2 2>&1)
+hasnt "16d hib2 is no longer running" "$out" "running"
+
+hib_file=$HOME_LOCAL/.tmux-hibernated-jobs
+eq "16e hibernation file exists" "$([[ -f $hib_file ]] && print yes)" "yes"
+
+out=$(tmux-revive 2>&1); rc=$?
+eq "16f tmux-revive succeeds" "$rc" "0"
+has "16f ... says it revived jobs" "$out" "revived "
+
+_hib1_running() { tmux-status hib1 2>&1 | grep -q 'running' }
+waitfor _hib1_running || fail "16g hib1 never reported running after revive" "$(tmux-status hib1 2>&1)"
+ok "16g hib1 is running again"
+
+tmux-stop hib1 >/dev/null 2>&1
+tmux-stop hib2 >/dev/null 2>&1
+command rm -f -- "$hib_file"
+
+# --------------------------------------------------------------------------
 # N15. TASK completion and the doubled-prefix hint
 # --------------------------------------------------------------------------
 # Every verb takes a TASK, but `tmux ls' shows <repo>-<task>, and typing that
