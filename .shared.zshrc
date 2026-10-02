@@ -181,3 +181,25 @@ fi
 glowtmux() {
     glow -s dark -w $(( $(tmux display -p '#{pane_width}') - 4 )) "$1" | less -R
 }
+
+# env-* commands
+env-cd() {
+    if [[ -z "$1" ]]; then
+        cd "$HOME/Repos/enveloped"
+        return
+    fi
+    local target="$HOME/Repos/enveloped/$1"
+    if [[ -d "$target" ]]; then
+        cd "$target"
+    else
+        echo "Directory not found: $target" >&2
+        return 1
+    fi
+}
+
+_env-cd() {
+    local -a dirs
+    dirs=("$HOME/Repos/enveloped"/*(N/:t))
+    _describe 'enveloped directories' dirs
+}
+compdef _env-cd env-cd
