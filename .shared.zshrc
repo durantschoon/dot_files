@@ -168,6 +168,7 @@ chpwd
 # Homebrew's profile.d script (mac) and the Guix Home profile's zsh hook
 # (Guix System -- the .zsh variant, for the j function plus completion).
 [ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
+[ -f /opt/homebrew/etc/profile.d/autojump.sh ] && . /opt/homebrew/etc/profile.d/autojump.sh
 [ -f ~/.guix-home/profile/share/autojump/autojump.zsh ] && . ~/.guix-home/profile/share/autojump/autojump.zsh
 
 # Angular tests
