@@ -1179,6 +1179,22 @@ tmux-go() {
 # names it so the take-over reads as deliberate.
 tmux-take() { tmux-go "$@"; }
 
+# tmux-remote-launch [TASK] [--on HOST]: attach to the session on a remote machine 
+# (minius by default), creating it if needed. Use this to run jobs on a device that 
+# you have higher confidence will stay up longer than your current device.
+tmux-remote-launch() {
+  local has_on=0
+  local arg
+  for arg in "$@"; do
+    [[ $arg == --on ]] && has_on=1
+  done
+  if (( ! has_on )); then
+    tmux-go "$@" --on minius
+  else
+    tmux-go "$@"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # tmux-pick / tmux-dash: the list, the refresh key, and the timer
 # ---------------------------------------------------------------------------
@@ -1645,11 +1661,14 @@ Commands:
   tmux-new [TASK]       Create a new background session (default task: main)
   tmux-run [TASK] cmd.. Run a command in a background session
   tmux-go [TASK]        Attach to a session (also: tmux-take)
+  tmux-remote-launch    Attach/launch a session on a remote machine (minius by default)
   tmux-ls               List sessions in the current repo
   tmux-status [TASK]    Show status of a session
   tmux-logs [TASK]      Tail the logs of a session
   tmux-stop [TASK]      Stop a session (prompts for confirmation)
   tmux-rm [TASK|--all]  Kill the task's session(s)
+  tmux-hibernate        Save local jobs to ~/.tmux-hibernated-jobs and stop them
+  tmux-revive           Restart all jobs previously saved by tmux-hibernate
   
   tmux-pick [--all]     Interactive fzf menu to pick a session in this repo
   tmux-dash             Interactive menu of ALL sessions across all repos
@@ -1730,6 +1749,97 @@ tmux-rm() {
   _tmux_where "$name" || { print -u2 "tmux-rm: no session '$name'"; _job_prefix_hint "$1"; return 0; }
   host=$reply[1]
   _job_tmux "$host" kill-session -t "=$name" && print -u2 "tmux-rm: killed session '$name' on $host"
+}
+
+# tmux-hibernate: save all local tmux jobs to ~/.tmux-hibernated-jobs and gracefully stop them.
+tmux-hibernate() {
+  local f=~/.tmux-hibernated-jobs
+  local r host name spath task
+  local -a rows
+  _tmux_all_rows; rows=("${reply[@]}")
+  
+  local -a to_hibernate
+  for r in "${rows[@]}"; do
+    host=${r%%|*}
+    [[ $host == local ]] || continue
+    
+    name=${${(@s:|:)r}[2]}
+    spath=${${(@s:|:)r}[6]}
+    task=$(_tmux_row_task "$r")
+    
+    # Check if it's a valid job repo (has logs dir)
+    if [[ -d $spath/logs ]]; then
+      to_hibernate+=("$spath"$'\t'"$task")
+    fi
+  done
+  
+  if (( ${#to_hibernate} == 0 )); then
+    print -u2 "tmux-hibernate: no local jobs running."
+    return 0
+  fi
+  
+  local ans
+  if [[ -t 0 && $JOB_CONFIRM != no ]]; then
+    print -u2 "The following jobs will be hibernated (saved and stopped):"
+    local item
+    for item in "${to_hibernate[@]}"; do
+      print -u2 "  ${item#*$'\t'} (in ${item%%$'\t'*})"
+    done
+    if ! read -q ans"?Hibernate these ${#to_hibernate} jobs? [y/N] "; then
+      print -u2 ""
+      return 1
+    fi
+    print -u2 ""
+  fi
+
+  > "$f" || return 1
+  
+  local count=0
+  local -x JOB_CONFIRM=no
+  for item in "${to_hibernate[@]}"; do
+    spath=${item%%$'\t'*}
+    task=${item#*$'\t'}
+    
+    print -r -- "$item" >> "$f"
+    ( cd "$spath" && tmux-stop "$task" >/dev/null 2>&1 )
+    print -u2 "tmux-hibernate: saved and stopped '$task' in $spath"
+    (( count++ ))
+  done
+  
+  print -u2 "tmux-hibernate: $count jobs saved to $f. Use 'tmux-revive' to restart them."
+}
+
+# tmux-revive: restart jobs saved by tmux-hibernate.
+tmux-revive() {
+  local f=~/.tmux-hibernated-jobs
+  if [[ ! -f $f ]]; then
+    print -u2 "tmux-revive: no hibernation file found at $f"
+    return 1
+  fi
+  
+  local spath task count=0
+  while IFS=$'\t' read -r spath task; do
+    if [[ ! -d $spath ]]; then
+      print -u2 "tmux-revive: repo $spath no longer exists, skipping '$task'"
+      continue
+    fi
+    
+    (
+      cd "$spath" || exit 1
+      local -a cmd
+      _job_record_cmd "$task" || {
+        print -u2 "tmux-revive: could not read command record for '$task' in $spath"
+        exit 1
+      }
+      cmd=("${reply[@]}")
+      
+      print -u2 "tmux-revive: reviving '$task' in $spath"
+      tmux-run "$task" -- "${cmd[@]}"
+    )
+    (( count++ ))
+  done < "$f"
+  
+  print -u2 "tmux-revive: revived $count jobs."
 }
 
 # ---------------------------------------------------------------------------
@@ -2382,7 +2492,7 @@ _job_complete() {
 # ~/.aliases sources this file); a plain `zsh -f' source stays silent.
 if (( $+functions[compdef] )); then
   compdef _job_complete \
-    tmux-{run,status,logs,stop,rm,go,take,new,peek} \
+    tmux-{run,status,logs,stop,rm,go,take,new,peek,remote-launch,hibernate,revive} \
     launchd-{run,status,logs,stop,start,rm,label} \
     docker-{run,status,logs,stop,start,rm} \
     job-{status,logs,record,recap,note,note-context,promote,name,logfile} \
