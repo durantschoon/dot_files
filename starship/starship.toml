@@ -85,7 +85,11 @@ disabled = true
 # The water buffalo (gnu) is U+1F403 and the shell U+1F41A, both outside the
 # BMP, so ConEmu draws them as �; chosen anyway.  \uf325 (nf-linux-gnu_guix)
 # is the BMP alternative.
+# Both run under sh, not $STARSHIP_SHELL (zsh): a zsh spawn reads the .zshenv
+# chain first (~300-450ms each), so a fresh terminal's prompt ran past
+# command_timeout ("Executing custom command ... timed out").
 [custom.guix_shell]
+shell = ["sh"]
 when = 'test -n "$GUIX_ENVIRONMENT"'
 command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
 symbol = "\U0001F403\U0001F41A "
@@ -93,6 +97,7 @@ style = "bold yellow"
 format = "[$symbol($output )]($style)"
 
 [custom.guix]
+shell = ["sh"]
 when = 'test -x "$HOME/.config/guix/current/bin/guix" && test -z "$GUIX_ENVIRONMENT"'
 command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
 symbol = "\U0001F403 "
