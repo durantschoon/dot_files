@@ -1398,6 +1398,10 @@ EXPECTED_WARNINGS_SUMMARY = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/ex
 PULLED_GUIX = $$( g="$$HOME/.config/guix/current/bin/guix"; [ -x "$$g" ] && echo "$$g" || echo guix )
 
 apply: warn-dotfiles-home
+	@if [ -d /run/current-system ]; then \
+	  echo "==> note: on Guix System Wayland, use 'make apply-wayland' (or 'make apply-ewm');"; \
+	  echo "    'make apply' deploys home/base.scm (foreign/headless profile)"; \
+	fi
 	$(EXPECTED_WARNINGS_RESET)
 	@echo "==> git submodule update --init claude"
 	@# home/base.scm reads ../claude/* via local-file, so an uninitialized

@@ -671,7 +671,11 @@ socket alone, which any Linux X session has."
     ;; own guix so the two stay in ABI lockstep (the failure mode of Guix
     ;; bug #59864).  The elisp side (guarded require) lives in
     ;; .spacemacs.d/init.el.
-    "emacs-guix"))
+    "emacs-guix"
+    ;; emacs-pinentry: minibuffer pinentry for GnuPG inside Emacs.
+    ;; Resolves the TTY / headless pinentry failure under EWM and Wayland
+    ;; when GNOME's Gcr System Prompter is absent.
+    "emacs-pinentry"))
 
 ;; ===========================================================================
 ;; The layer system

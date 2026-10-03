@@ -5,7 +5,8 @@ disturbing the working GNOME session, plus an inventory of everything in this
 repo that depends on GNOME — which is what you would actually be signing up to
 replace.
 
-Everything marked **verified** was checked on this machine on 2026-08-08.
+Everything marked **verified** was checked on this machine on 2026-08-08,
+with Stage 1 build and Stage 2 hardware launch verified on 2026-10-03.
 Everything marked **unverified** is from EWM's docs or reasoning, and should be
 treated as a question to answer during the trial rather than a fact.
 
@@ -33,17 +34,20 @@ you have already decided you like it.
 
 | Requirement | Status | Summary |
 |---|---|---|
-| Emacs with **pgtk** | ❌ Missing | X11 build; needs `emacs-pgtk` |
+| Emacs with **pgtk** | ✅ Present | `emacs-pgtk` 30.2 active in profile |
 | `emacs-pgtk` in Guix | ✅ Available | Drop-in v30.2 package |
 | Mesa / `libEGL.so.1` | ✅ Present | Found in system profile |
-| `wl-clipboard` | ❌ Missing | Needed for Wayland clipboard |
-| Rust / `cargo` | ❌ Missing | Build-time only (`guix shell`) |
-| Seat management | ⚠️ Caveat | elogind works; use TTY2/TTY3 |
+| `wl-clipboard` | ✅ Present | `wl-copy`/`wl-paste` in home profile |
+| EWM core (`cargo`) | ✅ Built | Compiled in `~/src/ewm/compositor` |
+| Seat management | ✅ Solved | elogind works; runs on TTY2/TTY3 |
+| GPG Pinentry | ✅ Configured | `emacs-pinentry` in home profile |
 
 **Prerequisite Notes:**
-* **Emacs with pgtk:** `system-configuration-features` reports `CAIRO X11 GTK3` (renders through XWayland). `emacs-pgtk` reports `CAIRO PGTK GTK3`. Note: `ldd` cannot distinguish them because Guix wraps `bin/emacs` in a shell script; both pull Wayland transitively via GTK+3.
-* **wl-clipboard:** EWM uses `wl-copy`/`wl-paste` for Wayland clipboard integration.
-* **Seat management:** elogind is present via `%desktop-services`. In Guix, elogind does not grant unprivileged seat access on TTY1 (`ENXIO`), so EWM must be run on user VTs (TTY2/TTY3).
+* **Emacs with pgtk:** `system-configuration-features` reports `CAIRO PGTK GTK3` (native Wayland). Deployed via `home/wayland.scm` and `home/ewm.scm`.
+* **wl-clipboard:** `wl-copy`/`wl-paste` installed in home profile for Wayland clipboard integration.
+* **EWM core module:** Built via `guix shell --pure rust rust:cargo ...` at `~/src/ewm/compositor/target/debug/libewm_core.so`.
+* **Seat management:** elogind is present via `%desktop-services`. In Guix, elogind does not grant unprivileged seat access on TTY1 (`ENXIO`), so EWM is run on user VTs (TTY2/TTY3).
+* **GPG Pinentry in Emacs:** `emacs-pinentry` installed via `%wayland-packages` and `allow-emacs-pinentry` enabled in `gpg-agent.conf`, allowing passphrases to prompt in Emacs minibuffer.
 
 ### Stage 0 — do this now, it is independent of EWM
 
@@ -192,6 +196,8 @@ Success gives you `target/debug/libewm_core.so` — an 82 MB unstripped ELF shar
 object. Note this is the *build-time* list; Stage 2 will exercise runtime
 dependencies (libseat/seatd, EGL, DRM) that a successful compile does not prove.
 
+**Status: done** (commit `dc5eb71` built clean; `target/debug/libewm_core.so` is 82 MB).
+
 ---
 
 ## Stage 2 — first launch, with the escape hatch pre-planned
@@ -201,18 +207,17 @@ dependencies (libseat/seatd, EGL, DRM) that a successful compile does not prove.
 recovery is `Ctrl+Alt+Delete` (or a hard power cycle) — GNOME is untouched and
 comes back on the next boot regardless.
 
-Log out of GNOME, switch to a free VT (`Ctrl+Alt+F3`), log in on the console,
-then:
+Log out of GNOME, switch to a free VT (`Ctrl+Alt+F2` or `F3`), log in on the console,
+then run the launch target (which encapsulates all hardware workarounds):
 
 ```sh
-cd ~/src/ewm/compositor
-EWM_MODULE_PATH=$(pwd)/target/debug/libewm_core.so \
-  emacs --fg-daemon -L ../lisp -l ewm -f ewm-start-module
+make ewm-launch
 ```
 
-`--fg-daemon` is required: EWM creates frames as outputs are discovered, so
-Emacs must start with no initial frame. Attach from another VT with
-`emacsclient --socket-name=…` if you need to debug it live.
+`--fg-daemon=vt2` is required: EWM creates frames as outputs are discovered, so
+Emacs must start with no initial frame, and a named socket isolates EWM from the
+user Shepherd daemon (`server`). Attach from another VT with
+`emacsclient -s vt2` if you need to debug it live.
 
 What to actually evaluate here, in rough order of how likely each is to be the
 dealbreaker:
@@ -394,11 +399,12 @@ useless `agent refused operation` that started this whole investigation.
 `pinentry-curses` is not the escape hatch either — it needs a tty, and the
 shepherd-launched gpg-agent has none.
 
-**The right answer is already in the config:** `allow-emacs-pinentry`, which is
-in `%gpg-ssh-agent-layer` in `home/common.scm` today, for every session. With `M-x pinentry-start`,
+**The right answer is now in the config:** `allow-emacs-pinentry` is enabled
+in `%gpg-ssh-agent-layer` in `home/common.scm`, and `emacs-pinentry` is installed
+via `%wayland-packages`. With `(pinentry-start)` (or `M-x pinentry-start`),
 prompts render inside Emacs over its own channel, needing neither a display nor
 a tty. On a desktop where Emacs *is* the session, that is strictly better than
-what you have now. Flip `pinentry-program` when you commit to EWM, not before.
+what you have now.
 
 ---
 
@@ -431,12 +437,15 @@ in `common.scm` (note `wayland-display . "wayland-1"` — GNOME holds
 `wayland-0` during coexistence), `home/ewm.scm` deploys it with every layer
 except espanso (excluded by `#:layers`, since two concurrent compositors make
 espanso's evdev-detect/Wayland-inject split cross VTs), and `make apply-ewm`
-is the lean deploy — return with `guix home roll-back`. What remains is
-building EWM itself (Stages 1–2) and answering the two unverified questions
-from the EWM VT: what prompts when `ssh-add` needs a pinentry, and whether
-`wayland-info` (guix shell wayland-utils) lists
-`zwlr_data_control_manager_v1`. The system config
-changes only at adoption, exactly as this plan already argued.
+is the lean deploy — return with `guix home roll-back`.
+
+Building EWM itself (Stage 1) and first launch on physical hardware (Stage 2)
+are **done** (running on physical display via Mesa software rasterizer on
+TTY2). What remains is the evaluation period (Stage 3) and answering the two
+trial questions from the EWM VT: what prompts when `ssh-add` needs a pinentry,
+and whether `wayland-info` (guix shell wayland-utils) lists
+`zwlr_data_control_manager_v1`. The system config changes only at adoption,
+exactly as this plan already argued.
 
 ---
 
