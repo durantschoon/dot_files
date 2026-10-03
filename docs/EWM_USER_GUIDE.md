@@ -12,7 +12,7 @@ EWM uses the **`Super`** key (`s-`, the Windows / Command key):
 ### Launching & Running
 | Key | Action |
 |---|---|
-| `s-d` | **Application launcher** (`ewm-launch-app`) - pick any installed desktop app |
+| `s-d` | **App launcher** (`ewm-launch-app`) - pick installed app |
 | `s-<tab>` | Cycle to next Wayland surface buffer |
 | `s-S-<tab>` | Cycle to previous Wayland surface buffer |
 | `s-f` | Toggle fullscreen |
@@ -31,16 +31,16 @@ EWM groups frames horizontally on each monitor like a strip:
 ### Window Focus
 | Key | Action |
 |---|---|
-| `s-<left>` / `s-<right>` | Move focus between windows (crosses monitors at edges) |
+| `s-<left>` / `s-<right>` | Focus window left / right (crosses monitors) |
 | `s-<up>` / `s-<down>` | Move focus up / down |
 
 ### Standard Emacs Commands (Work Everywhere)
 | Key | Action |
 |---|---|
-| `C-x b` (or `SPC b b` in Spacemacs) | Switch buffers (including Wayland surfaces!) |
-| `C-x 2` / `C-x 3` (or `SPC w s` / `SPC w v`) | Split window horizontally / vertically |
-| `C-x 0` / `C-x 1` (or `SPC w d` / `SPC w m`) | Delete window / Maximize window |
-| `C-x C-c` | **Exit EWM cleanly** and return to text console |
+| `C-x b` (or `SPC b b`) | Switch buffer (including Wayland apps) |
+| `C-x 2` / `C-x 3` | Split window horizontally / vertically |
+| `C-x 0` / `C-x 1` | Delete window / Maximize window |
+| `C-x C-c` | **Exit EWM cleanly** (return to text console) |
 
 ---
 
