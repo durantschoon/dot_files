@@ -1,0 +1,73 @@
+# EWM (Emacs Wayland Manager) Quick Start & Evaluation Guide
+
+## What is EWM?
+EWM runs a Wayland compositor directly inside Emacs. Graphical Wayland applications open as regular **Emacs buffers**, allowing you to manage desktop windows using Emacs window splits, buffers, and keybindings.
+
+---
+
+## 1. Keybindings Cheat Sheet
+
+EWM uses the **`Super`** key (`s-`, the Windows / Command key):
+
+### Launching & Running
+| Key | Action |
+|---|---|
+| `s-d` | **Application launcher** (`ewm-launch-app`) - pick any installed desktop app |
+| `s-<tab>` | Cycle to next Wayland surface buffer |
+| `s-S-<tab>` | Cycle to previous Wayland surface buffer |
+| `s-f` | Toggle fullscreen |
+| `s-l` | Lock screen (`ewm-lock-session`) |
+
+### Workspaces & Frames ("Strips")
+EWM groups frames horizontally on each monitor like a strip:
+| Key | Action |
+|---|---|
+| `s-t` | New frame on current output |
+| `s-w` | Close frame |
+| `s-1` .. `s-9` | Select frame 1 through 9 |
+| `s-S-<left>` / `s-S-<right>` | Move to previous / next frame |
+| `C-s-<left>` / `C-s-<right>` | Move current frame left / right in strip |
+
+### Window Focus
+| Key | Action |
+|---|---|
+| `s-<left>` / `s-<right>` | Move focus between windows (crosses monitors at edges) |
+| `s-<up>` / `s-<down>` | Move focus up / down |
+
+### Standard Emacs Commands (Work Everywhere)
+| Key | Action |
+|---|---|
+| `C-x b` (or `SPC b b` in Spacemacs) | Switch buffers (including Wayland surfaces!) |
+| `C-x 2` / `C-x 3` (or `SPC w s` / `SPC w v`) | Split window horizontally / vertically |
+| `C-x 0` / `C-x 1` (or `SPC w d` / `SPC w m`) | Delete window / Maximize window |
+| `C-x C-c` | **Exit EWM cleanly** and return to text console |
+
+---
+
+## 2. Fun Things to Try During Evaluation
+
+1. **Launch a graphical terminal or browser:**
+   * Press `s-d` and type `firefox` or `foot` or `kitty`.
+   * Watch it appear inside an Emacs window!
+2. **Split a GUI window next to your code:**
+   * Open your dotfiles or code in one window (`SPC f f`).
+   * Split the frame with `C-x 3` (vertical split).
+   * In the new window, switch to your browser buffer (`C-x b`).
+   * You now have a live Wayland browser and an Emacs code editor side-by-side in one frame!
+3. **Multi-window tiling:**
+   * Open multiple apps; tile them using standard Spacemacs window commands (`SPC w /` or `C-x 2` / `C-x 3`).
+4. **Buffer management:**
+   * Wayland windows are listed in `ibuffer` or `consult-buffer` with prefix `*ewm:...*`. You can kill them with `C-x k`.
+
+---
+
+## 3. Escape Hatches & Returning to GNOME
+
+* **Exit EWM cleanly:** `C-x C-c` in Emacs terminates the compositor and drops you to the console.
+* **Switch back to console TTY:** `Ctrl+Alt+F1` or `Ctrl+Alt+F3`.
+* **Switch back to EWM:** `Ctrl+Alt+F2` (or `vt 2`).
+* **Restart GNOME:** In TTY console, run:
+  ```bash
+  sudo -i herd start xorg-server
+  vt 8     # or Ctrl+Alt+F8
+  ```

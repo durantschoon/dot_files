@@ -59,3 +59,17 @@ if typeset -f add_to_front_of_path > /dev/null; then
 else
     echo ".zprofile: add_to_front_of_path undefined -- is .shared.zshenv deployed?" >&2
 fi
+
+###############################################################################
+# Linux Virtual Terminal (TTY) console defaults
+#
+# When logging in on a raw console (/dev/tty1..tty8) without a graphical display,
+# automatically apply the 32px Terminus Powerline font and configure curses pinentry.
+if [[ "$OSTYPE" == "linux"* && -n "$TTY" && "$TTY" =~ ^/dev/tty[0-9]+$ && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" ]]; then
+    export PINENTRY_USER_DATA="USE_TTY=1"
+    export GPG_TTY="$TTY"
+    command -v gpg-connect-agent >/dev/null 2>&1 && gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true
+    if [[ -f "$HOME/.local/share/consolefonts/ter-powerline-v32n.psf.gz" ]] && command -v setfont >/dev/null 2>&1; then
+        setfont "$HOME/.local/share/consolefonts/ter-powerline-v32n.psf.gz" 2>/dev/null || true
+    fi
+fi

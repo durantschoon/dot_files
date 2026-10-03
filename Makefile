@@ -1547,9 +1547,12 @@ ewm-launch:
 	@echo "========================================================================"
 	@echo ""
 	@cd $(HOME)/src/ewm/compositor && \
+	  LIBSEAT_BACKEND=logind \
+	  LIBGL_ALWAYS_SOFTWARE=1 \
+	  MESA_LOADER_DRIVER_OVERRIDE=kms_swrast \
 	  HSA_OVERRIDE_GFX_VERSION=11.0.0 \
 	  EWM_MODULE_PATH=$(HOME)/src/ewm/compositor/target/debug/libewm_core.so \
-	  emacs --fg-daemon --debug-init -L ../lisp -l ewm -f ewm-start-module; \
+	  emacs --fg-daemon=vt2 --debug-init -L ../lisp -l ewm -f ewm-start-module; \
 	  status=$$?; \
 	  echo ""; \
 	  echo "========================================================================"; \

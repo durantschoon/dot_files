@@ -278,8 +278,7 @@ leftcontrol = capslock
  (locale "en_US.utf8")
 
  (keyboard-layout
-  (keyboard-layout "us"
-                   #:options '("ctrl:swapcaps")))
+  (keyboard-layout "us"))
 
  ;; Linux kernel with proprietary firmware support (from nonguix).
  ;; At the pinned nonguix commit this is 7.1, well past the 6.10 that
@@ -619,10 +618,10 @@ leftcontrol = capslock
                  ;; Two things still catch a bad keyd, which is what makes #t
                  ;; affordable rather than merely convenient:
                  ;;
-                 ;;   - (keyboard-layout ... "ctrl:swapcaps") above is applied
-                 ;;     by the kernel keymap and by GDM/Xorg, entirely
-                 ;;     independently of keyd.  Caps still acts as Control at a
-                 ;;     console even with keyd dead or misbehaving.
+                 ;;   - (keyboard-layout "us") ensures standard evdev-to-keysym
+                 ;;     mapping at the console so keyd's hardware swap is
+                 ;;     effective (having ctrl:swapcaps active at both layers
+                 ;;     caused a double-swap).
                  ;;   - GRUB still lists every previous generation, and this
                  ;;     service is the only difference between them.
                  ;;
@@ -895,11 +894,13 @@ leftcontrol = capslock
                  (inherit config)
                  (handle-lid-switch-external-power 'ignore)
                  (idle-action 'ignore)))
-     ;; Readable console font on high-DPI panel (Framework 13, 2256x1504).
-     ;; solar24x32 is shipped directly inside kbd without requiring external font packages.
+     ;; Readable console font on high-DPI panel (Framework 13, 2880x1920).
+     ;; Use Terminus Powerline 32px font across all virtual terminals.
      (console-font-service-type
       config => (map (lambda (tty+font)
-                       (cons (car tty+font) "solar24x32"))
+                       (cons (car tty+font)
+                             (local-file "fonts/ter-powerline-v32n.psf.gz"
+                                         "ter-powerline-v32n.psf.gz")))
                      config))
      (guix-service-type
       config => (guix-configuration

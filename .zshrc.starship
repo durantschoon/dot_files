@@ -97,15 +97,9 @@ fi
 # GPG configuration
 export GPG_TTY=$(tty)
 
-# Over ssh, ask for the passphrase in THIS terminal.  gpg forwards
-# PINENTRY_USER_DATA to the pinentry that gpg-agent launches; on macOS that
-# is bin/pinentry-auto, which then runs pinentry-curses instead of opening a
-# pinentry-mac window on the Mac's own screen (invisible from here, so the
-# commit would hang).  On Linux the agent's pinentry is the pinentry-auto
-# chooser from home/common.scm (session-pinentry), which honours it the same
-# way: pinentry-curses here rather than a WSLg window on the Windows desktop,
-# or a GNOME prompt on a locked desktop that fails with "pinentry error".
-if [[ -n "$SSH_CONNECTION" ]]; then
+# Over ssh or in bare Linux console TTYs (where no GUI windowing system is
+# present to render pinentry-gnome3), ask for the passphrase in THIS terminal.
+if [[ -n "$SSH_CONNECTION" || ( -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" ) ]]; then
     export PINENTRY_USER_DATA=USE_TTY=1
 fi
 

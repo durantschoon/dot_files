@@ -220,6 +220,36 @@ dealbreaker:
    keybinding collisions between Spacemacs and EWM's window commands.
 4. Screen sharing via PipeWire (you built with `--features=screencast`).
 
+### Stage 2 Verified: Launch Runbook & Framework 13 AMD Hardware Lessons (2026-10-03)
+
+EWM was successfully launched directly on physical display `eDP-1 2880x1920@120Hz` on `geeeks` (AMD Ryzen AI 9 HX 370 / Strix Point, `gfx1152`). Five critical environmental hurdles were solved:
+
+1. **DRM Master Conflict with GNOME:**
+   * Linux DRM grants primary KMS master exclusively to one display server. If GDM or `gnome-shell` is running, Smithay cannot become DRM master (`Permission denied (os error 13)`).
+   * **Fix:** `make ewm-launch` executes `sudo -i herd stop xorg-server` prior to launching, and user should log out of GNOME. Restart later with `sudo -i herd start xorg-server`.
+
+2. **VT Seat Management (TTY1 vs TTY2/3):**
+   * TTY1 is the Linux kernel system console; Guix's `elogind` does not grant seat controllers or input access to unprivileged sessions on TTY1 (`ENXIO` / `ENOSYS`).
+   * **Fix:** Run EWM from a user virtual terminal such as **TTY2** or **TTY3** with `LIBSEAT_BACKEND=logind`.
+
+3. **Mesa / LLVM 18 GPU Workaround for AMD Strix Point (`gfx1152`):**
+   * The Framework 13 APU is `gfx1152` (Radeon 890M). Guix System ships Mesa built against LLVM 18 (`llvm-for-mesa-18.1.8`), which lacks `gfx1152` shader compiler targets and aborts at runtime (`LLVM ERROR: Cannot select...`).
+   * **Fix:** Force software rasterization on DRM KMS:
+     `LIBGL_ALWAYS_SOFTWARE=1 MESA_LOADER_DRIVER_OVERRIDE=kms_swrast HSA_OVERRIDE_GFX_VERSION=11.0.0`
+     This bypasses LLVM 18 shader compilation until Guix upgrades Mesa to LLVM 19+.
+
+4. **Emacs Daemon Socket Collision:**
+   * `emacs --fg-daemon` without an explicit name attempts to bind socket `server`, colliding with the user Shepherd Emacs daemon (`PID 1588`) and causing Emacs to abort with exit code 1.
+   * **Fix:** Pass a named socket: `emacs --fg-daemon=vt2`. Connect client with `emacsclient -s vt2`.
+
+5. **TTY Console Keymaps & Double-Swap with `keyd`:**
+   * `keyd` remaps physical CapsLock to Control and LeftControl to CapsLock at the evdev level.
+   * When Guix System also configured `(keyboard-layout ... #:options '("ctrl:swapcaps"))`, the kernel console keymap swapped them *again*, cancelling the swap.
+   * **Fix:** Dropped `ctrl:swapcaps` from `system/geeeks.scm` to let `keyd`'s hardware mapping apply cleanly. Added `swap-caps` alias to `.aliases` for instant keymap reset.
+
+6. **HiDPI Console Legibility:**
+   * On the 2.8K display, default 8x16 console fonts are unreadable. 32px Terminus Powerline (`ter-powerline-v32n`) and Spleen (`spleen-16x32`) are installed in `~/.local/share/consolefonts/`, aliased to `guix-powerline` / `guix-spleen`, and auto-loaded via `.zprofile`.
+
 ---
 
 ## Stage 3 — trial period
