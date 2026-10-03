@@ -278,6 +278,7 @@ guix-container-shell() {
 
 alias guix-shell-zsh='guix-container-shell zsh'
 alias guix-shell-bash='guix-container-shell bash'
+alias guix-big-font='setfont solar24x32'
 
 # -----------------------------------------------------------------------------
 # ssh to home machines

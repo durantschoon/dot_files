@@ -895,6 +895,12 @@ leftcontrol = capslock
                  (inherit config)
                  (handle-lid-switch-external-power 'ignore)
                  (idle-action 'ignore)))
+     ;; Readable console font on high-DPI panel (Framework 13, 2256x1504).
+     ;; solar24x32 is shipped directly inside kbd without requiring external font packages.
+     (console-font-service-type
+      config => (map (lambda (tty+font)
+                       (cons (car tty+font) "solar24x32"))
+                     config))
      (guix-service-type
       config => (guix-configuration
                  (inherit config)
