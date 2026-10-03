@@ -219,7 +219,7 @@ help:
 	    } \
 	    { flush(); print } \
 	    END { flush() }' \
-	| if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
+	| if { [ -t 1 ] || [ -n "$$CLICOLOR_FORCE" ]; } && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
 	    c1="$$(printf '\033[36m')"; hd="$$(printf '\033[1m')"; c0="$$(printf '\033[0m')"; \
 	    sed -e "s/^\(  \)\(make [^ ]*\( [A-Z_]*=[^ ]*\)*\)/\1$$c1\2$$c0/" \
 	        -e "s/^\([A-Z][^ ].*:\)$$/$$hd\1$$c0/"; \
@@ -228,8 +228,7 @@ help:
 	  fi
 
 help-text:
-	@echo "Available targets:"
-	@echo ""
+	@echo "Bootstrap and Native Setup:"
 	@echo "  make setup-native  - Set up native dotfiles (symlinks ~/bin -> ~/dot_files/bin,"
 	@echo "                       then installs Claude Code, uv and agy if missing)"
 	@echo "  make all           - Compatibility alias for setup-native"
@@ -238,16 +237,26 @@ help-text:
 	@echo "  make update-codex   - Install or update Codex in ~/.local (works with Guix npm)"
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
 	@echo "  make install-agy    - Install agy, Google's Antigravity CLI (idempotent; loader wrapper on Guix System)"
+	@echo ""
+	@echo "Guix System and Home:"
 	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
-	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
-	@echo "                       roll back with 'guix home roll-back')"
 	@echo "  make reconfigure   - Apply the SYSTEM config for this machine (Guix System only;"
 	@echo "                       picks system/\$$(uname -n).scm, runs check-system first,"
 	@echo "                       then sudo -i guix system reconfigure)"
 	@echo "  make emacs-env     - Regenerate ~/.spacemacs.d/.spacemacs.env from a clean"
 	@echo "                       login shell and push it into a running Emacs."
 	@echo "                       Runs automatically after apply/apply-wayland/update."
+	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
+	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
+	@echo ""
+	@echo "EWM Trial (Emacs Wayland Manager):"
+	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
+	@echo "                       roll back with 'guix home roll-back')"
+	@echo "  make ewm-launch    - Launch EWM from a bare TTY (step 3 of trial)"
+	@echo "  make ewm-escape-notes - Print EWM recovery & escape hatch shortcuts"
+	@echo ""
+	@echo "Git and Submodules:"
 	@echo "  make submodule-update - Init and update submodules (espanso/private, private)"
 	@echo "  make submodule-pull  - Fast-forward each initialized submodule to the tip of its"
 	@echo "                       remote default branch, detached HEAD included (the state"
@@ -259,14 +268,24 @@ help-text:
 	@echo "                       branch really has the commit, then commit ONLY that gitlink"
 	@echo "                       (refuses rather than record a pointer no other clone can fetch)"
 	@echo "  make submodule-publish SUBMODULE=<path> - the same for any submodule path"
-	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
-	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
-	@echo "  make setup-tailscale - Install tailscaled as a system LaunchDaemon (mac only;"
-	@echo "                       runs at boot before login, unlike the menu-bar app)"
-	@echo "  make check-tailscale - Verify the daemon is deployed, loaded and on the tailnet"
-	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
-	@echo "                       disables Colima startup and selects the orbstack context)"
-	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
+	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
+	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
+	@echo ""
+	@echo "Keys, SSH and Commit Signing (GPG):"
+	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
+	@echo "                       + add the [include] of .gitconfig to ~/.gitconfig (see docs/GPG.md)"
+	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
+	@echo "                       (not part of 'make check': may prompt for the passphrase)"
+	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
+	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
+	@echo "  make check-ssh-github - check-ssh, then a live 'ssh -T git@github.com' with triage hints"
+	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
+	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
+	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
+	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
+	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
+	@echo ""
+	@echo "Cloud Directories and Proton Drive:"
 	@echo "  make setup-cloud-dirs - Walk through the cloud-backed dirs: ~/Org/<location> and"
 	@echo "                       ~/MindMaps and ~/.freeplane (links into Proton Drive), plus"
 	@echo "                       ~/Obsidian (Obsidian Sync). Creates what is safe, prints the rest"
@@ -282,30 +301,31 @@ help-text:
 	@echo "                       then remove the password again automatically"
 	@echo "  make check-cloud   - Run the bin/cloud-dirs.sh smoke test (hermetic: scratch HOME and"
 	@echo "                       a stand-in Proton root, so it needs no account; not part of 'make check')"
+	@echo ""
+	@echo "Daemons and System Services:"
+	@echo "  make setup-tailscale - Install tailscaled as a system LaunchDaemon (mac only;"
+	@echo "                       runs at boot before login, unlike the menu-bar app)"
+	@echo "  make check-tailscale - Verify the daemon is deployed, loaded and on the tailnet"
+	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
+	@echo "                       disables Colima startup and selects the orbstack context)"
+	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
+	@echo "  make setup-radicle - Run radicle-node as a LaunchAgent so it survives reboots (mac only;"
+	@echo "                       stops a hand-started node first, see docs/MYREPOS.md)"
+	@echo "  make check-radicle - Verify rad, the identity, the LaunchAgent and the node"
+	@echo ""
+	@echo "Emacs Remote Server:"
+	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
+	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
+	@echo "  make emacs-unserve - Stop the Emacs daemon"
+	@echo ""
+	@echo "Verification and Smoke Tests:"
+	@echo "  make check         - Run all repo config, secrets, and coupling integrity checks"
 	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
 	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
 	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
-	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
-	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
-	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
-	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
-	@echo "  make check-ssh-github - check-ssh, then a live 'ssh -T git@github.com' with triage hints"
-	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
-	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
-	@echo "                       + add the [include] of .gitconfig to ~/.gitconfig (see docs/GPG.md)"
-	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
-	@echo "                       (not part of 'make check': may prompt for the passphrase)"
-	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
-	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
-	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
-	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
-	@echo "  make setup-radicle - Run radicle-node as a LaunchAgent so it survives reboots (mac only;"
-	@echo "                       stops a hand-started node first, see docs/MYREPOS.md)"
-	@echo "  make check-radicle - Verify rad, the identity, the LaunchAgent and the node"
-	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
-	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
-	@echo "  make emacs-unserve - Stop the Emacs daemon"
+	@echo ""
+	@echo "Misc and Platform Notes:"
 	@echo "  make wsl           - Show WSL setup instructions"
 	@echo "  make help          - Show this help message"
 	@echo ""
@@ -1472,6 +1492,8 @@ apply-wayland: warn-dotfiles-home
 	@$(MAKE) --no-print-directory unlock-ssh-keys
 	$(EXPECTED_WARNINGS_SUMMARY)
 
+.PHONY: apply-ewm ewm-launch ewm-escape-notes
+
 # apply-ewm -- deploy the EWM TRIAL home generation (docs/EWM_TRIAL_PLAN.md,
 # home/ewm.scm).  Deliberately leaner than apply/apply-wayland: no guix pull,
 # no .spacemacs.env refresh, no claude-install pass -- this is a generation
@@ -1490,9 +1512,26 @@ apply-ewm: warn-dotfiles-home
 	@echo "==> done (EWM trial generation deployed)"
 	@echo ""
 	@echo "    GNOME keeps running on its VT; launch EWM from a fresh TTY"
-	@echo "    per docs/EWM_TRIAL_PLAN.md.  Return to the GNOME-tuned home"
-	@echo "    with:  guix home roll-back"
+	@echo "    per docs/EWM_TRIAL_PLAN.md with:  make ewm-launch"
+	@echo "    Return to the GNOME-tuned home with:  guix home roll-back"
 	@$(MAKE) --no-print-directory check-cloud-dirs
+	@echo ""
+	@echo ""
+	@$(MAKE) --no-print-directory ewm-escape-notes
+
+# ewm-escape-notes -- print recovery shortcuts and escape hatches for the EWM trial
+ewm-escape-notes:
+	@echo "EWM Recovery Lessons & Escape Hatches:"
+	@echo "  * Ctrl+Alt+F1        - Return to running GNOME session on VT1 at any point."
+	@echo "  * C-x C-c (in Emacs) - Shut down EWM compositor cleanly; drop back to console."
+	@echo "  * Ctrl+Alt+Delete    - System reboot fallback if screen hangs (GNOME untouched)."
+	@echo "  * guix home roll-back- Restore GNOME-tuned home generation after trial."
+
+# ewm-launch -- launch EWM from a bare TTY (step 3 of trial)
+ewm-launch:
+	cd $(HOME)/src/ewm/compositor && \
+	  EWM_MODULE_PATH=$(HOME)/src/ewm/compositor/target/debug/libewm_core.so \
+	  emacs --fg-daemon -L ../lisp -l ewm -f ewm-start-module
 
 submodule-update:
 	@echo "==> git submodule update --init --recursive"
