@@ -280,6 +280,25 @@ alias guix-shell-zsh='guix-container-shell zsh'
 alias guix-shell-bash='guix-container-shell bash'
 alias guix-big-font='setfont solar24x32'
 
+# Virtual Terminal (VT) switching helpers (alternative to Ctrl+Alt+F<N>)
+vt() {
+    if [ -z "$1" ]; then
+        echo "Usage: vt <N> (e.g. 'vt 8' for GNOME, 'vt 1' for TTY1)" >&2
+        return 1
+    fi
+    sudo chvt "$1"
+}
+alias vt-gnome='sudo chvt 8'
+alias vt-ewm='sudo chvt 1'
+alias vt1='sudo chvt 1'
+alias vt2='sudo chvt 2'
+alias vt3='sudo chvt 3'
+alias vt4='sudo chvt 4'
+alias vt5='sudo chvt 5'
+alias vt6='sudo chvt 6'
+alias vt7='sudo chvt 7'
+alias vt8='sudo chvt 8'
+
 # -----------------------------------------------------------------------------
 # ssh to home machines
 # -----------------------------------------------------------------------------

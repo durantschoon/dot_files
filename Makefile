@@ -1513,6 +1513,7 @@ apply-ewm: warn-dotfiles-home
 	@echo ""
 	@echo "    GNOME keeps running on its VT; launch EWM from a fresh TTY"
 	@echo "    per docs/EWM_TRIAL_PLAN.md with:  make ewm-launch"
+	@echo "    (Note on Framework Laptop: CapsLock is Ctrl, so use CapsLock-Fn-Alt-F<N> to pick a VT)"
 	@echo "    Return to the GNOME-tuned home with:  guix home roll-back"
 	@$(MAKE) --no-print-directory check-cloud-dirs
 	@echo ""
@@ -1522,16 +1523,41 @@ apply-ewm: warn-dotfiles-home
 # ewm-escape-notes -- print recovery shortcuts and escape hatches for the EWM trial
 ewm-escape-notes:
 	@echo "EWM Recovery Lessons & Escape Hatches:"
-	@echo "  * Ctrl+Alt+F1        - Return to running GNOME session on VT1 at any point."
+	@echo "  * Return to GNOME    - Restart display manager:  sudo -i herd start xorg-server"
+	@echo "  * Switch VT on FMWK  - Use 'sudo chvt <N>' (e.g. 'vt 8' or CapsLock+Fn+Alt+F<N>)."
 	@echo "  * C-x C-c (in Emacs) - Shut down EWM compositor cleanly; drop back to console."
 	@echo "  * Ctrl+Alt+Delete    - System reboot fallback if screen hangs (GNOME untouched)."
 	@echo "  * guix home roll-back- Restore GNOME-tuned home generation after trial."
 
 # ewm-launch -- launch EWM from a bare TTY (step 3 of trial)
 ewm-launch:
-	cd $(HOME)/src/ewm/compositor && \
+	@echo ""
+	@echo "========================================================================"
+	@echo "Stopping GDM (xorg-server) to release DRM Master GPU lock for EWM..."
+	@echo ">>> When you exit EWM, restart GNOME with:"
+	@echo ">>>   sudo -i herd start xorg-server"
+	@echo "========================================================================"
+	@echo ""
+	-sudo -i herd stop xorg-server
+	@echo ""
+	@echo "========================================================================"
+	@echo "Setting HSA_OVERRIDE_GFX_VERSION=11.0.0"
+	@echo "(Temporary workaround: tells Mesa/LLVM to treat AMD Strix Point gfx1152"
+	@echo "as gfx1100 until Guix packages Mesa with LLVM 19+)"
+	@echo "========================================================================"
+	@echo ""
+	@cd $(HOME)/src/ewm/compositor && \
+	  HSA_OVERRIDE_GFX_VERSION=11.0.0 \
 	  EWM_MODULE_PATH=$(HOME)/src/ewm/compositor/target/debug/libewm_core.so \
-	  emacs --fg-daemon -L ../lisp -l ewm -f ewm-start-module
+	  emacs --fg-daemon --debug-init -L ../lisp -l ewm -f ewm-start-module; \
+	  status=$$?; \
+	  echo ""; \
+	  echo "========================================================================"; \
+	  echo "EWM session ended (exit code $$status)."; \
+	  echo ">>> To restart GNOME, run:"; \
+	  echo ">>>   sudo -i herd start xorg-server"; \
+	  echo "========================================================================"; \
+	  exit $$status
 
 submodule-update:
 	@echo "==> git submodule update --init --recursive"
