@@ -16,13 +16,18 @@ echo "==> GPG terminal configured: $GPG_TTY (PINENTRY_USER_DATA=USE_TTY=1)"
 echo "==> Prompting for passphrase to cache credentials..."
 
 if echo "test" | gpg --clearsign >/dev/null 2>&1; then
-    echo "==> Success: GPG key unlocked and cached in gpg-agent!"
+    echo "==> Success: GPG signing key unlocked and cached in gpg-agent!"
 else
     # Run visibly if the silent check failed or needs interactive input
     echo "test" | gpg --clearsign
     if [ $? -eq 0 ]; then
-        echo "==> Success: GPG key unlocked and cached in gpg-agent!"
+        echo "==> Success: GPG signing key unlocked and cached in gpg-agent!"
     else
         echo "==> GPG unlock failed."
     fi
+fi
+
+# Also unlock SSH authentication keys managed by gpg-agent
+if [ -f ~/dot_files/Makefile ]; then
+    make -C ~/dot_files --no-print-directory unlock-ssh-keys
 fi
