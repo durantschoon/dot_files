@@ -139,7 +139,7 @@ each key. (`make check-ssh-agent` still works as an alias.)
 ## Day to day
 
 - **First commit of the day** prompts for the passphrase. After that the
-  agent caches it for 8 h since last use (24 h cap) on every machine, which
+  agent caches it for 16 h since last use (24 h cap) on every machine, which
   is why an unattended `claude-run` or `tmux-run` started after that first
   unlock keeps signing.
 - **Commits from Emacs / magit** go through the same agent, so the mac
@@ -262,7 +262,7 @@ messages behind the usual failures:
   only ask in the last registered terminal. That was WSL before the
   `pinentry-auto` chooser (measured on barnowl, 2026-09-30); `make apply`
   deploys it. Until then, or on a headless box: `make unlock-ssh-keys` from
-  a plain terminal, good for one cache-TTL (1 h idle, 8 h cap).
+  a plain terminal, good for one cache-TTL (16 h idle, 24 h cap).
 - **`gpg failed to sign the data`** from git with nothing else. Run
   `echo x | gpg --sign -o /dev/null` to see the real gpg error, or
   `GIT_TRACE=1 git commit` to see which gpg git ran. A stale

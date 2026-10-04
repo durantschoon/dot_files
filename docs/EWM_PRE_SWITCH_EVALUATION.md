@@ -115,24 +115,39 @@ routing, and hardware output.
 
 ## 3. Emacs Window Management Ergonomics
 
-### 3.1 Evil Mode vs Wayland Key Grab
-* **Context:** In Spacemacs, modal navigation uses `h/j/k/l`, `w`, `b`, and
-  `SPC`. When a browser or terminal buffer is focused, keyboard events must be
-  passed directly to the Wayland client.
+### 3.1 Holy-Mode (Standard Emacs Keys) vs Wayland Key Interception
+* **Context:** In Holy-mode, editing and window management rely on standard GNU
+  Emacs key chords (`C-` and `M-`, with Spacemacs leader on `M-m` or `C-c`).
+  Unlike modal editors, Holy-mode chords overlap heavily with standard desktop
+  and browser shortcuts:
+  * In Emacs, `C-x` is the primary prefix (`C-x b`, `C-x 2`, `C-x C-s`).
+  * In GUI browsers (Firefox, Chromium) and GTK apps, `Ctrl+X` is "Cut",
+    `Ctrl+C` is "Copy", `Ctrl+V` is "Paste", `Ctrl+W` closes a tab, and `Ctrl+N`
+    opens a new window.
+  * In readline/GTK text inputs, `C-a`, `C-e`, `C-k` are native line edits.
 * **What to test:**
-  1. Switch to a browser buffer (`C-x b` or `SPC b b`).
-  2. Type a URL, edit text in an input field, and use browser shortcuts (`Ctrl+T`,
-     `Ctrl+W`, `Ctrl+L`).
-  3. Test returning focus to Emacs window navigation: does EWM's `s-` prefix
-     (`s-<left>`, `s-d`, `s-t`) reliably escape the guest application?
-  4. Ensure no key combinations get eaten or desynced between Emacs and apps.
+  1. Switch to a browser buffer (`C-x b` or `M-m b b`).
+  2. Focus an input field or address bar and test your typing:
+     * Does pressing `C-x b` switch buffers in Emacs, or does Firefox interpret
+       it as `Cut` (`Ctrl+X`) followed by typing `b`?
+     * Does `M-x` open `execute-extended-command` or pass through to the app?
+     * How do text editing chords (`C-a`, `C-e`, `C-k`, `C-y`) behave inside
+       guest text fields?
+  3. **Compositor Super Keys as Escape Hatch:**
+     * EWM maps compositor controls to the **`Super`** key (`s-`, Command/Windows key):
+       `s-<left>` / `s-<right>` to switch focus, `s-t` for new frame, `s-d` for
+       launcher, `s-f` for fullscreen.
+     * Verify that `s-` keys ALWAYS bypass guest app input grabs so you never
+       get trapped inside an unresponsive browser window.
+  4. Test EWM's pass-through vs command toggle to verify how smoothly you can
+     switch between interacting with web pages and manipulating Emacs windows.
 
 ### 3.2 Emacs Garbage Collection & Main-Thread Blocking
 * **Context:** Emacs executes elisp on a single thread. In standard setups, a
   blocking elisp operation (e.g. large Magit diff, Org agenda collection, or
   LSP indexing) freezes Emacs temporarily.
 * **What to test:**
-  1. Open a massive git diff in Magit (`SPC g s`) or load a large Org file.
+  1. Open a massive git diff in Magit (`C-x g` or `M-m g s`) or load a large Org file.
   2. While Emacs is busy calculating, move your mouse cursor over a Wayland
      video or attempt to type in a browser window.
   3. Does the compositor drop frames, stall mouse pointer movement, or buffer
@@ -187,3 +202,20 @@ Before modifying `system/geeeks.scm` to remove `gnome-desktop-service-type`:
 - [ ] Polkit authentication agent in place for root prompts.
 - [ ] Notification strategy decided (mako, alert, or Herdr).
 - [ ] Backup recovery plan reviewed (`sudo guix system roll-back` from GRUB).
+
+---
+
+## Appendix: Notes for Evil-Mode Users
+
+If you (or another user on this machine) use Evil mode (Vim emulation) rather
+than Holy-mode:
+* **Modal Input Collisions:** In Evil mode, normal-mode single-key navigation
+  (`h`, `j`, `k`, `l`, `w`, `b`, `x`, `d`, `y`) will immediately type letters
+  into browser text inputs unless the buffer is explicitly placed into a
+  passthrough or insert state.
+* **Leader Key:** Evil uses `SPC` as the leader (`SPC b b` for buffer switch,
+  `SPC g s` for Magit, `SPC w /` for window splits). Ensure pressing `SPC`
+  inside a web input inserts a literal space rather than opening the leader menu.
+* **Returning Focus:** Use EWM's `s-` prefix commands (`s-<left>`, `s-d`, `s-t`)
+  to navigate away from guest applications without relying on `Esc` (which web
+  apps often consume).

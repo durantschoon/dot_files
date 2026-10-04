@@ -1556,7 +1556,9 @@ ewm-launch:
 	  MESA_LOADER_DRIVER_OVERRIDE=kms_swrast \
 	  HSA_OVERRIDE_GFX_VERSION=11.0.0 \
 	  EWM_MODULE_PATH=$(HOME)/src/ewm/compositor/target/debug/libewm_core.so \
-	  emacs --fg-daemon=vt2 --debug-init -L ../lisp -l ewm -f ewm-start-module; \
+	  emacs --fg-daemon=vt2 --debug-init -L ../lisp \
+	    --eval '(with-eval-after-load "ewm-input" (setopt ewm-input-config (quote ((touchpad :natural-scroll t :tap t)))))' \
+	    -l ewm -f ewm-start-module; \
 	  status=$$?; \
 	  echo ""; \
 	  echo "========================================================================"; \

@@ -976,10 +976,10 @@ call, so extensions never collide; only genuine double ownership does."
          ;; display -- and session-pinentry is where that is handled.
          (pinentry-program (session-pinentry session))
          (ssh-support? #t)
-         (default-cache-ttl 28800)
+         (default-cache-ttl 57600)
          (max-cache-ttl 86400)
-         (default-cache-ttl-ssh 3600)
-         (max-cache-ttl-ssh 28800)
+         (default-cache-ttl-ssh 57600)
+         (max-cache-ttl-ssh 86400)
          ;; Let unlock prompts land in Emacs (M-x pinentry-start) instead of a
          ;; GTK popup when a request originates from an Emacs subprocess.
          (extra-content "allow-emacs-pinentry\nallow-loopback-pinentry\n")))))))

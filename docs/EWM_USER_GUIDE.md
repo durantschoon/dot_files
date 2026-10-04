@@ -37,7 +37,7 @@ EWM groups frames horizontally on each monitor like a strip:
 ### Standard Emacs Commands (Work Everywhere)
 | Key | Action |
 |---|---|
-| `C-x b` (or `SPC b b`) | Switch buffer (including Wayland apps) |
+| `C-x b` (or `M-m b b`) | Switch buffer (including Wayland apps) |
 | `C-x 2` / `C-x 3` | Split window horizontally / vertically |
 | `C-x 0` / `C-x 1` | Delete window / Maximize window |
 | `C-x C-c` | **Exit EWM cleanly** (return to text console) |
@@ -50,18 +50,36 @@ EWM groups frames horizontally on each monitor like a strip:
    * Press `s-d` and type `firefox` or `foot` or `kitty`.
    * Watch it appear inside an Emacs window!
 2. **Split a GUI window next to your code:**
-   * Open your dotfiles or code in one window (`SPC f f`).
+   * Open your dotfiles or code in one window (`C-x C-f` or `M-m f f`).
    * Split the frame with `C-x 3` (vertical split).
    * In the new window, switch to your browser buffer (`C-x b`).
    * You now have a live Wayland browser and an Emacs code editor side-by-side in one frame!
 3. **Multi-window tiling:**
-   * Open multiple apps; tile them using standard Spacemacs window commands (`SPC w /` or `C-x 2` / `C-x 3`).
+   * Open multiple apps; tile them using standard Emacs window commands (`C-x 2` / `C-x 3` or `M-m w /`).
 4. **Buffer management:**
    * Wayland windows are listed in `ibuffer` or `consult-buffer` with prefix `*ewm:...*`. You can kill them with `C-x k`.
 
 ---
 
-## 3. Escape Hatches & Returning to GNOME
+## 3. Touchpad, Scrolling & Gestures
+
+EWM configures libinput devices via `ewm-input-config`. In `make ewm-launch`:
+* **Natural Scrolling:** Enabled (`:natural-scroll t`). Two-finger scrolling in
+  text buffers and browser windows moves content with your fingers.
+* **3-Finger Frame Swipes:** Inverts automatically when natural scrolling is
+  active, so three-finger horizontal swipes follow your finger motion.
+* **Tap-to-Click:** Enabled (`:tap t`).
+
+To customize or re-send to a running compositor:
+```elisp
+(setopt ewm-input-config
+        '((touchpad :natural-scroll t :tap t)))
+(ewm--send-input-config)
+```
+
+---
+
+## 4. Escape Hatches & Returning to GNOME
 
 * **Exit EWM cleanly:** `C-x C-c` in Emacs terminates the compositor and drops you to the console.
 * **Switch back to console TTY:** `Ctrl+Alt+F1` or `Ctrl+Alt+F3`.
