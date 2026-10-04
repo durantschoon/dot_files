@@ -21,9 +21,9 @@ add_to_front_of_path /opt/homebrew/bin
 # For GNU ls for emacs
 add_to_front_of_path /opt/homebrew/opt/coreutils/libexec/gnubin
 add_to_front_of_path /opt/homebrew/opt/gcc/bin
-export CC=gcc-15
-export CXX=g++-15
-export LIBRARY_PATH="/opt/homebrew/opt/gcc/lib/gcc/15"
+export CC=gcc-16
+export CXX=g++-16
+export LIBRARY_PATH="/opt/homebrew/opt/gcc/lib/gcc/current"
 export CPATH="/opt/homebrew/opt/gcc/include"
 
 # Suggested by Antigravity
