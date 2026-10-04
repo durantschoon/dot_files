@@ -122,7 +122,7 @@ mr-push-ahead              # do it
 Arguments pass straight to `git push`.
 
 **Radicle repos** (origin is `rad://...`, e.g. the `GIPS` submodule of
-`Repos/enveloped/GIPS`) go through the same action, with two differences:
+`Repos/enveloped/eGIPS`) go through the same action, with two differences:
 
 - before the `pull --rebase`, `rad sync --fetch rad:<RID>` brings the peers'
   refs into `~/.radicle/storage`, which is all `git pull` from a `rad://`

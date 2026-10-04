@@ -2068,7 +2068,7 @@ else
 endif
 
 # The Radicle node (rad://... remotes, e.g. the GIPS submodule of
-# Repos/enveloped/GIPS) as a LaunchAgent, so it is up after a reboot instead
+# Repos/enveloped/eGIPS) as a LaunchAgent, so it is up after a reboot instead
 # of only when someone remembered `rad node start'.  Mac only: the Guix hosts
 # would want a Shepherd service instead.  A template like the gpg bridge
 # (radicle-node's brew prefix, the log path), so the drift check compares
