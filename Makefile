@@ -1387,6 +1387,50 @@ unlock-gpg:
 .PHONY: unlock-keys
 unlock-keys: unlock-gpg unlock-ssh-keys
 
+# gpg-add-subkey -- add an Ed25519 signing subkey for a machine to primary key
+GPG_SUBKEY_ALGO   ?= ed25519
+GPG_SUBKEY_EXPIRE ?= 2027-02-08
+.PHONY: gpg-add-subkey
+gpg-add-subkey:
+	@key=$$(git config --get user.signingkey || echo "0x6A2DAE7008D4F938"); \
+	fpr=$$(gpg --with-colons --fingerprint "$$key" 2>/dev/null | awk -F: '/^fpr/{print $$10; exit}'); \
+	if [ -z "$$fpr" ]; then \
+	  echo "==> Error: Could not determine primary key fingerprint for $$key" >&2; exit 1; \
+	fi; \
+	sec=$$(gpg --batch --with-colons --list-secret-keys "$$fpr" 2>/dev/null | grep '^sec:' | head -1); \
+	if [ -z "$$sec" ]; then \
+	  echo "==> Error: Primary secret key for $$key is not in ~/.gnupg" >&2; \
+	  echo "    Subkeys must be generated on a machine holding the master certify key." >&2; exit 1; \
+	fi; \
+	export GPG_TTY=$$(tty 2>/dev/null || echo "$$TTY"); \
+	export PINENTRY_USER_DATA="USE_TTY=1"; \
+	gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1; \
+	echo "==> Adding $(GPG_SUBKEY_ALGO) signing subkey to $$key..."; \
+	echo "    Fingerprint: $$fpr"; \
+	echo "    Expiration : $(GPG_SUBKEY_EXPIRE)"; \
+	echo ""; \
+	if gpg --quick-add-key "$$fpr" $(GPG_SUBKEY_ALGO) sign $(GPG_SUBKEY_EXPIRE); then \
+	  echo ""; \
+	  echo "==> SUCCESS: Signing subkey created!"; \
+	  echo ""; \
+	  gpg --list-secret-keys --keyid-format long "$$fpr"; \
+	  echo ""; \
+	  echo "Next steps:"; \
+	  echo "  1. Export public key bundle for GitHub: make gpg-export-github"; \
+	  echo "  2. Upload ~/durantschoon-pubkey.asc to GitHub -> Settings -> SSH and GPG keys"; \
+	else \
+	  echo "==> Subkey generation failed or was cancelled." >&2; exit 1; \
+	fi
+
+# gpg-export-github -- export updated public key bundle for GitHub
+.PHONY: gpg-export-github
+gpg-export-github:
+	@key=$$(git config --get user.signingkey || echo "0x6A2DAE7008D4F938"); \
+	out="$$HOME/durantschoon-pubkey.asc"; \
+	gpg --armor --export "$$key" > "$$out"; \
+	echo "==> Exported public key bundle to $$out"; \
+	echo "    Upload this file to GitHub: Settings -> SSH and GPG keys"
+
 # The guix to run AFTER a `guix pull': the one the pull just produced.
 #
 # `guix pull' installs into ~/.config/guix/current and does nothing else; it

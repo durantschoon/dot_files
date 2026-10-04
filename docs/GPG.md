@@ -20,9 +20,10 @@ story: what is tracked, how a new machine gets the key, and what to do when
 
 The key: `0x6A2DAE7008D4F938`, fingerprint
 `7CE8 1696 7443 FCEC CE0B F1B7 6A2D AE70 08D4 F938`, RSA 4096, made
-2024-08-29. The primary key signs; the encryption subkey was rotated on
-2026-02-08. **Both expire 2027-02-08.** `make check-gpg` starts warning 30
-days before.
+2024-08-29. The primary key certifies and signs; the encryption subkey was
+rotated on 2026-02-08. Dedicated Ed25519 signing subkeys are generated per
+machine with `make gpg-add-subkey` (e.g. `0x23570C8AFDE416D9` on `geeeks`).
+All expire 2027-02-08. `make check-gpg` starts warning 30 days before.
 
 Signing is on for commits and tags in the tracked `.gitconfig`, so a machine
 without the secret key cannot commit until it has it. That is deliberate: a
