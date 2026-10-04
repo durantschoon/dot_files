@@ -251,10 +251,10 @@ fi
 # Regarding "zsh compinit: insecure directories and files, run compaudit for list."
 # On OSX 10.11+
 # written based on something that worked:
-# linked_base=/usr/local/share/zsh/site-functions
+# linked_base=$(brew --prefix)/share/zsh/site-functions
 # linked_file=$linked_base/../../../Cellar/git/2.42.1/share/zsh/site-functions/_gitb
-# sudo chmod -R 755 /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
-# sudo chown -R root:staff /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
+# sudo chmod -R 755 $(brew --prefix)/share/zsh/site-functions $(brew --prefix)/share/zsh $linked_file
+# sudo chown -R root:staff $(brew --prefix)/share/zsh/site-functions $(brew --prefix)/share/zsh $linked_file
 
 # this keeps getting added automatically, so just put it here
 # Re-added defensively: guix home's .zprofile runs `emulate sh -c ". /etc/profile"',

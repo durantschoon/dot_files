@@ -97,7 +97,9 @@ export PNPM_HOME="$HOME/Library/pnpm"
 add_to_front_of_path "$PNPM_HOME"
 
 # command-line fuzzy finder ... should get this on all systems
-[ -f /usr/local/bin/fzf ] && eval "$(/usr/local/bin/fzf --zsh)"
+if command -v fzf >/dev/null 2>&1; then
+    eval "$(fzf --zsh)"
+fi
 
 # Set PAGER for all platforms
 export PAGER='less -R'

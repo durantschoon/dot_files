@@ -655,7 +655,7 @@ if [ -n "$ZSH_VERSION" ]; then
     }
     alias fng='funcs' # funcs grep
 
-    if [[ -f /usr/local/bin/pup ]] && command -v pup >/dev/null && alias pup >/dev/null 2>&1; then
+    if command -v pup >/dev/null && alias pup >/dev/null 2>&1; then
         unalias pup
     fi
 
@@ -756,7 +756,7 @@ if [ -n "$ZSH_VERSION" ]; then
         popd
     }
 
-    if [ -f /usr/local/bin/clojars-lookup ]; then
+    if command -v clojars-lookup >/dev/null 2>&1; then
         function clojars-lookup-lein() {
             clojars-lookup "$@" -lein
         }

@@ -119,15 +119,14 @@ add_to_end_of_path $NODE_PATH
 # gcloud components update
 # gcloud components install kubectl
 # gcloud components list
-if [ -f /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc ]; then
-    source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc
-    # source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc 2>/dev/null # fail silently
-fi
-
-if [ -f /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc ]; then
-    source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc
-    # source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc 2>/dev/null # fail silently
-fi
+for gcloud_dir in /opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk ~/google-cloud-sdk; do
+    if [ -f "$gcloud_dir/completion.zsh.inc" ]; then
+        source "$gcloud_dir/completion.zsh.inc"
+    fi
+    if [ -f "$gcloud_dir/path.zsh.inc" ]; then
+        source "$gcloud_dir/path.zsh.inc"
+    fi
+done
 
 # openssl
 [ -d "/opt/homebrew/opt/openssl@3/bin" ] && path=(/opt/homebrew/opt/openssl@3/bin "$path[@]")

@@ -79,8 +79,13 @@ if [[ $- == *i* ]]; then
     # Only do this for interactive shells
 
     WSL_VEW_PYTHON="$HOME/.pyenv/versions/3.12.7/bin/python3"
-    MAC_VENV="/usr/local/bin/virtualenv"
-    MAC_VEW_SCRIPT="/usr/local/bin/virtualenvwrapper.sh"
+    if [ -f /opt/homebrew/bin/virtualenv ]; then
+        MAC_VENV="/opt/homebrew/bin/virtualenv"
+        MAC_VEW_SCRIPT="/opt/homebrew/bin/virtualenvwrapper.sh"
+    else
+        MAC_VENV="/usr/local/bin/virtualenv"
+        MAC_VEW_SCRIPT="/usr/local/bin/virtualenvwrapper.sh"
+    fi
 
     # pyenv detection
     if command -v pyenv >/dev/null 2>&1; then
