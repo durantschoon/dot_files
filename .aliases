@@ -312,6 +312,9 @@ alias vt6='sudo chvt 6'
 alias vt7='sudo chvt 7'
 alias vt8='sudo chvt 8'
 
+# Restart GNOME display manager under Guix System Shepherd (starts or restarts xorg-server/GDM)
+alias restart-gnome='sudo -i herd restart xorg-server 2>/dev/null || sudo -i herd start xorg-server'
+
 # -----------------------------------------------------------------------------
 # ssh to home machines
 # -----------------------------------------------------------------------------

@@ -1364,8 +1364,28 @@ unlock-ssh-keys:
 	    echo "    [ok] $$label unlocked"; \
 	  else \
 	    echo "    [--] $$label not unlocked (wrong passphrase or cancelled) -- the next push will ask"; \
-	  fi; \
 	done
+
+# unlock-gpg -- prompt for GPG passphrase to cache it in gpg-agent (16h TTL)
+.PHONY: unlock-gpg
+unlock-gpg:
+	@command -v gpgconf >/dev/null 2>&1 || exit 0; \
+	key=$$(git config --get user.signingkey || echo "0x6A2DAE7008D4F938"); \
+	gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1; \
+	if [ -t 0 ]; then \
+	  echo "==> Prompting for GPG passphrase (cached for 16h)..."; \
+	  if echo "unlock" | gpg --sign --local-user "$$key" -o /dev/null; then \
+	    echo "    [ok] GPG signing key $$key unlocked"; \
+	  else \
+	    echo "    [--] GPG signing key not unlocked"; exit 1; \
+	  fi; \
+	else \
+	  echo "(not a terminal: cannot prompt for GPG passphrase)"; exit 1; \
+	fi
+
+# unlock-keys -- unlock both GPG signing key and SSH authentication keys
+.PHONY: unlock-keys
+unlock-keys: unlock-gpg unlock-ssh-keys
 
 # The guix to run AFTER a `guix pull': the one the pull just produced.
 #
@@ -1564,9 +1584,15 @@ ewm-launch:
 	  echo "========================================================================"; \
 	  echo "EWM session ended (exit code $$status)."; \
 	  echo ">>> To restart GNOME, run:"; \
-	  echo ">>>   sudo -i herd start xorg-server"; \
+	  echo ">>>   make restart-gnome  (or: restart-gnome / sudo -i herd start xorg-server)"; \
 	  echo "========================================================================"; \
 	  exit $$status
+
+# restart-gnome -- restart or start GDM / GNOME display manager under Guix System
+.PHONY: restart-gnome
+restart-gnome:
+	@echo "==> restarting GNOME display manager (xorg-server/GDM)..."
+	@sudo -i herd restart xorg-server 2>/dev/null || sudo -i herd start xorg-server
 
 submodule-update:
 	@echo "==> git submodule update --init --recursive"
