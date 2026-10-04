@@ -130,6 +130,7 @@ mr-brief() {
     # a count: dim when zero, yellow when "-" (no upstream), else its own colour
     function num(v, on) { return (v ~ /-/) ? YL v R : (v + 0 == 0) ? D v R : on v R }
     /^mr brief: \// || /^$/ { next }
+    !/ \^[ 0-9-]+ v[ 0-9-]+  M/ { print; next }
     {
         repo = substr($0, 1, 42); br = substr($0, 44, 20); rest = substr($0, 65)
         ah = substr(rest, 2, 2); be = substr(rest, 6, 2); mo = substr(rest, 11, 2)
