@@ -468,19 +468,25 @@ job-note() {
   fi
   local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-$default_ed}}})
   (( $#ed )) || ed=(${(z)default_ed})
-  if [[ ${ed[1]:t} == emacsclient ]]; then
-    script -q /dev/null "${ed[@]}" "$file" </dev/tty >/dev/tty || {
-      print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
-      sleep 3
-      return 1
-    }
+  # emacsclient -t needs a pty of its own when called from the picker.
+  local -a run; run=("${ed[@]}")
+  [[ ${ed[1]:t} == emacsclient ]] && run=(script -q /dev/null "${ed[@]}")
+  # The picker calls this with stdin/stdout on its own pipes, so the editor is
+  # pointed at the terminal -- when there is one.  With no controlling
+  # terminal (a script, a test, a job) /dev/tty cannot even be opened, and
+  # redirecting to it failed before the editor ran; then the editor gets the
+  # stdin/stdout it was given.
+  local rc
+  if { : </dev/tty } 2>/dev/null; then
+    "${run[@]}" "$file" </dev/tty >/dev/tty; rc=$?
   else
-    "${ed[@]}" "$file" </dev/tty >/dev/tty || {
-      print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
-      sleep 3
-      return 1
-    }
+    "${run[@]}" "$file"; rc=$?
   fi
+  (( rc == 0 )) || {
+    print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
+    sleep 3
+    return 1
+  }
   # The sidebar follows the file: see "Herdr" below. Backgrounded and
   # disowned so the picker that called this is not held up by the socket.
   (( $+commands[herdr] )) && { herdr-notes-sync -q >/dev/null 2>&1 &! }
@@ -1492,9 +1498,9 @@ tmux-pick() {
     binds+=(--bind "ctrl-e:execute($editcmd)+reload($reload)+transform-header($stamp_cmd)")
     binds+=(--bind "ctrl-n:execute($renamecmd)+reload($reload)+transform-header($stamp_cmd)")
     binds+=(--bind "ctrl-k:execute($killcmd)+reload($reload)+transform-header($stamp_cmd)")
-    # A preview eating half of a 60-column phone screen hides the list it is
-    # describing, so it starts hidden on a narrow terminal and shown on a wide
-    # one; `?' moves it either way. COLUMNS is 0 in a non-interactive shell, so
+    # A preview beside the list would squeeze a 60-column phone screen to
+    # nothing, so on a narrow terminal it goes BELOW the list (and fzf gets
+    # more height) and on a wide one beside it; `?' toggles it either way. COLUMNS is 0 in a non-interactive shell, so
     # `tput cols' answers instead, and 80 when even that cannot.
     integer cols=${COLUMNS:-0}
     (( cols > 0 )) || cols=${$(command tput cols 2>/dev/null):-80}

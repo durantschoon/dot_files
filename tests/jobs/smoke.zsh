@@ -170,6 +170,11 @@ export TMUX_TMPDIR=$TMUX_LOCAL
 export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN:$ENGINEBIN
 export SHELL=/bin/sh                      # deterministic pane shell
 typeset -g FULL_PATH=$PATH
+# That PATH includes /opt/homebrew/bin, so whatever the developer happens to
+# have installed there is in scope -- notably glow, which job-note-context
+# pipes its Markdown through when present.  The context block is asserted as
+# plain text, so ask for that the way the code itself documents: NO_COLOR.
+export NO_COLOR=1
 typeset -g NOFZF_PATH=$WT/bin:$PATHBIN:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN
 
 # launchd is macOS's init. There is no launchctl on Linux, so the assertions
@@ -1228,9 +1233,8 @@ job-note n1; rc=$?
 eq "16c job-note exits with the editor's own status" "$rc" "0"
 eq "16c ... having created the notes file" "$([[ -f $CTX_NOTES ]] && print yes)" "yes"
 typeset -g CTX_NOTES_TXT="$(command cat "$CTX_NOTES")"
-haslit "16c ... whose hint says who owns it" \
-       "$CTX_NOTES_TXT" "nothing but your editor ever writes it"
-haslit "16c ... and carries the \"> \" status example" "$CTX_NOTES_TXT" "> waiting on review"
+# The template is a bare heading to fill in (c5df622 dropped the old hint text).
+starts "16c ... which starts from the template's heading" "$CTX_NOTES_TXT" "# "
 haslit "16c ... and the canned line the shim wrote"    "$CTX_NOTES_TXT" "> edited by the shim"
 eq "16c ... and the shim's argv ends in that path" \
    "$(command tail -n 1 "$ED_ARGV")" "$CTX_NOTES"
@@ -1301,8 +1305,9 @@ hasntlit "16e at 120 columns the preview starts shown"  "$(smoke_fzf_opt --previ
 command rm -f -- "$FZF_ARGV"
 COLUMNS=80
 tmux-pick >/dev/null 2>&1
-haslit "16e at 80 it starts hidden, because a phone screen has no room" \
-       "$(smoke_fzf_opt --preview-window)" "hidden"
+# fc18c02: narrow terminals show it BELOW the list rather than hiding it.
+haslit "16e at 80 it goes below the list, because a phone screen has no width" \
+       "$(smoke_fzf_opt --preview-window)" "bottom"
 COLUMNS=120
 
 command rm -f -- "$FZF_ARGV"
@@ -1451,8 +1456,9 @@ eq "16f ... and that field is the row's session path" \
 typeset -g MENU_ERR3=$BASE/menu-err3.txt MENU_ERR4=$BASE/menu-err4.txt
 out=$( unfunction fzf; PATH=$NOFZF_PATH; print -l 'n 1' q | tmux-pick 2>"$MENU_ERR3" )
 typeset -g MENU3="$(command cat "$MENU_ERR3")"
-haslit "16g the menu prompt offers the two new verbs" \
-       "$MENU3" "[number, n N=notes, e N=edit, r=refresh, q=quit"
+# The verbs, not the whole prompt: rename and kill joined it later.
+haslit "16g the menu prompt offers notes" "$MENU3" "n N=notes"
+haslit "16g ... and edit"                  "$MENU3" "e N=edit"
 haslit "16g \`n 1' prints row 1's context block" "$MENU3" "### Notes"
 eq "16g ... and none of it reaches stdout, which is the caller's" "$out" ""
 command rm -f -- "$ED_ARGV"
