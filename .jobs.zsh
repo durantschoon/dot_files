@@ -1397,19 +1397,25 @@ _tmux_pick_kill() {
   fi
 }
 
+# The picker's execute() commands want the terminal for their prompts and
+# the editor -- but only when there is one: a redirect to an unopenable
+# /dev/tty fails the whole command before it runs (a script, the smoke
+# suite).  So the child points itself at /dev/tty when it can open it.
+typeset -g _TMUX_PICK_TTY='{ : </dev/tty } 2>/dev/null && exec </dev/tty >/dev/tty; '
+
 _tmux_pick_rename_cmd() {
-  local script='source "$1" 2>/dev/null; _tmux_pick_rename "$2" "$3"'
-  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
+  local script="$_TMUX_PICK_TTY"'source "$1" 2>/dev/null; _tmux_pick_rename "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
 
 _tmux_pick_kill_cmd() {
-  local script='source "$1" 2>/dev/null; _tmux_pick_kill "$2" "$3"'
-  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
+  local script="$_TMUX_PICK_TTY"'source "$1" 2>/dev/null; _tmux_pick_kill "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
 
 _tmux_pick_edit_cmd() {
-  local script='source "$1" 2>/dev/null; _tmux_pick_edit "$2" "$3"'
-  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
+  local script="$_TMUX_PICK_TTY"'source "$1" 2>/dev/null; _tmux_pick_edit "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
 
 # Does the fzf on PATH have every(N)? Probed once per shell from `fzf

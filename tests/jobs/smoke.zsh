@@ -175,6 +175,12 @@ typeset -g FULL_PATH=$PATH
 # pipes its Markdown through when present.  The context block is asserted as
 # plain text, so ask for that the way the code itself documents: NO_COLOR.
 export NO_COLOR=1
+# Widths are asserted in characters, and a cut label ends in "…": one
+# character under a UTF-8 locale, three without one (a bare `env -i', an
+# agent's tool shell), which made a correctly cut 80-column label measure 82.
+# zsh re-reads the locale when LC_ALL is assigned, so this covers the
+# assertions below as well as every child.
+export LC_ALL=C.UTF-8
 typeset -g NOFZF_PATH=$WT/bin:$PATHBIN:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN
 
 # launchd is macOS's init. There is no launchctl on Linux, so the assertions
