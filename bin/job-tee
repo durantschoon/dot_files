@@ -165,22 +165,16 @@ signalled=0
 # instant it dies, and the watchdog's `kill -0' becomes a truthful liveness
 # test.
 escalation_watchdog() {
-  # Poll granularity: a tenth of a second where the userland has one --
-  # measured accepted, and really sub-second, by macOS /bin/sh (bash 3.2),
-  # debian:stable-slim's dash and alpine's busybox ash (stage 13, Q1) -- and
-  # whole seconds where `sleep 0.1' is rejected, so a coarser userland gets a
-  # coarser grace rather than a grace that collapses to nothing.
-  if sleep 0.1 2>/dev/null; then
-    tick=0.1; ticks=$(( INT_ESCALATION_GRACE * 10 ))
-  else
-    tick=1;   ticks=$INT_ESCALATION_GRACE
-  fi
-  i=0
-  while [ "$i" -lt "$ticks" ]; do
-    kill -0 "$cmd_pid" 2>/dev/null || return 0     # the INT was enough
-    sleep "$tick"
-    i=$(( i + 1 ))
-  done
+  # ONE sleep for the whole grace, not a loop of 0.1 s ticks.  Ending early
+  # needs no polling: on_signal TERMs this watchdog the moment `wait' returns
+  # for the command, and a TERM ends a subshell even mid-sleep (the orphaned
+  # `sleep' holds nothing -- this runs with stdout/stderr on /dev/null).  And
+  # a loop multiplies the OS's timer slack: measured 2026-10-04 on macOS under
+  # timer coalescing (a background-QoS process tree), every `sleep 0.1' took
+  # ~0.25 s, so twenty ticks made the 2 s grace ~5 s -- half of Docker's 10 s
+  # stop window, which the grace exists to stay well inside.  One sleep pays
+  # that slack once.
+  sleep "$INT_ESCALATION_GRACE"
   kill -0 "$cmd_pid" 2>/dev/null || return 0
   # Flag first, signal second: the handler must never be able to read "not
   # escalated" about a TERM that has in fact been sent.
