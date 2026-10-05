@@ -138,6 +138,26 @@ LaunchAgent (`com.durantschoon.radicle-node`) so it comes back after a
 reboot; `make check-radicle` checks rad, the identity, the agent and the
 node. Elsewhere, `rad node start`.
 
+### `mr-clone`: a configured repo, cloned anywhere
+
+`mr --force checkout` clones a repo only to the path its section names.
+`bin/mr-clone` looks the repo up by name in the same config (`~/.mrconfig`
+and everything its `include` lines print) and clones it where you are:
+
+```sh
+mr-clone media-announce              # ./media-announce
+mr-clone media-announce scratch/ma   # into scratch/ma
+mr-clone media-announce --depth 1    # other options go to git clone
+mr-clone GIPS                        # an envelope worktree, by branch: git clone -b GIPS <envelope url> GIPS
+mr-clone --canonical media-announce  # to ~/Repos/ds/media-announce, like mr checkout
+mr-clone -n NAME                     # print the git command only
+mr-clone --list                      # every name and URL
+```
+
+A name shared by two sections is given as its section path
+(`mr-clone Repos/ds/x`). Names missing from the mr config are looked up in
+`[repositories]` of `~/.config/envelope/known_repos.toml`, if that exists.
+
 ## Adding a repo
 
 dot_files is a public repository, so the list is split in three, and the

@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""mr-clone -- clone any repo listed in the mr config, by name, anywhere.
+
+mr's own `checkout' clones a repo to the ONE path its section names
+([Repos/ds/media-announce] -> ~/Repos/ds/media-announce).  This looks the repo
+up by name in the same config and clones it wherever you are:
+
+  mr-clone media-announce              ./media-announce
+  mr-clone media-announce scratch/ma   into scratch/ma
+  mr-clone media-announce --depth 1    extra options go to `git clone'
+  mr-clone --canonical media-announce  to the path its section names (~/...)
+  mr-clone -n GIPS                     print the git command, run nothing
+  mr-clone --list                      every repo the config knows, with URLs
+
+WHERE THE URLS COME FROM
+
+  ~/.mrconfig, plus everything its `include = <shell command>' lines print,
+  recursively -- the same expansion mr does (private/mrconfig and
+  ~/.mrconfig.local today).  A section's `checkout' is one of:
+
+    git clone [-b BRANCH] '<url>' '<dir>' [&& ...]   the URL, and the branch
+    git -C "$MR_REPO/../X" worktree add "$MR_REPO" 'BRANCH'
+        an envelope-style worktree: the URL is sibling section X's, cloned
+        on BRANCH (mr-clone GIPS == git clone -b GIPS <envelope url> GIPS)
+
+  Then, if present, [repositories] in ~/.config/envelope/known_repos.toml
+  (name = "url") fills in names the mr config does not have.
+
+NAMES
+
+  A repo is named by its section's last component ([Repos/ds/x] -> x),
+  case-insensitively; an envelope worktree also by its branch.  When two sections share one (a repo cloned in two
+  places), the full section path picks one: mr-clone Repos/enveloped/x.
+"""
+import difflib
+import os
+import shlex
+import subprocess
+import sys
+
+MRCONFIG = os.path.expanduser("~/.mrconfig")
+KNOWN_REPOS = os.path.expanduser("~/.config/envelope/known_repos.toml")
+
+# `git clone' options that take a separate value, so `--depth 1' is not read
+# as "--depth, then a target directory called 1".
+GIT_VALUED = {
+    "-b", "--branch", "-o", "--origin", "-u", "--upload-pack", "--reference",
+    "--reference-if-able", "--separate-git-dir", "--depth", "--shallow-since",
+    "--shallow-exclude", "-c", "--config", "--server-option", "-j", "--jobs",
+    "--filter", "--template", "--bundle-uri", "--ref-format",
+}
+
+
+def die(msg, code=1):
+    print(f"mr-clone: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+# --------------------------------------------------------------------------
+# Reading the mr config the way mr does
+# --------------------------------------------------------------------------
+def parse_config(text, base_dir, seen, out):
+    """Sections of one config text into out[path] = {key: value}.
+
+    Section names are relative to base_dir (the including file's directory).
+    `include' runs its value through sh, cwd base_dir, and parses the output
+    the same way -- relative to the same base_dir, as mr does.
+    """
+    section = None
+    key = None
+    for raw in text.splitlines():
+        line = raw.rstrip("\n")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if line[:1].isspace() and key is not None and section is not None:
+            # continuation of a multi-line value
+            out[section][key] += "\n" + stripped
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            name = stripped[1:-1].strip()
+            if name == "DEFAULT":
+                section, key = None, None
+                continue
+            path = name if os.path.isabs(name) else os.path.normpath(os.path.join(base_dir, name))
+            section, key = path, None
+            out.setdefault(section, {})
+            continue
+        if "=" in stripped:
+            k, v = stripped.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if k == "include":
+                if v in seen:
+                    continue
+                seen.add(v)
+                r = subprocess.run(["sh", "-c", v], cwd=base_dir, capture_output=True, text=True)
+                parse_config(r.stdout, base_dir, seen, out)
+                key = None
+                continue
+            if section is not None:
+                out[section][k] = v
+                key = k
+    return out
+
+
+def first_command(checkout):
+    """The first simple command of a checkout value, as words."""
+    words = []
+    for w in shlex.split(checkout.replace("\n", " "), posix=True):
+        if w in ("&&", ";", "||", "|"):
+            break
+        words.append(w)
+    return words
+
+
+def parse_checkout(checkout):
+    """('clone', url, branch, rest) or ('worktree', sibling, branch, rest) or None."""
+    try:
+        words = first_command(checkout)
+    except ValueError:
+        return None
+    rest = checkout.split("&&", 1)[1].strip() if "&&" in checkout else ""
+    if words[:2] == ["git", "clone"]:
+        branch, pos, i = None, [], 2
+        while i < len(words):
+            w = words[i]
+            if w in ("-b", "--branch") and i + 1 < len(words):
+                branch = words[i + 1]; i += 2; continue
+            if w.startswith("--branch="):
+                branch = w.split("=", 1)[1]; i += 1; continue
+            if w in GIT_VALUED:
+                i += 2; continue
+            if w.startswith("-"):
+                i += 1; continue
+            pos.append(w); i += 1
+        return ("clone", pos[0], branch, rest) if pos else None
+    if len(words) >= 7 and words[0] == "git" and words[1] == "-C" and words[3:5] == ["worktree", "add"]:
+        anchor = words[2]                       # "$MR_REPO/../main"
+        if anchor.startswith("$MR_REPO/"):
+            return ("worktree", anchor[len("$MR_REPO/"):], words[6], rest)
+    return None
+
+
+def known_repos():
+    """{name: (url, branch, section_path_or_None, note)} from every source."""
+    # Section names are relative to the directory of ~/.mrconfig as found
+    # (~), not of the file it is a symlink to (~/dot_files).
+    sections = parse_config(open(MRCONFIG).read(), os.path.dirname(MRCONFIG), set(), {})
+    parsed = {p: parse_checkout(s["checkout"]) for p, s in sections.items() if "checkout" in s}
+    repos = []
+    for path, info in parsed.items():
+        if info is None:
+            continue
+        kind, a, branch, rest = info
+        if kind == "clone":
+            repos.append((path, a, branch, rest, "clone"))
+        else:
+            sib = os.path.normpath(os.path.join(path, a))
+            sinfo = parsed.get(sib)
+            if sinfo and sinfo[0] == "clone":
+                repos.append((path, sinfo[1], branch, "", "worktree"))
+    # known_repos.toml fills in only what the mr config lacks
+    extra = []
+    if os.path.exists(KNOWN_REPOS):
+        try:
+            import tomllib
+            data = tomllib.load(open(KNOWN_REPOS, "rb")).get("repositories", {})
+            have = {os.path.basename(p).lower() for p, *_ in repos}
+            for name, val in data.items():
+                url = val if isinstance(val, str) else (val or {}).get("url")
+                if url and name.lower() not in have:
+                    extra.append((None, name, url))
+        except Exception as e:                  # a broken toml must not hide the mr repos
+            print(f"mr-clone: note: could not read {KNOWN_REPOS}: {e}", file=sys.stderr)
+    return repos, extra
+
+
+# --------------------------------------------------------------------------
+# Command line
+# --------------------------------------------------------------------------
+def usage(code=0):
+    print(__doc__.split("WHERE THE URLS")[0].strip(), file=sys.stderr if code else sys.stdout)
+    sys.exit(code)
+
+
+def split_args(argv):
+    """mr-clone's own flags, the repo and an optional target, and git's args."""
+    own = {"list": False, "canonical": False, "dry": False}
+    pos, git = [], []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--":
+            git += argv[i + 1:]; break
+        if a in ("-h", "--help"):
+            usage()
+        if a in ("-l", "--list"):
+            own["list"] = True
+        elif a == "--canonical":
+            own["canonical"] = True
+        elif a in ("-n", "--dry-run"):
+            own["dry"] = True
+        elif a.startswith("-"):
+            git.append(a)
+            if a in GIT_VALUED and i + 1 < len(argv):
+                git.append(argv[i + 1]); i += 1
+        else:
+            pos.append(a)
+        i += 1
+    return own, pos, git
+
+
+def home_rel(p):
+    h = os.path.expanduser("~")
+    return "~" + p[len(h):] if p and (p == h or p.startswith(h + os.sep)) else p
+
+
+def main(argv):
+    own, pos, git = split_args(argv)
+    repos, extra = known_repos()
+
+    if own["list"]:
+        rows = []
+        names = [os.path.basename(p) for p, *_ in repos]
+        for path, url, branch, *_ in sorted(repos, key=lambda r: os.path.basename(r[0]).lower()):
+            name = os.path.basename(path)
+            label = home_rel(path).lstrip("~/") if names.count(name) > 1 else name
+            rows.append((label, url + (f"  (-b {branch})" if branch else ""), home_rel(path)))
+        for _, name, url in sorted(extra, key=lambda r: r[1].lower()):
+            rows.append((name, url, "(known_repos.toml)"))
+        w1 = max(len(r[0]) for r in rows); w2 = max(len(r[1]) for r in rows)
+        for r in rows:
+            print(f"{r[0]:<{w1}}  {r[1]:<{w2}}  {r[2]}")
+        return 0
+
+    if not pos:
+        usage(64)
+    if len(pos) > 2:
+        die(f"too many names: {' '.join(pos)} (git options go after the repo, or after --)", 64)
+    want, target = pos[0], (pos[1] if len(pos) > 1 else None)
+    if own["canonical"] and target:
+        die("--canonical and a target directory contradict each other", 64)
+
+    # exact section path, then basename (case-insensitive)
+    wl = want.lower().rstrip("/")
+    hits = [r for r in repos if home_rel(r[0]).lstrip("~/").lower() == wl.lstrip("~/")]
+    if not hits:
+        hits = [r for r in repos if os.path.basename(r[0]).lower() == wl]
+    by_branch = False
+    if not hits:
+        # an envelope worktree by its branch: [Repos/enveloped/eGIPS] is GIPS
+        hits = [r for r in repos if r[4] == "worktree" and (r[2] or "").lower() == wl]
+        by_branch = bool(hits)
+    url = branch = section = None
+    rest = ""
+    if len(hits) > 1:
+        print(f"mr-clone: '{want}' is in {len(hits)} places; name one by its section path:", file=sys.stderr)
+        for p, u, b, *_ in hits:
+            print(f"  mr-clone {home_rel(p).lstrip('~/')}    # {u}{f' (-b {b})' if b else ''}", file=sys.stderr)
+        return 1
+    if hits:
+        section, url, branch, rest, _ = hits[0]
+        # named by its branch, it clones into a directory of that name
+        name = branch if by_branch else os.path.basename(section)
+    else:
+        xh = [e for e in extra if e[1].lower() == wl]
+        if not xh:
+            all_names = sorted({os.path.basename(p) for p, *_ in repos} | {e[1] for e in extra}, key=str.lower)
+            close = difflib.get_close_matches(want, all_names, n=5, cutoff=0.5)
+            close += [n for n in all_names if wl in n.lower() and n not in close][:5]
+            print(f"mr-clone: no repo named '{want}' in the mr config.", file=sys.stderr)
+            if close:
+                print(f"  did you mean: {', '.join(close)}", file=sys.stderr)
+            print("  mr-clone --list shows every name", file=sys.stderr)
+            return 1
+        _, name, url = xh[0]
+
+    if own["canonical"]:
+        if not section:
+            die(f"'{name}' comes from known_repos.toml, which declares no canonical path", 64)
+        dest = section
+    else:
+        dest = target or name
+    user_branch = any(g in ("-b", "--branch") or g.startswith("--branch=") for g in git)
+    cmd = ["git", "clone"] + (["-b", branch] if branch and not user_branch else []) + git + ["--", url, dest]
+
+    print("+ " + " ".join(shlex.quote(c) for c in cmd), file=sys.stderr)
+    if rest:
+        print(f"  note: mr's checkout also runs, after the clone: {rest}", file=sys.stderr)
+    if own["dry"]:
+        return 0
+    if (os.path.isdir(dest) and os.listdir(dest)) or (os.path.exists(dest) and not os.path.isdir(dest)):
+        die(f"{home_rel(os.path.abspath(dest))} already exists")
+    return subprocess.run(cmd).returncode
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)

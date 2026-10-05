@@ -51,7 +51,7 @@ For standard shell setup not related to the background job runners:
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
 *   **Prompt configuration:** `.zshrc.starship`, `starship/starship.toml`
 *   **Herdr config:** `herdr/config.toml` (linked by `make set_up_links`)
-*   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`
+*   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`, `bin/mr-clone` (clone a configured repo by name anywhere)
 *   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` targets in `Makefile`, and `bin/gpg-new-machine` (`make gpg-new-machine`: interactive first-time key transfer). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`.
 
 **Agent Instruction:** Note that Guix environments (like Linux or `orb-guix`) construct `.zshrc` dynamically by concatenating configs, while native environments (like Mac without Guix) rely on `make set_up_links` to symlink `.zshrc.starship` and source `.shared.zshrc` manually. If asked to add a command, alias, or shell feature "everywhere" or "on all platforms," make sure it is added to the shared configs or updated in both the Guix `home/*.scm` files and the native Zsh files so it isn't lost on one platform.

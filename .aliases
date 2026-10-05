@@ -83,6 +83,8 @@ ${B}COMMANDS${R}
                        after following symlinks, so a symlink onto another volume is out)
   mr-all -j4 update    git pull everywhere, four at a time
   mr-all status        full git status per repo (the long form of mr-brief)
+  mr-clone NAME [DIR]  clone a configured repo by name into ./NAME or DIR, no URL
+                       hunting (--list names, --canonical its mr path, -n dry run)
   mr-register          add the repo you are in to ~/.mrconfig.local (never bare
                        \`mr register': it would edit the shared file / fail on Guix)
   mr --force checkout  new host: clone every listed repo that is missing
