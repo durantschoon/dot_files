@@ -119,13 +119,17 @@ add_to_end_of_path $NODE_PATH
 # gcloud components update
 # gcloud components install kubectl
 # gcloud components list
+# First install found wins: sourcing two copies would leave the last one's bin
+# on PATH, whichever SDK that happens to be.
 for gcloud_dir in /opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk ~/google-cloud-sdk; do
+    [ -d "$gcloud_dir" ] || continue
     if [ -f "$gcloud_dir/completion.zsh.inc" ]; then
         source "$gcloud_dir/completion.zsh.inc"
     fi
     if [ -f "$gcloud_dir/path.zsh.inc" ]; then
         source "$gcloud_dir/path.zsh.inc"
     fi
+    break
 done
 
 # openssl
