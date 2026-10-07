@@ -1798,7 +1798,19 @@ Commands:
   tmux-rm [TASK|--all]  Kill the task's session(s)
   tmux-hibernate        Save local jobs to ~/.tmux-hibernated-jobs and stop them
   tmux-revive           Restart all jobs previously saved by tmux-hibernate
-  
+  herdr-revive [ENGINE] Recover agent sessions (claude/agy/codex/cursor) and
+                        open each in its own Herdr workspace (.agent-jobs.zsh)
+
+  Which revive?  They cover different sessions; after a reboot or a container
+  restart, run both.
+    tmux-revive    plain jobs (servers, builds, tmux-run commands). Only works
+                   if you ran tmux-hibernate BEFORE shutting down: it replays
+                   the saved list (tmux-hibernate leaves agents out).
+    herdr-revive   agent sessions, needs no prior step. Uses the agent
+                   registry: agent-relaunch --all (resumes each conversation),
+                   then agent-herdr --all (a Herdr workspace per detached
+                   session). Run it inside the box where Herdr runs (orb-guix).
+
   tmux-pick [--all]     Interactive fzf menu to pick a session in this repo
   tmux-dash             Interactive menu of sessions (this host + homebase)
   tmux-dash-universal   Interactive menu of ALL sessions across Tailscale (tdu)
