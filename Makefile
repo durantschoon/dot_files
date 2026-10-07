@@ -287,6 +287,9 @@ help-text:
 	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
 	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
 	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
+	@echo "  make setup-container-tailscale - Put guix-dev on the tailnet as its own node (Tailscale SSH,"
+	@echo "                       ssh root@orb-guix); prints a login URL once"
+	@echo "  make check-container-tailscale - Verify the container's Tailscale binary, daemon and login"
 	@echo ""
 	@echo "Cloud Directories and Proton Drive:"
 	@echo "  make setup-cloud-dirs - Walk through the cloud-backed dirs: ~/Org/<location> and"
@@ -1996,7 +1999,7 @@ check-locale:
 	  exit 1; \
 	fi
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
+.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -2210,6 +2213,50 @@ else
 	echo "          asked; see docs/GPG.md, \"Signing inside the guix-dev container\""; \
 	exit $$rc
 endif
+
+# guix-dev as its own tailnet node, so other machines reach it with
+# `ssh root@$(CONTAINER_TS_HOSTNAME)' (Tailscale SSH; the container has no sshd).
+# build-aux/guix-container-tailscale.sh installs the static binary and runs
+# tailscaled in userspace mode; the entrypoint starts it on every container
+# start.  Runs from the Mac (through docker exec) or from inside the container,
+# recognised by JOB_CONTAINER_SELF or, for a container created before compose
+# set that, by /.dockerenv.  `tailscale up' prints a URL to open once; the
+# node's identity then lives on the guix-dev-home volume.
+CONTAINER_TS_HOSTNAME ?= orb-guix
+CONTAINER_TS_SCRIPT   := /root/dot_files/build-aux/guix-container-tailscale.sh
+CONTAINER_TS          := /root/.local/bin/tailscale
+IN_GUIX_DEV := $(or $(JOB_CONTAINER_SELF),$(wildcard /.dockerenv))
+ctr-exec    = $(if $(IN_GUIX_DEV),,$(GUIX_DOCKER) exec $(1) guix-dev)
+ctr-exec-bg = $(if $(IN_GUIX_DEV),setsid,$(GUIX_DOCKER) exec -d guix-dev)
+
+setup-container-tailscale:
+	@echo "==> installing Tailscale in guix-dev"
+	@$(call ctr-exec,) /bin/sh $(CONTAINER_TS_SCRIPT) --install
+	@echo "==> (re)starting tailscaled (userspace networking)"
+	@$(ctr-exec-bg) /bin/sh $(CONTAINER_TS_SCRIPT) --restart >/dev/null 2>&1 &
+	@sleep 3
+	@echo "==> logging in: open the URL it prints"
+	@$(call ctr-exec,-it) $(CONTAINER_TS) up --ssh --hostname=$(CONTAINER_TS_HOSTNAME)
+	@$(MAKE) --no-print-directory check-container-tailscale
+
+check-container-tailscale:
+	@echo "==> Tailscale in guix-dev"
+	@rc=0; \
+	if ! $(call ctr-exec,) test -x $(CONTAINER_TS); then \
+	  echo "    [--] binary  : not installed; fix: make setup-container-tailscale"; exit 1; \
+	fi; \
+	echo "    [ok] binary  : $$($(call ctr-exec,) $(CONTAINER_TS) version | head -1)"; \
+	if st=$$($(call ctr-exec,) $(CONTAINER_TS) status --json 2>/dev/null); then \
+	  state=$$(printf '%s' "$$st" | sed -n 's/.*"BackendState": *"\([^"]*\)".*/\1/p' | head -1); \
+	  if [ "$$state" = Running ]; then \
+	    echo "    [ok] node    : running; ssh root@$(CONTAINER_TS_HOSTNAME) from the tailnet"; \
+	  else \
+	    rc=1; echo "    [--] node    : $${state:-unknown}; fix: make setup-container-tailscale (log in)"; \
+	  fi; \
+	else \
+	  rc=1; echo "    [--] daemon  : tailscaled not answering; check ~/.local/state/tailscale/tailscaled.log"; \
+	fi; \
+	exit $$rc
 
 # The Radicle node (rad://... remotes, e.g. the GIPS submodule of
 # Repos/enveloped/eGIPS) as a LaunchAgent, so it is up after a reboot instead
