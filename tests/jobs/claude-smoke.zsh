@@ -541,6 +541,15 @@ print -r -- "{\"workspace\":\"$REPO\",\"conversationId\":\"agy-conv-1\"}" > "$ST
 codex-run sx </dev/null >/dev/null 2>&1
 agy-run ax </dev/null >/dev/null 2>&1
 
+# The homebase moves with the agents.  A stub stands in for bin/homebase so
+# the real timer, autosave and tmux-hygiene are never touched: it says this
+# machine is homebase "minius" and records every call.
+typeset -g HB_LOG=$BASE/homebase-calls.txt
+print -r -- '#!/bin/sh
+echo "$*" >> "'"$HB_LOG"'"
+[ "$1" = active ] && echo minius
+exit 0' > "$BASE/homebase-stub"
+export AGENT_HOMEBASE_BIN=$BASE/homebase-stub
 typeset -g ST_FILE=$BASE/stash.tgz
 agent-stash-all "$ST_FILE" 2>"$BASE/stash.err"; RC=$?
 assert "agent-stash-all exits 0" test $RC -eq 0
@@ -561,6 +570,9 @@ typeset -g ST_LIST="$(tar -tzf "$ST_FILE" 2>/dev/null)"
 assert "Claude's project memory travels with the transcript" grep -q 'memory/MEMORY.md' <<<"$ST_LIST"
 assert "… and the codex rollout" grep -q "codex/$ST_CODEX_REL" <<<"$ST_LIST"
 assert "… and the agy conversation" grep -q 'agy/conversations/agy-conv-1.db' <<<"$ST_LIST"
+assert "the stash records that it came from the homebase" grep -qx '# homebase=minius' <<<"$ST_MAN"
+assert "… and turns the homebase off on the machine it leaves" grep -qx off "$HB_LOG"
+: > "$HB_LOG"
 
 # The new machine: same repo, different $HOME, no tmux sessions, and the
 # second checkout not cloned yet.
@@ -570,6 +582,9 @@ mkdir -p -- "$REPO_NEW" "$HOME2/Library/LaunchAgents" && git init -q -- "$REPO_N
 for s in "$SLUG-t2" "$SLUG-sx" "$SLUG-ax" "$SLUG2-t3"; do ptmux kill-session -t "=$s" >/dev/null 2>&1; done
 : > "$ARGV_FILE"; : > "$BASE/codex-argv.txt"; : > "$BASE/agy-argv.txt"
 export HOME=$HOME2 XDG_DATA_HOME=$HOME2/.local/share
+agent-stash-pop --dry-run "$ST_FILE" 2>"$BASE/pop-dry.err"
+assert "a dry-run pop says it would take over the homebase" grep -q 'would make this machine the homebase' "$BASE/pop-dry.err"
+refute "… without turning it on" grep -qx on "$HB_LOG"
 agent-stash-pop "$ST_FILE" 2>"$BASE/pop.err"; RC=$?
 assert "agent-stash-pop exits 0" test $RC -eq 0
 typeset -g ST_NEWKEY=$(_agent_stash_key "$REPO_NEW")
@@ -591,10 +606,12 @@ assert "the uncloned checkout is named, not silently dropped" grep -q "Claude_Sm
 refute "… and nothing was started for it" ptmux has-session -t "=$SLUG2-t3"
 assert "pop says to agent-rm the originals on the other machine" grep -q 'agent-rm them there' "$BASE/pop.err"
 assert "with no Herdr server it says how to open the tabs later" grep -q 'herdr-revive' "$BASE/pop.err"
+assert "the pop makes the new machine the homebase" grep -qx on "$HB_LOG"
 print "  note agent-stash-pop on a different \$HOME:"
 sed 's/^/       | /' "$BASE/pop.err"
 export HOME=$HOME_LOCAL XDG_DATA_HOME=$HOME_LOCAL/.local/share
 command rm -f -- "$FAKEBIN/herdr"; rehash
+unset AGENT_HOMEBASE_BIN
 
 # 5. make wiring.
 assert "make check-jobs runs this file" grep -q "claude-smoke.zsh" "$WT/Makefile"

@@ -49,6 +49,8 @@ There are dedicated tools for running interactive AI sessions as background jobs
 *   **Testing:** `tests/jobs/claude-smoke.zsh`
 *   **Gemini Configs:** `gemini/hooks.json`, `gemini/scripts/`, `gemini/skills/`
 
+*   **Homebase hygiene jobs:** `bin/homebase` (`on`/`off`/`status`/`tick`; gates `bin/mr-hygiene` + `bin/tmux-hygiene` and media-announce autosave to one machine), the `homebase` layer in `home/common.scm` (shepherd timer), and the homebase handoff in `agent-stash-all`/`agent-stash-pop`
+
 **Agent Instruction:** When modifying AI workflows or CLI commands related to `agent-`, `claude-`, `agy-` or `codex-`, focus heavily on `.agent-jobs.zsh`.
 
 ## 4. Shell & Environment Baseline

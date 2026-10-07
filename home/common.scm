@@ -65,6 +65,7 @@
              (gnu home services shells)
              (gnu home services shepherd)
              (gnu packages)
+             (gnu packages bash)        ;bash -- for the homebase-tick timer
              (gnu packages glib)
              (gnu services)            ;service-kind, service-type-name -- for
                                        ;the layer ownership check
@@ -1414,6 +1415,32 @@ call, so extensions never collide; only genuine double ownership does."
                                                                 #:recursive? #t)))
                        %gemini-skill-entries))))))
 
+;; homebase: the scheduled hygiene jobs (bin/homebase -- mr-hygiene hourly,
+;; media-announce autosave).  The timer is declared on every machine, but each
+;; tick is a no-op unless `homebase on' was said HERE, so the homebase moves
+;; with `homebase off' / `homebase on' (agent-stash-all / agent-stash-pop do
+;; both) instead of a reconfigure.  python: mr-hygiene, tmux-hygiene and the
+;; media-announce queue applier are standard-library Python 3.
+(define %homebase-layer
+  (layer
+   #:name 'homebase
+   #:synopsis "hygiene timer, gated by `homebase on' (bin/homebase)"
+   #:packages '("python")
+   #:services
+   (list
+    (simple-service 'homebase-tick home-shepherd-service-type
+                    (list
+                     (shepherd-timer
+                      '(homebase-tick)
+                      "*/10 * * * *"
+                      ;; bash -c for $HOME: the command list is not a shell.
+                      ;; ~/bin is this repo's bin/, deployed by the dotfiles
+                      ;; layer.
+                      #~(#$(file-append bash "/bin/bash") "-c"
+                         "exec \"$HOME/bin/homebase\" tick")
+                      #:documentation
+                      "Run `homebase tick' every 10 minutes; a no-op unless this machine is the homebase."))))))
+
 ;; Enabled layers, in service order.  A machine wanting a subset passes its
 ;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
 (define %default-layers
@@ -1426,7 +1453,8 @@ call, so extensions never collide; only genuine double ownership does."
         %browser-layer
         %espanso-layer
         %claude-code-layer
-        %gemini-layer))
+        %gemini-layer
+        %homebase-layer))
 
 (define* (dotfiles-home session #:key (layers %default-layers)
                         (extra-services '()))

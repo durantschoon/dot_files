@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# homebase -- which machine runs the scheduled hygiene jobs, and the jobs.
+#
+# Exactly one machine is the homebase: the one where the agents live and
+# where unattended upkeep should happen.  Today that upkeep is
+#
+#   mr-hygiene --quiet     stash/dirty/drift scan of every myrepos repo; it
+#                          also feeds LOOSE-ENDS.md through the media-announce
+#                          queue and auto-kills critical tmux zombies
+#                          (via tmux-hygiene --auto-kill), once an hour
+#   autosave.sh            media-announce's snapshot of uncommitted work to
+#                          origin wip/<name>/<label>, every tick (10 min)
+#
+# The scheduler is declared everywhere -- a shepherd timer from the Guix Home
+# `homebase' layer on Linux, a LaunchAgent that `homebase on' writes on macOS
+# -- but every tick first checks the marker file, so the jobs run only where
+# `homebase on' was said.  Moving the homebase is therefore `homebase off' on
+# machine 1 and `homebase on' on machine 2; agent-stash-all / agent-stash-pop
+# do both for you when they carry the agents across.
+#
+# Usage:
+#   homebase                 same as status
+#   homebase status          is this machine the homebase; timer; last runs
+#   homebase on [NAME]       make this machine the homebase (NAME defaults to
+#                            orb-guix in the OrbStack container, else the
+#                            short host name) and run one tick now
+#   homebase off             stop being the homebase
+#   homebase tick [--force]  what the timer runs; a no-op unless this machine
+#                            is the homebase.  --force also reruns mr-hygiene
+#                            before its hour is up
+#   homebase name            print the name `on' would use
+#   homebase active          print this homebase's name; exit 1 when it is not one
+#
+# Knobs: HOMEBASE_STATE (default ~/.local/state/homebase),
+#        HOMEBASE_HYGIENE_MINUTES (default 55; the tick itself is 10 min),
+#        HOMEBASE_AUTOSAVE_REPO (default ~/Repos/ds/media-announce).
+set -uo pipefail
+
+# Timers start with whatever environment their scheduler has; give the jobs
+# the PATH an interactive shell would (git, mr, python3, tmux, jq).
+export PATH="$HOME/bin:$HOME/.local/bin:$HOME/.guix-home/profile/bin:$HOME/.guix-profile/bin:/run/current-system/profile/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
+
+state_dir=${HOMEBASE_STATE:-$HOME/.local/state/homebase}
+marker=$state_dir/active
+log_file=$state_dir/tick.log
+hygiene_stamp=$state_dir/mr-hygiene.last
+tick_lock=$state_dir/tick.lock   # global: the EXIT trap outlives tick()
+hygiene_minutes=${HOMEBASE_HYGIENE_MINUTES:-55}
+autosave_repo=${HOMEBASE_AUTOSAVE_REPO:-$HOME/Repos/ds/media-announce}
+autosave_script=$autosave_repo/scripts/autosave.sh
+
+# macOS scheduler.  The label sits next to autosave's own
+# com.durantschoon.autosave.<repo>, which `on' retires: one timer, not two.
+launchd_label=com.durantschoon.homebase
+launchd_plist=$HOME/Library/LaunchAgents/$launchd_label.plist
+autosave_launchd_label=com.durantschoon.autosave.$(basename "$autosave_repo")
+autosave_launchd_plist=$HOME/Library/LaunchAgents/$autosave_launchd_label.plist
+
+is_mac() { [ "$(uname -s)" = Darwin ]; }
+
+log() { mkdir -p "$state_dir"; printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$*" >>"$log_file"; }
+say() { printf 'homebase: %s\n' "$*"; log "$*"; }
+
+# default_name: the machine's everyday name.  The OrbStack container's
+# hostname is its random container id, so it is recognised the way
+# .zshrc.starship does it, by /proc/version.
+default_name() {
+  if grep -qi orbstack /proc/version 2>/dev/null; then
+    echo orb-guix
+  elif is_mac; then
+    scutil --get LocalHostName 2>/dev/null | tr '[:upper:]' '[:lower:]' || hostname -s
+  else
+    hostname -s 2>/dev/null || hostname
+  fi
+}
+
+# marker_field KEY: a key=value line from the marker file.
+marker_field() { sed -n "s/^$1=//p" "$marker" 2>/dev/null | head -n 1; }
+
+is_active() { [ -f "$marker" ]; }
+
+# minutes_since FILE: whole minutes since FILE was modified; huge when absent.
+minutes_since() {
+  local mtime
+  [ -e "$1" ] || { echo 999999; return; }
+  mtime=$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1")
+  echo $(( ($(date +%s) - mtime) / 60 ))
+}
+
+# ---------------------------------------------------------------------------
+# Scheduler, per platform
+
+scheduler_install() {
+  if is_mac; then
+    mkdir -p "$(dirname "$launchd_plist")" "$state_dir"
+    cat >"$launchd_plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$launchd_label</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$HOME/bin/homebase</string><string>tick</string></array>
+  <key>StartInterval</key><integer>600</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>$state_dir/launchd.log</string>
+  <key>StandardErrorPath</key><string>$state_dir/launchd.log</string>
+</dict></plist>
+PLIST
+    launchctl bootout "gui/$(id -u)/$launchd_label" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$launchd_plist" || say "WARNING: launchctl bootstrap failed"
+    # autosave's own timer would snapshot twice; the tick now owns it.
+    if [ -f "$autosave_launchd_plist" ]; then
+      launchctl bootout "gui/$(id -u)/$autosave_launchd_label" 2>/dev/null || true
+      rm -f "$autosave_launchd_plist"
+      say "retired $autosave_launchd_label (the homebase tick runs autosave now)"
+    fi
+  elif command -v herd >/dev/null 2>&1 && herd status homebase-tick >/dev/null 2>&1; then
+    herd start homebase-tick >/dev/null 2>&1 || true
+  else
+    say "WARNING: no homebase-tick timer in shepherd here -- run \`make apply' (Guix Home layer 'homebase'), or the marker alone does nothing"
+  fi
+}
+
+scheduler_remove() {
+  if is_mac; then
+    launchctl bootout "gui/$(id -u)/$launchd_label" 2>/dev/null || true
+    rm -f "$launchd_plist"
+    if [ -f "$autosave_launchd_plist" ]; then
+      launchctl bootout "gui/$(id -u)/$autosave_launchd_label" 2>/dev/null || true
+      rm -f "$autosave_launchd_plist"
+      say "removed $autosave_launchd_label too"
+    fi
+  fi
+  # On Linux the shepherd timer stays declared; without the marker it ticks
+  # into a no-op, and `homebase on' needs no reconfigure to come back.
+}
+
+scheduler_status() {
+  if is_mac; then
+    if [ -f "$launchd_plist" ]; then
+      launchctl print "gui/$(id -u)/$launchd_label" >/dev/null 2>&1 \
+        && echo "timer:     $launchd_label loaded (every 10 min)" \
+        || echo "timer:     $launchd_plist present but NOT loaded"
+    else
+      echo "timer:     none ($launchd_label not installed)"
+    fi
+    [ -f "$autosave_launchd_plist" ] && echo "note:      $autosave_launchd_label is still installed on its own"
+  elif command -v herd >/dev/null 2>&1 && herd status homebase-tick >/dev/null 2>&1; then
+    echo "timer:     shepherd homebase-tick: $(herd status homebase-tick 2>/dev/null | sed -n 's/^ *Status: *//p' | head -n 1)"
+  else
+    echo "timer:     none (no shepherd homebase-tick; run make apply)"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# The jobs
+
+run_autosave() {
+  local name=$1
+  [ -x "$autosave_script" ] || [ -f "$autosave_script" ] || { log "autosave: $autosave_script missing; skipped"; return 0; }
+  git -C "$autosave_repo" config --get autosave.allowedRemote >/dev/null \
+    || { log "autosave: not enabled in $autosave_repo; skipped"; return 0; }
+  # AUTOSAVE_HOST: the container's hostname changes with every container, so
+  # the snapshot branch is named after the homebase instead.
+  if AUTOSAVE_HOST=$name bash "$autosave_script" >>"$state_dir/autosave.out" 2>&1; then
+    log "autosave: ok"
+  else
+    log "autosave: FAILED (see $autosave_repo/logs/autosave.log)"
+    return 1
+  fi
+}
+
+run_mr_hygiene() {
+  local force=$1
+  if [ "$force" != 1 ] && [ "$(minutes_since "$hygiene_stamp")" -lt "$hygiene_minutes" ]; then
+    return 0
+  fi
+  command -v python3 >/dev/null 2>&1 || { log "mr-hygiene: no python3 on PATH; skipped"; return 1; }
+  command -v mr >/dev/null 2>&1 || { log "mr-hygiene: no mr on PATH; skipped"; return 1; }
+  # The mr-hygiene shipped beside this script, so the pair always matches.
+  if "$(dirname "$0")/mr-hygiene" --quiet >>"$state_dir/mr-hygiene.out" 2>&1; then
+    touch "$hygiene_stamp"
+    log "mr-hygiene: ok"
+  else
+    log "mr-hygiene: FAILED (see $state_dir/mr-hygiene.out)"
+    return 1
+  fi
+}
+
+tick() {
+  local force=0 name rc=0
+  [ "${1-}" = --force ] && force=1
+  is_active || return 0
+  name=$(marker_field name)
+  mkdir -p "$state_dir"
+  # A crashed tick's lock must not block the timer for good.
+  [ -d "$tick_lock" ] && [ "$(minutes_since "$tick_lock")" -ge 30 ] && rmdir "$tick_lock" 2>/dev/null
+  mkdir "$tick_lock" 2>/dev/null || { log "tick: another tick is running; skipped"; return 0; }
+  trap 'rmdir "$tick_lock" 2>/dev/null' EXIT
+  run_autosave "${name:-$(default_name)}" || rc=1
+  run_mr_hygiene "$force" || rc=1
+  rmdir "$tick_lock" 2>/dev/null
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+
+status() {
+  echo "machine:   $(default_name)"
+  if is_active; then
+    echo "homebase:  YES (as $(marker_field name), since $(marker_field since))"
+  else
+    echo "homebase:  no"
+  fi
+  scheduler_status
+  echo "mr-hygiene last ok: $( [ -e "$hygiene_stamp" ] && echo "$(minutes_since "$hygiene_stamp") min ago" || echo never)"
+  command -v python3 >/dev/null 2>&1 || echo "WARNING:   no python3 on PATH (mr-hygiene cannot run)"
+  if [ -f "$log_file" ]; then
+    echo "last log lines:"
+    tail -n 5 "$log_file" | sed 's/^/  /'
+  fi
+  return 0
+}
+
+on() {
+  local name=${1:-$(default_name)}
+  mkdir -p "$state_dir"
+  printf 'name=%s\nsince=%s\n' "$name" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$marker"
+  scheduler_install
+  say "this machine is the homebase now (as $name); running one tick"
+  tick --force || say "the first tick reported a failure; see homebase status"
+  echo "homebase: if another machine was the homebase, run \`homebase off' there"
+}
+
+off() {
+  if ! is_active; then
+    scheduler_remove
+    echo "homebase: this machine was not the homebase; nothing to stop"
+    return 0
+  fi
+  rm -f "$marker"
+  scheduler_remove
+  say "this machine is no longer the homebase; its hygiene jobs stop"
+}
+
+case "${1:-status}" in
+  status) status ;;
+  on) shift; on "$@" ;;
+  off) off ;;
+  tick) shift; tick "$@" ;;
+  name) default_name ;;
+  active) is_active && marker_field name ;;
+  -h|--help|help) sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
+  *) echo "homebase: unknown command: $1 (try --help)" >&2; exit 64 ;;
+esac

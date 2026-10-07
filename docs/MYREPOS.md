@@ -138,6 +138,39 @@ LaunchAgent (`com.durantschoon.radicle-node`) so it comes back after a
 reboot; `make check-radicle` checks rad, the identity, the agent and the
 node. Elsewhere, `rad node start`.
 
+### `mr-hygiene`: zero-token repository hygiene tracking
+
+`mr-hygiene` walks every configured repo in under a second (standard library
+Python only; zero LLM tokens) and inspects stashes (`S > 0`), dirty worktrees,
+and branch drift. It persists historical state to a local SQLite database
+(`~/.config/repo-hygiene/hygiene.db`), updates `media-announce/docs/REPO-HYGIENE.md`,
+and hands its checklist items to `media-announce/docs/LOOSE-ENDS.md` through
+that repo's queue (`logs/loose-ends-queue/`, contract in its
+`docs/LOOSE-ENDS-WRITERS.md`); it never edits the file itself.
+
+```sh
+mr-hygiene             # scan all repos, update DB & reports, print summary
+mr-hygiene --verbose   # show detailed stash diffstat in terminal
+mr-hygiene --quiet     # silent run for launchd/cron timers
+```
+
+It runs unattended on the **homebase** only -- the one machine where the
+agents live. `bin/homebase` owns that: a 10-minute timer (shepherd
+`homebase-tick` from the Guix Home `homebase` layer; a LaunchAgent on macOS)
+runs `homebase tick`, which does nothing unless `homebase on` was said on
+this machine, and otherwise runs media-announce's autosave and, hourly,
+`mr-hygiene --quiet`.
+
+```sh
+homebase               # status: is this the homebase, timer, last runs
+homebase on            # make this machine the homebase (runs one tick now)
+homebase off           # stop the jobs here
+```
+
+`agent-stash-all` turns the homebase off on the machine it leaves and
+`agent-stash-pop` turns it on where it lands, so moving the agents moves the
+jobs (`--keep-homebase` for a stash that is only a backup).
+
 ### `mr-clone`: a configured repo, cloned anywhere
 
 `mr --force checkout` clones a repo only to the path its section names.

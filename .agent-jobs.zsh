@@ -28,13 +28,17 @@
 #                                 for each engine (default: all of them).
 # agent-rm ENGINE TASK             remove the session and registered agent; keep
 #                                 the transcript, including unloaded plists.
-# agent-stash-all [FILE]           pack every registered agent -- registry
+# agent-stash-all [--keep-homebase] [FILE]
+#                                 pack every registered agent -- registry
 #                                 entry, exact conversation id, its transcripts,
 #                                 the checkout's remote and commit -- into a
-#                                 private .tar.gz (default ~/dot_files/logs/).
+#                                 private .tar.gz (default ~/dot_files/logs/);
+#                                 when this machine is the homebase, record that
+#                                 and `homebase off' here (bin/homebase).
 # agent-stash-pop [--dry-run] FILE  restore a stash here (another machine is
 #                                 fine): copy transcripts, adopt each agent by
-#                                 its conversation, open the Herdr tabs.
+#                                 its conversation, open the Herdr tabs, and
+#                                 `homebase on' when the stash came from one.
 # agent-help [ENGINE]              show help, including startup/resume syntax.
 #
 # Wrappers: claude-*, agy-*, codex-* supply ENGINE for every verb.
@@ -1026,6 +1030,20 @@ agent-adopt() {
 # agent-rm the originals so one checkout does not end up with two agents.
 typeset -g _AGENT_STASH_FORMAT=agent-stash-1
 
+# The homebase (bin/homebase: the one machine whose timer runs the hygiene
+# jobs) moves with the agents: stash-all records `# homebase=NAME' and turns
+# it off here, pop turns it on wherever the stash lands.  A restart on one
+# machine is the same off-then-on.  --keep-homebase leaves it running, for a
+# stash that is only a backup.  AGENT_HOMEBASE_BIN overrides the script.
+typeset -g _AGENT_HOMEBASE_BIN=${${(%):-%x}:A:h}/bin/homebase
+
+# _agent_homebase ARGS: run bin/homebase; failure when it is not there.
+_agent_homebase() {
+  local bin=${AGENT_HOMEBASE_BIN:-$_AGENT_HOMEBASE_BIN}
+  [[ -f $bin ]] || return 1
+  bash "$bin" "$@"
+}
+
 # _agent_stash_key PATH: the directory-name form Claude Code uses for a path.
 _agent_stash_key() { print -r -- "${1//[^a-zA-Z0-9]/-}" }
 
@@ -1085,7 +1103,10 @@ _agent_stash_copy() {
 agent-stash-all() {
   _agent_job_guard || return
   (( $+commands[jq] )) || { print -u2 "agent-stash-all: needs jq"; return 1 }
-  local file=${1-}
+  local keep_homebase=0
+  [[ ${1-} == --keep-homebase ]] && { keep_homebase=1; shift }
+  local file=${1-} homebase
+  homebase=$(_agent_homebase active 2>/dev/null) || homebase=""
   if [[ -z $file ]]; then
     local sdir=${AGENT_STASH_DIR:-$HOME/dot_files/logs}
     [[ -d $sdir ]] || sdir=$PWD
@@ -1104,6 +1125,7 @@ agent-stash-all() {
     print -r -- "# home=$HOME"
     print -r -- "# host=${HOST:-$(hostname)}"
     print -r -- "# created=$(_job_now)"
+    [[ -n $homebase ]] && print -r -- "# homebase=$homebase"
   } > "$stage/manifest.tsv"
   for label in "${labels[@]}"; do
     [[ -n $label ]] || continue
@@ -1147,6 +1169,14 @@ agent-stash-all() {
   command rm -rf -- "$stage"
   print -u2 "agent-stash-all: $rows agents${${fresh:#0}:+ ($fresh without a conversation)} -> $file"
   print -u2 "agent-stash-all: restore with: agent-stash-pop ${(q)file}"
+  if [[ -n $homebase ]]; then
+    if (( keep_homebase )); then
+      print -u2 "agent-stash-all: this machine stays the homebase (--keep-homebase); the pop will make another one too -- \`homebase off' on one of them"
+    else
+      _agent_homebase off >&2
+      print -u2 "agent-stash-all: the pop turns the hygiene jobs back on where it lands"
+    fi
+  fi
 }
 
 agent-stash-pop() {
@@ -1167,7 +1197,9 @@ agent-stash-pop() {
     return 1
   fi
   local src_home src_host
+  local src_homebase
   src_home=$(sed -n 's/^# home=//p' "$man"); src_host=$(sed -n 's/^# host=//p' "$man")
+  src_homebase=$(sed -n 's/^# homebase=//p' "$man")
   print -u2 "agent-stash-pop: stash from $src_host ($src_home)${${dry:#0}:+ -- dry run, nothing changes}"
 
   # Transcripts first: never overwrite, so popping onto the machine that made
@@ -1233,7 +1265,10 @@ agent-stash-pop() {
     fi
   done < "$man"
   command rm -rf -- "$stage"
-  (( dry )) && return 0
+  if (( dry )); then
+    [[ -n $src_homebase ]] && print -u2 "agent-stash-pop: would make this machine the homebase (the stash came from homebase $src_homebase)"
+    return 0
+  fi
 
   # The Herdr half, when a Herdr server answers here; otherwise herdr-revive
   # later finds the sessions up and only opens them.
@@ -1245,6 +1280,10 @@ agent-stash-pop() {
   (( $#missing )) && print -u2 "agent-stash-pop: ${#missing} agents skipped for missing checkouts (above)"
   if [[ $src_home != "$HOME" || $src_host != "${HOST:-$(hostname)}" ]]; then
     print -u2 "agent-stash-pop: the originals still run on $src_host -- agent-rm them there, or each checkout has two agents"
+  fi
+  if [[ -n $src_homebase ]]; then
+    print -u2 "agent-stash-pop: the stash came from homebase $src_homebase; making this machine the homebase"
+    _agent_homebase on >&2 || print -u2 "agent-stash-pop: bin/homebase is missing here -- run \`homebase on' once it is"
   fi
   return 0
 }
