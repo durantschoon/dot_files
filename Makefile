@@ -312,6 +312,9 @@ help-text:
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
+	@echo "  make setup-timezone - Point /etc/localtime at TIMEZONE (default America/New_York;"
+	@echo "                       foreign distros such as orb-guix; needs root)"
+	@echo "  make check-timezone - Verify /etc/localtime matches TIMEZONE"
 	@echo "  make setup-radicle - Run radicle-node as a LaunchAgent so it survives reboots (mac only;"
 	@echo "                       stops a hand-started node first, see docs/MYREPOS.md)"
 	@echo "  make check-radicle - Verify rad, the identity, the LaunchAgent and the node"
@@ -1907,6 +1910,37 @@ else
 	@echo "OrbStack container detected: keyd cannot control the Mac keyboard here."
 	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
+
+.PHONY: setup-timezone check-timezone
+# System timezone for foreign-distro hosts (orb-guix and other Debian/Ubuntu
+# boxes running Guix Home).  Guix Home is per-user and cannot touch /etc, so
+# the zone lives in the distro's /etc/localtime symlink, which these targets
+# manage.  A named zone rather than a fixed offset: America/New_York follows
+# EDT (GMT-4) / EST (GMT-5) automatically.  On Guix System the zone is
+# declarative instead -- the (timezone ...) field in system/geeeks.scm.
+TIMEZONE ?= America/New_York
+
+setup-timezone:
+ifneq ($(GUIX_SYSTEM),)
+	@echo "Guix System: set (timezone \"$(TIMEZONE)\") in system/geeeks.scm, then 'make reconfigure'."
+	@exit 1
+else
+	@test -f /usr/share/zoneinfo/$(TIMEZONE) || { \
+	  echo "  *** unknown zone $(TIMEZONE): no /usr/share/zoneinfo/$(TIMEZONE) ***"; exit 1; }
+	ln -sfn /usr/share/zoneinfo/$(TIMEZONE) /etc/localtime
+	@# Debian's tzdata reads /etc/timezone on upgrade; keep it in agreement.
+	echo $(TIMEZONE) > /etc/timezone
+	@$(MAKE) --no-print-directory check-timezone
+endif
+
+check-timezone:
+	@zone=$$(readlink /etc/localtime | sed 's|.*/zoneinfo/||'); \
+	if [ "$$zone" = "$(TIMEZONE)" ]; then \
+	  echo "  ok: /etc/localtime -> $$zone ($$(date +'%Z, UTC%:z'))"; \
+	else \
+	  echo "  *** /etc/localtime -> $${zone:-?}, expected $(TIMEZONE); run: sudo make setup-timezone ***"; \
+	  exit 1; \
+	fi
 
 .PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
 

@@ -31,6 +31,7 @@ The user is migrating to a declarative Guix setup with distinct "home" and "syst
 *   **System Layer (Host configs):** `system/`, `system/README.md`
 *   **Manifests & Channels:** `manifests/`, `channels.scm`, `system/channels-geeeks.scm`
 *   **Per-directory environments:** `direnv/direnvrc` (deployed by `home/common.scm`)
+*   **System timezone (foreign distros, e.g. orb-guix):** `setup-timezone` / `check-timezone` in `Makefile` (`/etc/localtime`); on Guix System it is `(timezone ...)` in `system/geeeks.scm`
 *   **Known-warning filter:** `bin/expected-warnings` (hides and counts the warnings `apply`/`apply-wayland` are known to print; add new ones to its `%EXPECTED` table)
 *   **Documentation:** `docs/GUIX_MIGRATION_PLAN.md`, `docs/GENERATIONS_AND_ROLLBACK.md`, `docs/EWM_TRIAL_PLAN.md`
 
