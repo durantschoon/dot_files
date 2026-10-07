@@ -1,0 +1,806 @@
+#!/usr/bin/env python3
+"""tmux-hygiene: Audit tmux sessions for notes headlines, Herdr drafts, zombies, and unmanaged agents.
+
+Features:
+  1. Headline audit: verifies sessions have active notes headlines in logs/
+  2. Herdr drafts: matches sessions to Herdr tab titles for first drafts
+  3. Zombie sweep: identifies dead, abandoned, trashed, or exited sessions
+  4. Agent audit & upgrade: finds bare AI agents outside tmux and upgrades them
+
+Usage:
+  tmux-hygiene                             # Audit headlines & flag unmanaged agents
+  tmux-hygiene --seed                      # Auto-seed missing notes from Herdr tab titles
+  tmux-hygiene --zombies                   # Sweep for dead/abandoned zombie sessions
+  tmux-hygiene --kill-zombies              # Safely terminate identified zombie sessions
+  tmux-hygiene --agents                    # Detailed census of all AI agent processes
+  tmux-hygiene -u / --upgrade-to-tmux      # Interactive upgrade of bare agent into tmux
+  tmux-hygiene -u PID                      # Upgrade specific agent PID into tmux session
+  tmux-hygiene --json                      # Output results as JSON
+"""
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+import signal
+
+
+# Herdr keeps its session under ~/Library on macOS and ~/.config elsewhere.
+HERDR_SESSION_JSON = next(
+    (p for p in (Path.home() / "Library" / "Application Support" / "herdr" / "session.json",
+                 Path.home() / ".config" / "herdr" / "session.json") if p.exists()),
+    Path.home() / ".config" / "herdr" / "session.json",
+)
+
+
+# -----------------------------------------------------------------------------
+# Herdr Integration
+# -----------------------------------------------------------------------------
+
+def get_herdr_tabs() -> dict[str, list[str]]:
+    """Map normalized repo paths and names to Herdr custom tab titles."""
+    if not HERDR_SESSION_JSON.exists():
+        return {}
+
+    try:
+        with open(HERDR_SESSION_JSON, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return {}
+
+    mapping: dict[str, list[str]] = {}
+
+    for ws in d.get("workspaces", []):
+        ws_cwd = ws.get("identity_cwd") or ""
+        ws_name = ws.get("custom_name") or (os.path.basename(ws_cwd) if ws_cwd else "")
+        tabs = []
+        for t in ws.get("tabs", []):
+            t_label = t.get("custom_name")
+            if t_label:
+                tabs.append(t_label)
+
+        if not tabs:
+            continue
+
+        for t in ws.get("tabs", []):
+            t_label = t.get("custom_name")
+            if not t_label:
+                continue
+            for pid, pdata in t.get("panes", {}).items():
+                cwd = pdata.get("cwd")
+                if cwd:
+                    norm_cwd = str(Path(cwd).resolve())
+                    mapping.setdefault(norm_cwd, []).append(t_label)
+
+        if ws_cwd:
+            norm_ws = str(Path(ws_cwd).resolve())
+            mapping.setdefault(norm_ws, []).extend(tabs)
+
+        if ws_name:
+            mapping.setdefault(f"name:{ws_name.lower()}", []).extend(tabs)
+
+    for k in mapping:
+        mapping[k] = list(dict.fromkeys(mapping[k]))
+
+    return mapping
+
+
+# -----------------------------------------------------------------------------
+# Tmux Sessions & Headlines
+# -----------------------------------------------------------------------------
+
+def get_tmux_sessions() -> list[tuple[str, str]]:
+    """List active tmux sessions as (session_name, session_path)."""
+    res = subprocess.run(
+        ["tmux", "list-sessions", "-F", "#{session_name}|#{session_path}"],
+        capture_output=True,
+        text=True,
+    )
+    if res.returncode != 0:
+        return []
+    sessions = []
+    for line in res.stdout.splitlines():
+        if "|" in line:
+            parts = line.strip().split("|", 1)
+            sessions.append((parts[0], parts[1]))
+    return sessions
+
+
+def resolve_repo_paths(path_str: str) -> list[str]:
+    """Resolve candidate paths (accounting for enveloped/ prefix discrepancies)."""
+    candidates = [path_str]
+    p = Path(path_str)
+    if "enveloped" in p.parts:
+        base = p.name
+        parent = p.parent
+        if base.startswith("e") and len(base) > 1:
+            candidates.append(str(parent / base[1:]))
+        else:
+            candidates.append(str(parent / f"e{base}"))
+    return [c for c in candidates if os.path.exists(c)] or [path_str]
+
+
+def find_headline(session_name: str, session_path: str) -> tuple[str | None, str | None, str]:
+    """Find active headline for session, returning (headline, note_file, resolved_path)."""
+    resolved_candidates = resolve_repo_paths(session_path)
+    primary_path = resolved_candidates[0]
+
+    for cp in resolved_candidates:
+        logs_dir = os.path.join(cp, "logs")
+        if not os.path.isdir(logs_dir):
+            continue
+
+        task_candidate = session_name.split("-")[-1]
+        task_note = os.path.join(logs_dir, f"{task_candidate}.notes.md")
+        session_note = os.path.join(logs_dir, f"{session_name}.notes.md")
+
+        all_notes = sorted(
+            glob.glob(os.path.join(logs_dir, "*.notes.md")),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+
+        checks = []
+        if os.path.exists(task_note):
+            checks.append(task_note)
+        if os.path.exists(session_note) and session_note != task_note:
+            checks.append(session_note)
+        checks.extend([n for n in all_notes if n not in checks])
+
+        for nf in checks:
+            try:
+                with open(nf, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("#") or line.startswith(">"):
+                            hl = line.lstrip("#>").strip()
+                            if hl:
+                                return hl, nf, cp
+            except Exception:
+                pass
+
+    return None, None, primary_path
+
+
+def match_herdr_tab(session_name: str, repo_path: str, herdr_map: dict[str, list[str]]) -> str | None:
+    """Find the best matching Herdr tab title for a session."""
+    candidates: list[str] = []
+
+    norm_p = str(Path(repo_path).resolve())
+    if norm_p in herdr_map:
+        candidates.extend(herdr_map[norm_p])
+
+    try:
+        top = subprocess.check_output(
+            ["git", "-C", repo_path, "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        norm_top = str(Path(top).resolve())
+        if norm_top in herdr_map:
+            candidates.extend(herdr_map[norm_top])
+    except Exception:
+        pass
+
+    sess_lower = session_name.lower()
+    base_lower = os.path.basename(repo_path).lower()
+    for k, tabs in herdr_map.items():
+        if not k.startswith("name:"):
+            continue
+        slug = k[5:]
+        if slug in sess_lower or slug in base_lower:
+            candidates.extend(tabs)
+
+    if not candidates:
+        return None
+
+    candidates = list(dict.fromkeys(candidates))
+
+    task_slug = session_name.split("-")[-1].lower()
+    for c in candidates:
+        if task_slug in c.lower():
+            return c
+
+    return candidates[0]
+
+
+def seed_headline(repo_path: str, session_name: str, headline: str) -> str:
+    """Write draft headline into logs/<task>.notes.md."""
+    logs_dir = os.path.join(repo_path, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
+    task = session_name.split("-")[-1]
+    note_file = os.path.join(logs_dir, f"{task}.notes.md")
+
+    content = f"# {headline}\n\n(Initialized from Herdr tab title)\n"
+    Path(note_file).write_text(content, encoding="utf-8")
+    return note_file
+
+
+# -----------------------------------------------------------------------------
+# Zombie Session Detection & Sweep
+# -----------------------------------------------------------------------------
+
+def find_zombies() -> list[dict]:
+    """Detect dead, exited, abandoned, or trashed tmux sessions."""
+    res = subprocess.run(
+        ["tmux", "list-panes", "-a", "-F",
+         "#{session_name}|#{session_path}|#{pane_pid}|#{pane_dead}|#{pane_current_command}|#{session_attached}|#{session_created}|#{session_last_attached}"],
+        capture_output=True,
+        text=True,
+    )
+    if res.returncode != 0:
+        return []
+
+    now = time.time()
+    zombies = []
+
+    for line in res.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.strip().split("|")
+        if len(parts) < 8:
+            continue
+        name, path, pid, dead, cmd, att, created_str, last_att = parts
+
+        reasons = []
+        severity = "warning"
+
+        # 1. Directory in Trash
+        if ".Trash" in path or "/.local/share/Trash/" in path:
+            reasons.append("Working directory is in the Trash")
+            severity = "critical"
+        elif not os.path.exists(path):
+            reasons.append(f"Working directory does not exist on disk: {path}")
+            severity = "critical"
+
+        # 2. Exited agent / abandoned shell
+        if cmd in ("zsh", "bash"):
+            scr_res = subprocess.run(["tmux", "capture-pane", "-p", "-t", name], capture_output=True, text=True)
+            screen_text = scr_res.stdout
+            if "Resume this session with:" in screen_text:
+                reasons.append("Agent exited (left idle shell with resume instructions)")
+                severity = "critical"
+            elif name.endswith("-claude") or name.endswith("-agy") or name.endswith("-codex"):
+                reasons.append("Agent process exited; bare shell sitting at prompt")
+                severity = "high"
+
+        # 3. Abandoned session (never attached, > 3 days old)
+        try:
+            created_ts = float(created_str)
+            age_days = (now - created_ts) / 86400.0
+        except Exception:
+            age_days = 0.0
+
+        if (not last_att or last_att == "") and att == "0" and age_days > 2.0:
+            reasons.append(f"Never attached since creation ({age_days:.1f} days ago)")
+            if severity != "critical":
+                severity = "medium"
+
+        if reasons:
+            zombies.append({
+                "session": name,
+                "path": path,
+                "command": cmd,
+                "attached": (att == "1"),
+                "age_days": round(age_days, 1),
+                "severity": severity,
+                "reasons": reasons,
+            })
+
+    return zombies
+
+
+def kill_zombie_session(session_name: str) -> bool:
+    """Safely terminate a tmux session."""
+    res = subprocess.run(["tmux", "kill-session", "-t", f"={session_name}"], capture_output=True)
+    return res.returncode == 0
+
+
+# -----------------------------------------------------------------------------
+# AI Agent Process Audit & Tmux Upgrade
+# -----------------------------------------------------------------------------
+
+def identify_host(pid: str) -> str:
+    """Trace process parent chain to identify host environment."""
+    curr = str(pid)
+    for _ in range(8):
+        res = subprocess.run(["ps", "-p", curr, "-o", "ppid,comm"], capture_output=True, text=True)
+        lines = res.stdout.strip().splitlines()
+        if len(lines) < 2:
+            break
+        parts = lines[1].strip().split(None, 1)
+        ppid = parts[0]
+        comm = parts[1] if len(parts) > 1 else ""
+        comm_l = comm.lower()
+        if "herdr" in comm_l:
+            return "Herdr"
+        if "emacs" in comm_l:
+            return "Emacs"
+        if "iterm" in comm_l:
+            return "iTerm"
+        if "terminal" in comm_l:
+            return "Terminal.app"
+        if "ghostty" in comm_l:
+            return "Ghostty"
+        if "alacritty" in comm_l:
+            return "Alacritty"
+        if "code" in comm_l or "cursor" in comm_l:
+            return "VS Code / Cursor"
+        if ppid in ("0", "1"):
+            break
+        curr = ppid
+    return "Bare Shell"
+
+
+def find_herdr_tab_for_cwd(herdr_data: dict, cwd: str) -> str | None:
+    """Find specific Herdr tab title associated with a working directory."""
+    if not herdr_data or not cwd:
+        return None
+    for ws in herdr_data.get("workspaces", []):
+        for t in ws.get("tabs", []):
+            t_name = t.get("custom_name")
+            if not t_name:
+                continue
+            for pid, pdata in t.get("panes", {}).items():
+                p_cwd = pdata.get("cwd") or ""
+                if p_cwd == cwd or (cwd and p_cwd.startswith(cwd)):
+                    return t_name
+    return None
+
+
+def get_cwds(pids: list[str]) -> dict[str, str]:
+    """Working directory of each PID: /proc on Linux, one batched lsof elsewhere."""
+    if Path("/proc/self/cwd").exists():
+        cwds: dict[str, str] = {}
+        for pid in pids:
+            try:
+                cwds[pid] = os.readlink(f"/proc/{pid}/cwd")
+            except OSError:
+                pass
+        return cwds
+    try:
+        lsof_res = subprocess.run(["lsof", "-a", "-p", ",".join(pids), "-d", "cwd", "-Fn"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return {}
+    cwds = {}
+    cur_p = None
+    for line in lsof_res.stdout.splitlines():
+        if line.startswith("p"):
+            cur_p = line[1:]
+        elif line.startswith("n") and cur_p:
+            cwds[cur_p] = line[1:]
+    return cwds
+
+
+def audit_agents() -> list[dict]:
+    """Scan running processes for AI agents, identifying managed vs unmanaged sessions."""
+    res = subprocess.run(["ps", "-eo", "pid,ppid,tty,command"], capture_output=True, text=True)
+    candidates = []
+    for line in res.stdout.splitlines()[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 3)
+        if len(parts) < 4:
+            continue
+        pid, ppid, tty, cmd = parts[0], parts[1], parts[2], parts[3]
+        m = re.search(r"(?:/|^)(agy|claude|codex|antigravity-cli)(?:\s|$)", cmd)
+        if not m:
+            continue
+        engine = m.group(1)
+        if engine == "antigravity-cli":
+            engine = "agy"
+        if any(x in cmd for x in ["tmux ", "grep ", "app-server", "pid-update-loop", "code-mode-host"]):
+            continue
+        candidates.append({"pid": pid, "ppid": ppid, "tty": tty, "cmd": cmd, "engine": engine})
+
+    cand_pids = {c["pid"] for c in candidates}
+    filtered = [c for c in candidates if c["ppid"] not in cand_pids]
+    pids = [c["pid"] for c in filtered]
+    if not pids:
+        return []
+
+    # Batch ps eww to inspect environment for TMUX=
+    ps_res = subprocess.run(["ps", "eww", "-p", ",".join(pids)], capture_output=True, text=True)
+    lines_by_pid: dict[str, str] = {}
+    curr_pid = None
+    for line in ps_res.stdout.splitlines():
+        m_pid = re.match(r"^\s*(\d+)\s+", line)
+        if m_pid:
+            curr_pid = m_pid.group(1)
+            lines_by_pid[curr_pid] = line
+        elif curr_pid:
+            lines_by_pid[curr_pid] += " " + line
+
+    cwds = get_cwds(pids)
+
+    # Batch ps -o stat,time,lstart
+    time_res = subprocess.run(["ps", "-o", "pid,stat,time,lstart", "-p", ",".join(pids)], capture_output=True, text=True)
+    stats_by_pid: dict[str, dict[str, str]] = {}
+    for line in time_res.stdout.splitlines()[1:]:
+        parts = line.strip().split(None, 7)
+        if len(parts) >= 8:
+            stats_by_pid[parts[0]] = {
+                "stat": parts[1],
+                "cpu_time": parts[2],
+                "started": " ".join(parts[3:8])
+            }
+
+    # Herdr raw session
+    herdr_raw = {}
+    if HERDR_SESSION_JSON.exists():
+        try:
+            with open(HERDR_SESSION_JSON, encoding="utf-8") as f:
+                herdr_raw = json.load(f)
+        except Exception:
+            pass
+
+    home = str(Path.home())
+
+    for c in filtered:
+        pid = c["pid"]
+        raw_env = lines_by_pid.get(pid, "")
+        c["in_tmux"] = ("TMUX=" in raw_env or "TMUX_PANE=" in raw_env)
+        cwd = cwds.get(pid, "")
+        c["cwd"] = cwd
+        c["host"] = identify_host(pid)
+        c["herdr_tab"] = find_herdr_tab_for_cwd(herdr_raw, cwd) if c["host"] == "Herdr" else None
+
+        st = stats_by_pid.get(pid, {})
+        c["stat"] = st.get("stat", "")
+        c["cpu_time"] = st.get("cpu_time", "")
+        c["started"] = st.get("started", "")
+
+        # Session slug & repo name
+        if cwd:
+            base_name = os.path.basename(cwd)
+            slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-") or "main"
+            display_name = cwd.replace(home + "/", "") if cwd.startswith(home) else cwd
+        else:
+            base_name = "unknown"
+            slug = "main"
+            display_name = "unknown"
+
+        c["repo_name"] = display_name
+        c["session_name"] = f"{slug}-{c['engine']}"
+        c["upgrade_cmd"] = f"cd {cwd} && tu {c['engine']} --continue" if cwd else f"tu {c['engine']} --continue"
+
+    return filtered
+
+
+def build_resume_cmd(engine: str, orig_cmd: str) -> list[str]:
+    """Build the command to resume the agent inside tmux."""
+    if engine == "agy":
+        cmd = ["agy"]
+        if "--dangerously-skip-permissions" in orig_cmd:
+            cmd.append("--dangerously-skip-permissions")
+        conv_m = re.search(r"--conversation=([^\s]+)", orig_cmd)
+        if conv_m:
+            cmd.append(f"--conversation={conv_m.group(1)}")
+        else:
+            cmd.append("--continue")
+        return cmd
+    elif engine == "claude":
+        return ["claude", "--continue"]
+    elif engine == "codex":
+        return ["codex"]
+    return [engine, "--continue"]
+
+
+def upgrade_agent(agent: dict, attach: bool = False, force: bool = False) -> bool:
+    """Safely terminate bare agent process and recreate it inside a tmux session."""
+    pid_str = agent["pid"]
+    engine = agent["engine"]
+    cwd = agent["cwd"]
+    session_name = agent["session_name"]
+    orig_cmd = agent.get("cmd", "")
+
+    if not cwd or not os.path.exists(cwd):
+        print(f"Error: Working directory '{cwd}' does not exist on disk.")
+        return False
+
+    # Check if session name already exists in tmux
+    has_res = subprocess.run(["tmux", "has-session", "-t", f"={session_name}"], capture_output=True)
+    if has_res.returncode == 0:
+        suffix = 2
+        while subprocess.run(["tmux", "has-session", "-t", f"={session_name}-{suffix}"], capture_output=True).returncode == 0:
+            suffix += 1
+        session_name = f"{session_name}-{suffix}"
+
+    print(f"\nUpgrading PID {pid_str} ({engine} in {cwd}) to tmux session '{session_name}'...")
+
+    # Safely terminate bare agent process so it saves its transcript
+    pid = int(pid_str)
+    try:
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(30):
+            time.sleep(0.1)
+            res = subprocess.run(["ps", "-p", str(pid)], capture_output=True)
+            if res.returncode != 0:
+                break
+    except ProcessLookupError:
+        pass
+
+    # Launch tmux session
+    cmd = build_resume_cmd(engine, orig_cmd)
+    new_res = subprocess.run(["tmux", "new-session", "-d", "-s", session_name, "-c", cwd, *cmd], capture_output=True, text=True)
+    if new_res.returncode != 0:
+        print(f"Failed to create tmux session: {new_res.stderr}")
+        return False
+
+    print(f"\033[32m✓ Successfully launched tmux session:\033[0m \033[1;36m{session_name}\033[0m")
+    if attach:
+        print(f"Attaching to session '{session_name}'...")
+        os.execvp("tmux", ["tmux", "attach-session", "-t", f"={session_name}"])
+    else:
+        print(f"Attach anytime with: \033[1mtmux attach -t ={session_name}\033[0m (or \033[1mtu {session_name}\033[0m)\n")
+    return True
+
+
+# -----------------------------------------------------------------------------
+# Main CLI
+# -----------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="Audit tmux sessions for headlines, Herdr drafts, zombies, and unmanaged agents.")
+    parser.add_argument("--seed", action="store_true", help="Auto-seed missing notes from matching Herdr tab titles")
+    parser.add_argument("--zombies", "--sweep", action="store_true", help="Sweep for zombie/abandoned sessions")
+    parser.add_argument("--kill-zombies", action="store_true", help="Terminate identified zombie sessions")
+    parser.add_argument("--auto-kill", action="store_true", help="Auto-terminate critical zombies (trashed cwd, exited agents)")
+    parser.add_argument("--agents", action="store_true", help="Audit AI agent sessions (managed in tmux vs unmanaged)")
+    parser.add_argument("-u", "--upgrade-to-tmux", "--upgrade", dest="upgrade_to_tmux", nargs="?", const="", metavar="PID", help="Upgrade an unmanaged agent into tmux (interactive if no PID given)")
+    parser.add_argument("--attach", action="store_true", help="Attach immediately after upgrading an agent")
+    parser.add_argument("-f", "--force", action="store_true", help="Skip confirmation when killing zombies or upgrading")
+    parser.add_argument("--json", action="store_true", help="Output results as JSON")
+
+    args = parser.parse_args()
+
+    is_tty = sys.stdout.isatty()
+    B = "\033[1m" if is_tty else ""
+    D = "\033[2m" if is_tty else ""
+    R = "\033[0m" if is_tty else ""
+    GR = "\033[32m" if is_tty else ""
+    RD = "\033[31m" if is_tty else ""
+    CY = "\033[36m" if is_tty else ""
+    YL = "\033[33m" if is_tty else ""
+
+    # Mode 1: Zombie Sweep / Kill
+    if args.zombies or args.kill_zombies or args.auto_kill:
+        zombies = find_zombies()
+
+        if args.json:
+            print(json.dumps(zombies, indent=2))
+            return
+
+        if args.auto_kill:
+            crit_targets = [z["session"] for z in zombies if z["severity"] == "critical"]
+            if crit_targets:
+                for s in crit_targets:
+                    kill_zombie_session(s)
+                print(f"Auto-killed {len(crit_targets)} critical zombie session(s): {', '.join(crit_targets)}")
+            return
+
+        print(f"\n{B}Tmux Zombie Session Sweep{R} ({len(zombies)} candidates identified)")
+        print("=" * 65)
+
+        if not zombies:
+            print(f"{GR}✓ No zombie or abandoned tmux sessions detected! All clean.{R}\n")
+            return
+
+        for z in zombies:
+            icon = "💀" if z["severity"] == "critical" else "⚠️"
+            color = RD if z["severity"] == "critical" else YL
+            print(f"  {icon} {B}{z['session']:<35}{R} [{color}{z['command']}{R}] ({z['age_days']}d old)")
+            print(f"     Path: {D}{z['path']}{R}")
+            for r in z["reasons"]:
+                print(f"     • {color}{r}{R}")
+            print()
+
+        print("=" * 65)
+
+        if args.kill_zombies:
+            targets = [z["session"] for z in zombies]
+            if not args.force:
+                prompt = f"Terminate {len(targets)} identified zombie session(s)? [y/N] "
+                reply = input(prompt).strip().lower()
+                if reply not in ("y", "yes"):
+                    print("Aborted.")
+                    return
+
+            for s in targets:
+                ok = kill_zombie_session(s)
+                status = f"{GR}killed{R}" if ok else f"{RD}failed{R}"
+                print(f"  Session {s}: {status}")
+            print(f"\n{GR}✓ Sweep complete.{R}\n")
+        else:
+            print(f"{D}To terminate these zombies, run: tmux-hygiene --kill-zombies{R}\n")
+        return
+
+    # Mode 2: Agent Upgrade to Tmux
+    if args.upgrade_to_tmux is not None:
+        agents = audit_agents()
+        bare = [a for a in agents if not a["in_tmux"]]
+
+        target_pid = args.upgrade_to_tmux.strip()
+        selected_agent = None
+
+        if target_pid:
+            for a in bare:
+                if a["pid"] == target_pid:
+                    selected_agent = a
+                    break
+            if not selected_agent:
+                for a in agents:
+                    if a["pid"] == target_pid:
+                        print(f"PID {target_pid} is already running inside tmux ({a['session_name']}).")
+                        return
+                print(f"Error: No unmanaged agent found with PID {target_pid}.")
+                return
+        else:
+            if not bare:
+                print(f"{GR}✓ No unmanaged AI agent sessions detected outside tmux! All clean.{R}")
+                return
+
+            print(f"\n{B}Select an unmanaged agent session to upgrade into tmux:{R}")
+            print("=" * 65)
+            for i, a in enumerate(bare, 1):
+                tab_info = f' (Herdr tab: "{a["herdr_tab"]}")' if a["herdr_tab"] else ""
+                print(f"  [{B}{i}{R}] {CY}[PID {a['pid']}]{R} {B}{a['engine']}{R} in {YL}{a['repo_name']}{R} (Host: {a['host']}{tab_info})")
+                print(f"      Uptime: {a['started']} | Target session: {B}{a['session_name']}{R}")
+            print("=" * 65)
+
+            try:
+                choice = input("Enter number to upgrade [1-%d] or 'q' to cancel: " % len(bare)).strip()
+                if choice.lower() in ("q", "quit", ""):
+                    print("Aborted.")
+                    return
+                idx = int(choice) - 1
+                if 0 <= idx < len(bare):
+                    selected_agent = bare[idx]
+                else:
+                    print("Invalid choice.")
+                    return
+            except (ValueError, KeyboardInterrupt):
+                print("\nAborted.")
+                return
+
+        if not args.force:
+            prompt = f"Terminate bare PID {selected_agent['pid']} and launch in tmux session '{selected_agent['session_name']}'? [Y/n] "
+            reply = input(prompt).strip().lower()
+            if reply in ("n", "no"):
+                print("Aborted.")
+                return
+
+        upgrade_agent(selected_agent, attach=args.attach, force=args.force)
+        return
+
+    # Mode 3: Detailed Agents Audit
+    if args.agents:
+        agents = audit_agents()
+        managed = [a for a in agents if a["in_tmux"]]
+        unmanaged = [a for a in agents if not a["in_tmux"]]
+
+        if args.json:
+            print(json.dumps({
+                "total_agents": len(agents),
+                "managed_count": len(managed),
+                "unmanaged_count": len(unmanaged),
+                "managed": managed,
+                "unmanaged": unmanaged,
+            }, indent=2))
+            return
+
+        print(f"\n{B}AI Agent Process Audit{R} ({len(agents)} agents active across system)")
+        print("=" * 65)
+
+        if managed:
+            print(f"\n{GR}{B}Managed Sessions in Tmux ({len(managed)}):{R}")
+            for m in managed:
+                print(f"  {GR}✓{R} {B}{m['session_name']:<35}{R} [PID {m['pid']} {m['engine']}]")
+                print(f"     Path: {D}{m['repo_name']}{R} (CPU: {m['cpu_time']})")
+
+        if unmanaged:
+            print(f"\n{RD}{B}⚠️  Unmanaged Sessions Outside Tmux ({len(unmanaged)} detected):{R}")
+            for u in unmanaged:
+                tab_info = f' (Herdr tab: "{u["herdr_tab"]}")' if u["herdr_tab"] else ""
+                print(f"  {RD}⚠️{R}  {CY}[PID {u['pid']}]{R} {B}{u['engine']}{R} in {YL}{u['repo_name']}{R} (Host: {u['host']}{tab_info})")
+                print(f"     Started: {D}{u['started']}{R} (CPU: {u['cpu_time']})")
+                print(f"     Upgrade: {B}{u['upgrade_cmd']}{R}")
+                print(f"              {D}or run: tmux-hygiene -u {u['pid']} (or --upgrade-to-tmux){R}")
+        else:
+            print(f"\n{GR}✓ All active AI agent processes are running safely inside tmux.{R}")
+
+        print("\n" + "=" * 65 + "\n")
+        return
+
+    # Mode 4: Headlines & Herdr Drafts Audit (Default)
+    sessions = get_tmux_sessions()
+    herdr_map = get_herdr_tabs()
+    results = []
+
+    for s_name, s_path in sessions:
+        headline, note_file, resolved_path = find_headline(s_name, s_path)
+        herdr_draft = match_herdr_tab(s_name, resolved_path, herdr_map)
+
+        seeded_file = None
+        if args.seed and not headline and herdr_draft:
+            seeded_file = seed_headline(resolved_path, s_name, herdr_draft)
+            headline = herdr_draft
+            note_file = seeded_file
+
+        results.append({
+            "session": s_name,
+            "path": resolved_path,
+            "headline": headline,
+            "note_file": note_file,
+            "herdr_draft": herdr_draft,
+            "seeded": bool(seeded_file),
+        })
+
+    # Also check unmanaged agents
+    agents = audit_agents()
+    unmanaged_agents = [a for a in agents if not a["in_tmux"]]
+
+    if args.json:
+        print(json.dumps({
+            "sessions": results,
+            "unmanaged_agents": unmanaged_agents,
+        }, indent=2))
+        return
+
+    print(f"\n{B}Tmux Session Headlines & Herdr Tab Audit{R} ({len(results)} sessions)")
+    print("=" * 65)
+
+    if not sessions:
+        print("No active tmux sessions found.")
+    else:
+        for r in results:
+            s_name = r["session"]
+            hl = r["headline"]
+            draft = r["herdr_draft"]
+
+            if hl:
+                status_tag = f"{GR}✓ HAS HEADLINE{R}"
+                if r["seeded"]:
+                    status_tag = f"{GR}★ SEEDED FROM HERDR{R}"
+                print(f"  {status_tag} {B}{s_name}{R}")
+                print(f"    {CY}#{R} {hl}")
+                if r["note_file"]:
+                    print(f"    {D}{r['note_file']}{R}")
+            else:
+                print(f"  {RD}✗ MISSING HEADLINE{R} {B}{s_name}{R}")
+                if draft:
+                    print(f"    {YL}Herdr Draft Available:{R} {B}\"{draft}\"{R}")
+                    print(f"    {D}Seed with: tmux-hygiene --seed{R}")
+                else:
+                    print(f"    {D}(No custom tab title set in Herdr yet){R}")
+            print()
+
+    print("=" * 65)
+
+    if args.seed:
+        subprocess.run(["zsh", "-c", "source ~/.jobs.zsh 2>/dev/null; herdr-notes-sync -q"], check=False)
+        print(f"\n{GR}✓ Missing notes seeded and synchronized to Herdr sidebar!{R}\n")
+
+    # Display unmanaged agent sessions warning if any exist
+    if unmanaged_agents:
+        print(f"\n{RD}{B}⚠️  Unmanaged Agent Sessions Outside Tmux ({len(unmanaged_agents)} detected){R}")
+        print("=" * 65)
+        for u in unmanaged_agents:
+            tab_info = f' (Herdr tab: "{u["herdr_tab"]}")' if u["herdr_tab"] else ""
+            print(f"  {RD}•{R} {CY}[PID {u['pid']}]{R} {B}{u['engine']}{R} in {YL}{u['repo_name']}{R} (Host: {u['host']}{tab_info})")
+            print(f"    Started: {D}{u['started']}{R} (CPU: {u['cpu_time']})")
+            print(f"    Upgrade: {B}{u['upgrade_cmd']}{R}")
+            print(f"             {D}or run: tmux-hygiene -u {u['pid']} (or --upgrade-to-tmux){R}")
+        print("=" * 65 + "\n")
+
+
+if __name__ == "__main__":
+    main()

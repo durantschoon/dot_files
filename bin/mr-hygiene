@@ -1,0 +1,685 @@
+#!/usr/bin/env python3
+"""mr-hygiene: Deterministic, zero-token repository hygiene scanner.
+
+Walks all repositories configured in myrepos (`mr -d / ls`), inspects:
+  - Stash piles (age, commit hash, message, diffstat)
+  - Uncommitted changes (modified tracked, untracked)
+  - Branch drift (ahead/behind upstream, missing upstream)
+
+Records state in:
+  1. SQLite database (~/.config/repo-hygiene/hygiene.db) for historical tracking
+  2. Markdown report (default: ~/Repos/ds/media-announce/docs/REPO-HYGIENE.md)
+  3. Loose ends sync (default: ~/Repos/ds/media-announce/docs/LOOSE-ENDS.md)
+     Through the media-announce queue (docs/LOOSE-ENDS-WRITERS.md), never a direct edit.
+
+Usage:
+  mr-hygiene                # Run scan, display terminal summary, update DB and reports
+  mr-hygiene --verbose      # Show detailed stash file stats in terminal
+  mr-hygiene --quiet        # Silent run for launchd / cron timers
+  mr-hygiene --json         # Dump JSON to stdout
+  mr-hygiene --no-loose-ends# Skip updating LOOSE-ENDS.md
+
+Zero API tokens. Python 3 standard library only.
+"""
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+import datetime
+import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+
+DEFAULT_DB = Path.home() / ".config" / "repo-hygiene" / "hygiene.db"
+MEDIA_ANNOUNCE = Path.home() / "Repos" / "ds" / "media-announce"
+DEFAULT_MD = MEDIA_ANNOUNCE / "docs" / "REPO-HYGIENE.md"
+DEFAULT_LOOSE_ENDS = MEDIA_ANNOUNCE / "docs" / "LOOSE-ENDS.md"
+
+# Date day-of-week formatting matching media-announce AGENTS.md rule (U M T W R F S)
+DOW = ["M", "T", "W", "R", "F", "S", "U"]
+
+
+def format_dt(dt: datetime.datetime) -> str:
+    """Format datetime with single-letter DOW: YYYY-MM-DD(X) HH:MM."""
+    dow = DOW[dt.weekday()]
+    return dt.strftime(f"%Y-%m-%d({dow}) %H:%M")
+
+
+# -----------------------------------------------------------------------------
+# Git Inspection
+# -----------------------------------------------------------------------------
+
+def get_repo_paths() -> list[str]:
+    """Retrieve absolute paths of all repositories listed and active in myrepos."""
+    # From $HOME: run inside a checkout, mr also reads that checkout's
+    # .mrconfig and refuses an untrusted one.
+    res = subprocess.run(["mr", "-d", "/", "ls"], capture_output=True, text=True, cwd=Path.home())
+    if res.returncode != 0:
+        return []
+    paths: list[str] = []
+    for line in res.stdout.splitlines():
+        if line.startswith("mr list: /"):
+            p = line.replace("mr list: ", "").strip()
+            if os.path.isdir(p):
+                paths.append(p)
+    return paths
+
+
+def inspect_stashes(repo_path: str) -> list[dict]:
+    """Extract stashes with age, commit hash, message, and diffstat."""
+    cmd = ["git", "-C", repo_path, "log", "-g", "--format=%gd%x1f%h%x1f%ci%x1f%gs", "refs/stash"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0 or not res.stdout.strip():
+        return []
+
+    stashes = []
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    for line in res.stdout.splitlines():
+        parts = line.split("\x1f")
+        if len(parts) < 4:
+            continue
+        ref, commit_hash, date_str, msg = parts[0], parts[1], parts[2], parts[3]
+
+        stat_cmd = ["git", "-C", repo_path, "stash", "show", "--stat", ref]
+        stat_res = subprocess.run(stat_cmd, capture_output=True, text=True)
+        stat_lines = [l for l in stat_res.stdout.splitlines() if l.strip()]
+        summary = stat_lines[-1].strip() if stat_lines else ""
+
+        files_cnt, ins, dels = 0, 0, 0
+        m_files = re.search(r"(\d+)\s+file", summary)
+        if m_files:
+            files_cnt = int(m_files.group(1))
+        m_ins = re.search(r"(\d+)\s+insertion", summary)
+        if m_ins:
+            ins = int(m_ins.group(1))
+        m_del = re.search(r"(\d+)\s+deletion", summary)
+        if m_del:
+            dels = int(m_del.group(1))
+
+        age_days = 0
+        try:
+            dt = datetime.datetime.fromisoformat(date_str)
+            age_days = max(0, (now - dt).days)
+        except Exception:
+            pass
+
+        # Branch it was created on (often in the log message: "On <branch>: ...")
+        branch_match = re.match(r"^(?:On|WIP on)\s+([^:]+):", msg)
+        stash_branch = branch_match.group(1).strip() if branch_match else ""
+
+        stashes.append({
+            "ref": ref,
+            "hash": commit_hash,
+            "created_at": date_str,
+            "age_days": age_days,
+            "branch": stash_branch,
+            "message": msg,
+            "stat_summary": summary,
+            "files_changed": files_cnt,
+            "insertions": ins,
+            "deletions": dels,
+        })
+    return stashes
+
+
+def inspect_repo(path: str) -> dict:
+    """Inspect single repo state: branch, ahead, behind, modified, untracked, stashes."""
+    # Current branch or short HEAD
+    br_res = subprocess.run(
+        ["git", "-C", path, "symbolic-ref", "--short", "-q", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    branch = br_res.stdout.strip()
+    if not branch:
+        rev_res = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        branch = rev_res.stdout.strip() or "detached"
+
+    # Ahead / Behind
+    ahead, behind = 0, 0
+    has_upstream = False
+    u_chk = subprocess.run(
+        ["git", "-C", path, "rev-parse", "-q", "--verify", "@{u}"],
+        capture_output=True,
+        text=True,
+    )
+    if u_chk.returncode == 0:
+        has_upstream = True
+        ah_res = subprocess.run(
+            ["git", "-C", path, "rev-list", "--count", "@{u}..HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        ahead = int(ah_res.stdout.strip() or "0")
+        be_res = subprocess.run(
+            ["git", "-C", path, "rev-list", "--count", "HEAD..@{u}"],
+            capture_output=True,
+            text=True,
+        )
+        behind = int(be_res.stdout.strip() or "0")
+
+    # Status / Dirty files
+    st_res = subprocess.run(
+        ["git", "-C", path, "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+    )
+    st_lines = [l for l in st_res.stdout.splitlines() if l.strip()]
+    mod_count = sum(1 for l in st_lines if not l.startswith("??"))
+    unt_count = sum(1 for l in st_lines if l.startswith("??"))
+
+    # Stashes
+    stashes = inspect_stashes(path)
+
+    # Friendly name relative to home
+    home = str(Path.home())
+    display_name = path.replace(home + "/", "") if path.startswith(home) else path
+
+    return {
+        "path": path,
+        "name": display_name,
+        "branch": branch,
+        "has_upstream": has_upstream,
+        "ahead": ahead,
+        "behind": behind,
+        "modified": mod_count,
+        "untracked": unt_count,
+        "stash_count": len(stashes),
+        "stashes": stashes,
+    }
+
+
+# -----------------------------------------------------------------------------
+# Database Operations
+# -----------------------------------------------------------------------------
+
+def init_db(db_path: Path) -> sqlite3.Connection:
+    """Initialize SQLite database schema."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    with conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scan_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                duration_sec REAL,
+                total_repos INTEGER,
+                repos_with_stashes INTEGER,
+                total_stashes INTEGER,
+                dirty_repos INTEGER,
+                behind_repos INTEGER
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS repos (
+                path TEXT PRIMARY KEY,
+                name TEXT,
+                branch TEXT,
+                has_upstream INTEGER,
+                ahead INTEGER,
+                behind INTEGER,
+                modified INTEGER,
+                untracked INTEGER,
+                stash_count INTEGER,
+                last_scanned TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS stashes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_path TEXT NOT NULL,
+                stash_ref TEXT NOT NULL,
+                commit_hash TEXT,
+                created_at TEXT,
+                age_days INTEGER,
+                branch TEXT,
+                message TEXT,
+                files_changed INTEGER,
+                insertions INTEGER,
+                deletions INTEGER,
+                stat_summary TEXT,
+                first_seen TEXT,
+                last_seen TEXT,
+                resolved_at TEXT,
+                status TEXT DEFAULT 'active',
+                UNIQUE(repo_path, commit_hash)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS unmanaged_agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                pid INTEGER NOT NULL,
+                engine TEXT NOT NULL,
+                host TEXT,
+                herdr_tab TEXT,
+                cwd TEXT NOT NULL,
+                started TEXT,
+                cpu_time TEXT,
+                upgrade_cmd TEXT
+            )
+        """)
+    return conn
+
+
+def save_to_db(conn: sqlite3.Connection, repos: list[dict], duration: float, unmanaged_agents: list[dict]):
+    """Save scan results and update stash lifecycles."""
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    repos_with_stashes = sum(1 for r in repos if r["stash_count"] > 0)
+    total_stashes = sum(r["stash_count"] for r in repos)
+    dirty_repos = sum(1 for r in repos if (r["modified"] > 0 or r["untracked"] > 0))
+    behind_repos = sum(1 for r in repos if r["behind"] > 0)
+
+    with conn:
+        conn.execute("""
+            INSERT INTO scan_runs (timestamp, duration_sec, total_repos, repos_with_stashes, total_stashes, dirty_repos, behind_repos)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (now_iso, duration, len(repos), repos_with_stashes, total_stashes, dirty_repos, behind_repos))
+
+        for u in unmanaged_agents:
+            conn.execute("""
+                INSERT INTO unmanaged_agents (
+                    timestamp, pid, engine, host, herdr_tab, cwd, started, cpu_time, upgrade_cmd
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                now_iso, int(u["pid"]), u["engine"], u.get("host"), u.get("herdr_tab"),
+                u["cwd"], u.get("started"), u.get("cpu_time"), u.get("upgrade_cmd")
+            ))
+
+        for r in repos:
+            conn.execute("""
+                INSERT INTO repos (path, name, branch, has_upstream, ahead, behind, modified, untracked, stash_count, last_scanned)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    name=excluded.name,
+                    branch=excluded.branch,
+                    has_upstream=excluded.has_upstream,
+                    ahead=excluded.ahead,
+                    behind=excluded.behind,
+                    modified=excluded.modified,
+                    untracked=excluded.untracked,
+                    stash_count=excluded.stash_count,
+                    last_scanned=excluded.last_scanned
+            """, (
+                r["path"], r["name"], r["branch"], 1 if r["has_upstream"] else 0,
+                r["ahead"], r["behind"], r["modified"], r["untracked"],
+                r["stash_count"], now_iso
+            ))
+
+            active_hashes = set()
+            for s in r["stashes"]:
+                active_hashes.add(s["hash"])
+                conn.execute("""
+                    INSERT INTO stashes (
+                        repo_path, stash_ref, commit_hash, created_at, age_days,
+                        branch, message, files_changed, insertions, deletions,
+                        stat_summary, first_seen, last_seen, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                    ON CONFLICT(repo_path, commit_hash) DO UPDATE SET
+                        stash_ref=excluded.stash_ref,
+                        age_days=excluded.age_days,
+                        last_seen=excluded.last_seen,
+                        status='active'
+                """, (
+                    r["path"], s["ref"], s["hash"], s["created_at"], s["age_days"],
+                    s["branch"], s["message"], s["files_changed"], s["insertions"],
+                    s["deletions"], s["stat_summary"], now_iso, now_iso
+                ))
+
+            # Mark missing stashes as cleared
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT commit_hash FROM stashes
+                WHERE repo_path = ? AND status = 'active'
+            """, (r["path"],))
+            db_hashes = {row[0] for row in cur.fetchall()}
+            cleared_hashes = db_hashes - active_hashes
+            for ch in cleared_hashes:
+                conn.execute("""
+                    UPDATE stashes SET status = 'cleared', resolved_at = ?
+                    WHERE repo_path = ? AND commit_hash = ?
+                """, (now_iso, r["path"], ch))
+
+
+# -----------------------------------------------------------------------------
+# Markdown Report Generation
+# -----------------------------------------------------------------------------
+
+def generate_markdown(repos: list[dict], duration: float, unmanaged_agents: list[dict] = None) -> str:
+    """Generate structured Markdown hygiene report."""
+    now = datetime.datetime.now()
+    now_str = format_dt(now)
+    unmanaged_agents = unmanaged_agents or []
+
+    stashes_repos = [r for r in repos if r["stash_count"] > 0]
+    stashes_repos.sort(key=lambda r: r["stash_count"], reverse=True)
+    total_stashes = sum(r["stash_count"] for r in repos)
+
+    dirty_repos = [r for r in repos if (r["modified"] > 0 or r["untracked"] > 0)]
+    behind_repos = [r for r in repos if r["behind"] > 0]
+    no_upstream_repos = [r for r in repos if not r["has_upstream"]]
+
+    summary_parts = [
+        f"{total_stashes} stashes in {len(stashes_repos)} repos",
+        f"{len(dirty_repos)} dirty repos",
+        f"{len(behind_repos)} behind upstream",
+    ]
+    if unmanaged_agents:
+        summary_parts.append(f"⚠️ **{len(unmanaged_agents)} unmanaged agent sessions outside tmux**")
+
+    lines: list[str] = [
+        "# Repository Hygiene Report",
+        "",
+        f"*Generated: {now_str} • {len(repos)} repositories scanned in {duration:.2f}s*",
+        "",
+        f"**Summary:** {' | '.join(summary_parts)}",
+        "",
+    ]
+
+    # Section 0: Unmanaged Agent Sessions Outside Tmux
+    if unmanaged_agents:
+        lines.append(f"## 🤖 Unmanaged Agent Sessions Outside Tmux ({len(unmanaged_agents)} detected)")
+        lines.append("")
+        lines.append("> [!WARNING]")
+        lines.append("> The following AI agent sessions are running on bare terminals or editor subprocesses outside of `tmux`.")
+        lines.append("> If their terminal tab closes, the session may terminate without recovery. Upgrade with `tmux-hygiene -u <PID>` (or `--upgrade-to-tmux`) or `tu <engine> --continue`.")
+        lines.append("")
+        lines.append("| PID | Engine | Host | Repo / Working Dir | CPU Time | Recommended Upgrade |")
+        lines.append("|---|---|---|---|---|---|")
+        for u in unmanaged_agents:
+            host_desc = u.get("host", "Bare Shell")
+            if u.get("herdr_tab"):
+                host_desc += f' (`{u["herdr_tab"]}`)'
+            lines.append(
+                f"| `{u['pid']}` | `{u['engine']}` | {host_desc} | "
+                f"[`{u['repo_name']}`](file://{u['cwd']}) | {u.get('cpu_time', '')} | "
+                f"`{u['upgrade_cmd']}` |"
+            )
+        lines.append("")
+
+    # Section 1: Stashes
+    lines.append(f"## 🚨 Stashes ({total_stashes} across {len(stashes_repos)} repos)")
+    lines.append("")
+    if not stashes_repos:
+        lines.append("🎉 **No stashes found anywhere! All clean.**")
+        lines.append("")
+    else:
+        for r in stashes_repos:
+            lines.append(f"### [`{r['name']}`](file://{r['path']}) ({r['stash_count']} stashes)")
+            for s in r["stashes"]:
+                age_desc = f"{s['age_days']}d ago" if s["age_days"] > 0 else "today"
+                br_desc = f" [{s['branch']}]" if s["branch"] else ""
+                lines.append(f"- **`{s['ref']}`** (*{age_desc}*){br_desc}: {s['message']}")
+                if s["stat_summary"]:
+                    lines.append(f"  - `{s['stat_summary']}`")
+            lines.append("")
+
+    # Section 2: Dirty Repos
+    lines.append(f"## ⚠️ Uncommitted Changes ({len(dirty_repos)} repos)")
+    lines.append("")
+    if not dirty_repos:
+        lines.append("All working copies are clean.")
+        lines.append("")
+    else:
+        for r in dirty_repos:
+            m_str = f"M {r['modified']}" if r["modified"] > 0 else ""
+            u_str = f"? {r['untracked']}" if r["untracked"] > 0 else ""
+            tags = " ".join(filter(None, [m_str, u_str]))
+            lines.append(f"- [`{r['name']}`](file://{r['path']}) (`{r['branch']}`): `{tags}`")
+        lines.append("")
+
+    # Section 3: Behind Upstream
+    lines.append(f"## ⬇️ Behind Upstream ({len(behind_repos)} repos)")
+    lines.append("")
+    if not behind_repos:
+        lines.append("All repos are up to date with their upstreams.")
+        lines.append("")
+    else:
+        for r in behind_repos:
+            lines.append(f"- [`{r['name']}`](file://{r['path']}) (`{r['branch']}`): behind by **{r['behind']}** commit(s) -> run `mr-all update`")
+        lines.append("")
+
+    # Section 4: Missing Upstream
+    if no_upstream_repos:
+        lines.append(f"## ❓ No Upstream Set ({len(no_upstream_repos)} repos)")
+        lines.append("")
+        for r in no_upstream_repos:
+            lines.append(f"- [`{r['name']}`](file://{r['path']}) (`{r['branch']}`)")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# -----------------------------------------------------------------------------
+# Loose-Ends Synchronization
+# -----------------------------------------------------------------------------
+
+def sync_loose_ends(repos: list[dict], loose_ends_path: Path, unmanaged_agents: list[dict] = None) -> tuple[bool, str]:
+    """Hand the hygiene items to LOOSE-ENDS.md's one writer, the media-announce queue.
+
+    Contract: media-announce docs/LOOSE-ENDS-WRITERS.md.  Nobody but the applier
+    (scripts/priorities_server.py) writes LOOSE-ENDS.md, so this enqueues one
+    `sync_prefix` operation and runs `--drain`.  Without the queue it does
+    nothing: the old direct edit duplicated items once the ladder had run.
+    """
+    media_announce = loose_ends_path.parent.parent
+    queue_dir = media_announce / "logs" / "loose-ends-queue"
+    priorities_server = media_announce / "scripts" / "priorities_server.py"
+
+    stashes_repos = [r for r in repos if r["stash_count"] > 0]
+    new_items: list[str] = []
+    for r in stashes_repos:
+        oldest_age = max(s["age_days"] for s in r["stashes"]) if r["stashes"] else 0
+        summary_stash = r["stashes"][0]["message"]
+        if len(summary_stash) > 50:
+            summary_stash = summary_stash[:47] + "..."
+        new_items.append(
+            f"**Repo Hygiene ({r['name']}):** {r['stash_count']} stash(es) "
+            f"(oldest: {oldest_age}d, e.g. \"{summary_stash}\")"
+        )
+
+    if unmanaged_agents:
+        new_items.append(
+            f"**Repo Hygiene (Agents):** {len(unmanaged_agents)} unmanaged agent session(s) outside tmux (upgrade via `tmux-hygiene -u` or `tu <engine>`)"
+        )
+
+    if not priorities_server.exists():
+        return False, f"Skipped LOOSE-ENDS.md update: no queue applier at {priorities_server}"
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    payload = {
+        "op": "sync_prefix",
+        "prefix": "**Repo Hygiene (",
+        "items": new_items,
+        "writer": "mr-hygiene",
+    }
+    try:
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        # Write under a temporary name, then rename: the server drains every
+        # 5 s and rejects a half-written .json.
+        n = 1
+        while (queue_dir / f"{now_utc}-mr-hygiene-{n}.json").exists():
+            n += 1
+        q_file = queue_dir / f"{now_utc}-mr-hygiene-{n}.json"
+        tmp = q_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.rename(q_file)
+    except OSError as e:
+        return False, f"Queue error: {e}"
+
+    res = subprocess.run([sys.executable, str(priorities_server), "--drain"],
+                         capture_output=True, text=True, cwd=media_announce)
+    if res.returncode != 0:
+        return False, f"Enqueued {q_file.name}; drain failed ({res.returncode}): {res.stderr.strip()} -- it applies on the next drain"
+    return True, f"Enqueued & drained via loose-ends-queue ({res.stdout.strip()})"
+
+
+# -----------------------------------------------------------------------------
+# Terminal Presentation
+# -----------------------------------------------------------------------------
+
+def print_terminal_summary(repos: list[dict], duration: float, verbose: bool, unmanaged_agents: list[dict] = None):
+    """Print colorized terminal summary."""
+    is_tty = sys.stdout.isatty()
+    B = "\033[1m" if is_tty else ""
+    D = "\033[2m" if is_tty else ""
+    R = "\033[0m" if is_tty else ""
+    CY = "\033[36m" if is_tty else ""
+    GR = "\033[32m" if is_tty else ""
+    RD = "\033[31m" if is_tty else ""
+    YL = "\033[33m" if is_tty else ""
+    BL = "\033[34m" if is_tty else ""
+
+    unmanaged_agents = unmanaged_agents or []
+    stashes_repos = [r for r in repos if r["stash_count"] > 0]
+    total_stashes = sum(r["stash_count"] for r in repos)
+    dirty_repos = [r for r in repos if (r["modified"] > 0 or r["untracked"] > 0)]
+    behind_repos = [r for r in repos if r["behind"] > 0]
+
+    print(f"\n{B}myrepos Hygiene Summary{R} {D}({len(repos)} repos in {duration:.2f}s){R}")
+    print(f"{'='*60}")
+
+    if unmanaged_agents:
+        print(f"{RD}{B}🤖 Unmanaged Agent Sessions Outside Tmux ({len(unmanaged_agents)} detected):{R}")
+        for u in unmanaged_agents:
+            tab_info = f' (Herdr tab: "{u["herdr_tab"]}")' if u.get("herdr_tab") else ""
+            print(f"  {RD}•{R} {CY}[PID {u['pid']}]{R} {B}{u['engine']}{R} in {YL}{u['repo_name']}{R} (Host: {u['host']}{tab_info})")
+            print(f"    Started: {D}{u.get('started', '')}{R} (CPU: {u.get('cpu_time', '')})")
+            print(f"    Upgrade: {B}{u['upgrade_cmd']}{R}")
+            print(f"             {D}or run: tmux-hygiene -u {u['pid']} (or --upgrade-to-tmux){R}")
+        print()
+
+    if not stashes_repos:
+        print(f"{GR}✓ No active stashes across {len(repos)} repositories.{R}")
+    else:
+        print(f"{RD}{B}Active Stashes ({total_stashes} stashes in {len(stashes_repos)} repos):{R}")
+        for r in stashes_repos:
+            print(f"  {B}{r['name']:<42}{R} {CY}{r['branch']:<18}{R} {BL}S {r['stash_count']}{R}")
+            for s in r["stashes"]:
+                age_str = f"{s['age_days']}d old" if s["age_days"] > 0 else "today"
+                print(f"    • {D}{s['ref']}{R} ({YL}{age_str}{R}): {s['message']}")
+                if verbose and s["stat_summary"]:
+                    print(f"      {D}{s['stat_summary']}{R}")
+
+    if dirty_repos:
+        print(f"\n{YL}{B}Dirty Repositories ({len(dirty_repos)} repos):{R}")
+        for r in dirty_repos:
+            m_part = f"{YL}M {r['modified']}{R}" if r["modified"] > 0 else ""
+            u_part = f"{D}? {r['untracked']}{R}" if r["untracked"] > 0 else ""
+            parts = "  ".join(filter(None, [m_part, u_part]))
+            print(f"  {r['name']:<42} {CY}{r['branch']:<18}{R} {parts}")
+
+    if behind_repos:
+        print(f"\n{RD}{B}Behind Upstream ({len(behind_repos)} repos):{R}")
+        for r in behind_repos:
+            print(f"  {r['name']:<42} {CY}{r['branch']:<18}{R} {RD}v {r['behind']}{R} (needs pull)")
+
+    print(f"{'='*60}\n")
+
+
+# -----------------------------------------------------------------------------
+# Main Entry Point
+# -----------------------------------------------------------------------------
+
+def get_unmanaged_agents() -> list[dict]:
+    """Retrieve unmanaged AI agent sessions via tmux-hygiene."""
+    tmux_bin = Path(__file__).parent / "tmux-hygiene"
+    if not tmux_bin.exists():
+        return []
+    try:
+        res = subprocess.run([str(tmux_bin), "--agents", "--json"], capture_output=True, text=True)
+        if res.returncode == 0:
+            data = json.loads(res.stdout)
+            return data.get("unmanaged", [])
+    except Exception:
+        pass
+    return []
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Deterministic repository hygiene scanner.")
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB, help="SQLite database path")
+    parser.add_argument("--md", type=Path, default=DEFAULT_MD, help="Markdown report path")
+    parser.add_argument("--no-md", action="store_true", help="Skip Markdown report")
+    parser.add_argument("--loose-ends", type=Path, default=DEFAULT_LOOSE_ENDS, help="LOOSE-ENDS.md path")
+    parser.add_argument("--no-loose-ends", action="store_true", help="Skip syncing to LOOSE-ENDS.md")
+    parser.add_argument("--json", action="store_true", help="Output JSON results to stdout")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed stash stats")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Quiet mode (no terminal output)")
+
+    args = parser.parse_args()
+
+    t0 = time.time()
+    paths = get_repo_paths()
+    if not paths:
+        if not args.quiet:
+            print("No repositories found via `mr -d / ls`.")
+        sys.exit(1)
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        repos = list(ex.map(inspect_repo, paths))
+
+    duration = time.time() - t0
+
+    # Sort repos alphabetically
+    repos.sort(key=lambda r: r["name"])
+
+    # Retrieve unmanaged agent sessions
+    unmanaged_agents = get_unmanaged_agents()
+
+    # 1. Update SQLite
+    conn = init_db(args.db)
+    save_to_db(conn, repos, duration, unmanaged_agents)
+    conn.close()
+
+    # 2. Update Markdown Report
+    if not args.no_md:
+        try:
+            args.md.parent.mkdir(parents=True, exist_ok=True)
+            md_content = generate_markdown(repos, duration, unmanaged_agents)
+            args.md.write_text(md_content, encoding="utf-8")
+        except Exception as e:
+            if not args.quiet:
+                print(f"Warning: failed to write Markdown report: {e}", file=sys.stderr)
+
+    # 3. Update LOOSE-ENDS.md
+    if not args.no_loose_ends and args.loose_ends.exists():
+        ok, msg = sync_loose_ends(repos, args.loose_ends, unmanaged_agents)
+        if not ok:
+            # Even --quiet reports this: a timer run logs stderr.
+            print(f"[Note] {msg}", file=sys.stderr)
+
+    # 4. Sweep and auto-kill critical tmux zombies
+    try:
+        tmux_bin = Path(__file__).parent / "tmux-hygiene"
+        if tmux_bin.exists():
+            subprocess.run([str(tmux_bin), "--auto-kill"], check=False, stdout=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+    # Output Modes
+    if args.json:
+        print(json.dumps({
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "duration_sec": duration,
+            "repos_count": len(repos),
+            "unmanaged_agents": unmanaged_agents,
+            "repos": repos
+        }, indent=2))
+    elif not args.quiet:
+        print_terminal_summary(repos, duration, args.verbose, unmanaged_agents)
+
+
+if __name__ == "__main__":
+    main()
