@@ -230,13 +230,14 @@ help:
 help-text:
 	@echo "Bootstrap and Native Setup:"
 	@echo "  make setup-native  - Set up native dotfiles (symlinks ~/bin -> ~/dot_files/bin,"
-	@echo "                       then installs Claude Code, uv and agy if missing)"
+	@echo "                       then installs Claude Code, uv, agy and herdr if missing)"
 	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make update-codex   - Install or update Codex in ~/.local (works with Guix npm)"
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
 	@echo "  make install-agy    - Install agy, Google's Antigravity CLI (idempotent; loader wrapper on Guix System)"
+	@echo "  make install-herdr  - Install herdr, the AI agent multiplexer (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
 	@echo ""
 	@echo "Guix System and Home:"
 	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
@@ -363,7 +364,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude install-uv install-agy
+setup-native: set_up_links install-claude install-uv install-agy install-herdr
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
@@ -422,6 +423,23 @@ else ifeq ($(flavor),$(FLAVOR_TERMUX))
 		echo "  Termux: agy has no native Android binary"
 else
 	@bash bin/install-agy.sh
+endif
+
+# herdr (AI agent multiplexer) everywhere: it is not packaged in Guix, so
+# this also runs from apply/apply-wayland/update, like install-claude and install-agy.
+# Idempotent; bin/install-herdr.sh installs via Homebrew on macOS or the official
+# installer into ~/.local/bin.
+.PHONY: install-herdr
+install-herdr:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install herdr from PowerShell with:"
+	@echo "  powershell -ExecutionPolicy Bypass -c \"irm https://herdr.dev/install.ps1 | iex\""
+	@echo "(from WSL, run 'make install-herdr' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@command -v herdr >/dev/null 2>&1 && echo "  herdr found ($$(which herdr))" || \
+		echo "  Termux: herdr has no native Android binary (work from your phone via SSH)"
+else
+	@bash bin/install-herdr.sh
 endif
 
 # We're going to insist we're in this directory so we can run commands from here
@@ -576,6 +594,8 @@ ifeq ("$(os)","$(OS_MAC)")
 	@# prompt and nags on every shell.  Linux gets it from Guix Home (or the
 	@# curl installer above); macOS only from here.
 	@command -v starship > /dev/null 2>&1 || brew install starship
+	@# herdr: AI agent multiplexer. Linux gets it from install-herdr (into ~/.local/bin).
+	@command -v herdr > /dev/null 2>&1 || brew install herdr
 	@# zsh completions: compinit refuses a group-writable dir in fpath or any
 	@# of its parents ("insecure directories, run compaudit") and stops to ask
 	@# on every new shell.  /opt/homebrew/share, the parent of Homebrew's
@@ -1494,6 +1514,8 @@ apply: warn-dotfiles-home
 	@$(MAKE) --no-print-directory install-claude
 	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
+	@echo "==> ensuring herdr is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
 	@echo "==> done (Guix Home applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -1541,6 +1563,8 @@ apply-wayland: warn-dotfiles-home
 	@$(MAKE) --no-print-directory install-claude
 	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
+	@echo "==> ensuring herdr is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
 	@echo "==> done (Guix Home Wayland applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -2553,6 +2577,8 @@ update: warn-dotfiles-home
 	@$(MAKE) --no-print-directory install-claude
 	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent; re-wraps if broken)"
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
+	@echo "==> ensuring herdr is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
 
 install-manifest:
 	@echo "==> guix package -m manifests/base.scm"

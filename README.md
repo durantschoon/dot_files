@@ -125,7 +125,9 @@ The shared tmux and Herdr configs live at [`.tmux.conf`](./.tmux.conf) and
 `home/common.scm`; native setups link them into `~/.tmux.conf` and
 `~/.config/herdr/config.toml` with `make set_up_links`, which on macOS also
 links `~/Library/Application Support/herdr/config.toml`, the path Herdr
-actually reads there.
+actually reads there. Herdr itself is ensured automatically by `make apply`,
+`make apply-wayland`, `make update`, and `make setup-native` (or manually
+via `make install-herdr`).
 
 ## Installation
 
@@ -163,7 +165,7 @@ make apply
 ```
 
 Bare `make` also runs `apply`. Use `make setup-native` for the traditional
-symlink setup (it also installs Claude Code, uv and agy if missing, then runs
+symlink setup (it also installs Claude Code, uv, agy and herdr if missing, then runs
 `check-cloud-dirs`); `make all` remains a compatibility alias for `setup-native`.
 
 ### 2. MacOS

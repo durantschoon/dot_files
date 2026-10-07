@@ -50,7 +50,7 @@ For standard shell setup not related to the background job runners:
 *   **Core Zsh:** `.zshrc`, `.zprofile`, `.aliases`, `.shared.zshenv`, `.shared.zshrc`
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
 *   **Prompt configuration:** `.zshrc.starship`, `starship/starship.toml`
-*   **Herdr config:** `herdr/config.toml` (linked by `make set_up_links`)
+*   **Herdr config & tool:** `herdr/config.toml` (linked by `make set_up_links`; binary installed by `bin/install-herdr.sh` via `make install-herdr`, `apply`, or `setup-native`)
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`, `bin/mr-clone` (clone a configured repo by name anywhere)
 *   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` targets in `Makefile`, and `bin/gpg-new-machine` (`make gpg-new-machine`: interactive first-time key transfer). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`.
 
