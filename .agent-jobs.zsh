@@ -21,9 +21,9 @@
 #                                 This is how several agents share a checkout.
 # agent-conversations ENGINE      this checkout's conversation ids, newest
 #                                 first, with the first user message as a hint.
-# agent-herdr ENGINE [--all|TASK]  open each detached session of this engine in
-#                                 its own Herdr workspace (labelled by session,
-#                                 cwd its checkout); attached ones are left alone.
+# agent-herdr ENGINE [--all|TASK]  open each detached session of this engine as
+#                                 a Herdr tab named after its task, in one
+#                                 workspace per checkout; attached ones are left alone.
 # herdr-revive [ENGINE ...]        agent-relaunch --all, then agent-herdr --all,
 #                                 for each engine (default: all of them).
 # agent-rm ENGINE TASK             remove the session and registered agent; keep
@@ -697,18 +697,58 @@ agent-relaunch() {
   agent-status "$engine"
 }
 
+# _agent_herdr_tab WD TASK: find or make the Herdr tab for TASK in the
+# workspace named after WD's directory; reply=(workspace pane). On failure
+# REPLY says what went wrong. Reads one `herdr api snapshot' for the lookup.
+_agent_herdr_tab() {
+  local wd=$1 task=$2 repo=${1:t} snap ws tab pane out
+  typeset -ga reply; reply=(); typeset -g REPLY=""
+  snap=$(herdr api snapshot 2>/dev/null) || { REPLY="no Herdr server answered"; return 1 }
+  ws=$(jq -r --arg l "$repo" \
+    'first(.result.snapshot.workspaces[] | select(.label == $l) | .workspace_id) // empty' <<< "$snap")
+  if [[ -z $ws ]]; then
+    out=$(herdr workspace create --cwd "$wd" --label "$repo" --no-focus) \
+      || { REPLY="could not create a workspace for $repo"; return 1 }
+    ws=$(jq -r '.result.workspace.workspace_id // empty' <<< "$out")
+    tab=$(jq -r '.result.root_pane.tab_id // empty' <<< "$out")
+    pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$out")
+    [[ -n $tab ]] && herdr tab rename "$tab" "$task" >/dev/null
+  else
+    # A tab already labelled TASK: Herdr restored it from its saved layout.
+    tab=$(jq -r --arg w "$ws" --arg l "$task" \
+      'first(.result.snapshot.tabs[] | select(.workspace_id == $w and .label == $l) | .tab_id) // empty' <<< "$snap")
+    if [[ -n $tab ]]; then
+      pane=$(jq -r --arg t "$tab" \
+        'first(.result.snapshot.panes[] | select(.tab_id == $t) | .pane_id) // empty' <<< "$snap")
+    else
+      out=$(herdr tab create --workspace "$ws" --cwd "$wd" --label "$task" --no-focus) \
+        || { REPLY="could not create a tab $task in $repo ($ws)"; return 1 }
+      pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$out")
+    fi
+  fi
+  [[ -n $ws && -n $pane ]] || { REPLY="no pane id for $repo / $task"; return 1 }
+  reply=("$ws" "$pane")
+}
+
 # agent-herdr ENGINE [--all|TASK]
 #
 # The second half of "bring them all back": after agent-relaunch the sessions
-# exist but nothing shows them. This opens one Herdr workspace per DETACHED
-# local session of ENGINE (the @agent-job-engine option agent-run and the
-# relaunch command set), cwd its checkout, label its session name, and types
-# `tmux attach' into the workspace's root pane.
+# exist but nothing shows them. This opens each DETACHED local session of
+# ENGINE (the @agent-job-engine option agent-run and the relaunch command set)
+# as a Herdr TAB labelled with its task, inside one workspace per checkout
+# labelled with the checkout's directory name (dot_files, GA-Mech, ...), and
+# types `tmux attach' into the tab's root pane. Several agents in one checkout
+# are therefore tabs side by side, not a workspace each.
+#
+# An existing workspace with that label is reused, and so is a tab already
+# labelled with the task: after a reboot Herdr restores its saved layout with
+# plain shells in the panes, and attaching in the restored tab is what puts
+# the layout back instead of opening a duplicate next to it.
 #
 # A session with a client already attached is skipped, so a second run opens
 # nothing twice -- it is either in a Herdr pane already or someone is looking
-# at it elsewhere (tmux-take moves it). The workspace id comes from the JSON
-# `workspace create' prints (.result.root_pane.pane_id), never predicted.
+# at it elsewhere (tmux-take moves it). Workspace, tab and pane ids come from
+# the JSON Herdr prints, never predicted.
 #
 # No argument or --all: every repo's sessions of ENGINE. TASK: this repo's one.
 agent-herdr() {
@@ -730,7 +770,7 @@ agent-herdr() {
 
   local -a rows
   rows=(${(f)"$(tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_path}|#{@agent-job-engine}' 2>/dev/null)"})
-  local row name attached wd owner out pane
+  local row name attached wd owner pane task
   local -i opened=0 seen=0
   for row in "${rows[@]}"; do
     IFS='|' read -r name attached wd owner <<< "$row"
@@ -741,13 +781,13 @@ agent-herdr() {
       print -u2 "agent-herdr: $name already has a client attached -- leaving it"
       continue
     fi
-    out=$(herdr workspace create --cwd "$wd" --label "$name" --no-focus) \
-      || { print -u2 "agent-herdr: could not create a workspace for $name (is the Herdr server up?)"; continue }
-    pane=$(print -r -- "$out" | jq -r '.result.root_pane.pane_id // empty')
-    [[ -n $pane ]] || { print -u2 "agent-herdr: no root pane id for $name in: $out"; continue }
+    task=$(tmux show-environment -t "=$name:" JOB_TASK 2>/dev/null)
+    task=${task#JOB_TASK=}; [[ -n $task && $task != -JOB_TASK ]] || task=$name
+    _agent_herdr_tab "$wd" "$task" || { print -u2 "agent-herdr: $REPLY (is the Herdr server up?)"; continue }
+    pane=$reply[2]
     herdr pane run "$pane" "tmux attach-session -t ${(qq):-=$name}" >/dev/null \
       || { print -u2 "agent-herdr: could not run tmux attach in $pane for $name"; continue }
-    print -u2 "agent-herdr: $name -> Herdr workspace $name ($pane)"
+    print -u2 "agent-herdr: $name -> Herdr ${wd:t} / $task ($pane)"
     (( opened++ ))
   done
   if (( ! seen )); then
