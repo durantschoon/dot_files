@@ -167,7 +167,27 @@ typeset -g REAL_HOME=$HOME
 
 export HOME=$HOME_LOCAL
 export TMUX_TMPDIR=$TMUX_LOCAL
-export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN:$ENGINEBIN
+# The fzf VERSION probe needs an answerable `fzf' on $PATH, and nothing else
+# does. The picker's branch test is `command -v fzf', which in zsh finds the
+# shell-function shadow defined below whatever $PATH says; but
+# _tmux_fzf_has_every runs `command fzf --version', and `command' bypasses a
+# function. fzf is deliberately excluded from $SYSBIN above so no assertion can
+# run the real picker, which left the every(N) gate reading "too old" and made
+# the poll assertions (9i) measure the fixture. That passed unnoticed on the
+# Mac, where /opt/homebrew/bin below carries a real fzf, and failed on Guix,
+# where fzf lives in the Guix profile and is on no path listed here.
+#
+# So: a stub that answers ONLY --version, in a bin of its own. It is on the
+# full PATH and NOT on $NOFZF_PATH, which must still have no fzf at all.
+typeset -g FZFBIN=$BASE/fzfbin
+mkdir -p -- "$FZFBIN" || exit 1
+print -r -- '#!/bin/sh
+[ "$1" = --version ] && { echo "0.74.3 (smoke stub)"; exit 0; }
+echo "smoke: the real fzf must never run -- use the fzf shell function" >&2
+exit 127' > "$FZFBIN/fzf"
+chmod +x -- "$FZFBIN/fzf" || exit 1
+
+export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN:$ENGINEBIN:$FZFBIN
 export SHELL=/bin/sh                      # deterministic pane shell
 typeset -g FULL_PATH=$PATH
 # That PATH includes /opt/homebrew/bin, so whatever the developer happens to
@@ -563,9 +583,16 @@ eq "pre: the remote private socket path is under the 100-byte limit" \
    "$(( ${#SOCK_REMOTE} < 100 ))" "1"
 eq "pre: \$TMUX_TMPDIR is the local private server, not the default one" \
    "$TMUX_TMPDIR" "$TMUX_LOCAL"
-out=$(PRIVATE_TMUX_DIR=/tmp/$(printf 'y%.0s' {1..88}) "$PT" --print-socket 2>&1); rc=$?
-eq  "pre: private-tmux refuses a 110-byte socket path with 78" "$rc" "78"
-has "pre: ... naming the length"                               "$out" "110 bytes"
+# The path private-tmux would bind is <dir>/tmux-<uid>/default, so its length
+# depends on how many DIGITS the uid has: 110 bytes for a 3-digit macOS uid,
+# 108 for uid 0 in a container. Hardcoding 110 made this assertion measure the
+# uid instead of the limit, and it failed on Linux for that reason alone.
+typeset -g  PT_LONG_DIR=/tmp/$(printf 'y%.0s' {1..88})
+typeset -g  PT_LONG_TAIL=/tmux-$(id -u)/default
+typeset -gi PT_LONG_LEN=$(( ${#PT_LONG_DIR} + ${#PT_LONG_TAIL} ))
+out=$(PRIVATE_TMUX_DIR=$PT_LONG_DIR "$PT" --print-socket 2>&1); rc=$?
+eq  "pre: private-tmux refuses a ${PT_LONG_LEN}-byte socket path with 78" "$rc" "78"
+has "pre: ... naming the length"                               "$out" "$PT_LONG_LEN bytes"
 
 # A pinned label can be left loaded by a run that was killed between its
 # bootstrap and its trap. Boot it out before starting, and SAY so -- a suite
