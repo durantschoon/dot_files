@@ -249,6 +249,8 @@ cleanup() {
   cd "$REPO" 2>/dev/null && claude-rm t2 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && claude-rm t3 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && codex-rm cx >/dev/null 2>&1
+  cd "$REPO" 2>/dev/null && codex-rm sx >/dev/null 2>&1
+  cd "$REPO" 2>/dev/null && agy-rm ax >/dev/null 2>&1
   local l
   if (( HAS_LAUNCHD )); then
     for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.*.plist(N); do
@@ -515,6 +517,84 @@ refute_registered "$LD_LABEL"
 assert "$DEFKIND deleted" test ! -f "$LD_DEF"
 ld_assert "the agent's program-name directory went with it" \
   test ! -d "$HOME/Library/Application Support/local.job/$LD_LABEL"
+
+# 5(b). agent-stash-all, then agent-stash-pop on a machine whose $HOME is
+# somewhere else: the Mac -> container move (/Users/... -> /root/...) that
+# these verbs exist for. A fake `herdr' that never answers keeps the user's
+# real Herdr server out of it.
+cd "$REPO" || exit 1
+print '#!/bin/sh\nexit 1' > "$FAKEBIN/herdr"; chmod +x "$FAKEBIN/herdr"; rehash
+typeset -g ST_CLAUDE=$HOME/.claude/projects/$(_agent_stash_key "$REPO")
+mkdir -p -- "$ST_CLAUDE/memory"
+print -r -- '{"type":"user"}' > "$ST_CLAUDE/claude-conv-1.jsonl"
+print -r -- 'a memory' > "$ST_CLAUDE/memory/MEMORY.md"
+typeset -g ST_CODEX_REL=2026/10/07/rollout-2026-10-07T00-00-00-codex-conv-1.jsonl
+mkdir -p -- "$HOME/.codex/sessions/${ST_CODEX_REL:h}"
+{
+  print -r -- "{\"type\":\"session_meta\",\"payload\":{\"id\":\"codex-conv-1\",\"cwd\":\"$REPO\"}}"
+  print -r -- "{\"type\":\"turn_context\",\"payload\":{\"cwd\":\"$REPO\"}}"
+} > "$HOME/.codex/sessions/$ST_CODEX_REL"
+typeset -g ST_AGY=$HOME/.gemini/antigravity-cli
+mkdir -p -- "$ST_AGY/conversations" "$ST_AGY/brain/agy-conv-1" "$ST_AGY/annotations"
+print db > "$ST_AGY/conversations/agy-conv-1.db"; print plan > "$ST_AGY/brain/agy-conv-1/plan.md"
+print -r -- "{\"workspace\":\"$REPO\",\"conversationId\":\"agy-conv-1\"}" > "$ST_AGY/history.jsonl"
+codex-run sx </dev/null >/dev/null 2>&1
+agy-run ax </dev/null >/dev/null 2>&1
+
+typeset -g ST_FILE=$BASE/stash.tgz
+agent-stash-all "$ST_FILE" 2>"$BASE/stash.err"; RC=$?
+assert "agent-stash-all exits 0" test $RC -eq 0
+assert "the stash is mode 600" \
+  test "$(stat -c %a "$ST_FILE" 2>/dev/null || stat -f %Lp "$ST_FILE")" = 600
+typeset -g ST_MAN="$(tar -xzOf "$ST_FILE" ./manifest.tsv 2>/dev/null)"
+assert "a --continue claude agent is pinned to its newest conversation" \
+  grep -q "^claude	t2	$REPO_REL	claude-conv-1	" <<<"$ST_MAN"
+assert "… a codex one to its newest session for the checkout" \
+  grep -q "^codex	sx	$REPO_REL	codex-conv-1	" <<<"$ST_MAN"
+assert "… an agy one to its newest conversation in history.jsonl" \
+  grep -q "^agy	ax	$REPO_REL	agy-conv-1	" <<<"$ST_MAN"
+assert "a checkout with no transcript is stashed as a fresh start" \
+  grep -q "^claude	t3	Repos/Claude_Smoke2.$$	-	" <<<"$ST_MAN"
+st_rows_name_home() { grep -v '^#' <<<"$ST_MAN" | grep -q -- "$HOME_LOCAL" }
+refute "checkouts are stored relative to \$HOME" st_rows_name_home
+typeset -g ST_LIST="$(tar -tzf "$ST_FILE" 2>/dev/null)"
+assert "Claude's project memory travels with the transcript" grep -q 'memory/MEMORY.md' <<<"$ST_LIST"
+assert "… and the codex rollout" grep -q "codex/$ST_CODEX_REL" <<<"$ST_LIST"
+assert "… and the agy conversation" grep -q 'agy/conversations/agy-conv-1.db' <<<"$ST_LIST"
+
+# The new machine: same repo, different $HOME, no tmux sessions, and the
+# second checkout not cloned yet.
+typeset -g HOME2=$BASE/home2
+typeset -g REPO_NEW=$HOME2/$REPO_REL
+mkdir -p -- "$REPO_NEW" "$HOME2/Library/LaunchAgents" && git init -q -- "$REPO_NEW"
+for s in "$SLUG-t2" "$SLUG-sx" "$SLUG-ax" "$SLUG2-t3"; do ptmux kill-session -t "=$s" >/dev/null 2>&1; done
+: > "$ARGV_FILE"; : > "$BASE/codex-argv.txt"; : > "$BASE/agy-argv.txt"
+export HOME=$HOME2 XDG_DATA_HOME=$HOME2/.local/share
+agent-stash-pop "$ST_FILE" 2>"$BASE/pop.err"; RC=$?
+assert "agent-stash-pop exits 0" test $RC -eq 0
+typeset -g ST_NEWKEY=$(_agent_stash_key "$REPO_NEW")
+assert "the Claude transcript lands under the NEW checkout's project dir" \
+  test -f "$HOME2/.claude/projects/$ST_NEWKEY/claude-conv-1.jsonl"
+assert "… with its memory" test -f "$HOME2/.claude/projects/$ST_NEWKEY/memory/MEMORY.md"
+assert "the codex rollout is copied" test -f "$HOME2/.codex/sessions/$ST_CODEX_REL"
+assert "… with every recorded cwd moved to the new checkout" \
+  test "$(grep -c "\"cwd\":\"$REPO_NEW\"" "$HOME2/.codex/sessions/$ST_CODEX_REL")" -eq 2
+assert "the agy conversation is copied" test -f "$HOME2/.gemini/antigravity-cli/conversations/agy-conv-1.db"
+assert "t2 is registered here, pinned to its conversation" \
+  grep -qx 'conversation=claude-conv-1' "$HOME2/.local/share/agent-jobs/local.job.$JOB_LAUNCHD_SLUG.t2.conf"
+assert "t2's session is up" ptmux has-session -t "=$SLUG-t2"
+assert "… resuming exactly that conversation" wait_for_argv 'claude-conv-1'
+assert "… in the new checkout" grep -qx -- "pwd=$REPO_NEW" "$ARGV_FILE"
+assert "codex sx resumes its session" wait_for_argv 'codex-conv-1' "$BASE/codex-argv.txt"
+assert "agy ax resumes its conversation" wait_for_argv 'agy-conv-1' "$BASE/agy-argv.txt"
+assert "the uncloned checkout is named, not silently dropped" grep -q "Claude_Smoke2.$$ is missing" "$BASE/pop.err"
+refute "… and nothing was started for it" ptmux has-session -t "=$SLUG2-t3"
+assert "pop says to agent-rm the originals on the other machine" grep -q 'agent-rm them there' "$BASE/pop.err"
+assert "with no Herdr server it says how to open the tabs later" grep -q 'herdr-revive' "$BASE/pop.err"
+print "  note agent-stash-pop on a different \$HOME:"
+sed 's/^/       | /' "$BASE/pop.err"
+export HOME=$HOME_LOCAL XDG_DATA_HOME=$HOME_LOCAL/.local/share
+command rm -f -- "$FAKEBIN/herdr"; rehash
 
 # 5. make wiring.
 assert "make check-jobs runs this file" grep -q "claude-smoke.zsh" "$WT/Makefile"
