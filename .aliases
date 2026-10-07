@@ -18,7 +18,7 @@ alias a='alias'
 alias ag='alias | grep'
 alias agy-auto='agy --dangerously-skip-permissions'
 alias codex-auto='codex --full-auto'
-alias codex-auto-workspace='dex --sandbox workspace-write --ask-for-approval never'
+alias codex-auto-workspace='codex --sandbox workspace-write --ask-for-approval never'
 alias c2n='tr ":" "\012"'
 alias cs='claude-sessions' # a link to ~/.claude/bin/claude-sessions
 alias cs_size='claude-sessions --sort=size --desc'
