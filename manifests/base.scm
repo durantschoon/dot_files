@@ -67,6 +67,7 @@ releases and other GitHub features to the terminal.")
    '(
      ;; core
      "git" "zsh" "starship" "fontconfig" "curl" "file" "gcc-toolchain" "cmake"
+     "grep" "python" ; Python 3
      "ripgrep" "fd" "fzf" "eza" "jq" "rsync" "fastfetch"
 
      ;; editor stack for Spacemacs (holy-mode).  mg is the microscopic Emacs

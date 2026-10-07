@@ -53,6 +53,10 @@ fi
 if [ -n "$SSH_CLIENT" ]; then
     emulate sh -c '. /etc/profile'
     path=(${(s.:.)PATH})
+    # /etc/profile can discard the personal bins added by .shared.zshenv.
+    # Restore them for non-login SSH commands, including the Herdr CLI.
+    add_to_front_of_path "$HOME/.local/bin"
+    add_to_front_of_path "$HOME/bin"
 fi
 
 # GPG-Agent as SSH agent (when not already set by session manager)

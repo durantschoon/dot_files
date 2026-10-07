@@ -367,7 +367,7 @@ ifeq ($(PACKAGE_MANAGER),guix)
 	@which curl && echo "curl: available" || echo "curl: not found"
 	@which file && echo "file: available" || echo "file: not found"
 	@echo "Attempting package installation..."
-	sudo guix install zsh fontconfig curl file gcc-toolchain || echo "Package installation failed - container may not support package installation"
+	sudo guix install zsh fontconfig curl file grep python gcc-toolchain || echo "Package installation failed - container may not support package installation"
 	@echo "If installation failed, packages may already be available or container may not support package installation"
 else
 	@echo "This target is only for Guix systems"
@@ -586,10 +586,10 @@ else ifeq ($(PACKAGE_MANAGER),guix)
 	@which curl && echo "✓ curl: available" || echo "✗ curl: not found"
 	@which file && echo "✓ file: available" || echo "✗ file: not found"
 	@echo "Attempting to install missing packages..."
-	@which zsh && which curl && which file && echo "All core packages available - skipping installation" || { \
+	@which zsh && which curl && which file && which grep && which python3 && echo "All core packages available - skipping installation" || { \
 		echo "Some packages missing - attempting installation..."; \
 		echo "If this fails, try: sudo make guix-root-install"; \
-		guix install zsh cmake fontconfig curl file gcc-toolchain || echo "Package installation failed - continuing anyway"; \
+		guix install zsh cmake fontconfig curl file grep python gcc-toolchain || echo "Package installation failed - continuing anyway"; \
 	}
 	@echo "Installing starship prompt..."
 	@echo "Using curl from Guix profile..."
@@ -2132,7 +2132,7 @@ check-cloud:
 setup-guix-container:
 	 $(GUIX_DOCKER) volume create guix-dev-home
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml up -d
-	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl openssh socat guile nss-certs procps --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl grep python openssh socat guile nss-certs procps --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
 	 $(MAKE) check-guix-container
 
 # Create a key that belongs only to the persistent Guix container volume.  The

@@ -586,6 +586,8 @@ socket alone, which any Linux X session has."
   '("git"
     "zsh"
     "starship"
+    "grep"
+    "python" ; Python 3, including the python3 executable.
     "ripgrep"
     "fd"
     "fzf"
