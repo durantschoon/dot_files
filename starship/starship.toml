@@ -80,26 +80,76 @@ disabled = true
 
 # Two modules with the same command, since a custom module's symbol is fixed:
 # buffalo and spiral shell inside a guix shell, the buffalo alone outside one
-# on any host with a pulled Guix (so there `guix --version' runs on every
-# prompt).  /run/current-system would miss Guix on a foreign distro (orb-guix).
-# The water buffalo (gnu) is U+1F403 and the shell U+1F41A, both outside the
-# BMP, so ConEmu draws them as �; chosen anyway.  \uf325 (nf-linux-gnu_guix)
-# is the BMP alternative.
+# on any host with a pulled Guix.
+# Inside brackets: [🐃 <guix-hash>, 🚫🐃 <nonguix-hash>]
+# The water buffalo (gnu) is U+1F403, the shell U+1F41A, and prohibited (non) U+1F6AB.
 # Both run under sh, not $STARSHIP_SHELL (zsh): a zsh spawn reads the .zshenv
 # chain first (~300-450ms each), so a fresh terminal's prompt ran past
 # command_timeout ("Executing custom command ... timed out").
 [custom.guix_shell]
 shell = ["sh"]
 when = 'test -n "$GUIX_ENVIRONMENT"'
-command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
+command = '''
+m="$HOME/.config/guix/current/manifest"
+[ -r "$m" ] || m=/run/current-system/profile/manifest
+if [ -r "$m" ]; then
+  awk '
+    $0 ~ /"guix"/ && !g { f=1; next }
+    f { gsub(/[ "]/, ""); g = substr($0, 1, 7); f=0 }
+    $0 ~ /"nonguix"/ && !ng { nf=1; next }
+    nf { gsub(/[ "]/, ""); ng = substr($0, 1, 7); nf=0 }
+    END {
+      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
+      else if (g) printf "%s", g
+    }
+  ' "$m"
+elif command -v guix >/dev/null 2>&1; then
+  guix describe 2>/dev/null | awk '
+    $1 == "guix" && !g { g = substr($2, 1, 7) }
+    $1 == "nonguix" && !ng { ng = substr($2, 1, 7) }
+    END {
+      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
+      else if (g) printf "%s", g
+    }
+  '
+elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
+  "$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { printf "%s", substr($NF, 1, 7) }'
+fi
+'''
 symbol = "\U0001F403\U0001F41A "
 style = "bold yellow"
-format = "[($symbol\\[$output\\]) ]($style)"
+format = "[\\[$symbol$output\\] ]($style)"
 
 [custom.guix]
 shell = ["sh"]
 when = 'test -x "$HOME/.config/guix/current/bin/guix" && test -z "$GUIX_ENVIRONMENT"'
-command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
+command = '''
+m="$HOME/.config/guix/current/manifest"
+[ -r "$m" ] || m=/run/current-system/profile/manifest
+if [ -r "$m" ]; then
+  awk '
+    $0 ~ /"guix"/ && !g { f=1; next }
+    f { gsub(/[ "]/, ""); g = substr($0, 1, 7); f=0 }
+    $0 ~ /"nonguix"/ && !ng { nf=1; next }
+    nf { gsub(/[ "]/, ""); ng = substr($0, 1, 7); nf=0 }
+    END {
+      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
+      else if (g) printf "%s", g
+    }
+  ' "$m"
+elif command -v guix >/dev/null 2>&1; then
+  guix describe 2>/dev/null | awk '
+    $1 == "guix" && !g { g = substr($2, 1, 7) }
+    $1 == "nonguix" && !ng { ng = substr($2, 1, 7) }
+    END {
+      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
+      else if (g) printf "%s", g
+    }
+  '
+elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
+  "$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { printf "%s", substr($NF, 1, 7) }'
+fi
+'''
 symbol = "\U0001F403 "
 style = "bold yellow"
-format = "[($symbol\\[$output\\]) ]($style)"
+format = "[\\[$symbol$output\\] ]($style)"
