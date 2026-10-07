@@ -83,7 +83,8 @@ is_active() { [ -f "$marker" ]; }
 minutes_since() {
   local mtime
   [ -e "$1" ] || { echo 999999; return; }
-  mtime=$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1")
+  # GNU stat -f means --file-system and succeeds, so pick by platform.
+  if is_mac; then mtime=$(stat -f %m "$1"); else mtime=$(stat -c %Y "$1"); fi
   echo $(( ($(date +%s) - mtime) / 60 ))
 }
 
@@ -145,7 +146,11 @@ scheduler_status() {
     fi
     [ -f "$autosave_launchd_plist" ] && echo "note:      $autosave_launchd_label is still installed on its own"
   elif command -v herd >/dev/null 2>&1 && herd status homebase-tick >/dev/null 2>&1; then
-    echo "timer:     shepherd homebase-tick: $(herd status homebase-tick 2>/dev/null | sed -n 's/^ *Status: *//p' | head -n 1)"
+    local herd_out; herd_out=$(herd status homebase-tick 2>/dev/null)
+    # Not `| grep -q': under pipefail its early exit fails the pipe.
+    [[ $herd_out == *"service active"* ]] \
+      && echo "timer:     shepherd homebase-tick active (every 10 min)" \
+      || echo "timer:     shepherd homebase-tick declared but NOT running (herd start homebase-tick)"
   else
     echo "timer:     none (no shepherd homebase-tick; run make apply)"
   fi
@@ -160,9 +165,9 @@ run_autosave() {
   [ -x "$autosave_script" ] || [ -f "$autosave_script" ] || { log "autosave: $autosave_script missing; skipped"; return 0; }
   git -C "$autosave_repo" config --get autosave.allowedRemote >/dev/null \
     || { log "autosave: not enabled in $autosave_repo; skipped"; return 0; }
-  # AUTOSAVE_HOST: the container's hostname changes with every container, so
-  # the snapshot branch is named after the homebase instead.
-  if AUTOSAVE_HOST=$name bash "$autosave_script" >>"$state_dir/autosave.out" 2>&1; then
+  # AUTOSAVE_HOST (exported by tick): the container's hostname is its id,
+  # so the snapshot branch is named after the homebase instead.
+  if bash "$autosave_script" >>"$state_dir/autosave.out" 2>&1; then
     log "autosave: ok"
   else
     log "autosave: FAILED (see $autosave_repo/logs/autosave.log)"
@@ -197,7 +202,9 @@ tick() {
   [ -d "$tick_lock" ] && [ "$(minutes_since "$tick_lock")" -ge 30 ] && rmdir "$tick_lock" 2>/dev/null
   mkdir "$tick_lock" 2>/dev/null || { log "tick: another tick is running; skipped"; return 0; }
   trap 'rmdir "$tick_lock" 2>/dev/null' EXIT
-  run_autosave "${name:-$(default_name)}" || rc=1
+  # Exported for the whole tick: mr-hygiene's queue drain runs autosave too.
+  export AUTOSAVE_HOST=${name:-$(default_name)}
+  run_autosave "$AUTOSAVE_HOST" || rc=1
   run_mr_hygiene "$force" || rc=1
   rmdir "$tick_lock" 2>/dev/null
   return $rc
