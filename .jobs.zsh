@@ -935,6 +935,7 @@ _tmux_collect_rows() {
     reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h" "$re"; done | sort -t'|' -k5,5nr)"})
     return
   fi
+  setopt localoptions nomonitor
   local tmpdir
   tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/job-rows.XXXXXX" 2>/dev/null || mktemp -d "/tmp/job-rows.XXXXXX") || return 1
   local h i=0
@@ -946,7 +947,7 @@ _tmux_collect_rows() {
   done
   wait
   reply=(${(f)"$(cat "$tmpdir"/* 2>/dev/null | sort -t'|' -k5,5nr)"})
-  rm -rf "$tmpdir"
+  command rm -rf "$tmpdir"
 }
 _tmux_repo_rows() {
   local re="^$(job-repo)(-|$)"
@@ -2580,6 +2581,6 @@ if (( $+functions[compdef] )); then
     launchd-{run,status,logs,stop,start,rm,label} \
     docker-{run,status,logs,stop,start,rm} \
     job-{status,logs,record,recap,note,note-context,promote,name,logfile} \
-    {claude,agy,codex}-{run,status,relaunch,rm} \
-    agent-{run,status,relaunch,rm}
+    {claude,agy,codex}-{run,status,relaunch,adopt,conversations,rm} \
+    agent-{run,status,relaunch,adopt,conversations,rm}
 fi
