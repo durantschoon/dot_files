@@ -768,7 +768,20 @@ _job_host_offline() {
 _job_hosts() {
   _job_ts_status >/dev/null
   typeset -ga reply; reply=(local)
-  local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || reply+=("$h"); done
+  if (( ${_JOB_HOSTS_UNIVERSAL:-0} )); then
+    if command -v tailscale >/dev/null 2>&1; then
+      local -a ts_hosts
+      ts_hosts=(${(f)"$(_job_ts_status | awk 'NR > 1 && !/offline/ { print tolower($2) }')"})
+      local h
+      for h in "${ts_hosts[@]}"; do
+        _job_is_self "$h" || (( ${reply[(I)$h]} )) || reply+=("$h")
+      done
+    else
+      local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || (( ${reply[(I)$h]} )) || reply+=("$h"); done
+    fi
+  else
+    local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || reply+=("$h"); done
+  fi
 }
 # Run tmux on HOST, arguments quoted for the remote shell.
 _job_tmux() {
@@ -911,16 +924,39 @@ _tmux_rows() {
 # subshell, and the warned-once guard would not stick. The host walk itself
 # still runs in a `$( )' -- by then _job_ts_status has already been primed in
 # the caller's shell, so there is nothing left for a subshell to lose.
+# Query session rows from HOSTS, sorting by recency. When _JOB_HOSTS_UNIVERSAL
+# is set (tmux-dash-universal), queries remote hosts in parallel to avoid
+# accumulating sequential SSH connect timeouts across the tailnet.
+_tmux_collect_rows() {
+  local re=${1:-.}
+  shift
+  local -a hosts=("$@")
+  if (( ! ${_JOB_HOSTS_UNIVERSAL:-0} )) || (( $#hosts <= 1 )); then
+    reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h" "$re"; done | sort -t'|' -k5,5nr)"})
+    return
+  fi
+  local tmpdir
+  tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/job-rows.XXXXXX" 2>/dev/null || mktemp -d "/tmp/job-rows.XXXXXX") || return 1
+  local h i=0
+  for h in "${hosts[@]}"; do
+    (( i++ ))
+    (
+      _tmux_rows "$h" "$re" > "$tmpdir/$i" 2>/dev/null
+    ) &
+  done
+  wait
+  reply=(${(f)"$(cat "$tmpdir"/* 2>/dev/null | sort -t'|' -k5,5nr)"})
+  rm -rf "$tmpdir"
+}
 _tmux_repo_rows() {
-  local h re="^$(job-repo)(-|$)"
+  local re="^$(job-repo)(-|$)"
   _job_hosts; local -a hosts=("${reply[@]}")
-  reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h" "$re"; done | sort -t'|' -k5,5nr)"})
+  _tmux_collect_rows "$re" "${hosts[@]}"
 }
 # Every session on every host, most recent first. Also answers in `reply'.
 _tmux_all_rows() {
-  local h
   _job_hosts; local -a hosts=("${reply[@]}")
-  reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h"; done | sort -t'|' -k5,5nr)"})
+  _tmux_collect_rows "." "${hosts[@]}"
 }
 # ---------------------------------------------------------------------------
 # One display line per row, in columns that fit what is actually in them
@@ -1434,7 +1470,7 @@ _tmux_fzf_has_every() {
   (( _JOB_FZF_EVERY ))
 }
 
-# tmux-pick [--all] [--poll SECONDS]: choose a session and attach. Lists this
+# tmux-pick [--all] [--universal] [--poll SECONDS]: choose a session and attach. Lists this
 # repo's sessions on every host (or every session everywhere with --all), plus
 # a "new session" row. Uses fzf when installed, else a numbered menu.
 #
@@ -1443,12 +1479,13 @@ _tmux_fzf_has_every() {
 # SECONDS for this one call. How a chosen row is attached is unchanged: the
 # polite attach, read-only when another client holds the session.
 tmux-pick() {
-  local all=0 poll=${JOB_PICK_POLL:-120}
-  local usage="usage: tmux-pick [--all] [--poll SECONDS]"
+  local all=0 poll=${JOB_PICK_POLL:-120} universal=0
+  local usage="usage: tmux-pick [--all] [--universal] [--poll SECONDS]"
   while (( $# )); do
     case $1 in
-      --all|-a) all=1; shift ;;
-      --poll)   poll=$2; shift 2 ;;
+      --all|-a)       all=1; shift ;;
+      --universal|-u) universal=1; shift ;;
+      --poll)         poll=$2; shift 2 ;;
       *) print -u2 "tmux-pick: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
     esac
   done
@@ -1457,11 +1494,13 @@ tmux-pick() {
     print -u2 "$usage"; return 64
   }
 
+  (( universal )) && { local -x _JOB_HOSTS_UNIVERSAL=1 }
+
   # The environment the reload command inherits, for the duration of this call
   # only (`local -x'). Captured into plain locals first: `local -x X=$X' reads
   # the name it is in the middle of shadowing.
-  local hosts_now=${(j: :)JOB_HOSTS} host_now=$JOB_HOST cli_now=${JOB_CONTAINER_CLI-}
-  local -x JOB_HOSTS_EXPORT=$hosts_now JOB_HOST=$host_now JOB_CONTAINER_CLI=$cli_now
+  local hosts_now=${(j: :)JOB_HOSTS} host_now=$JOB_HOST cli_now=${JOB_CONTAINER_CLI-} univ_now=${_JOB_HOSTS_UNIVERSAL:-0}
+  local -x JOB_HOSTS_EXPORT=$hosts_now JOB_HOST=$host_now JOB_CONTAINER_CLI=$cli_now _JOB_HOSTS_UNIVERSAL=$univ_now
 
   local -a allflag; (( all )) && allflag=(--all)
   _tmux_pick_lines "${allflag[@]}" >/dev/null
@@ -1599,9 +1638,14 @@ tmux-peek() {
   host=$reply[1]
   _job_tmux_attach_polite "$host" "$name"
 }
-# tmux-dash: every session on every host, grouped by recency; pick one to
+# tmux-dash: every session on this host and homebase, grouped by recency; pick one to
 # attach. tmux-pick --all under another name, and it takes the same flags.
 tmux-dash() { tmux-pick --all "$@"; }
+
+# tmux-dash-universal: every session on every compute platform in the
+# Tailscale network, grouped by recency; pick one to attach.
+tmux-dash-universal() { tmux-pick --all --universal "$@"; }
+alias tdu=tmux-dash-universal
 
 # tmux-run TASK [--on HOST] [--] CMD...: run CMD in a window named TASK of the
 # task's session, teeing to ./logs/. Runs where the session already exists,
@@ -1683,7 +1727,8 @@ Commands:
   tmux-revive           Restart all jobs previously saved by tmux-hibernate
   
   tmux-pick [--all]     Interactive fzf menu to pick a session in this repo
-  tmux-dash             Interactive menu of ALL sessions across all repos
+  tmux-dash             Interactive menu of sessions (this host + homebase)
+  tmux-dash-universal   Interactive menu of ALL sessions across Tailscale (tdu)
   tmux-peek             Attach a detached session in take-over mode
 
 Interactive Keys (tmux-pick / tmux-dash):
