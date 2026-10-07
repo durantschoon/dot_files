@@ -2720,6 +2720,38 @@ else
 	@echo "check-espanso-windows: WSL only ($(os)/$(flavor) here)."
 endif
 
+.PHONY: setup-conemu-windows check-conemu-windows
+
+# ConEmu, the Windows terminal the WSL shells run in, keeps its settings in
+# %APPDATA%\ConEmu.xml.  The one setting managed here is TabConsole, the tab
+# title template, pinned to "%m■m %s".  Setup rewrites that value in place (or
+# adds it under the first configuration key), writing UTF-8 without a BOM so
+# the ■ survives; nothing else in the file is touched.  ConEmu only rereads its
+# settings on restart, so setup says so when it is running.
+#
+# Same plumbing as the espanso targets above, for the same reasons: cd /mnt/c
+# so Windows does not inherit a UNC cwd, and the PowerShell is fed on stdin
+# from build-aux/*.ps1.  Not part of `make check': a machine without ConEmu
+# would fail it.
+setup-conemu-windows:
+ifeq ($(flavor),wsl)
+	@echo "==> ConEmu tab title on the Windows side"
+	@cd /mnt/c && $(WIN_POWERSHELL) -NoProfile -Command - \
+	  < "$(CURDIR)/build-aux/conemu-windows-setup.ps1"
+	@$(MAKE) --no-print-directory check-conemu-windows
+else
+	@echo "setup-conemu-windows: WSL only ($(os)/$(flavor) here)."
+endif
+
+check-conemu-windows:
+ifeq ($(flavor),wsl)
+	@echo "==> ConEmu on the Windows side"
+	@cd /mnt/c && $(WIN_POWERSHELL) -NoProfile -Command - \
+	  < "$(CURDIR)/build-aux/conemu-windows-check.ps1"
+else
+	@echo "check-conemu-windows: WSL only ($(os)/$(flavor) here)."
+endif
+
 .PHONY: check-home-ownership
 
 # Who actually owns each dotfile in $$HOME: Guix Home, the native symlinks, or
