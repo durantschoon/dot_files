@@ -45,7 +45,7 @@ symbol = " "   # nf-dev-python
 
 [hostname]
 ssh_only = false
-format = "[$hostname]($style)"   # default adds "in ", pointless on the right; ssh marker is on the left
+format = "[\\[$hostname\\]]($style)"   # bracketed like the guix hash; default adds "in ", pointless on the right; ssh marker is on the left
 style = "bold underline bright-green"
 
 # ssh marker for the left prompt: hostname's default ssh_symbol (U+1F310, like
@@ -94,7 +94,7 @@ when = 'test -n "$GUIX_ENVIRONMENT"'
 command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
 symbol = "\U0001F403\U0001F41A "
 style = "bold yellow"
-format = "[($symbol$output) ]($style)"
+format = "[($symbol\\[$output\\]) ]($style)"
 
 [custom.guix]
 shell = ["sh"]
@@ -102,4 +102,4 @@ when = 'test -x "$HOME/.config/guix/current/bin/guix" && test -z "$GUIX_ENVIRONM
 command = '''"$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }''''
 symbol = "\U0001F403 "
 style = "bold yellow"
-format = "[($symbol$output) ]($style)"
+format = "[($symbol\\[$output\\]) ]($style)"
