@@ -1809,8 +1809,10 @@ Commands:
                    the saved list (tmux-hibernate leaves agents out).
     herdr-revive   agent sessions, needs no prior step. Uses the agent
                    registry: agent-relaunch --all (resumes each conversation),
-                   then agent-herdr --all (a Herdr workspace per detached
-                   session). Run it inside the box where Herdr runs (orb-guix).
+                   then agent-herdr --all (a Herdr tab per detached session,
+                   grouped into one workspace per checkout). Run it inside the
+                   box where Herdr runs (orb-guix); guix-dev already runs the
+                   relaunch half when the container starts.
 
   tmux-pick [--all]     Interactive fzf menu to pick a session in this repo
   tmux-dash             Interactive menu of sessions (this host + homebase)

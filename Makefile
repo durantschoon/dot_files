@@ -2128,7 +2128,7 @@ check-cloud:
 setup-guix-container:
 	 $(GUIX_DOCKER) volume create guix-dev-home
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml up -d
-	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl openssh socat guile nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl openssh socat guile nss-certs procps --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
 	 $(MAKE) check-guix-container
 
 # Create a key that belongs only to the persistent Guix container volume.  The

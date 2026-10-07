@@ -21,13 +21,20 @@
 #                                 This is how several agents share a checkout.
 # agent-conversations ENGINE      this checkout's conversation ids, newest
 #                                 first, with the first user message as a hint.
-# agent-herdr ENGINE [--all|TASK]  open each detached session of this engine in
-#                                 its own Herdr workspace (labelled by session,
-#                                 cwd its checkout); attached ones are left alone.
+# agent-herdr ENGINE [--all|TASK]  open each detached session of this engine as
+#                                 a Herdr tab named after its task, in one
+#                                 workspace per checkout; attached ones are left alone.
 # herdr-revive [ENGINE ...]        agent-relaunch --all, then agent-herdr --all,
 #                                 for each engine (default: all of them).
 # agent-rm ENGINE TASK             remove the session and registered agent; keep
 #                                 the transcript, including unloaded plists.
+# agent-stash-all [FILE]           pack every registered agent -- registry
+#                                 entry, exact conversation id, its transcripts,
+#                                 the checkout's remote and commit -- into a
+#                                 private .tar.gz (default ~/dot_files/logs/).
+# agent-stash-pop [--dry-run] FILE  restore a stash here (another machine is
+#                                 fine): copy transcripts, adopt each agent by
+#                                 its conversation, open the Herdr tabs.
 # agent-help [ENGINE]              show help, including startup/resume syntax.
 #
 # Wrappers: claude-*, agy-*, codex-* supply ENGINE for every verb.
@@ -697,18 +704,58 @@ agent-relaunch() {
   agent-status "$engine"
 }
 
+# _agent_herdr_tab WD TASK: find or make the Herdr tab for TASK in the
+# workspace named after WD's directory; reply=(workspace pane). On failure
+# REPLY says what went wrong. Reads one `herdr api snapshot' for the lookup.
+_agent_herdr_tab() {
+  local wd=$1 task=$2 repo=${1:t} snap ws tab pane out
+  typeset -ga reply; reply=(); typeset -g REPLY=""
+  snap=$(herdr api snapshot 2>/dev/null) || { REPLY="no Herdr server answered"; return 1 }
+  ws=$(jq -r --arg l "$repo" \
+    'first(.result.snapshot.workspaces[] | select(.label == $l) | .workspace_id) // empty' <<< "$snap")
+  if [[ -z $ws ]]; then
+    out=$(herdr workspace create --cwd "$wd" --label "$repo" --no-focus) \
+      || { REPLY="could not create a workspace for $repo"; return 1 }
+    ws=$(jq -r '.result.workspace.workspace_id // empty' <<< "$out")
+    tab=$(jq -r '.result.root_pane.tab_id // empty' <<< "$out")
+    pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$out")
+    [[ -n $tab ]] && herdr tab rename "$tab" "$task" >/dev/null
+  else
+    # A tab already labelled TASK: Herdr restored it from its saved layout.
+    tab=$(jq -r --arg w "$ws" --arg l "$task" \
+      'first(.result.snapshot.tabs[] | select(.workspace_id == $w and .label == $l) | .tab_id) // empty' <<< "$snap")
+    if [[ -n $tab ]]; then
+      pane=$(jq -r --arg t "$tab" \
+        'first(.result.snapshot.panes[] | select(.tab_id == $t) | .pane_id) // empty' <<< "$snap")
+    else
+      out=$(herdr tab create --workspace "$ws" --cwd "$wd" --label "$task" --no-focus) \
+        || { REPLY="could not create a tab $task in $repo ($ws)"; return 1 }
+      pane=$(jq -r '.result.root_pane.pane_id // empty' <<< "$out")
+    fi
+  fi
+  [[ -n $ws && -n $pane ]] || { REPLY="no pane id for $repo / $task"; return 1 }
+  reply=("$ws" "$pane")
+}
+
 # agent-herdr ENGINE [--all|TASK]
 #
 # The second half of "bring them all back": after agent-relaunch the sessions
-# exist but nothing shows them. This opens one Herdr workspace per DETACHED
-# local session of ENGINE (the @agent-job-engine option agent-run and the
-# relaunch command set), cwd its checkout, label its session name, and types
-# `tmux attach' into the workspace's root pane.
+# exist but nothing shows them. This opens each DETACHED local session of
+# ENGINE (the @agent-job-engine option agent-run and the relaunch command set)
+# as a Herdr TAB labelled with its task, inside one workspace per checkout
+# labelled with the checkout's directory name (dot_files, GA-Mech, ...), and
+# types `tmux attach' into the tab's root pane. Several agents in one checkout
+# are therefore tabs side by side, not a workspace each.
+#
+# An existing workspace with that label is reused, and so is a tab already
+# labelled with the task: after a reboot Herdr restores its saved layout with
+# plain shells in the panes, and attaching in the restored tab is what puts
+# the layout back instead of opening a duplicate next to it.
 #
 # A session with a client already attached is skipped, so a second run opens
 # nothing twice -- it is either in a Herdr pane already or someone is looking
-# at it elsewhere (tmux-take moves it). The workspace id comes from the JSON
-# `workspace create' prints (.result.root_pane.pane_id), never predicted.
+# at it elsewhere (tmux-take moves it). Workspace, tab and pane ids come from
+# the JSON Herdr prints, never predicted.
 #
 # No argument or --all: every repo's sessions of ENGINE. TASK: this repo's one.
 agent-herdr() {
@@ -730,7 +777,7 @@ agent-herdr() {
 
   local -a rows
   rows=(${(f)"$(tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_path}|#{@agent-job-engine}' 2>/dev/null)"})
-  local row name attached wd owner out pane
+  local row name attached wd owner pane task
   local -i opened=0 seen=0
   for row in "${rows[@]}"; do
     IFS='|' read -r name attached wd owner <<< "$row"
@@ -741,13 +788,13 @@ agent-herdr() {
       print -u2 "agent-herdr: $name already has a client attached -- leaving it"
       continue
     fi
-    out=$(herdr workspace create --cwd "$wd" --label "$name" --no-focus) \
-      || { print -u2 "agent-herdr: could not create a workspace for $name (is the Herdr server up?)"; continue }
-    pane=$(print -r -- "$out" | jq -r '.result.root_pane.pane_id // empty')
-    [[ -n $pane ]] || { print -u2 "agent-herdr: no root pane id for $name in: $out"; continue }
+    task=$(tmux show-environment -t "=$name:" JOB_TASK 2>/dev/null)
+    task=${task#JOB_TASK=}; [[ -n $task && $task != -JOB_TASK ]] || task=$name
+    _agent_herdr_tab "$wd" "$task" || { print -u2 "agent-herdr: $REPLY (is the Herdr server up?)"; continue }
+    pane=$reply[2]
     herdr pane run "$pane" "tmux attach-session -t ${(qq):-=$name}" >/dev/null \
       || { print -u2 "agent-herdr: could not run tmux attach in $pane for $name"; continue }
-    print -u2 "agent-herdr: $name -> Herdr workspace $name ($pane)"
+    print -u2 "agent-herdr: $name -> Herdr ${wd:t} / $task ($pane)"
     (( opened++ ))
   done
   if (( ! seen )); then
@@ -948,6 +995,258 @@ agent-adopt() {
   fi
   (( attach )) || { print -u2 "agent-adopt: left '$name' detached (tmux-go $task to attach)"; return 0 }
   _job_tmux_attach local "$name"
+}
+
+# ---------------------------------------------------------------------------
+# agent-stash-all / agent-stash-pop: carry every agent to a restart or a new
+# machine in one file
+# ---------------------------------------------------------------------------
+# The stash is a .tar.gz, mode 600 (transcripts hold code, paths and whatever
+# was pasted into them), laid out as:
+#
+#   manifest.tsv   `#' header lines (format, source $HOME, host, time), then one
+#                  row per agent: engine task checkout conversation remote commit
+#                  -- checkout relative to the source $HOME when it is under
+#                  it, so /Users/durant/dot_files and /root/dot_files are one
+#                  place; conversation `-' when none could be pinned.
+#   claude/<key>/  the checkout's Claude project directory (transcripts and
+#                  memory/), key = checkout with non-alphanumerics as dashes
+#   codex/<path>   each pinned rollout file, at its path under ~/.codex/sessions
+#   agy/           conversations/<id>.db, brain/<id>/, annotations/<id>.pbtxt
+#
+# The conversation is PINNED at stash time, never left as "the newest": an
+# adopted agent keeps its id; a --continue agent gets the newest conversation
+# of its engine in its checkout, resolved now, while the machine that knows
+# still has the answer. Two --continue agents of one engine in one checkout
+# cannot both be pinned -- they were resuming the same conversation anyway --
+# so only the first gets it and the rest are stashed fresh, with a warning.
+#
+# Logins, repositories and the source machine's own agents are left alone:
+# pop prints the clone command for a missing checkout, and reminds you to
+# agent-rm the originals so one checkout does not end up with two agents.
+typeset -g _AGENT_STASH_FORMAT=agent-stash-1
+
+# _agent_stash_key PATH: the directory-name form Claude Code uses for a path.
+_agent_stash_key() { print -r -- "${1//[^a-zA-Z0-9]/-}" }
+
+# _agent_stash_newest ENGINE ROOT: the id of ENGINE's newest conversation whose
+# working directory is ROOT; failure when there is none (or for cursor, which
+# keeps no transcript this can read).
+_agent_stash_newest() {
+  local engine=$1 root=$2 f id
+  case $engine in
+    claude)
+      f=( "$HOME/.claude/projects/$(_agent_stash_key "$root")"/*.jsonl(N.om[1]) )
+      (( $#f )) || return 1
+      print -r -- "${${f[1]:t}%.jsonl}" ;;
+    codex)
+      for f in "$HOME"/.codex/sessions/**/*.jsonl(N.om); do
+        id=$(head -n 1 -- "$f" | jq -r --arg r "$root" \
+          'select(.payload.cwd == $r) | .payload.id // empty' 2>/dev/null)
+        [[ -n $id ]] && { print -r -- "$id"; return 0 }
+      done
+      return 1 ;;
+    agy)
+      f=$HOME/.gemini/antigravity-cli/history.jsonl
+      [[ -r $f ]] || return 1
+      id=$(jq -r --arg r "$root" \
+        'select(.workspace == $r and .conversationId) | .conversationId' "$f" 2>/dev/null | tail -n 1)
+      [[ -n $id ]] || return 1
+      print -r -- "$id" ;;
+    *) return 1 ;;
+  esac
+}
+
+# _agent_stash_copy ENGINE ROOT CONV DIR: copy what resuming CONV needs into
+# the staging directory DIR. Missing transcripts are not an error here; the
+# row still restores the agent, as a fresh conversation if it has to.
+_agent_stash_copy() {
+  local engine=$1 root=$2 conv=$3 dir=$4 src f
+  case $engine in
+    claude)
+      src=$HOME/.claude/projects/$(_agent_stash_key "$root")
+      [[ -d $src && ! -d $dir/claude/${src:t} ]] || return 0
+      mkdir -p -- "$dir/claude" && cp -R -- "$src" "$dir/claude/" ;;
+    codex)
+      for f in "$HOME"/.codex/sessions/**/*"$conv".jsonl(N.); do
+        mkdir -p -- "$dir/codex/${${f#$HOME/.codex/sessions/}:h}"
+        cp -p -- "$f" "$dir/codex/${f#$HOME/.codex/sessions/}"
+      done ;;
+    agy)
+      src=$HOME/.gemini/antigravity-cli
+      mkdir -p -- "$dir/agy/conversations" "$dir/agy/brain" "$dir/agy/annotations"
+      [[ -f $src/conversations/$conv.db ]] && cp -p -- "$src/conversations/$conv.db" "$dir/agy/conversations/"
+      [[ -d $src/brain/$conv ]] && cp -R -- "$src/brain/$conv" "$dir/agy/brain/"
+      [[ -f $src/annotations/$conv.pbtxt ]] && cp -p -- "$src/annotations/$conv.pbtxt" "$dir/agy/annotations/"
+      return 0 ;;
+  esac
+}
+
+agent-stash-all() {
+  _agent_job_guard || return
+  (( $+commands[jq] )) || { print -u2 "agent-stash-all: needs jq"; return 1 }
+  local file=${1-}
+  if [[ -z $file ]]; then
+    local sdir=${AGENT_STASH_DIR:-$HOME/dot_files/logs}
+    [[ -d $sdir ]] || sdir=$PWD
+    file=$sdir/agent-stash-$(date +%Y%m%d-%H%M%S).tgz
+  fi
+  [[ $file == /* ]] || file=$PWD/$file
+  local stage; stage=$(mktemp -d "${TMPDIR:-/tmp}/agent-stash.XXXXXX") || return 1
+  chmod 700 "$stage"
+
+  local -a labels; labels=(${(f)"$(_agent_job_labels)"})
+  local -A pinned_by
+  local label engine task wd conv rel remote commit key
+  local -i rows=0 fresh=0
+  {
+    print -r -- "# $_AGENT_STASH_FORMAT"
+    print -r -- "# home=$HOME"
+    print -r -- "# host=${HOST:-$(hostname)}"
+    print -r -- "# created=$(_job_now)"
+  } > "$stage/manifest.tsv"
+  for label in "${labels[@]}"; do
+    [[ -n $label ]] || continue
+    _agent_agent_session "$label" >/dev/null || continue     # not an agent
+    engine=$(_agent_agent_engine "$label") || continue
+    task=${label##*.}
+    wd=$(_agent_agent_wd "$label")
+    [[ -n $wd ]] || { print -u2 "agent-stash-all: $label has no checkout recorded; skipped"; continue }
+    conv=$(_agent_agent_conversation "$label" 2>/dev/null) || conv=""
+    if [[ -z $conv ]]; then
+      key="$engine $wd"
+      if [[ -n ${pinned_by[$key]-} ]]; then
+        print -u2 "agent-stash-all: $label shares $wd with ${pinned_by[$key]}, which got its newest $engine conversation; stashed as a fresh start"
+      else
+        conv=$(_agent_stash_newest "$engine" "$wd") \
+          || print -u2 "agent-stash-all: no $engine conversation found for $label in $wd; stashed as a fresh start"
+        [[ -n $conv ]] && pinned_by[$key]=$label
+      fi
+    fi
+    [[ -n $conv ]] && _agent_stash_copy "$engine" "$wd" "$conv" "$stage"
+    [[ -n $conv ]] || (( fresh++ ))
+    rel=$wd; [[ $wd == $HOME/* ]] && rel=${wd#$HOME/}
+    remote=$(git -C "$wd" remote get-url origin 2>/dev/null)
+    commit=$(git -C "$wd" rev-parse HEAD 2>/dev/null)
+    print -r -- "$engine"$'\t'"$task"$'\t'"$rel"$'\t'"${conv:--}"$'\t'"${remote:--}"$'\t'"${commit:--}" \
+      >> "$stage/manifest.tsv"
+    print -u2 "agent-stash-all: $engine $task  ${rel}  ${conv:-(fresh)}"
+    (( rows++ ))
+  done
+  if (( ! rows )); then
+    command rm -rf -- "$stage"
+    print -u2 "agent-stash-all: no registered agents to stash"
+    return 1
+  fi
+  # umask in a subshell so the archive is never readable by others, not even
+  # between its creation and a chmod. COPYFILE_DISABLE keeps macOS tar from
+  # adding ._ resource-fork files.
+  ( umask 077 && COPYFILE_DISABLE=1 tar -czf "$file" -C "$stage" . ) \
+    || { command rm -rf -- "$stage"; print -u2 "agent-stash-all: could not write $file"; return 1 }
+  chmod 600 "$file"
+  command rm -rf -- "$stage"
+  print -u2 "agent-stash-all: $rows agents${${fresh:#0}:+ ($fresh without a conversation)} -> $file"
+  print -u2 "agent-stash-all: restore with: agent-stash-pop ${(q)file}"
+}
+
+agent-stash-pop() {
+  _agent_job_guard || return
+  local dry=0
+  [[ ${1-} == (-n|--dry-run) ]] && { dry=1; shift }
+  (( $# == 1 )) || { print -u2 "usage: agent-stash-pop [--dry-run] FILE"; return 64 }
+  local file=$1
+  [[ -r $file ]] || { print -u2 "agent-stash-pop: cannot read $file"; return 1 }
+  local stage; stage=$(mktemp -d "${TMPDIR:-/tmp}/agent-stash.XXXXXX") || return 1
+  chmod 700 "$stage"
+  tar -xzf "$file" -C "$stage" \
+    || { command rm -rf -- "$stage"; print -u2 "agent-stash-pop: $file is not a readable .tar.gz"; return 1 }
+  local man=$stage/manifest.tsv
+  if [[ "$(head -n 1 -- "$man" 2>/dev/null)" != "# $_AGENT_STASH_FORMAT" ]]; then
+    command rm -rf -- "$stage"
+    print -u2 "agent-stash-pop: $file is not an $_AGENT_STASH_FORMAT stash"
+    return 1
+  fi
+  local src_home src_host
+  src_home=$(sed -n 's/^# home=//p' "$man"); src_host=$(sed -n 's/^# host=//p' "$man")
+  print -u2 "agent-stash-pop: stash from $src_host ($src_home)${${dry:#0}:+ -- dry run, nothing changes}"
+
+  # Transcripts first: never overwrite, so popping onto the machine that made
+  # the stash (or popping twice) changes nothing that is already there.
+  local engine task rel conv remote commit wd old f dst
+  local -a missing
+  if (( ! dry )); then
+    local agy=$HOME/.gemini/antigravity-cli
+    if [[ -d $stage/agy ]]; then
+      mkdir -p -- "$agy/conversations" "$agy/brain" "$agy/annotations"
+      cp -Rn -- "$stage/agy/conversations/." "$agy/conversations/" 2>/dev/null
+      cp -Rn -- "$stage/agy/brain/." "$agy/brain/" 2>/dev/null
+      cp -Rn -- "$stage/agy/annotations/." "$agy/annotations/" 2>/dev/null
+    fi
+  fi
+  while IFS=$'\t' read -r engine task rel conv remote commit; do
+    [[ -z $engine || $engine == \#* ]] && continue
+    [[ $rel == /* ]] && wd=$rel || wd=$HOME/$rel
+    [[ $rel == /* ]] && old=$rel || old=$src_home/$rel
+    [[ $conv == - ]] && conv=""
+    if [[ ! -d $wd ]]; then
+      missing+=("$wd")
+      if [[ $remote != - ]]; then
+        print -u2 "agent-stash-pop: $engine $task: $wd is missing -- clone it, then pop again:"
+        print -u2 "    git clone ${(q)remote} ${(q)wd}${${commit:#-}:+ && git -C ${(q)wd} checkout $commit}"
+      else
+        print -u2 "agent-stash-pop: $engine $task: $wd is missing and had no origin remote; skipped"
+      fi
+      continue
+    fi
+    if (( dry )); then
+      print -u2 "agent-stash-pop: would restore $engine $task in $wd (${conv:-fresh})"
+      continue
+    fi
+    case $engine in
+      claude)
+        f=$stage/claude/$(_agent_stash_key "$old")
+        dst=$HOME/.claude/projects/$(_agent_stash_key "$wd")
+        [[ -d $f ]] && { mkdir -p -- "$dst" && cp -Rn -- "$f/." "$dst/" }
+        ;;
+      codex)
+        # codex resume asks which directory to use when the session's
+        # recorded cwd is not the current one; on a new machine the recorded
+        # one does not exist, so the copied rollout is told the new path.
+        for f in "$stage"/codex/**/*"$conv".jsonl(N.); do
+          [[ -n $conv ]] || break
+          dst=$HOME/.codex/sessions/${f#$stage/codex/}
+          [[ -e $dst ]] && continue
+          mkdir -p -- "${dst:h}"
+          if [[ $old != "$wd" ]]; then
+            # Literal JSON-string match; a path holding `|', `&' or `\' would
+            # need escaping that no checkout here has.
+            sed "s|\"cwd\":\"$old\"|\"cwd\":\"$wd\"|g" "$f" > "$dst"
+          else
+            cp -p -- "$f" "$dst"
+          fi
+        done ;;
+    esac
+    if [[ -n $conv ]]; then
+      ( cd "$wd" && agent-adopt "$engine" --no-attach "$task" "$conv" ) 2>&1 | grep -v -e "registered agent" -e "left .* detached" -e "relaunch-at-login agent" >&2
+    else
+      ( cd "$wd" && AGENT_JOB_CONFIRM=no agent-run "$engine" "$task" </dev/null ) 2>&1 | grep -v -e "registered agent" -e "relaunch-at-login agent" >&2
+    fi
+  done < "$man"
+  command rm -rf -- "$stage"
+  (( dry )) && return 0
+
+  # The Herdr half, when a Herdr server answers here; otherwise herdr-revive
+  # later finds the sessions up and only opens them.
+  if (( $+commands[herdr] )) && herdr api snapshot >/dev/null 2>&1; then
+    local e; for e in claude agy codex cursor; do agent-herdr "$e" --all 2>/dev/null; done
+  else
+    print -u2 "agent-stash-pop: no Herdr server here; start \`herdr', then herdr-revive to open the tabs"
+  fi
+  (( $#missing )) && print -u2 "agent-stash-pop: ${#missing} agents skipped for missing checkouts (above)"
+  if [[ $src_home != "$HOME" || $src_host != "${HOST:-$(hostname)}" ]]; then
+    print -u2 "agent-stash-pop: the originals still run on $src_host -- agent-rm them there, or each checkout has two agents"
+  fi
+  return 0
 }
 
 # ---------------------------------------------------------------------------

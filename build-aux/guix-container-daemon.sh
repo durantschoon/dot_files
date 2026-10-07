@@ -12,6 +12,9 @@ rm -f /var/guix/daemon-socket/socket
 # Commit signing through the Mac's gpg-agent (make setup-gpg-bridge); a no-op
 # with a message on stderr until socat is in the profile.
 /root/dot_files/build-aux/guix-container-gpg-bridge.sh &
+# Agent sessions from the registry (the relaunch half of herdr-revive); see
+# the script for why the Herdr half stays manual.
+/bin/sh /root/dot_files/build-aux/guix-container-agent-revive.sh &
 exec /root/.config/guix/current/bin/guix-daemon \
     --disable-chroot --build-users-group=guixbuild \
     --substitute-urls='https://ci.guix.gnu.org https://bordeaux.guix.gnu.org'
