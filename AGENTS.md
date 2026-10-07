@@ -51,6 +51,7 @@ For standard shell setup not related to the background job runners:
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
 *   **Prompt configuration:** `.zshrc.starship`, `starship/starship.toml`
 *   **Herdr config & tool:** `herdr/config.toml` (linked by `make set_up_links`; binary installed by `bin/install-herdr.sh` via `make install-herdr`, `apply`, or `setup-native`)
+*   **macOS Packages (Homebrew):** `set_up_links` and `setup-native` install the Ghostty cask and Yazi (+ media-handling stack) on macOS; also available via `make install-ghostty` and `make install-yazi`
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`, `bin/mr-clone` (clone a configured repo by name anywhere)
 *   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` targets in `Makefile`, and `bin/gpg-new-machine` (`make gpg-new-machine`: interactive first-time key transfer). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`.
 
