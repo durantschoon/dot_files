@@ -315,6 +315,9 @@ help-text:
 	@echo "  make setup-timezone - Point /etc/localtime at TIMEZONE (default America/New_York;"
 	@echo "                       foreign distros such as orb-guix; needs root)"
 	@echo "  make check-timezone - Verify /etc/localtime matches TIMEZONE"
+	@echo "  make setup-locale - Generate LOCALE (default en_US.UTF-8) for the distro glibc"
+	@echo "                       (foreign distros such as orb-guix and WSL; apt; needs root)"
+	@echo "  make check-locale - Verify LOCALE is installed (fixes setlocale warnings)"
 	@echo "  make setup-radicle - Run radicle-node as a LaunchAgent so it survives reboots (mac only;"
 	@echo "                       stops a hand-started node first, see docs/MYREPOS.md)"
 	@echo "  make check-radicle - Verify rad, the identity, the LaunchAgent and the node"
@@ -545,10 +548,7 @@ ifeq ($(flavor), $(FLAVOR_WSL))
 
 # this will fix error
 # bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
-	echo "LC_ALL=en_US.UTF-8" >> /etc/environment
-	echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
-	echo "LANG=en_US.UTF-8" > /etc/locale.conf
-	locale-gen en_US.UTF-8
+	$(MAKE) --no-print-directory setup-locale
 	./install_fonts_wsl.sh
 
 endif
@@ -1939,6 +1939,60 @@ check-timezone:
 	  echo "  ok: /etc/localtime -> $$zone ($$(date +'%Z, UTC%:z'))"; \
 	else \
 	  echo "  *** /etc/localtime -> $${zone:-?}, expected $(TIMEZONE); run: sudo make setup-timezone ***"; \
+	  exit 1; \
+	fi
+
+.PHONY: setup-locale check-locale
+# System locale for foreign-distro hosts (orb-guix, WSL and other Debian/Ubuntu
+# boxes running Guix Home).  .shared.zshrc exports LC_ALL/LANG=$(LOCALE), but
+# the distro's own binaries (/bin/bash, apt, ...) link the distro glibc, which
+# ignores GUIX_LOCPATH and only sees locales generated under /usr/lib/locale.
+# A bare Debian image has just C, C.utf8 and POSIX, so every such process warns
+#   bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+# These targets generate the locale on the distro side.  On Guix System the
+# locale is declarative instead -- the (locale ...) field of the system config.
+LOCALE ?= en_US.UTF-8
+# The charset half of LOCALE, e.g. UTF-8: the second column of /etc/locale.gen.
+LOCALE_CHARSET = $(lastword $(subst ., ,$(LOCALE)))
+# Runs a distro tool with none of Guix Home's environment.  locale-gen calls
+# localedef by name, and Guix's localedef (first on PATH) writes the archive to
+# /run/current-system/locale, which exists only on Guix System -- so the locale
+# is silently never built.  PERL5LIB likewise points debconf at Guix's perl
+# modules.  LC_ALL=C because the locale being generated does not exist yet.
+DISTRO_ENV = env -u PERL5LIB PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive
+
+setup-locale:
+ifneq ($(GUIX_SYSTEM),)
+	@echo "Guix System: set (locale \"$(LOCALE)\") in the system config, then 'make reconfigure'."
+	@exit 1
+else ifeq ($(PACKAGE_MANAGER),apt)
+	@# Container images ship with /var/lib/apt/lists emptied, so refresh first.
+	$(DISTRO_ENV) apt-get update
+	$(DISTRO_ENV) apt-get install -y locales
+	@# Uncomment the entry Debian ships commented out; append it if absent.
+	sed -i 's/^# *\($(LOCALE) \)/\1/' /etc/locale.gen
+	grep -qx '$(LOCALE) $(LOCALE_CHARSET)' /etc/locale.gen || \
+	  echo '$(LOCALE) $(LOCALE_CHARSET)' >> /etc/locale.gen
+	$(DISTRO_ENV) locale-gen
+	$(DISTRO_ENV) update-locale LANG=$(LOCALE)
+	@$(MAKE) --no-print-directory check-locale
+else
+	@echo "setup-locale knows apt only (package manager here: $(PACKAGE_MANAGER));"
+	@echo "generate $(LOCALE) with the distro's own tools."
+	@exit 1
+endif
+
+# Asks /usr/bin/locale, the distro's, by full path: Guix Home puts its own
+# locale first on PATH, and that one lists only C and POSIX however many
+# locales the distro glibc has.  Compares names case- and dash-insensitively:
+# glibc's locale -a prints en_US.utf8, macOS prints en_US.UTF-8.
+check-locale:
+	@lister=/usr/bin/locale; [ -x $$lister ] || lister=locale; \
+	want=$$(echo '$(LOCALE)' | tr 'A-Z' 'a-z' | tr -d -); \
+	if $$lister -a 2>/dev/null | tr 'A-Z' 'a-z' | tr -d - | grep -qxF "$$want"; then \
+	  echo "  ok: locale $(LOCALE) is installed"; \
+	else \
+	  echo "  *** locale $(LOCALE) is not installed; run: sudo make setup-locale ***"; \
 	  exit 1; \
 	fi
 
