@@ -10,6 +10,11 @@ services:
     environment:
       LANG: C.utf8
       LC_ALL: C.utf8
+      # This container's own name, for .jobs.zsh. JOB_HOSTS holds the homebase
+      # as `ctr:guix-dev', and a shell inside the container must recognise that
+      # entry as ITSELF -- there is no way to learn one's container name from
+      # inside ($HOSTNAME is the container id). Must match container_name.
+      JOB_CONTAINER_SELF: guix-dev
       GUIX_LOCPATH: /root/.guix-profile/lib/locale
       XDG_RUNTIME_DIR: /tmp/xdg-runtime-root
       # The Mac's gpg-agent, via the loopback socat LaunchAgent that

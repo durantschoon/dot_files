@@ -679,9 +679,11 @@ job-note-context() {
 # Hosts: one tmux namespace across machines
 # ---------------------------------------------------------------------------
 # tmux sessions are looked up on this machine ("local") and on every host in
-# JOB_HOSTS (ssh names). A host that is this machine, or that Tailscale reports
-# offline, is skipped, so the same JOB_HOSTS can be checked in and used from
-# every device. Names derive from the repo directory, so the same checkout on a
+# JOB_HOSTS -- an ssh name, or `ctr:<container>' for a container dialed with
+# the container CLI (see "Container hosts" below). A host that is this machine,
+# or that Tailscale reports offline (for a container: whose engine is absent or
+# whose container is not running), is skipped, so the same JOB_HOSTS can be
+# checked in and used from every device. Names derive from the repo directory, so the same checkout on a
 # phone and on the Mac agree on them, and a name therefore identifies ONE
 # session wherever it runs: tmux-go attaches to it there instead of creating a
 # twin. A new session goes to --on HOST, else $JOB_HOST, else local.
@@ -694,7 +696,12 @@ if (( ! ${+JOB_HOSTS} )); then
   if (( ${+JOB_HOSTS_EXPORT} )); then
     typeset -ga JOB_HOSTS=(${=JOB_HOSTS_EXPORT})
   else
-    typeset -ga JOB_HOSTS=(minius)
+    # The homebase: the one host checked alongside `local' by default.
+    # It is the Guix container, not the Mac -- that is where the work lives,
+    # and from inside the container this entry is self and costs nothing.
+    # The Mac's own sessions are still reachable with tmux-dash-universal.
+    # Add `minius' back here to have both checked by default.
+    typeset -ga JOB_HOSTS=(ctr:guix-dev)
   fi
 fi
 : ${JOB_HOST:=local}
@@ -745,11 +752,31 @@ _job_ts_status() {
 # Is HOST this machine? Compares with $HOST and the Tailscale self line.
 _job_is_self() {
   local h=${1:l}
+  # A container host is self when we are INSIDE that container, where `local'
+  # already covers its sessions. There is no way to learn one's own container
+  # NAME from inside it -- $HOST is the container id -- so the name is
+  # declared: compose.guix.yaml sets JOB_CONTAINER_SELF=guix-dev. Without it
+  # the entry is not self, and _job_host_offline then reports it unreachable
+  # (no container CLI inside the container), which skips it just as quietly.
+  if _job_host_is_ctr "$h"; then
+    [[ -n ${JOB_CONTAINER_SELF-} && ${h#ctr:} == ${(L)JOB_CONTAINER_SELF} ]]
+    return
+  fi
   [[ $h == local || $h == ${(L)HOST%%.*} ]] && return 0
   [[ -n $h && $h == $(_job_ts_status | awk 'NR==1 {print tolower($2)}') ]]
 }
 # Does Tailscale know HOST and say it is offline?
 _job_host_offline() {
+  # Tailscale answers for ssh hosts; for a container the equivalent questions
+  # are "is there an engine to ask" and "is the container running". Both are
+  # reachability, so both mean offline -- which is what keeps a stopped
+  # container, or a shell with no docker CLI at all (inside the container
+  # itself), from costing an error on every lookup.
+  if _job_host_is_ctr "$1"; then
+    _job_ctr_ready || return 0
+    _docker_running "$(_job_ctr_name "$1")" && return 1
+    return 0
+  fi
   _job_ts_status | awk -v h="${1:l}" 'NR > 1 && tolower($2) == h && /offline/ { f = 1 } END { exit !f }'
 }
 # Hosts worth asking: local first, then reachable JOB_HOSTS.
@@ -776,6 +803,14 @@ _job_hosts() {
       for h in "${ts_hosts[@]}"; do
         _job_is_self "$h" || (( ${reply[(I)$h]} )) || reply+=("$h")
       done
+      # Container hosts are not Tailscale nodes, so the tailnet walk above
+      # cannot see them -- and "every session on every compute platform" has
+      # to include the Guix container, which is where half the work lives.
+      # Taken from JOB_HOSTS, reachability-checked like any other host.
+      for h in "${JOB_HOSTS[@]}"; do
+        _job_host_is_ctr "$h" || continue
+        _job_is_self "$h" || _job_host_offline "$h" || (( ${reply[(I)$h]} )) || reply+=("$h")
+      done
     else
       local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || (( ${reply[(I)$h]} )) || reply+=("$h"); done
     fi
@@ -783,15 +818,44 @@ _job_hosts() {
     local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || reply+=("$h"); done
   fi
 }
+# ---------------------------------------------------------------------------
+# Container hosts: `ctr:<container>' in JOB_HOSTS
+# ---------------------------------------------------------------------------
+# A JOB_HOSTS entry is normally an ssh name. The Guix container this repo runs
+# under OrbStack cannot be one: it has no sshd, no tailscale, and its hostname
+# is the container id, so `orb-guix' is an alias for a `docker exec' and
+# nothing else. Making it the homebase therefore belongs HERE, at the one
+# chokepoint every host lookup already goes through, rather than in each caller.
+#
+# `ctr:guix-dev' is dialed with the container CLI. Two things fall out for free:
+# argv needs no remote-shell quoting (exec takes it directly, unlike ssh), and
+# `docker exec' carries no ControlMaster, BatchMode or connect timeout, so none
+# of the ssh option sets apply.
+_job_host_is_ctr() { [[ $1 == ctr:* ]] }
+_job_ctr_name()    { print -r -- "${1#ctr:}" }
+# The CLI probe, silenced. Host enumeration walks every JOB_HOSTS entry on
+# every lookup, and _docker_guard's "no working container engine" advice is
+# right for a `docker-*' verb the user typed and wrong as a per-lookup warning.
+# A host whose engine is absent is reported offline instead (_job_host_offline).
+_job_ctr_ready() { _docker_guard >/dev/null 2>&1 }
+
 # Run tmux on HOST, arguments quoted for the remote shell.
 _job_tmux() {
   local host=$1; shift
-  if [[ $host == local ]]; then tmux "$@"; else ssh "${_JOB_SSH_OPTS[@]}" "$host" "tmux ${(j: :)${(qq)@}}"; fi
+  if [[ $host == local ]]; then tmux "$@"
+  elif _job_host_is_ctr "$host"; then
+    _job_ctr_ready || return 1
+    _job_ctr exec "$(_job_ctr_name "$host")" tmux "$@"
+  else ssh "${_JOB_SSH_OPTS[@]}" "$host" "tmux ${(j: :)${(qq)@}}"; fi
 }
 # Run a shell snippet on HOST (for things that need the remote's $HOME).
 _job_sh() {
   local host=$1; shift
-  if [[ $host == local ]]; then sh -c "$*"; else ssh "${_JOB_SSH_OPTS[@]}" "$host" "$*"; fi
+  if [[ $host == local ]]; then sh -c "$*"
+  elif _job_host_is_ctr "$host"; then
+    _job_ctr_ready || return 1
+    _job_ctr exec "$(_job_ctr_name "$host")" sh -c "$*"
+  else ssh "${_JOB_SSH_OPTS[@]}" "$host" "$*"; fi
 }
 # The same, but with a terminal: for a remote command that IS an interactive
 # program -- today, the notes editor behind the picker's ctrl-e. Carries the
@@ -801,6 +865,9 @@ _job_sh() {
 _job_sh_tty() {
   local host=$1; shift
   if [[ $host == local ]]; then sh -c "$*"
+  elif _job_host_is_ctr "$host"; then
+    _job_ctr_ready || return 1
+    _job_ctr exec -it "$(_job_ctr_name "$host")" sh -c "$*"
   else ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "$*"
   fi
 }
@@ -878,6 +945,11 @@ _job_tmux_attach() {
   [[ $mode == ro ]] && flag=-r
   if [[ $host == local ]]; then
     if [[ -n $TMUX ]]; then tmux switch-client -t "=$name"; else tmux attach-session $flag -t "=$name"; fi
+  elif _job_host_is_ctr "$host"; then
+    [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the container's one)"
+    _job_ctr_ready || return 1
+    # -it, because this one IS the interactive attach.
+    _job_ctr exec -it "$(_job_ctr_name "$host")" tmux attach-session $flag -t "=$name"
   else
     [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the remote one)"
     ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session $flag -t ${(qq):-=$name}"
