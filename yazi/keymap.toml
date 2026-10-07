@@ -1,3 +1,40 @@
-# Yazi keymap configuration
-# Synced across machines via dot_files
-# (Populated from ~/.config/yazi/keymap.toml)
+# ~/.config/yazi/keymap.toml
+
+[manager]
+prepend_keymap = [
+    # Navigation: Next / Previous line (C-n / C-p)
+    { on = "<C-n>", run = "arrow 1",  desc = "Move cursor down" },
+    { on = "<C-p>", run = "arrow -1", desc = "Move cursor up" },
+
+    # Navigation: Enter / Leave Directory (C-f / C-b)
+    { on = "<C-f>", run = "enter", desc = "Enter the child directory" },
+    { on = "<C-b>", run = "leave", desc = "Go back to the parent directory" },
+
+    # Scrolling the preview pane (M-v / C-v)
+    { on = "<A-v>", run = "peek -5", desc = "Scroll preview up" },
+    { on = "<C-v>", run = "peek 5",  desc = "Scroll preview down" },
+
+    # Go to beginning / end of list (M-< / M->)
+    { on = "<A-<>", run = "arrow top",    desc = "Move cursor to the top" },
+    { on = "<A->>", run = "arrow bottom", desc = "Move cursor to the bottom" },
+
+    # Kill / Yank (Cut & Copy)
+    { on = "<C-w>", run = "yank --cut", desc = "Cut selected files" },
+    { on = "<A-w>", run = "yank",       desc = "Copy selected files" },
+    { on = "<C-y>", run = "paste",      desc = "Paste yanked files" },
+
+    # Cancel or Escape (C-g)
+    { on = "<C-g>", run = "escape", desc = "Cancel or exit visual mode" }
+]
+
+[input]
+prepend_keymap = [
+    # Emacs line-editing bindings inside text prompts (rename, search, etc.)
+    { on = "<C-a>", run = "move backward", desc = "Move cursor to line start" },
+    { on = "<C-e>", run = "move forward",  desc = "Move cursor to line end" },
+    { on = "<C-f>", run = "move forward",  desc = "Move cursor right" },
+    { on = "<C-b>", run = "move backward", desc = "Move cursor left" },
+    { on = "<C-d>", run = "delete forward", desc = "Delete character under cursor" },
+    { on = "<C-k>", run = "kill forward",   desc = "Kill text to end of line" },
+    { on = "<C-g>", run = "close",          desc = "Cancel input prompt" }
+]
