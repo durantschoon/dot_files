@@ -14,6 +14,13 @@
 #                                 recover missing sessions for this engine;
 #                                 at most one per checkout, with live sessions
 #                                 taking precedence over missing siblings.
+# agent-adopt ENGINE [--no-attach] TASK CONVERSATION_ID
+#                                 wrap an EXISTING conversation in a tracked
+#                                 session, pinned by id so recovery returns to
+#                                 that conversation and not merely the newest.
+#                                 This is how several agents share a checkout.
+# agent-conversations ENGINE      this checkout's conversation ids, newest
+#                                 first, with the first user message as a hint.
 # agent-rm ENGINE TASK             remove the session and registered agent; keep
 #                                 the transcript, including unloaded plists.
 # agent-help [ENGINE]              show help, including startup/resume syntax.
@@ -57,8 +64,11 @@ _agent_conf_get() {
   return 1
 }
 
+# Write a label's definition. CONVERSATION is optional and set only by
+# agent-adopt: it records which conversation the relaunch command pins, so the
+# registry can be read back and audited without parsing that command.
 _agent_conf_save() {
-  local label=$1 engine=$2 task=$3 name=$4 root=$5 relaunch=$6
+  local label=$1 engine=$2 task=$3 name=$4 root=$5 relaunch=$6 conversation=${7-}
   local conf=$(_agent_conf_file "$label")
   local tmp="${conf}.tmp.$$"
   {
@@ -66,6 +76,7 @@ _agent_conf_save() {
     print -r -- "task=$task"
     print -r -- "name=$name"
     print -r -- "root=$root"
+    [[ -n $conversation ]] && print -r -- "conversation=$conversation"
     print -r -- "relaunch=$relaunch"
   } > "$tmp" && mv -f "$tmp" "$conf"
 }
@@ -194,6 +205,13 @@ agent-run() {
       || { print -u2 "agent-run: session is up but the relaunch agent failed to load (launchd-status $task)"; return 1 }
     print -u2 "agent-run: relaunch-at-login agent $label loaded"
   else
+    # The record every other runner writes (tmux-run, launchd-run, docker-run
+    # all call _job_record). launchd-run wrote it for us on darwin and nothing
+    # did here, so this checkout had no account of WHEN the task was started --
+    # and agent-relaunch's documented "newest record wins" rule silently
+    # degraded to comparing definition mtimes on every non-darwin host.
+    _job_record "$task" "at=$(_job_now)" runner=registry "root=$root" \
+      restart=no "cmd=$(_job_quote_argv /bin/sh -c "$relaunch")"
     print -u2 "agent-run: registered agent $label"
   fi
   _job_tmux_attach local "$name"
@@ -336,6 +354,19 @@ _agent_agent_relaunch_cmd() {
     return 0
   fi
   command plutil -extract ProgramArguments.4 raw -o - -- "$path" 2>/dev/null
+}
+
+# The conversation an adopted agent is pinned to, and failure for an ordinary
+# --continue agent. Only the registry records it: a legacy plist predates
+# agent-adopt, so a plist-only agent is never pinned.
+_agent_agent_conversation() {
+  local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
+  [[ -n $meta[1] ]] || return 1
+  local type=${meta[1]%% *} path=${meta[1]#* }
+  [[ $type == conf ]] || return 1
+  local conv; conv=$(_agent_conf_get "$path" "conversation") || return 1
+  [[ -n $conv ]] || return 1
+  print -r -- "$conv"
 }
 
 # Names are shared with plain tmux/launchd jobs. Check BOTH resources before
@@ -500,7 +531,7 @@ agent-relaunch() {
   # Survey all tasks of this ENGINE before filtering by TASK: a live sibling
   # of the same engine holds the checkout; another engine does not.
   local -a labels; labels=(${(f)"$(_agent_job_labels)"})
-  local -A nameof wdof taskof holder
+  local -A nameof wdof taskof holder pinned
   local -a missing live
   local label name wd
   for label in "${labels[@]}"; do
@@ -509,10 +540,15 @@ agent-relaunch() {
     [[ $(_agent_agent_engine "$label") == "$engine" ]] || continue
     wd=$(_agent_agent_wd "$label")
     nameof[$label]=$name; wdof[$label]=$wd; taskof[$label]=${label##*.}
+    # An adopted agent resumes a conversation BY ID (agent-adopt), so it does
+    # not compete for the checkout's single "most recent conversation": it
+    # neither holds the checkout against its siblings nor can be outranked by
+    # them. Only --continue agents are subject to the one-per-checkout rule.
+    _agent_agent_conversation "$label" >/dev/null 2>&1 && pinned[$label]=1
     if tmux has-session -t "=$name" 2>/dev/null; then
       live+=("$label")
-      # First live agent seen in a checkout is the one named as its holder.
-      [[ -n $wd && -z ${holder[$wd]-} ]] && holder[$wd]=$label
+      # First live --continue agent seen in a checkout is named as its holder.
+      [[ -n $wd && -z ${pinned[$label]-} && -z ${holder[$wd]-} ]] && holder[$wd]=$label
     else
       missing+=("$label")
     fi
@@ -549,6 +585,13 @@ agent-relaunch() {
   local cur a_at b_at a_mt b_mt why
   for label in "${missing[@]}"; do
     wd=$wdof[$label]
+    # Pinned by id: its conversation is its own, so there is nothing to
+    # de-duplicate it against and it is always recovered. Keyed by label
+    # rather than by checkout, which is what lets several share one.
+    if [[ -n ${pinned[$label]-} ]]; then
+      chosen[$label]=$label
+      continue
+    fi
     # A live session in this checkout beats every ranking below it: there is
     # nothing to rank, because the one conversation is already open.
     if [[ -n $wd && -n ${holder[$wd]-} ]]; then
@@ -604,6 +647,11 @@ agent-relaunch() {
     agent-status "$engine"
     return 0
   fi
+  # Declared OUTSIDE the loop on purpose: a bare `local name' re-declared in a
+  # later iteration makes zsh print `name=<previous value>' on stdout (it reads
+  # as a query, not a declaration). That leaked the whole relaunch command into
+  # the output as soon as one call could kick more than one agent.
+  local rcmd sh_bin=${commands[sh]:-/bin/sh}
   for wd in "${(k)chosen[@]}"; do
     label=$chosen[$wd]
     print -u2 "agent-relaunch: kickstarting $label ($nameof[$label]) in $wdof[$label]"
@@ -614,9 +662,7 @@ agent-relaunch() {
         print -u2 "agent-relaunch: kickstart of $label failed (launchd-status ${taskof[$label]})"
       fi
     else
-      local rcmd
       rcmd=$(_agent_agent_relaunch_cmd "$label")
-      local sh_bin=${commands[sh]:-/bin/sh}
       if [[ -n $rcmd ]] && $sh_bin -c "$rcmd" >/dev/null 2>&1; then
         kicked+=("$label")
       else
@@ -662,6 +708,158 @@ agent-rm() {
   fi
   tmux has-session -t "=$name" 2>/dev/null && { tmux kill-session -t "=$name" || return }
   print -u2 "agent-rm: '$task' removed (transcript kept; $engine $(_agent_resume_args "$engine") in the repo still resumes it)"
+}
+
+# ---------------------------------------------------------------------------
+# Adopting a conversation that predates the registry
+# ---------------------------------------------------------------------------
+# agent-run's recovery command resumes with `--continue', which is keyed on the
+# CHECKOUT: it reopens the most recent conversation whose cwd is the repo root.
+# That is why agent-relaunch kicks at most one agent per checkout -- there is
+# only one "most recent", and two --continue sessions in one tree would both
+# land on it.
+#
+# agent-adopt pins a conversation by ID instead. A session started that way
+# comes back as ITSELF, so several of them can share a checkout and each be
+# recovered independently. Two uses:
+#
+#   * sessions started by hand before the registry existed, which no verb knows
+#     about and which --continue can only reach one of;
+#   * deliberately keeping more than one conversation per repo.
+#
+# The ID is the engine's own conversation id; agent-conversations lists them.
+
+# Resume-by-id argv for ENGINE, in `reply'. An array rather than a string
+# because the id is substituted into it, and ${(z)} splitting a built string
+# would be one more quoting hazard for no gain.
+_agent_adopt_args() {
+  local engine=$1 conv=$2
+  typeset -ga reply; reply=()
+  case $engine in
+    claude) reply=(--permission-mode ${AGENT_JOB_MODE:-${CLAUDE_JOB_MODE:-auto}} --resume "$conv") ;;
+    agy)    reply=(--conversation "$conv") ;;
+    codex)  reply=(resume "$conv") ;;
+    cursor) reply=(--resume "$conv") ;;
+    *) print -u2 "agent-adopt: no resume-by-id form for '$engine'"; return 1 ;;
+  esac
+}
+
+# Where ENGINE keeps this checkout's transcripts. Claude Code's directory name
+# is the absolute path with every non-alphanumeric byte replaced by a dash
+# (/root/dot_files -> -root-dot-files), so it is derived, never guessed.
+_agent_conv_dir() {
+  local engine=$1 root=${2:-$(job-root)}
+  case $engine in
+    claude) print -r -- "$HOME/.claude/projects/${root//[^a-zA-Z0-9]/-}" ;;
+    codex)  print -r -- "$HOME/.codex/sessions" ;;
+    *) return 1 ;;
+  esac
+}
+
+# agent-conversations ENGINE: this checkout's conversation ids, newest first,
+# with the first user message as a hint for which is which.
+#
+# Only engines that keep transcripts in a readable per-checkout directory can
+# be enumerated. For the others the id has to come from the engine's own
+# picker; saying so is better than printing an empty list that reads as "none".
+agent-conversations() {
+  _agent_job_guard || return
+  local engine=$1
+  [[ -n $engine ]] || { print -u2 "usage: agent-conversations ENGINE"; return 64 }
+  _agent_engine_check "$engine" || return
+  local root dir
+  root=$(job-root)
+  dir=$(_agent_conv_dir "$engine" "$root") || {
+    print -u2 "agent-conversations: $engine keeps no per-checkout transcript directory; get the id from \`$engine\` itself, then: agent-adopt $engine TASK ID"
+    return 1
+  }
+  [[ -d $dir ]] || { print -u2 "agent-conversations: no $engine transcripts for $root (looked in $dir)"; return 1 }
+  local -a files; files=(${(f)"$(command ls -t -- "$dir"/*.jsonl 2>/dev/null)"})
+  (( $#files )) || { print -u2 "agent-conversations: no $engine transcripts for $root"; return 1 }
+  local f id when first
+  for f in "${files[@]}"; do
+    [[ -n $f ]] || continue
+    id=${${f:t}%.jsonl}
+    when=$(command date -r "$f" "+%Y-%m-%d %H:%M" 2>/dev/null)
+    # First user line of the transcript, truncated. Read with sed so a large
+    # transcript is not slurped just to describe it.
+    first=$(command sed -n 's/.*"role":"user".*"content":"\([^"]\{1,70\}\).*/\1/p' "$f" 2>/dev/null | command head -1)
+    printf '%s  %-38s %s\n' "${when:-?}" "$id" "${first:-(no user text)}"
+  done
+}
+
+# agent-adopt ENGINE [--no-attach] TASK CONVERSATION_ID
+#
+# Wrap an existing conversation in a tracked tmux session named for TASK, and
+# register it so agent-relaunch brings back THAT conversation.
+#
+# --no-attach registers and leaves the session detached, which is what adopting
+# a batch of tasks in one go needs: the default attach would block on the first.
+agent-adopt() {
+  _agent_job_guard || return
+  local engine=$1
+  [[ -n $engine ]] || { print -u2 "usage: agent-adopt ENGINE [--no-attach] TASK CONVERSATION_ID"; return 64 }
+  _agent_engine_check "$engine" || return
+  shift
+  local usage="usage: agent-adopt $engine [--no-attach] TASK CONVERSATION_ID"
+  local attach=1
+  while [[ ${1-} == -* ]]; do
+    case $1 in
+      --no-attach|-n) attach=0; shift ;;
+      *) print -u2 "agent-adopt: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
+    esac
+  done
+  (( $# == 2 )) || { print -u2 "$usage"; return 64 }
+  local task=$1 conv=$2
+  [[ -n $task && -n $conv ]] || { print -u2 "$usage"; return 64 }
+
+  local name root bin tmux_bin
+  name=$(job-name "$task") || return
+  root=$(job-root); bin=$(_agent_bin "$engine") || return; tmux_bin=${commands[tmux]:?tmux not on PATH}
+  _agent_job_check_owner "$engine" "$task" || return
+
+  _agent_adopt_args "$engine" "$conv" || return
+  local -a adopt; adopt=("${reply[@]}")
+  local -a cmd; cmd=("$bin" "${adopt[@]}")
+  # Quoted OUTSIDE double quotes: inside them zsh joins the array before (qq)
+  # applies and the whole command arrives as one word (the trap tmux-run
+  # documents).
+  local quoted_cmd=${(j: :)${(qq)cmd}}
+
+  local -a cenv; _job_tmux_env_flags local "$task"; cenv=("${reply[@]}")
+  local cenvq=${(j: :)${(qq)cenv}}; [[ -n $cenvq ]] && cenvq+=" "
+
+  if tmux has-session -t "=$name" 2>/dev/null; then
+    print -u2 "agent-adopt: '$name' is already running; refreshing its relaunch definition only"
+  else
+    job-init || return
+    tmux new-session -d -s "$name" -n "$engine" -c "$root" "${cenv[@]}" "$quoted_cmd" || return
+    tmux set-option -t "$name" @agent-job-engine "$engine" || return
+    print -u2 "agent-adopt: adopted $engine conversation $conv as '$name' at $root"
+  fi
+
+  # The same resume-by-id command is what recovery runs, so a relaunch returns
+  # to this conversation rather than to whichever one is newest.
+  local envp="export JOB_AGENT_ENGINE=$engine; "
+  [[ -n $TMUX_TMPDIR ]] && envp+="export TMUX_TMPDIR=${(qq)TMUX_TMPDIR}; "
+  local tmuxq=${(qq)tmux_bin}
+  local relaunch="${envp}${tmuxq} has-session -t ${(qq):-=$name} 2>/dev/null || $tmuxq new-session -d -s ${(qq)name} -n ${(qq)engine} -c ${(qq)root} ${cenvq}${(qq)quoted_cmd}; $tmuxq set-option -t ${(qq)name} @agent-job-engine ${(qq)engine}"
+  local label
+  label=$(launchd-label "$task") || return
+
+  _agent_conf_save "$label" "$engine" "$task" "$name" "$root" "$relaunch" "$conv"
+
+  if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+    launchd-run "$task" --restart no -- /bin/sh -c "$relaunch" 2>/dev/null \
+      || { print -u2 "agent-adopt: session is up but the relaunch agent failed to load (launchd-status $task)"; return 1 }
+    print -u2 "agent-adopt: relaunch-at-login agent $label loaded"
+  else
+    _job_record "$task" "at=$(_job_now)" runner=registry "root=$root" \
+      restart=no "cmd=$(_job_quote_argv /bin/sh -c "$relaunch")"
+    print -u2 "agent-adopt: registered agent $label"
+  fi
+  (( attach )) || { print -u2 "agent-adopt: left '$name' detached (tmux-go $task to attach)"; return 0 }
+  _job_tmux_attach local "$name"
 }
 
 # ---------------------------------------------------------------------------
@@ -740,6 +938,8 @@ agy-run() {
 agy-status()   { agent-status agy "$@" }
 agy-relaunch() { agent-relaunch agy "$@" }
 agy-rm()       { agent-rm agy "$@" }
+agy-adopt()         { agent-adopt agy "$@" }
+agy-conversations() { agent-conversations agy "$@" }
 agy-help()     { agent-help agy "$@" }
 
 # codex wrappers
@@ -757,6 +957,8 @@ codex-run() {
 codex-status()   { agent-status codex "$@" }
 codex-relaunch() { agent-relaunch codex "$@" }
 codex-rm()       { agent-rm codex "$@" }
+codex-adopt()         { agent-adopt codex "$@" }
+codex-conversations() { agent-conversations codex "$@" }
 codex-help()     { agent-help codex "$@" }
 
 # claude wrappers (backwards compatibility)
@@ -764,6 +966,8 @@ claude-run()      { agent-run claude "$@" }
 claude-status()   { agent-status claude "$@" }
 claude-relaunch() { agent-relaunch claude "$@" }
 claude-rm()       { agent-rm claude "$@" }
+claude-adopt()         { agent-adopt claude "$@" }
+claude-conversations() { agent-conversations claude "$@" }
 claude-help()     { agent-help claude "$@" }
 
 agent-help() {
@@ -779,7 +983,7 @@ agent-help() {
       next if /^# -\*-/;
       s/^# ?//;
       if ($e ne "agent") {
-        s/agent-(run|status|relaunch|rm|help)/$e-$1/g;
+        s/agent-(run|status|relaunch|adopt|conversations|rm|help)/$e-$1/g;
         s/ ENGINE\b//g;
         s/ \[ENGINE\]//g;
       }
