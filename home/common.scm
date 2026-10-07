@@ -626,6 +626,9 @@ socket alone, which any Linux X session has."
     ;; .aliases call.  Packaged in Guix proper (rust-apps) with substitutes,
     ;; so no Rust build.  Non-Guix hosts get it from `make install-uv'.
     "uv"
+    ;; node: `make update-codex' installs Codex with npm, and npm's codex
+    ;; launcher is a node script that execs the bundled native binary.
+    "node"
     ;; For bin/install-claude.sh: curl fetches the Claude Code binary, and
     ;; glibc provides the ld-linux loader its wrapper uses to run the
     ;; unmodified binary (no FHS /lib64 on Guix)
