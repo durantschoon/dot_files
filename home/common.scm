@@ -882,6 +882,8 @@ call, so extensions never collide; only genuine double ownership does."
                      `(".tmux.conf" ,(local-file "../.tmux.conf" "tmux.conf"))
                      `(".config/herdr/config.toml"
                        ,(local-file "../herdr/config.toml" "herdr-config.toml"))
+                     `(".config/yazi/keymap.toml"
+                       ,(local-file "../yazi/keymap.toml" "yazi-keymap.toml"))
                      ;; mg's startup file: backup-to-home-directory, so mg's
                      ;; foo~ backups land in ~/.mg.d rather than beside the
                      ;; file.  Emacs needs no counterpart -- .spacemacs.d sets

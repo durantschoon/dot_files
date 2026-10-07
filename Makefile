@@ -444,15 +444,13 @@ else
 	@bash bin/install-herdr.sh
 endif
 
-# Ghostty terminal emulator (Homebrew cask on macOS)
+# Ghostty terminal emulator (Homebrew cask on macOS, distro package on Linux)
 .PHONY: install-ghostty
 install-ghostty:
-ifeq ($(os),$(OS_MAC))
-	@brew list --cask ghostty > /dev/null 2>&1 || [ -d /Applications/Ghostty.app ] \
-		&& echo "Found Ghostty, not installing" \
-		|| brew install --cask ghostty
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: Ghostty is not currently supported natively on Windows"
 else
-	@echo "install-ghostty: currently only supported via Homebrew on macOS"
+	@bash bin/install-ghostty.sh
 endif
 
 # Yazi and its media-handling stack (Homebrew on macOS)
@@ -660,6 +658,11 @@ ifeq ($(UNAME_S),Darwin)
 	@mkdir -p ~/Library/Application\ Support/herdr
 	ln -si ~/dot_files/herdr/config.toml ~/Library/Application\ Support/herdr/config.toml || echo
 endif
+	@# Yazi keymap config
+	@mkdir -p ~/.config/yazi
+	@if [ -f ~/dot_files/yazi/keymap.toml ]; then \
+		ln -si ~/dot_files/yazi/keymap.toml ~/.config/yazi/keymap.toml || echo; \
+	fi
 
 	@# ~/.zprofile used to be a hand-maintained copy that also sourced
 	@# ~/.bash_profile and ~/.zshrc (so every rc ran twice on macOS) and held
