@@ -2790,6 +2790,8 @@ endif
 # long path overruns its 28 characters and the padding disappears.  Only on a
 # terminal, and never with NO_COLOR set or TERM=dumb: piped into a file, a
 # pager or `grep', the output stays plain text with no escape codes in it.
+# An absent path is printed dim instead, the whole row: nothing is there to
+# look at, so it should not compete with the rows that are.
 #
 # Exit status.  Normally: non-zero only when a generation is active and
 # something is wrong, so `make check' stays green on a native-only machine
@@ -2810,9 +2812,9 @@ check-home-ownership:
 	dfroot="$$(cd "$(DOTFILES_HOME)" 2>/dev/null && pwd -P)"; \
 	[ -n "$$dfroot" ] || dfroot="/nonexistent"; \
 	conflicts=0; hazards=0; inactive=0; espanso_off=0; \
-	c1=""; c0=""; \
+	c1=""; c0=""; cd=""; \
 	if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
-	  c1="$$(printf '\033[36m')"; c0="$$(printf '\033[0m')"; \
+	  c1="$$(printf '\033[36m')"; c0="$$(printf '\033[0m')"; cd="$$(printf '\033[2m')"; \
 	fi; \
 	for p in $$claimed; do \
 	  t="$$HOME/$$p"; \
@@ -2854,6 +2856,7 @@ check-home-ownership:
 	      else \
 	        printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
 	      fi ;; \
+	    absent*) printf '    %s%-47s %s%s\n' "$$cd" "$$p" "$$owner" "$$c0" ;; \
 	    *) printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
 	  esac; \
 	done; \
