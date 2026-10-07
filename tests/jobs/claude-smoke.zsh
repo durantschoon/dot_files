@@ -21,117 +21,34 @@ setopt no_nomatch
 typeset -g WT=${${0:A:h}:h:h}
 
 # --------------------------------------------------------------------------
-# The launchd gate
+# The launchd split
 # --------------------------------------------------------------------------
-# claude-run's second half IS a launchd agent, and launchd is macOS's init:
-# _agent_job_guard refuses outright off darwin ("the relaunch half is launchd,
-# macOS only"), so on Linux every claude-* verb below returns before it does
-# anything at all. This is a feature probe, not a `uname' switch, for the
-# reason _docker_guard is one.
+# agent-run's second half used to be launchd and nothing else, so off darwin
+# every claude-* verb returned before doing anything and this suite skipped
+# itself whole. That is no longer true: the registry under
+# ${XDG_DATA_HOME:-$HOME/.local/share}/agent-jobs carries the same definition
+# on every platform, and agent-relaunch kickstarts from it with `sh -c'. So the
+# suite now RUNS on Linux, Guix and WSL, and only the genuinely
+# launchd-specific assertions are skipped one at a time.
 #
-# Measured on the Guix host before this gate went in -- and the reason the gate
-# is a whole-suite skip rather than a best-effort run:
+# What stays launchd-only, and why each is a macOS fact rather than a gap:
 #
-#   claude-smoke: 7/27 passed
+#   * `launchctl print' liveness -- there is no user-level init to ask.
+#     Registration is asserted against the registry conf instead.
+#   * RunAtLoad -- relaunch-at-login is launchd's doing. Elsewhere recovery is
+#     the agent-relaunch verb the user types, which IS exercised below.
+#   * the per-task program-name symlink -- cosmetics for macOS's Login Items
+#     list ("Allow in the Background"), which nothing else has.
 #
-# Twenty failed, and the other five PASSED VACUOUSLY: "claude did NOT get
-# --continue on first start", "second claude-run with a prompt is refused",
-# "session removed", "agent unloaded" and "plist deleted" are every one of them
-# satisfied by a Claude that never started, an agent that was never loaded and
-# a plist that was never written. A green line standing for that is worse than
-# no line, so each assertion is named and skipped instead. The one assertion
-# that needs no launchd -- the make wiring -- still runs for real.
-typeset -g N=0 FAILS=0 N_SKIP=0
-skip() { (( N_SKIP++ )); print "  SKIP $1  -- $2" }
-if (( ! $+commands[launchctl] )); then
-  print "claude-smoke: no launchctl on this host -- claude-run is launchd-only"
-  local m
-  for m in \
-    "the private socket path is under the 100-byte limit" \
-    "\$TMUX_TMPDIR is this run's private server" \
-    "claude-run exits 0" \
-    "tmux session <slug>-t1 exists" \
-    "fake claude started (argv recorded)" \
-    "claude runs at the repo root" \
-    "claude got --permission-mode auto" \
-    "claude got the prompt as an argument" \
-    "claude did NOT get --continue on first start" \
-    "launchd agent is loaded" \
-    "its label carries no per-run token" \
-    "plist lives in the scratch HOME" \
-    "plist relaunch carries --continue" \
-    "plist relaunch carries the task identity too" \
-    "the session carries JOB_TASK" \
-    "… and JOB_REPO" \
-    "the agent's program is a per-task name, not job-tee" \
-    "… and that name is a symlink to job-tee" \
-    "attached once" \
-    "RunAtLoad did not start a second claude" \
-    "second claude-run with a prompt is refused" \
-    "…and says so" \
-    "claude-run without a prompt exits 0" \
-    "…and attaches again" \
-    "still exactly one session" \
-    "session gone before relaunch" \
-    "relaunch recreated the session" \
-    "relaunched claude got --continue" \
-    "relaunched claude did not get the old prompt" \
-    "a second claude-run in the same checkout starts" \
-    "… under its own pinned label" \
-    "claude-status with no argument lists t1" \
-    "… and t2" \
-    "… saying both sessions are up" \
-    "… and naming the checkout" \
-    "t1's session is gone" \
-    "t2's session is gone" \
-    "claude-relaunch exits 0" \
-    "it kickstarted exactly one agent" \
-    "… and SKIPPED exactly one" \
-    "the skip names the shared checkout" \
-    "… and gives the reason, by name" \
-    "… and it is t1 that was skipped" \
-    "the winner is the task whose record is newest" \
-    "… its session really is back" \
-    "… and the skipped one was left alone" \
-    "claude-relaunch exits 0 even when it decides to kick nothing" \
-    "a session that is up is left alone" \
-    "… its missing neighbour in the same checkout is SKIPPED" \
-    "… naming the live agent as the holder of the checkout" \
-    "… and NOTHING was kickstarted" \
-    "… so the missing neighbour is still missing" \
-    "… and the live one is untouched" \
-    "claude-relaunch TASK obeys the same rule" \
-    "… it kickstarts nothing either" \
-    "… and says who holds the checkout" \
-    "… the session is still not there" \
-    "a claude-run in a second checkout starts" \
-    "the lone missing session is recreated" \
-    "… and it said so" \
-    "… while nothing was skipped this time" \
-    "Q3 claude-relaunch still exits 0 -- it kicked what it was asked to" \
-    "Q3 … and says it kickstarted the agent" \
-    "Q3 … but the session is not there afterwards" \
-    "Q3 … and claude-status then reports it MISSING" \
-    "claude-status TASK exits 0" \
-    "claude-rm exits 0" \
-    "session removed" \
-    "agent unloaded" \
-    "plist deleted" \
-    "the agent's program-name directory went with it" \
-    "Codex/AGY startup, recovery, ownership, compatibility and help cases" \
-    "the user's default tmux server is untouched"
-  do
-    skip "$m" "no launchctl on this host"
-  done
-  # Needs neither launchd nor a scratch tree: it reads the Makefile.
-  (( N++ ))
-  if grep -q "claude-smoke.zsh" "$WT/Makefile"; then
-    print "  ok   make check-jobs runs this file"
-  else
-    (( FAILS++ )); print "  FAIL make check-jobs runs this file"
-  fi
-  print "claude-smoke: $((N - FAILS))/$N passed, $N_SKIP skipped, $((N + N_SKIP)) total"
-  exit $(( FAILS != 0 ))
+# This is a feature probe paired with an $OSTYPE test, matching the condition
+# the code itself branches on, so a Linux box that happens to ship a
+# `launchctl' binary does not take the darwin path.
+typeset -gi HAS_LAUNCHD=0
+[[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )) && HAS_LAUNCHD=1
+if (( HAS_LAUNCHD )); then
+  print "claude-smoke: launchd host -- plist and RunAtLoad cases included"
+else
+  print "claude-smoke: no launchd ($OSTYPE) -- registry cases run, plist/RunAtLoad cases skipped"
 fi
 
 typeset -g TOKEN=claudesmoke-$$
@@ -215,6 +132,14 @@ FAKE
 done
 
 export HOME=$HOME_LOCAL
+# The registry is ${XDG_DATA_HOME:-$HOME/.local/share}/agent-jobs, so
+# redirecting HOME alone does NOT contain it: on any host where XDG_DATA_HOME
+# is set (Guix sets it), the agents this suite registers land in the USER'S
+# real registry, where a later agent-relaunch would try to kickstart them --
+# the stage-14 containment failure in a new costume. Measured: a run on the
+# Guix host left local.job.claudesmoke.t3.conf in ~/.local/share/agent-jobs.
+# So it is redirected explicitly, and asserted below.
+export XDG_DATA_HOME=$HOME_LOCAL/.local/share
 export TMUX_TMPDIR=$BASE/tmux
 export PATH=$FAKEBIN:$PATH
 export CLAUDE_JOB_BIN=$FAKEBIN/claude
@@ -222,11 +147,59 @@ export CODEX_JOB_BIN=$CODEX_FAKE
 export AGY_JOB_BIN=$FAKEBIN/agy
 unset TMUX
 
-typeset -g FAILS=0 N=0
+typeset -g FAILS=0 N=0 N_SKIP=0
 pass() { (( N++ )); print "  ok   $1" }
 fail() { (( N++, FAILS++ )); print "  FAIL $1"; (( $# > 1 )) && print "       $2" }
+skip() { (( N_SKIP++ )); print "  SKIP $1  -- $2" }
 assert() { local msg=$1; shift; if "$@" >/dev/null 2>&1; then pass "$msg"; else fail "$msg"; fi }
 refute() { local msg=$1; shift; if "$@" >/dev/null 2>&1; then fail "$msg"; else pass "$msg"; fi }
+# For assertions about launchd itself. Named and skipped one at a time off
+# darwin, so the count says what was and was not measured.
+ld_assert() { local msg=$1; shift; (( HAS_LAUNCHD )) || { skip "$msg" "launchd-only"; return 0 }; assert "$msg" "$@" }
+ld_refute() { local msg=$1; shift; (( HAS_LAUNCHD )) || { skip "$msg" "launchd-only"; return 0 }; refute "$msg" "$@" }
+
+# Where an agent's definition lives on this host, and what to call it. The
+# registry conf and the plist carry the same relaunch command, so every
+# assertion about the CONTENT of a definition runs on both.
+typeset -g REG_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/agent-jobs"
+typeset -g DEFKIND=plist
+(( HAS_LAUNCHD )) || DEFKIND="registry conf"
+def_file() { if (( HAS_LAUNCHD )); then print -r -- "$HOME_LOCAL/Library/LaunchAgents/$1.plist"; else print -r -- "$REG_DIR/$1.conf"; fi }
+
+# "Is this agent registered?" -- launchctl liveness on darwin, the conf
+# elsewhere. One assertion either way, worded for what it actually checked.
+assert_registered() {
+  local label=$1
+  if (( HAS_LAUNCHD )); then
+    assert "launchd agent $label is loaded" launchctl print "gui/$(id -u)/$label"
+  else
+    assert "agent $label is registered" test -f "$(def_file "$label")"
+  fi
+}
+refute_registered() {
+  local label=$1
+  if (( HAS_LAUNCHD )); then
+    refute "launchd agent unloaded" launchctl print "gui/$(id -u)/$label"
+  else
+    refute "agent deregistered" test -f "$(def_file "$label")"
+  fi
+}
+
+# Simulate the login/relaunch pass: launchd kickstarts the agent, and off
+# darwin agent-relaunch runs the definition's own command with `sh -c'. Doing
+# the same here keeps the reboot scenario a measurement of the definition
+# rather than of the platform.
+kick_agent() {
+  local label=$1
+  if (( HAS_LAUNCHD )); then
+    launchctl kickstart "gui/$(id -u)/$label"
+  else
+    local rcmd; rcmd=$(_agent_agent_relaunch_cmd "$label") || return 1
+    [[ -n $rcmd ]] || return 1
+    ${commands[sh]:-/bin/sh} -c "$rcmd" >/dev/null 2>&1
+  fi
+}
+typeset -g LD_DEF="$(def_file "$LD_LABEL")"
 # Pane shells take up to about a second to start, so the fake claude's argv
 # record lands some time AFTER the tmux session exists. Poll for the line,
 # bounded (10 s in 0.5 s steps); never a fixed sleep.
@@ -240,6 +213,10 @@ wait_for_argv() { local pat=$1 file=${2:-$ARGV_FILE} i; for i in {1..20}; do gre
 # before taking a session away from it.
 wait_agent_ran() {
   local label=$1 i
+  # Off darwin there is no RunAtLoad pass to race: agent-run registers the
+  # definition and starts nothing, so there is never a window in which a
+  # killed session comes back on its own.
+  (( HAS_LAUNCHD )) || return 0
   for i in {1..40}; do
     launchctl print "gui/$(id -u)/$label" 2>/dev/null \
       | grep -q 'last exit code = [0-9]' && return 0
@@ -273,10 +250,12 @@ cleanup() {
   cd "$REPO" 2>/dev/null && claude-rm t3 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && codex-rm cx >/dev/null 2>&1
   local l
-  for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.*.plist(N); do
-    launchctl bootout "gui/$(id -u)/${${l:t}%.plist}" >/dev/null 2>&1
-  done
-  launchctl bootout "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1
+  if (( HAS_LAUNCHD )); then
+    for l in "$HOME_LOCAL"/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.*.plist(N); do
+      launchctl bootout "gui/$(id -u)/${${l:t}%.plist}" >/dev/null 2>&1
+    done
+    launchctl bootout "gui/$(id -u)/$LD_LABEL" >/dev/null 2>&1
+  fi
   ptmux kill-server >/dev/null 2>&1
   # `command rm', not /bin/rm: there is no /bin/rm on Guix System (/bin holds
   # `sh' and nothing else), and an absolute path that does not exist leaks the
@@ -302,17 +281,26 @@ print "claude-smoke: private tmux socket ${#CS_SOCK}B [$CS_SOCK]"
 print "claude-smoke: default server before: [${CS_DEFAULT_BEFORE//$'\n'/, }]"
 assert "the private socket path is under the 100-byte limit" test "${#CS_SOCK}" -lt 100
 assert "\$TMUX_TMPDIR is this run's private server" test "$TMUX_TMPDIR" = "$BASE/tmux"
+# The registry must be inside the scratch tree, for the same reason the socket
+# must be: everything this suite registers has to die with it.
+assert "the agent registry is inside this run's scratch tree" \
+  test "${REG_DIR##$HOME_LOCAL/}" != "$REG_DIR"
 
 # A pinned label can outlive a run that was killed between its bootstrap and
 # its trap. Boot out anything still loaded under it, and say so.
+#
+# Only launchd can carry that across runs: the registry lives under the scratch
+# $HOME, which is created fresh per run and removed by the trap.
 typeset -g STALE STALE_OUT
-STALE_OUT=$(launchctl list 2>/dev/null \
-  | awk -v p="local.job.$JOB_LAUNCHD_SLUG." 'NR > 1 && index($3, p) == 1 { print $3 }')
-for STALE in ${(f)STALE_OUT}; do
-  [[ -n $STALE ]] || continue
-  print "  note a stale agent $STALE was still loaded at start-up; booting it out"
-  launchctl bootout "gui/$(id -u)/$STALE" >/dev/null 2>&1
-done
+if (( HAS_LAUNCHD )); then
+  STALE_OUT=$(launchctl list 2>/dev/null \
+    | awk -v p="local.job.$JOB_LAUNCHD_SLUG." 'NR > 1 && index($3, p) == 1 { print $3 }')
+  for STALE in ${(f)STALE_OUT}; do
+    [[ -n $STALE ]] || continue
+    print "  note a stale agent $STALE was still loaded at start-up; booting it out"
+    launchctl bootout "gui/$(id -u)/$STALE" >/dev/null 2>&1
+  done
+fi
 
 # 1. claude-run TASK PROMPT: session, argv, agent, attach.
 claude-run t1 "first prompt" 2>"$BASE/run1.err"; typeset -g RC=$?
@@ -323,15 +311,15 @@ assert "claude runs at the repo root" grep -qx -- "pwd=$REPO" "$ARGV_FILE"
 assert "claude got --permission-mode auto" grep -qx -- '--permission-mode' "$ARGV_FILE"
 assert "claude got the prompt as an argument" grep -qx -- 'first prompt' "$ARGV_FILE"
 refute "claude did NOT get --continue on first start" grep -qx -- '--continue' "$ARGV_FILE"
-assert "launchd agent is loaded" launchctl print "gui/$(id -u)/$LD_LABEL"
+assert_registered "$LD_LABEL"
 assert "its label carries no per-run token" test "$(launchd-label t1)" = "$LD_LABEL"
-assert "plist lives in the scratch HOME" test -f "$LD_PLIST"
-assert "plist relaunch carries --continue" grep -q -- '--continue' "$LD_PLIST"
+assert "$DEFKIND lives in the scratch HOME" test -f "$LD_DEF"
+assert "$DEFKIND relaunch carries --continue" grep -q -- '--continue' "$LD_DEF"
 # Stage 16 item 5: the session knows which task it is, so that a recap skill
 # running inside it can write logs/<task>.recap.md without being told. Asserted
 # on the relaunch command too, because a session brought back after a reboot
 # must know the same things the one it replaces knew.
-assert "plist relaunch carries the task identity too" grep -q -- 'JOB_TASK=t1' "$LD_PLIST"
+assert "$DEFKIND relaunch carries the task identity too" grep -q -- 'JOB_TASK=t1' "$LD_DEF"
 assert "the session carries JOB_TASK" \
   test "$(ptmux show-environment -t "=$SLUG-t1" JOB_TASK 2>/dev/null)" = "JOB_TASK=t1"
 assert "… and JOB_REPO" \
@@ -339,11 +327,11 @@ assert "… and JOB_REPO" \
 # The agent's program is its own per-task name for job-tee, so Login Items can
 # tell one Claude session from another (stage 15 item 3).
 typeset -g CS_PROG="$HOME/Library/Application Support/local.job/$LD_LABEL/$SLUG-t1"
-assert "the agent's program is a per-task name, not job-tee" grep -q -- "$SLUG-t1</string>" "$LD_PLIST"
-assert "… and that name is a symlink to job-tee" test "${CS_PROG:A}" = "$WT/bin/job-tee"
+ld_assert "the agent's program is a per-task name, not job-tee" grep -q -- "$SLUG-t1</string>" "$LD_DEF"
+ld_assert "… and that name is a symlink to job-tee" test "${CS_PROG:A}" = "$WT/bin/job-tee"
 assert "attached once" test "$(wc -l < "$BASE/attach.txt")" -eq 1
 # RunAtLoad ran the relaunch immediately: with the session present it must be a no-op.
-assert "RunAtLoad did not start a second claude" test "$(grep -c -- '^--$' "$ARGV_FILE")" -eq 1
+assert "recovery did not start a second claude" test "$(grep -c -- '^--$' "$ARGV_FILE")" -eq 1
 
 # 2. A second claude-run with a prompt is refused; without one it attaches.
 claude-run t1 "second prompt" 2>"$BASE/run2.err"; RC=$?
@@ -357,7 +345,7 @@ assert "still exactly one session" test "$(ptmux list-sessions -F '#S' | grep -c
 # 3. Simulate the reboot: kill the session, run the agent's program, expect --continue.
 ptmux kill-session -t "=$SLUG-t1"
 refute "session gone before relaunch" ptmux has-session -t "=$SLUG-t1"
-launchctl kickstart "gui/$(id -u)/$LD_LABEL"
+kick_agent "$LD_LABEL"
 typeset -i i; for i in {1..20}; do ptmux has-session -t "=$SLUG-t1" 2>/dev/null && break; sleep 0.5; done
 assert "relaunch recreated the session" ptmux has-session -t "=$SLUG-t1"
 assert "relaunched claude got --continue" wait_for_argv '--continue'
@@ -374,7 +362,7 @@ assert "relaunched claude did not get the old prompt" test "$(grep -cx -- 'first
 # the user will spend an evening looking for.
 claude-run t2 "second task prompt" 2>"$BASE/run-t2.err" >/dev/null
 assert "a second claude-run in the same checkout starts" ptmux has-session -t "=$SLUG-t2"
-assert "… under its own pinned label" launchctl print "gui/$(id -u)/local.job.$JOB_LAUNCHD_SLUG.t2"
+assert_registered "local.job.$JOB_LAUNCHD_SLUG.t2"
 
 # claude-status with no argument lists every loaded claude-run agent.
 typeset -g CS_ST="$(claude-status 2>&1)"
@@ -473,8 +461,8 @@ assert "Codex session exists" ptmux has-session -t "=$SLUG-cx"
 assert "Codex engine marker is set" test "$(ptmux show-options -qv -t "$SLUG-cx" @agent-job-engine)" = codex
 assert "fake Codex received its prompt" wait_for_argv "codex prompt" "$BASE/codex-argv.txt"
 assert "Codex did not resume on first start" refute_codex_resume "$BASE/codex-argv.txt"
-assert "Codex plist uses resume" grep -q -- 'resume' "$HOME_LOCAL/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.cx.plist"
-assert "Codex plist uses --last" grep -q -- --last "$HOME_LOCAL/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.cx.plist"
+assert "Codex $DEFKIND uses resume" grep -q -- 'resume' "$(def_file "local.job.$JOB_LAUNCHD_SLUG.cx")"
+assert "Codex $DEFKIND uses --last" grep -q -- --last "$(def_file "local.job.$JOB_LAUNCHD_SLUG.cx")"
 typeset -g CODEX_DASH; CODEX_DASH="$(_tmux_pick_lines --all)"
 assert "tmux-dash labels Codex tasks" grep -q -- "$SLUG-cx.*\[codex\]" <<<"$CODEX_DASH"
 typeset -g CODEX_STATUS; CODEX_STATUS="$(codex-status 2>&1)"
@@ -497,11 +485,17 @@ print -r -- "exit-1" > "$BASE/claude-fail-mode"
 wait_agent_ran "local.job.$JOB_LAUNCHD_SLUG.t2" >/dev/null 2>&1
 ptmux kill-session -t "=$SLUG-t2" >/dev/null 2>&1
 RL_OUT="$(claude-relaunch t2 2>&1)"; RC=$?
-command rm -f -- "$BASE/claude-fail-mode"
 assert "Q3 claude-relaunch still exits 0 -- it kicked what it was asked to" test $RC -eq 0
 assert "Q3 … and says it kickstarted the agent" grep -q -- 'kickstarting' <<<"$RL_OUT"
+# The fail-mode file must outlive the poll below, NOT be removed as soon as
+# claude-relaunch returns. Off darwin the kickstart is a synchronous `sh -c',
+# so the verb comes back while the pane's shell has still not exec'd the fake
+# claude; removing the file here let that claude reach `exec sleep' and the
+# session stayed up, which read as a product failure and was a race in the
+# fixture. Nothing else starts a claude in this window.
 typeset -i q3i
 for q3i in {1..20}; do ptmux has-session -t "=$SLUG-t2" 2>/dev/null || break; sleep 0.5; done
+command rm -f -- "$BASE/claude-fail-mode"
 refute "Q3 … but the session is not there afterwards" ptmux has-session -t "=$SLUG-t2"
 assert "Q3 … and claude-status then reports it MISSING" \
   grep -q -- "$SLUG-t2 *MISSING" <<<"$(claude-status 2>&1)"
@@ -517,9 +511,9 @@ claude-run t1 2>/dev/null >/dev/null      # bring t1 back so claude-rm has both 
 claude-rm t1 2>"$BASE/rm.err"; RC=$?
 assert "claude-rm exits 0" test $RC -eq 0
 refute "session removed" ptmux has-session -t "=$SLUG-t1"
-refute "agent unloaded" launchctl print "gui/$(id -u)/$LD_LABEL"
-assert "plist deleted" test ! -f "$LD_PLIST"
-assert "the agent's program-name directory went with it" \
+refute_registered "$LD_LABEL"
+assert "$DEFKIND deleted" test ! -f "$LD_DEF"
+ld_assert "the agent's program-name directory went with it" \
   test ! -d "$HOME/Library/Application Support/local.job/$LD_LABEL"
 
 # 5. make wiring.
