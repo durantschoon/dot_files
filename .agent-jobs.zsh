@@ -2,18 +2,19 @@
 # .agent-jobs.zsh -- interactive agent jobs, built on .jobs.zsh (source first).
 #
 # agent-run ENGINE TASK [PROMPT ...]
-#     Start at the repo root in tmux session <repo>-<TASK>, install a launchd
-#     agent local.job.<repo>.<TASK> to resume at login, then attach. For a
-#     running task, refresh the login agent and attach; a new prompt is refused.
+#     Start at the repo root in tmux session <repo>-<TASK>, register the
+#     agent under ~/.local/share/agent-jobs (and on macOS, install a launchd
+#     agent local.job.<repo>.<TASK> to resume at login), then attach. For a
+#     running task, refresh the relaunch definition and attach; a new prompt is refused.
 #     Task names are shared by all engines: use distinct names in one checkout.
 #
-# agent-status ENGINE [TASK]       list this engine's loaded agents, or inspect
-#                                 one task's tmux and launchd status.
+# agent-status ENGINE [TASK]       list this engine's active agents, or inspect
+#                                 one task's tmux and agent registry/launchd status.
 # agent-relaunch ENGINE [--all|TASK]
 #                                 recover missing sessions for this engine;
 #                                 at most one per checkout, with live sessions
 #                                 taking precedence over missing siblings.
-# agent-rm ENGINE TASK             remove the session and login agent; keep
+# agent-rm ENGINE TASK             remove the session and registered agent; keep
 #                                 the transcript, including unloaded plists.
 # agent-help [ENGINE]              show help, including startup/resume syntax.
 #
@@ -23,8 +24,8 @@
 #
 # Recovery resumes the MOST RECENT conversation for that engine at the repo
 # root. Keep one job per engine per checkout when relying on login recovery;
-# separate engines can share a checkout. LaunchAgents run only after login.
-# Local macOS only; --on is not supported. TASK names your unit of work and
+# separate engines can share a checkout. On macOS, LaunchAgents run after login;
+# on Linux, agent-relaunch recovers sessions. TASK names your unit of work and
 # PROMPT starts it. Use tmux-go TASK to attach, C-b d to detach.
 #
 # AGENT_JOB_CONFIRM=no skips the reminder-and-Enter before a new session.
@@ -32,6 +33,63 @@
 # are shown below for the selected engine; default is each CLI's own config.
 
 typeset -g AGENT_JOB_CONFIRM=${AGENT_JOB_CONFIRM:-${CLAUDE_JOB_CONFIRM:-yes}}
+
+# Directory for file-based cross-platform agent job registry
+_agent_registry_dir() {
+  local dir="${XDG_DATA_HOME:-$HOME/.local/share}/agent-jobs"
+  [[ -d $dir ]] || mkdir -p "$dir" 2>/dev/null
+  print -r -- "$dir"
+}
+
+_agent_conf_file() {
+  print -r -- "$(_agent_registry_dir)/$1.conf"
+}
+
+_agent_conf_get() {
+  local conf=$1 key=$2 line
+  [[ -f $conf ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line == "$key="* ]]; then
+      print -r -- "${line#$key=}"
+      return 0
+    fi
+  done < "$conf"
+  return 1
+}
+
+_agent_conf_save() {
+  local label=$1 engine=$2 task=$3 name=$4 root=$5 relaunch=$6
+  local conf=$(_agent_conf_file "$label")
+  local tmp="${conf}.tmp.$$"
+  {
+    print -r -- "engine=$engine"
+    print -r -- "task=$task"
+    print -r -- "name=$name"
+    print -r -- "root=$root"
+    print -r -- "relaunch=$relaunch"
+  } > "$tmp" && mv -f "$tmp" "$conf"
+}
+
+_agent_find_meta() {
+  local target=$1 label conf plist
+  if [[ $target == *.conf ]]; then
+    [[ -f $target ]] && { print -r -- "conf $target"; return 0; }
+    label=${${target:t}%.conf}
+  elif [[ $target == *.plist ]]; then
+    label=${${target:t}%.plist}
+    conf=$(_agent_conf_file "$label")
+    [[ -f $conf ]] && { print -r -- "conf $conf"; return 0; }
+    [[ -f $target ]] && { print -r -- "plist $target"; return 0; }
+    return 1
+  else
+    label=$target
+  fi
+  conf=$(_agent_conf_file "$label")
+  [[ -f $conf ]] && { print -r -- "conf $conf"; return 0; }
+  plist=$(_launchd_plist "$label")
+  [[ -f $plist ]] && { print -r -- "plist $plist"; return 0; }
+  return 1
+}
 
 # The reminder-and-Enter before a new session. A function of its own so the
 # smoke test can shadow it, and a no-op off a terminal so nothing scripted can
@@ -49,9 +107,8 @@ _agent_job_confirm() {
 }
 
 _agent_job_guard() {
-  (( $+functions[job-name] && $+functions[launchd-run] )) \
+  (( $+functions[job-name] && $+functions[job-root] )) \
     || { print -u2 "agent-*: .jobs.zsh is not sourced"; return 1 }
-  [[ $OSTYPE == darwin* ]] || { print -u2 "agent-*: the relaunch half is launchd, macOS only"; return 1 }
 }
 
 _agent_engine_check() {
@@ -120,15 +177,25 @@ agent-run() {
   local resume_args=$(_agent_resume_args "$engine")
   local -a resume_cmd; resume_cmd=("$bin" ${(z)resume_args})
   local resume=${(j: :)${(qq)resume_cmd}}
-  # Persist ownership in the plist's command as well as the live tmux session.
+  # Persist ownership in the registry as well as the live tmux session.
   # The fixed marker also works on tmux versions without new-session -e.
   local envp="export JOB_AGENT_ENGINE=$engine; "
   [[ -n $TMUX_TMPDIR ]] && envp+="export TMUX_TMPDIR=${(qq)TMUX_TMPDIR}; "
   local tmuxq=${(qq)tmux_bin}
   local relaunch="${envp}${tmuxq} has-session -t ${(qq):-=$name} 2>/dev/null || $tmuxq new-session -d -s ${(qq)name} -n ${(qq)engine} -c ${(qq)root} ${cenvq}${(qq)resume}; $tmuxq set-option -t ${(qq)name} @agent-job-engine ${(qq)engine}"
-  launchd-run "$task" --restart no -- /bin/sh -c "$relaunch" 2>/dev/null \
-    || { print -u2 "agent-run: session is up but the relaunch agent failed to load (launchd-status $task)"; return 1 }
-  print -u2 "agent-run: relaunch-at-login agent $(launchd-label "$task") loaded"
+  local label
+  label=$(launchd-label "$task") || return
+
+  # Persist definition in the cross-platform registry
+  _agent_conf_save "$label" "$engine" "$task" "$name" "$root" "$relaunch"
+
+  if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+    launchd-run "$task" --restart no -- /bin/sh -c "$relaunch" 2>/dev/null \
+      || { print -u2 "agent-run: session is up but the relaunch agent failed to load (launchd-status $task)"; return 1 }
+    print -u2 "agent-run: relaunch-at-login agent $label loaded"
+  else
+    print -u2 "agent-run: registered agent $label"
+  fi
   _job_tmux_attach local "$name"
 }
 
@@ -168,16 +235,41 @@ agent-run() {
 # agents.
 _agent_job_labels() {
   local prefix="${JOB_LAUNCHD_PREFIX:-local.job}." f label
-  for f in "$HOME"/Library/LaunchAgents/"$prefix"*.plist(N); do
-    label=${${f:t}%.plist}
-    _launchd_loaded "$label" && print -r -- "$label"
+  local -A seen
+  if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+    for f in "$HOME"/Library/LaunchAgents/"$prefix"*.plist(N); do
+      label=${${f:t}%.plist}
+      if _launchd_loaded "$label"; then
+        seen[$label]=1
+        print -r -- "$label"
+      fi
+    done
+  fi
+  local reg_dir
+  reg_dir=$(_agent_registry_dir)
+  for f in "$reg_dir"/"$prefix"*.conf(N); do
+    label=${${f:t}%.conf}
+    if [[ -z ${seen[$label]-} ]]; then
+      if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+        _launchd_loaded "$label" && print -r -- "$label"
+      else
+        print -r -- "$label"
+      fi
+    fi
   done
 }
-# The session name a plist's relaunch command recreates; failure when the plist
-# is not a agent-run agent. `$xml' is quoted on the right of the == because it
-# is a whole file: unquoted it would be read as a pattern.
+# The session name an agent's relaunch command recreates; failure when
+# it is not an agent-run agent.
 _agent_agent_session() {
-  local plist=$1 xml rest
+  local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
+  [[ -n $meta[1] ]] || return 1
+  local type=${meta[1]%% *} path=${meta[1]#* }
+  if [[ $type == conf ]]; then
+    local name; name=$(_agent_conf_get "$path" "name") || return 1
+    print -r -- "$name"
+    return 0
+  fi
+  local plist=$path xml rest
   [[ -f $plist ]] || return 1
   xml=$(command cat -- "$plist" 2>/dev/null) || return 1
   rest=${xml#*new-session -d -s }
@@ -187,15 +279,33 @@ _agent_agent_session() {
   [[ -n $rest ]] || return 1
   print -r -- "$rest"
 }
-_agent_agent_wd() { command plutil -extract WorkingDirectory raw -o - -- "$1" 2>/dev/null }
+_agent_agent_wd() {
+  local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
+  [[ -n $meta[1] ]] || return 1
+  local type=${meta[1]%% *} path=${meta[1]#* }
+  if [[ $type == conf ]]; then
+    local wd; wd=$(_agent_conf_get "$path" "root") || return 1
+    print -r -- "$wd"
+    return 0
+  fi
+  command plutil -extract WorkingDirectory raw -o - -- "$path" 2>/dev/null
+}
 
-# New plists have an explicit engine marker. For pre-marker plists, read the
-# executable in the nested resume command, never the old hardcoded window name
-# (which was "claude" even for agy). Tokenization/unquoting does not execute it.
+# Engine marker from conf or plist. For pre-marker plists, read the
+# executable in the nested resume command, never the old hardcoded window name.
 _agent_agent_engine() {
+  local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
+  [[ -n $meta[1] ]] || return 1
+  local type=${meta[1]%% *} path=${meta[1]#* }
+  if [[ $type == conf ]]; then
+    local engine; engine=$(_agent_conf_get "$path" "engine") || return 1
+    _agent_engine_check "$engine" 2>/dev/null || return 1
+    print -r -- "$engine"
+    return 0
+  fi
   local cmd rest engine
-  _agent_agent_session "$1" >/dev/null || return 1
-  cmd=$(command plutil -extract ProgramArguments.4 raw -o - -- "$1" 2>/dev/null) || return 1
+  _agent_agent_session "$path" >/dev/null || return 1
+  cmd=$(command plutil -extract ProgramArguments.4 raw -o - -- "$path" 2>/dev/null) || return 1
   if [[ $cmd == 'export JOB_AGENT_ENGINE='* ]]; then
     rest=${cmd#export JOB_AGENT_ENGINE=}; engine=${rest%%;*}
     _agent_engine_check "$engine" 2>/dev/null || return 1
@@ -208,8 +318,6 @@ _agent_agent_engine() {
   case $engine in
     claude|agy|codex|cursor) print -r -- "$engine" ;;
     *)
-      # Legacy CLAUDE_JOB_BIN could have any basename, but this argv is unique
-      # to the old Claude runner. Unknown/custom commands are left unclaimed.
       if [[ $rest == *' --permission-mode '*' --continue' ]]; then
         print -r -- claude
       else
@@ -218,22 +326,36 @@ _agent_agent_engine() {
   esac
 }
 
+_agent_agent_relaunch_cmd() {
+  local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
+  [[ -n $meta[1] ]] || return 1
+  local type=${meta[1]%% *} path=${meta[1]#* }
+  if [[ $type == conf ]]; then
+    local cmd; cmd=$(_agent_conf_get "$path" "relaunch") || return 1
+    print -r -- "$cmd"
+    return 0
+  fi
+  command plutil -extract ProgramArguments.4 raw -o - -- "$path" 2>/dev/null
+}
+
 # Names are shared with plain tmux/launchd jobs. Check BOTH resources before
-# attaching, replacing a plist or removing anything. An unloaded plist still
+# attaching, replacing a definition or removing anything. An unloaded definition still
 # owns its name. Matching legacy plists can identify sessions without a tag.
 _agent_job_check_owner() {
-  local engine=$1 task=$2 label plist name root owner="" wd saved_name live_owner
+  local engine=$1 task=$2 label meta_path name root owner="" wd saved_name live_owner
   label=$(launchd-label "$task") || return
-  plist=$(_launchd_plist "$label"); name=$(job-name "$task") || return
+  name=$(job-name "$task") || return
   root=$(job-root)
-  if [[ -f $plist ]]; then
-    owner=$(_agent_agent_engine "$plist")
-    wd=$(_agent_agent_wd "$plist"); saved_name=$(_agent_agent_session "$plist")
+  local -a meta; meta=(${(f)"$(_agent_find_meta "$label")"})
+  if [[ -n $meta[1] ]]; then
+    meta_path=${meta[1]#* }
+    owner=$(_agent_agent_engine "$meta_path")
+    wd=$(_agent_agent_wd "$meta_path"); saved_name=$(_agent_agent_session "$meta_path")
     if [[ $owner != "$engine" || $wd != "$root" || $saved_name != "$name" ]]; then
       print -u2 "agent-*: '$task' conflicts with $label (${owner:-unrecognized job}, checkout $wd); refusing"
       return 1
     fi
-  elif _launchd_loaded "$label"; then
+  elif [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )) && _launchd_loaded "$label"; then
     print -u2 "agent-*: '$label' is loaded without a readable plist; refusing"
     return 1
   fi
@@ -248,7 +370,7 @@ _agent_job_check_owner() {
 }
 # The last `at=' of a checkout's per-task record: when that task was last
 # STARTED. Compared as a string, which is right for ISO-8601 stamps written by
-# one machine in one zone -- and the tie-break below falls through to the plist
+# one machine in one zone -- and the tie-break below falls through to the definition
 # mtime whenever it is missing rather than inventing an order.
 _agent_agent_at() {
   local f=$1/logs/$2.job
@@ -257,9 +379,16 @@ _agent_agent_at() {
                END { if (v == "") exit 1; print v }' "$f"
 }
 _agent_agent_mtime() {
+  local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
+  local path
+  if [[ -n $meta[1] ]]; then
+    path=${meta[1]#* }
+  else
+    path=$1
+  fi
   local -a s
   zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
-  zstat -A s +mtime -- "$1" 2>/dev/null || return 1
+  zstat -A s +mtime -- "$path" 2>/dev/null || return 1
   print -r -- "$s[1]"
 }
 
@@ -273,7 +402,7 @@ agent-status() {
   shift
   if (( $# == 0 )); then
     local -a labels; labels=(${(f)"$(_agent_job_labels)"})
-    local label plist name wd state
+    local label name wd state
     integer any=0
     
     local c_label="" c_name="" c_wd="" c_up="" c_missing="" c_reset=""
@@ -283,10 +412,10 @@ agent-status() {
     fi
     
     for label in "${labels[@]}"; do
-      plist=$(_launchd_plist "$label"); [[ -f $plist ]] || continue
-      name=$(_agent_agent_session "$plist") || continue
-      [[ $(_agent_agent_engine "$plist") == "$engine" ]] || continue
-      wd=$(_agent_agent_wd "$plist"); any=1
+      [[ -n $label ]] || continue
+      name=$(_agent_agent_session "$label") || continue
+      [[ $(_agent_agent_engine "$label") == "$engine" ]] || continue
+      wd=$(_agent_agent_wd "$label"); any=1
       if tmux has-session -t "=$name" 2>/dev/null; then
         state="${c_up}up      ${c_reset}"
       else
@@ -294,12 +423,31 @@ agent-status() {
       fi
       printf "${c_label}%-38s${c_reset} ${c_name}%-28s${c_reset} %s ${c_wd}%s${c_reset}\n" "$label" "$name" "$state" "$wd"
     done
-    (( any )) || print -u2 "agent-status: no $engine agents are loaded (agent-run $engine TASK loads one)"
+    if (( ! any )); then
+      if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+        print -u2 "agent-status: no $engine agents are loaded (agent-run $engine TASK loads one)"
+      else
+        print -u2 "agent-status: no $engine agents are registered (agent-run $engine TASK registers one)"
+      fi
+    fi
     return 0
   fi
   local task=$1
   _agent_job_check_owner "$engine" "$task" || return
-  tmux-status "$task"; launchd-status "$task"
+  tmux-status "$task"
+  if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+    launchd-status "$task"
+  else
+    local label conf
+    label=$(launchd-label "$task") || return
+    conf=$(_agent_conf_file "$label")
+    if [[ -f $conf ]]; then
+      print "agent: $label (registered)"
+      print "       conf $conf"
+    else
+      print "agent: no agent '$label'"
+    fi
+  fi
 }
 
 # agent-relaunch ENGINE [--all|TASK]
@@ -354,12 +502,12 @@ agent-relaunch() {
   local -a labels; labels=(${(f)"$(_agent_job_labels)"})
   local -A nameof wdof taskof holder
   local -a missing live
-  local label plist name wd
+  local label name wd
   for label in "${labels[@]}"; do
-    plist=$(_launchd_plist "$label"); [[ -f $plist ]] || continue
-    name=$(_agent_agent_session "$plist") || continue    # not a agent-run agent
-    [[ $(_agent_agent_engine "$plist") == "$engine" ]] || continue
-    wd=$(_agent_agent_wd "$plist")
+    [[ -n $label ]] || continue
+    name=$(_agent_agent_session "$label") || continue    # not a agent-run agent
+    [[ $(_agent_agent_engine "$label") == "$engine" ]] || continue
+    wd=$(_agent_agent_wd "$label")
     nameof[$label]=$name; wdof[$label]=$wd; taskof[$label]=${label##*.}
     if tmux has-session -t "=$name" 2>/dev/null; then
       live+=("$label")
@@ -377,7 +525,11 @@ agent-relaunch() {
   fi
 
   if (( ! $#live && ! $#missing )); then
-    print -u2 "agent-relaunch: no loaded $engine agents${want:+ for $want}"
+    if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+      print -u2 "agent-relaunch: no loaded $engine agents${want:+ for $want}"
+    else
+      print -u2 "agent-relaunch: no registered $engine agents${want:+ for $want}"
+    fi
     return 1
   fi
   for label in "${live[@]}"; do
@@ -423,13 +575,15 @@ agent-relaunch() {
         skip_label+=("$label"); skip_why+=("$why")
       fi
     else
-      a_mt=$(_agent_agent_mtime "$(_launchd_plist "$label")"); b_mt=$(_agent_agent_mtime "$(_launchd_plist "$cur")")
+      a_mt=$(_agent_agent_mtime "$label"); b_mt=$(_agent_agent_mtime "$cur")
+      local kind="definition"
+      [[ $OSTYPE == darwin* ]] && kind="plist"
       if (( ${a_mt:-0} > ${b_mt:-0} )); then
-        why="it shares the checkout $wd with $label; no record told them apart, and $label's plist is newer"
+        why="it shares the checkout $wd with $label; no record told them apart, and $label's $kind is newer"
         chosen[$wd]=$label
         skip_label+=("$cur"); skip_why+=("$why")
       else
-        why="it shares the checkout $wd with $cur; no record told them apart, and $cur's plist is newer"
+        why="it shares the checkout $wd with $cur; no record told them apart, and $cur's $kind is newer"
         skip_label+=("$label"); skip_why+=("$why")
       fi
     fi
@@ -453,10 +607,21 @@ agent-relaunch() {
   for wd in "${(k)chosen[@]}"; do
     label=$chosen[$wd]
     print -u2 "agent-relaunch: kickstarting $label ($nameof[$label]) in $wdof[$label]"
-    if launchctl kickstart "$(_launchd_domain)/$label" >/dev/null 2>&1; then
-      kicked+=("$label")
+    if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )) && _launchd_loaded "$label"; then
+      if launchctl kickstart "$(_launchd_domain)/$label" >/dev/null 2>&1; then
+        kicked+=("$label")
+      else
+        print -u2 "agent-relaunch: kickstart of $label failed (launchd-status ${taskof[$label]})"
+      fi
     else
-      print -u2 "agent-relaunch: kickstart of $label failed (launchd-status ${taskof[$label]})"
+      local rcmd
+      rcmd=$(_agent_agent_relaunch_cmd "$label")
+      local sh_bin=${commands[sh]:-/bin/sh}
+      if [[ -n $rcmd ]] && $sh_bin -c "$rcmd" >/dev/null 2>&1; then
+        kicked+=("$label")
+      else
+        print -u2 "agent-relaunch: kickstart of $label failed"
+      fi
     fi
   done
 
@@ -473,7 +638,9 @@ agent-relaunch() {
     if tmux has-session -t "=$name" 2>/dev/null; then
       print -u2 "agent-relaunch: $name is back (tmux-go ${taskof[$label]} to attach)"
     else
-      print -u2 "agent-relaunch: $name did NOT come back -- agent-status $engine, then logs/${taskof[$label]}.launchd.log in $wdof[$label]"
+      local log_hint="logs/${taskof[$label]}.latest.log"
+      [[ $OSTYPE == darwin* ]] && log_hint="logs/${taskof[$label]}.launchd.log"
+      print -u2 "agent-relaunch: $name did NOT come back -- agent-status $engine, then $log_hint in $wdof[$label]"
     fi
   done
   agent-status "$engine"
@@ -485,10 +652,14 @@ agent-rm() {
   _agent_engine_check "$engine" || return
   (( $# == 2 )) || { print -u2 "usage: agent-rm ENGINE TASK"; return 64 }
   shift
-  local task=$1 label name
+  local task=$1 label name conf
   _agent_job_check_owner "$engine" "$task" || return
   label=$(launchd-label "$task") || return; name=$(job-name "$task") || return
-  [[ -f $(_launchd_plist "$label") ]] && { launchd-rm "$task" || return }
+  conf=$(_agent_conf_file "$label")
+  [[ -f $conf ]] && command rm -f "$conf"
+  if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+    [[ -f $(_launchd_plist "$label") ]] && { launchd-rm "$task" || return }
+  fi
   tmux has-session -t "=$name" 2>/dev/null && { tmux kill-session -t "=$name" || return }
   print -u2 "agent-rm: '$task' removed (transcript kept; $engine $(_agent_resume_args "$engine") in the repo still resumes it)"
 }
