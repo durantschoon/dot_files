@@ -21,11 +21,16 @@
 #                                 This is how several agents share a checkout.
 # agent-conversations ENGINE      this checkout's conversation ids, newest
 #                                 first, with the first user message as a hint.
+# agent-herdr ENGINE [--all|TASK]  open each detached session of this engine in
+#                                 its own Herdr workspace (labelled by session,
+#                                 cwd its checkout); attached ones are left alone.
+# herdr-revive [ENGINE ...]        agent-relaunch --all, then agent-herdr --all,
+#                                 for each engine (default: all of them).
 # agent-rm ENGINE TASK             remove the session and registered agent; keep
 #                                 the transcript, including unloaded plists.
 # agent-help [ENGINE]              show help, including startup/resume syntax.
 #
-# Wrappers: claude-*, agy-*, codex-* supply ENGINE for all five verbs.
+# Wrappers: claude-*, agy-*, codex-* supply ENGINE for every verb.
 # Engines: claude, agy, codex, cursor (cursor uses the generic verbs).
 # TASK is skill-agnostic: each repository can use its own vocabulary.
 #
@@ -692,6 +697,87 @@ agent-relaunch() {
   agent-status "$engine"
 }
 
+# agent-herdr ENGINE [--all|TASK]
+#
+# The second half of "bring them all back": after agent-relaunch the sessions
+# exist but nothing shows them. This opens one Herdr workspace per DETACHED
+# local session of ENGINE (the @agent-job-engine option agent-run and the
+# relaunch command set), cwd its checkout, label its session name, and types
+# `tmux attach' into the workspace's root pane.
+#
+# A session with a client already attached is skipped, so a second run opens
+# nothing twice -- it is either in a Herdr pane already or someone is looking
+# at it elsewhere (tmux-take moves it). The workspace id comes from the JSON
+# `workspace create' prints (.result.root_pane.pane_id), never predicted.
+#
+# No argument or --all: every repo's sessions of ENGINE. TASK: this repo's one.
+agent-herdr() {
+  _agent_job_guard || return
+  local engine=$1
+  _agent_engine_check "$engine" || return
+  shift
+  local usage="usage: agent-herdr ENGINE [--all|TASK]"
+  local want=""
+  case ${1-} in
+    ""|--all|-a) ;;
+    -*) print -u2 "agent-herdr: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
+    *)  want=$(job-name "$1") || return ;;
+  esac
+  (( $# > 1 )) && { print -u2 "$usage"; return 64 }
+  (( $+commands[herdr] )) || { print -u2 "agent-herdr: no herdr on PATH"; return 1 }
+  (( $+commands[jq] ))    || { print -u2 "agent-herdr: needs jq"; return 1 }
+
+  local -a rows
+  rows=(${(f)"$(tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_path}|#{@agent-job-engine}' 2>/dev/null)"})
+  local row name attached wd owner out pane
+  local -i opened=0 seen=0
+  for row in "${rows[@]}"; do
+    IFS='|' read -r name attached wd owner <<< "$row"
+    [[ $owner == "$engine" ]] || continue
+    [[ -z $want || $name == "$want" ]] || continue
+    (( seen++ ))
+    if (( ${attached:-0} > 0 )); then
+      print -u2 "agent-herdr: $name already has a client attached -- leaving it"
+      continue
+    fi
+    out=$(herdr workspace create --cwd "$wd" --label "$name" --no-focus) \
+      || { print -u2 "agent-herdr: could not create a workspace for $name (is the Herdr server up?)"; continue }
+    pane=$(print -r -- "$out" | jq -r '.result.root_pane.pane_id // empty')
+    [[ -n $pane ]] || { print -u2 "agent-herdr: no root pane id for $name in: $out"; continue }
+    herdr pane run "$pane" "tmux attach-session -t ${(qq):-=$name}" >/dev/null \
+      || { print -u2 "agent-herdr: could not run tmux attach in $pane for $name"; continue }
+    print -u2 "agent-herdr: $name -> Herdr workspace $name ($pane)"
+    (( opened++ ))
+  done
+  if (( ! seen )); then
+    print -u2 "agent-herdr: no live $engine sessions${want:+ named $want} (agent-relaunch $engine first?)"
+    return 1
+  fi
+  (( opened )) && { herdr-notes-sync -q >/dev/null 2>&1 &! }
+  return 0
+}
+
+# herdr-revive [ENGINE ...]
+#
+# After a reboot or a dead tmux server: agent-relaunch --all, then
+# agent-herdr --all, for each ENGINE (default: every engine). An engine with
+# nothing registered just says so. Plain jobs saved by tmux-hibernate are not
+# agents and are not touched: tmux-revive brings those back.
+herdr-revive() {
+  _agent_job_guard || return
+  local -a engines; engines=("$@")
+  (( $#engines )) || engines=(claude agy codex cursor)
+  local e; for e in "${engines[@]}"; do _agent_engine_check "$e" || return; done
+  (( $+commands[herdr] )) || { print -u2 "herdr-revive: no herdr on PATH"; return 1 }
+  local -i opened=0
+  for e in "${engines[@]}"; do
+    print -u2 "== $e"
+    agent-relaunch "$e" --all
+    agent-herdr "$e" --all && (( opened++ ))
+  done
+  (( opened )) || { print -u2 "herdr-revive: no agent sessions to open"; return 1 }
+}
+
 agent-rm() {
   _agent_job_guard || return
   local engine=$1
@@ -937,6 +1023,7 @@ agy-run() {
 }
 agy-status()   { agent-status agy "$@" }
 agy-relaunch() { agent-relaunch agy "$@" }
+agy-herdr()    { agent-herdr agy "$@" }
 agy-rm()       { agent-rm agy "$@" }
 agy-adopt()         { agent-adopt agy "$@" }
 agy-conversations() { agent-conversations agy "$@" }
@@ -956,6 +1043,7 @@ codex-run() {
 }
 codex-status()   { agent-status codex "$@" }
 codex-relaunch() { agent-relaunch codex "$@" }
+codex-herdr()    { agent-herdr codex "$@" }
 codex-rm()       { agent-rm codex "$@" }
 codex-adopt()         { agent-adopt codex "$@" }
 codex-conversations() { agent-conversations codex "$@" }
@@ -965,6 +1053,7 @@ codex-help()     { agent-help codex "$@" }
 claude-run()      { agent-run claude "$@" }
 claude-status()   { agent-status claude "$@" }
 claude-relaunch() { agent-relaunch claude "$@" }
+claude-herdr()    { agent-herdr claude "$@" }
 claude-rm()       { agent-rm claude "$@" }
 claude-adopt()         { agent-adopt claude "$@" }
 claude-conversations() { agent-conversations claude "$@" }
@@ -983,7 +1072,7 @@ agent-help() {
       next if /^# -\*-/;
       s/^# ?//;
       if ($e ne "agent") {
-        s/agent-(run|status|relaunch|adopt|conversations|rm|help)/$e-$1/g;
+        s/agent-(run|status|relaunch|herdr|adopt|conversations|rm|help)/$e-$1/g;
         s/ ENGINE\b//g;
         s/ \[ENGINE\]//g;
       }
