@@ -238,6 +238,8 @@ help-text:
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
 	@echo "  make install-agy    - Install agy, Google's Antigravity CLI (idempotent; loader wrapper on Guix System)"
 	@echo "  make install-herdr  - Install herdr, the AI agent multiplexer (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
+	@echo "  make install-ghostty - Install Ghostty terminal emulator (Homebrew cask on macOS)"
+	@echo "  make install-yazi   - Install Yazi and media-handling stack (Homebrew on macOS)"
 	@echo ""
 	@echo "Guix System and Home:"
 	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
@@ -442,6 +444,27 @@ else
 	@bash bin/install-herdr.sh
 endif
 
+# Ghostty terminal emulator (Homebrew cask on macOS)
+.PHONY: install-ghostty
+install-ghostty:
+ifeq ($(os),$(OS_MAC))
+	@brew list --cask ghostty > /dev/null 2>&1 || [ -d /Applications/Ghostty.app ] \
+		&& echo "Found Ghostty, not installing" \
+		|| brew install --cask ghostty
+else
+	@echo "install-ghostty: currently only supported via Homebrew on macOS"
+endif
+
+# Yazi and its media-handling stack (Homebrew on macOS)
+.PHONY: install-yazi
+install-yazi:
+ifeq ($(os),$(OS_MAC))
+	# Install Yazi and its media-handling stack
+	brew install yazi ffmpeg sevenzip jq poppler fd ripgrep fzf zoxide imagemagick
+else
+	@echo "install-yazi: currently only supported via Homebrew on macOS"
+endif
+
 # We're going to insist we're in this directory so we can run commands from here
 dot_file_root_dir := $(wildcard ~/dot_files)
 current_dir := $(shell $(PWD_CMD))
@@ -586,6 +609,10 @@ ifeq ("$(os)","$(OS_MAC)")
 	@brew list --cask $(NERD_FONT_CASK) > /dev/null 2>&1 \
 		&& echo "Found $(NERD_FONT), not installing" \
 		|| brew install --cask $(NERD_FONT_CASK)
+	@# Ghostty terminal emulator (macOS cask)
+	@brew list --cask ghostty > /dev/null 2>&1 || [ -d /Applications/Ghostty.app ] \
+		&& echo "Found Ghostty, not installing" \
+		|| brew install --cask ghostty
 	@# myrepos: `mr status/update/push' across every repo in ~/.mrconfig.
 	@# Homebrew names the formula after the command.  Linux gets it from
 	@# home/common.scm (guix) or the apt line above.
@@ -596,6 +623,8 @@ ifeq ("$(os)","$(OS_MAC)")
 	@command -v starship > /dev/null 2>&1 || brew install starship
 	@# herdr: AI agent multiplexer. Linux gets it from install-herdr (into ~/.local/bin).
 	@command -v herdr > /dev/null 2>&1 || brew install herdr
+	@# Install Yazi and its media-handling stack
+	@brew install yazi ffmpeg sevenzip jq poppler fd ripgrep fzf zoxide imagemagick
 	@# zsh completions: compinit refuses a group-writable dir in fpath or any
 	@# of its parents ("insecure directories, run compaudit") and stops to ask
 	@# on every new shell.  /opt/homebrew/share, the parent of Homebrew's

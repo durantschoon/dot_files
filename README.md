@@ -165,8 +165,9 @@ make apply
 ```
 
 Bare `make` also runs `apply`. Use `make setup-native` for the traditional
-symlink setup (it also installs Claude Code, uv, agy and herdr if missing, then runs
-`check-cloud-dirs`); `make all` remains a compatibility alias for `setup-native`.
+symlink setup (it also installs Claude Code, uv, agy and herdr if missing, plus
+Ghostty and Yazi with its media stack on macOS, then runs `check-cloud-dirs`);
+`make all` remains a compatibility alias for `setup-native`.
 
 ### 2. MacOS
 
@@ -275,6 +276,16 @@ If you want to use these dotfiles natively on macOS without Guix:
    git clone https://github.com/durantschoon/dot_files.git ~/dot_files
    cd ~/dot_files
    make setup-native
+   ```
+
+   On macOS, this also installs the Cascadia Code Nerd Font cask, Ghostty cask,
+   Yazi along with its media-handling stack (`ffmpeg`, `sevenzip`, `jq`, `poppler`,
+   `fd`, `ripgrep`, `fzf`, `zoxide`, `imagemagick`), Claude Code, uv, agy, and
+   herdr via Homebrew. Ghostty and Yazi can also be installed individually with:
+
+   ```sh
+   make install-ghostty
+   make install-yazi
    ```
 
 ### 3. Windows (WSL)
