@@ -266,6 +266,7 @@ guix-container-shell() {
         export GUIX_PROFILE
         [ ! -f "$GUIX_PROFILE/etc/profile" ] || . "$GUIX_PROFILE/etc/profile"
         [ ! -f /root/.guix-home/setup-environment ] || . /root/.guix-home/setup-environment
+        export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
         cd /root/dot_files || exit
         if [ "$GUIX_ENTRY_SHELL" = zsh ]; then
             shell_path=$(command -v zsh)

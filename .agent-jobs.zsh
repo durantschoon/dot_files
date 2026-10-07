@@ -724,6 +724,7 @@ agent-herdr() {
     *)  want=$(job-name "$1") || return ;;
   esac
   (( $# > 1 )) && { print -u2 "$usage"; return 64 }
+  (( $+commands[herdr] )) || rehash
   (( $+commands[herdr] )) || { print -u2 "agent-herdr: no herdr on PATH"; return 1 }
   (( $+commands[jq] ))    || { print -u2 "agent-herdr: needs jq"; return 1 }
 
@@ -768,6 +769,7 @@ herdr-revive() {
   local -a engines; engines=("$@")
   (( $#engines )) || engines=(claude agy codex cursor)
   local e; for e in "${engines[@]}"; do _agent_engine_check "$e" || return; done
+  (( $+commands[herdr] )) || rehash
   (( $+commands[herdr] )) || { print -u2 "herdr-revive: no herdr on PATH"; return 1 }
   local -i opened=0
   for e in "${engines[@]}"; do

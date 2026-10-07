@@ -86,6 +86,7 @@ get_context_name() {
 
 # VS Code related
 add_to_front_of_path "$HOME/.console-ninja/.bin"
+mkdir -p "$HOME/.local/bin" 2>/dev/null || true
 add_to_front_of_path "$HOME/.local/bin"
 add_to_front_of_path "$HOME/bin"
 

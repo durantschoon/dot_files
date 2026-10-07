@@ -542,6 +542,7 @@ herdr-notes-sync() {
     "") ;;
     *) print -u2 "usage: herdr-notes-sync [-q]"; return 64 ;;
   esac
+  (( $+commands[herdr] )) || rehash
   (( $+commands[herdr] )) || { (( quiet )) || print -u2 "herdr-notes-sync: no herdr on PATH"; return 1 }
   (( $+commands[jq] ))    || { (( quiet )) || print -u2 "herdr-notes-sync: needs jq"; return 1 }
   local snap

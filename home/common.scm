@@ -867,6 +867,16 @@ call, so extensions never collide; only genuine double ownership does."
    #:services
    (lambda (session)
      (list
+      (simple-service 'dotfiles-environment-variables
+                      home-environment-variables-service-type
+                      '(("PATH" . "$HOME/.local/bin:$HOME/bin:$PATH")))
+      (simple-service 'local-bin-activation home-activation-service-type
+                      #~(begin
+                          (let* ((home (getenv "HOME"))
+                                 (local (string-append home "/.local"))
+                                 (local-bin (string-append local "/bin")))
+                            (unless (file-exists? local) (mkdir local))
+                            (unless (file-exists? local-bin) (mkdir local-bin)))))
       (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
                      `(".tmux.conf" ,(local-file "../.tmux.conf" "tmux.conf"))
