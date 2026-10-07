@@ -1570,9 +1570,11 @@ apply: warn-dotfiles-home
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
-	@$(MAKE) --no-print-directory check-cloud-dirs
 	@$(MAKE) --no-print-directory unlock-ssh-keys
 	$(EXPECTED_WARNINGS_SUMMARY)
+	@# Last on purpose: the cloud-dirs step is unfinished and can fail, and a
+	@# failure here must not skip anything above it.
+	@$(MAKE) --no-print-directory check-cloud-dirs
 
 apply-wayland: warn-dotfiles-home
 	$(EXPECTED_WARNINGS_RESET)
@@ -1619,9 +1621,11 @@ apply-wayland: warn-dotfiles-home
 		echo "  sudo make setup-keyd"; \
 		echo "------------------------------"; \
 	fi
-	@$(MAKE) --no-print-directory check-cloud-dirs
 	@$(MAKE) --no-print-directory unlock-ssh-keys
 	$(EXPECTED_WARNINGS_SUMMARY)
+	@# Last on purpose: the cloud-dirs step is unfinished and can fail, and a
+	@# failure here must not skip anything above it.
+	@$(MAKE) --no-print-directory check-cloud-dirs
 
 .PHONY: apply-ewm ewm-launch ewm-escape-notes
 
@@ -1646,10 +1650,11 @@ apply-ewm: warn-dotfiles-home
 	@echo "    per docs/EWM_TRIAL_PLAN.md with:  make ewm-launch"
 	@echo "    (Note on Framework Laptop: CapsLock is Ctrl, so use CapsLock-Fn-Alt-F<N> to pick a VT)"
 	@echo "    Return to the GNOME-tuned home with:  guix home roll-back"
-	@$(MAKE) --no-print-directory check-cloud-dirs
 	@echo ""
 	@echo ""
 	@$(MAKE) --no-print-directory ewm-escape-notes
+	@# Last on purpose (see apply): an unfinished, failing step goes after everything else.
+	@$(MAKE) --no-print-directory check-cloud-dirs
 
 # ewm-escape-notes -- print recovery shortcuts and escape hatches for the EWM trial
 ewm-escape-notes:
