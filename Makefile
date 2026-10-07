@@ -1422,6 +1422,7 @@ unlock-ssh-keys:
 	    echo "    [ok] $$label unlocked"; \
 	  else \
 	    echo "    [--] $$label not unlocked (wrong passphrase or cancelled) -- the next push will ask"; \
+	  fi; \
 	done
 
 # unlock-gpg -- prompt for GPG passphrase to cache it in gpg-agent (16h TTL)
