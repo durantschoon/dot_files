@@ -160,7 +160,7 @@ function dotfiles_apply_hint() {
     else
         case "$short_host" in
             barnowl) hint="you're on barnowl (WSL), you run: make apply (Guix the package manager + guix home; no Guix System here, so not apply-wayland)" ;;
-            minius)  hint="you're on minius, you just pull and source your z dots: git pull && source ~/.zshrc (but see if you can do everything in orb-guix, where you run: make apply)" ;;
+            minius)  hint="you're on minius, you just pull and source your z dots: git pull && source ~/.zshrc (but see if you can do everything in orb-guix, where you run: make apply)\n%B%F{red}▶ REMINDER: You want to run Herdr in Guix (orb-guix)!%b" ;;
             geeeks)  hint="you're on geeeks, you run: make apply-wayland (feeling adventurous? make apply-ewm for the EWM trial; back out with: guix home roll-back)" ;;
             *)       return ;;
         esac

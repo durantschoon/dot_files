@@ -1766,23 +1766,49 @@ tmux-rm() {
 # tmux-hibernate: save all local tmux jobs to ~/.tmux-hibernated-jobs and gracefully stop them.
 tmux-hibernate() {
   local f=~/.tmux-hibernated-jobs
-  local r host name spath task
+  local r host name spath task agent
   local -a rows
   _tmux_all_rows; rows=("${reply[@]}")
   
   local -a to_hibernate
   for r in "${rows[@]}"; do
+    [[ -n $r ]] || continue
     host=${r%%|*}
-    [[ $host == local ]] || continue
-    
     name=${${(@s:|:)r}[2]}
     spath=${${(@s:|:)r}[6]}
+    agent=${${(@s:|:)r}[7]-}
     task=$(_tmux_row_task "$r")
-    
-    # Check if it's a valid job repo (has logs dir)
-    if [[ -d $spath/logs ]]; then
-      to_hibernate+=("$spath"$'\t'"$task")
+
+    if [[ $host != local ]]; then
+      print -u2 "tmux-hibernate: skipping remote session '$name' on $host"
+      continue
     fi
+    if [[ ! -d $spath ]]; then
+      print -u2 "tmux-hibernate: skipping session '$name' (directory '$spath' does not exist)"
+      continue
+    fi
+    if [[ -n $agent ]]; then
+      print -u2 "tmux-hibernate: skipping $agent agent session '$name' (agent sessions are managed via agent-status / agent-relaunch)"
+      continue
+    fi
+    if [[ $name == *-* ]]; then
+      local maybe_label="local.job.${name%%-*}.${name#*-}"
+      local reg_dir="${XDG_DATA_HOME:-$HOME/.local/share}/agent-jobs"
+      if [[ -f "$HOME/Library/LaunchAgents/$maybe_label.plist" ]] || [[ -f "$reg_dir/$maybe_label.conf" ]]; then
+        print -u2 "tmux-hibernate: skipping agent session '$name' (agent sessions are managed via agent-status / agent-relaunch)"
+        continue
+      fi
+    fi
+    if [[ ! -d $spath/logs ]]; then
+      print -u2 "tmux-hibernate: skipping session '$name' ($spath has no logs/ directory)"
+      continue
+    fi
+    if ! ( cd "$spath" && _job_record_cmd "$task" >/dev/null 2>&1 ); then
+      print -u2 "tmux-hibernate: skipping session '$name' in $spath (no logs/$task.job command record to revive)"
+      continue
+    fi
+
+    to_hibernate+=("$spath"$'\t'"$task")
   done
   
   if (( ${#to_hibernate} == 0 )); then
@@ -1804,7 +1830,7 @@ tmux-hibernate() {
     print -u2 ""
   fi
 
-  > "$f" || return 1
+  : > "$f" || return 1
   
   local count=0
   local -x JOB_CONFIRM=no
@@ -1813,6 +1839,7 @@ tmux-hibernate() {
     task=${item#*$'\t'}
     
     print -r -- "$item" >> "$f"
+    print -u2 "tmux-hibernate: stopping '$task' in $spath..."
     ( cd "$spath" && tmux-stop "$task" >/dev/null 2>&1 )
     print -u2 "tmux-hibernate: saved and stopped '$task' in $spath"
     (( count++ ))
@@ -1831,6 +1858,7 @@ tmux-revive() {
   
   local spath task count=0
   while IFS=$'\t' read -r spath task; do
+    [[ -n $spath ]] || continue
     if [[ ! -d $spath ]]; then
       print -u2 "tmux-revive: repo $spath no longer exists, skipping '$task'"
       continue
@@ -1847,8 +1875,7 @@ tmux-revive() {
       
       print -u2 "tmux-revive: reviving '$task' in $spath"
       tmux-run "$task" -- "${cmd[@]}"
-    )
-    (( count++ ))
+    ) && (( count++ ))
   done < "$f"
   
   print -u2 "tmux-revive: revived $count jobs."
@@ -2391,7 +2418,7 @@ job-promote() {
     # target is about to claim the name, and two definitions for one task is
     # exactly the ambiguity refused above.
     case $src in
-      tmux)    tmux-stop  "$task" || return ;;
+      tmux)    JOB_CONFIRM=no tmux-stop "$task" || return ;;
       launchd) launchd-rm "$task" || return ;;
       docker)  docker-rm  "$task" || return ;;
     esac
