@@ -34,3 +34,10 @@ position = "top-left"
 
 [ui.sound]
 enabled = false
+
+# Shell for new panes.  Empty means $SHELL, then /bin/sh -- and panes opened
+# through the API (agent-herdr's `herdr tab create`) got /bin/sh (dash in
+# orb-guix), leaving a bare `#` prompt once the agent exits.  A bare name so
+# the same file works on macOS (/bin/zsh) and in Guix (profile zsh).
+[terminal]
+default_shell = "zsh"
