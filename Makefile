@@ -403,6 +403,7 @@ endif
 update-codex:
 	npm install --global --prefix "$$HOME/.local" @openai/codex@latest
 	"$$HOME/.local/bin/codex" --version
+	$(CURDIR)/bin/codex-defaults
 
 # uv on hosts Guix Home does not manage (on Guix it is in %base-packages in
 # home/common.scm).  Idempotent; see bin/install-uv.sh for the per-platform
@@ -664,6 +665,9 @@ ifeq ($(UNAME_S),Darwin)
 	@mkdir -p ~/Library/Application\ Support/herdr
 	ln -si ~/dot_files/herdr/config.toml ~/Library/Application\ Support/herdr/config.toml || echo
 endif
+	@# Codex writes its own config.toml, so merge the repo's keys in rather
+	@# than linking it (Guix Home does the same at activation)
+	$(CURDIR)/bin/codex-defaults
 	@# Yazi keymap config
 	@mkdir -p ~/.config/yazi
 	@if [ -f ~/dot_files/yazi/keymap.toml ]; then \

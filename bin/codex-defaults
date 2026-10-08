@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# codex-defaults -- enforce the dot_files Codex settings in ~/.codex/config.toml.
+#
+# Codex rewrites config.toml itself (project trust levels, TUI state), so the
+# file cannot be a store symlink or a copy that the repo overwrites.  This
+# merges in the few keys the repo owns and leaves everything else alone.
+# Idempotent: run it as often as you like.
+#
+# Keys enforced:
+#
+#   [features]
+#   daemon_auto_start = false
+#       Run the TUI in-process instead of through the app-server daemon.  The
+#       daemon's auto-updater picks its build from `uname -m`; on orb-guix
+#       (x86_64 userspace under Rosetta, arm64 kernel) it installs the x86_64
+#       build, whose Linux sandbox fails to install its seccomp filter
+#       (EINVAL), so every shell command the agent runs dies.  The in-process
+#       TUI uses the native binary npm installed, whose sandbox works.
+#
+# Called by the Guix Home activation in home/common.scm and by
+# `make update-codex'.  Respects $CODEX_HOME; $AWK picks the awk to run.
+set -euo pipefail
+
+codex_home=${CODEX_HOME:-$HOME/.codex}
+config_file=$codex_home/config.toml
+awk_bin=${AWK:-awk}
+
+mkdir -p -- "$codex_home"
+[[ -e $config_file ]] || : > "$config_file"
+
+# set_toml_key SECTION KEY VALUE: set KEY = VALUE under [SECTION], replacing
+# an existing KEY line there, else adding it at the end of that section, else
+# appending the section.  Leaves the file untouched when it already matches.
+set_toml_key() {
+  local section=$1 key=$2 value=$3 merged_file
+  merged_file=$(mktemp "$config_file.XXXXXX")
+  "$awk_bin" -v section="[$section]" -v key="$key" -v value="$value" '
+    # Blank lines inside the section are held back in `blanks` so a key
+    # added at the end of the section sits with its content, not after them.
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    function add_key() { print key " = " value; done = 1 }
+    {
+      line = trim($0)
+      if (line ~ /^\[/) {
+        if (in_section && !done) add_key()
+        printf "%s", blanks; blanks = ""
+        in_section = (line == section)
+        print
+        next
+      }
+      if (in_section && !done && line == "") { blanks = blanks $0 "\n"; next }
+      printf "%s", blanks; blanks = ""
+      if (in_section && !done && line ~ ("^" key "[ \t]*=")) { add_key(); next }
+      print
+    }
+    END {
+      if (in_section && !done) add_key()
+      printf "%s", blanks
+      if (!done) { if (NR > 0) print ""; print section; add_key() }
+    }
+  ' "$config_file" > "$merged_file"
+  if cmp -s -- "$merged_file" "$config_file"; then
+    command rm -f -- "$merged_file"
+  else
+    chmod 600 -- "$merged_file"
+    mv -f -- "$merged_file" "$config_file"
+    echo "codex-defaults: set [$section] $key = $value in $config_file"
+  fi
+}
+
+set_toml_key features daemon_auto_start false
