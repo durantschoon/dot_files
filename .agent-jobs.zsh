@@ -451,13 +451,13 @@ agent-status() {
     local -a labels; labels=(${(f)"$(_agent_job_labels)"})
     local label name wd state
     integer any=0
-    
+
     local c_label="" c_name="" c_wd="" c_up="" c_missing="" c_reset=""
     if [[ -t 1 && -z ${NO_COLOR-} ]]; then
       c_label=$'\e[36m'; c_name=$'\e[33m'; c_wd=$'\e[90m'
       c_up=$'\e[32m'; c_missing=$'\e[31m'; c_reset=$'\e[0m'
     fi
-    
+
     for label in "${labels[@]}"; do
       [[ -n $label ]] || continue
       name=$(_agent_agent_session "$label") || continue
@@ -1318,7 +1318,7 @@ _agent_bin() {
 _agent_resume_args() {
   case $1 in
     claude) print -r -- "--permission-mode ${AGENT_JOB_MODE:-${CLAUDE_JOB_MODE:-auto}} --continue" ;;
-    agy)    print -r -- "continue" ;; 
+    agy)    print -r -- "continue" ;;
     cursor) print -r -- "--continue" ;;
     codex)  print -r -- "resume --last" ;;
   esac
@@ -1403,7 +1403,7 @@ agent-help() {
   local engine=${1:-agent}
   [[ $engine == agent ]] || _agent_engine_check "$engine" || return
   local script_path=${${(%):-%x}:-$HOME/dot_files/.agent-jobs.zsh}
-  
+
   perl -e '
     $e = shift;
     $color = -t STDOUT && !$ENV{NO_COLOR};
