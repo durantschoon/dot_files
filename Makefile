@@ -285,6 +285,10 @@ help-text:
 	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make setup-guix-bitbucket-key - The same for Bitbucket"
+	@echo "  make guix-container-stop - Stop guix-dev in place (agent sessions get GUIX_CONTAINER_STOP_TIMEOUT s"
+	@echo "                       to exit; volumes untouched); orb-guix or guix-container-restart starts it again"
+	@echo "  make guix-container-restart - Stop and start guix-dev without recreating it (what a reboot does;"
+	@echo "                       the entrypoint relaunches the daemon, bridges and agent sessions)"
 	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
 	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
 	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
@@ -2010,7 +2014,7 @@ check-locale:
 	  exit 1; \
 	fi
 
-.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
+.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container guix-container-stop guix-container-restart setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -2152,6 +2156,27 @@ setup-guix-github-key: setup-guix-container
 
 setup-guix-bitbucket-key: setup-guix-container
 	 $(GUIX_DOCKER) exec -it guix-dev /root/dot_files/build-aux/setup-guix-github-key.sh bitbucket
+
+# Stop and restart the container IN PLACE.  Neither goes through compose:
+# `compose down' removes the container and `compose up' recreates it, a
+# four-step dance (create under <id>_guix-dev, stop, remove, rename) that
+# strands the container under its temporary name if cut short -- see
+# guix-container-heal in .aliases.  Recreating is only needed when
+# compose.guix.yaml changes, and setup-guix-container does that.
+#
+# The stop timeout is longer than docker's 10 s default so the agent
+# sessions inside (tmux, claude, agy, codex) can exit on their own before
+# SIGKILL.  On start the entrypoint brings back guix-daemon, the gpg bridge,
+# tailscaled and the registered agent sessions (build-aux/guix-container-*).
+GUIX_CONTAINER_STOP_TIMEOUT ?= 30
+
+guix-container-stop:
+	 $(GUIX_DOCKER) stop -t $(GUIX_CONTAINER_STOP_TIMEOUT) guix-dev
+	 @echo "guix-dev stopped; 'orb-guix' or 'make guix-container-restart' starts it again"
+
+guix-container-restart:
+	 $(GUIX_DOCKER) restart -t $(GUIX_CONTAINER_STOP_TIMEOUT) guix-dev
+	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
 
 # Commit signing inside guix-dev through the Mac's gpg-agent.
 #

@@ -246,12 +246,55 @@ watchf() {
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
+# Give guix-dev its name back after an interrupted `docker compose up`.
+#
+# Compose recreates a container in four steps: create the new one under the
+# temporary name <old-id>_guix-dev, stop the old one, remove it, then rename
+# the new one.  If the run is cut short between the last two steps (the
+# removal can sit for minutes while OrbStack unmounts the bind mounts), the
+# new container survives, fully wired to the persistent volumes, but under
+# the temporary name -- so `docker exec guix-dev` and this shell find nothing.
+# Renaming it is the whole fix; recreating it again is not needed.
+#
+# Takes the docker context arguments.  Silent no-op when guix-dev exists.
+# Refuses, with a listing, when more than one candidate is stranded, since
+# only a human can tell which one to keep.
+guix-container-heal() {
+    local -a docker_context=("$@")
+    docker "${docker_context[@]}" container inspect guix-dev >/dev/null 2>&1 && return 0
+
+    local -a stranded=()
+    local candidate
+    while IFS= read -r candidate; do
+        [[ "$candidate" =~ ^[0-9a-f]{12}_guix-dev$ ]] && stranded+=("$candidate")
+    done < <(docker "${docker_context[@]}" container ls -a \
+                 --filter label=com.docker.compose.project=dotfiles-guix \
+                 --filter label=com.docker.compose.service=guix \
+                 --format '{{.Names}}' 2>/dev/null)
+
+    case ${#stranded[@]} in
+        0) return 1 ;;
+        1)
+            echo "guix-dev is missing but ${stranded[1]} exists: an interrupted compose recreate. Renaming it back." >&2
+            docker "${docker_context[@]}" rename "${stranded[1]}" guix-dev
+            ;;
+        *)
+            echo "guix-dev is missing and several stranded containers exist; rename the one to keep by hand:" >&2
+            for candidate in "${stranded[@]}"; do
+                echo "  docker ${docker_context[*]} rename $candidate guix-dev" >&2
+            done
+            return 1
+            ;;
+    esac
+}
+
 # Enter the persistent Guix container hosted by OrbStack using profile paths.
 guix-container-shell() {
     local requested_shell="${1:-zsh}"
     local -a docker_context=()
     [[ "$(uname -s)" == Darwin ]] && docker_context=(--context orbstack)
 
+    guix-container-heal "${docker_context[@]}"
     if ! docker "${docker_context[@]}" container inspect guix-dev >/dev/null; then
         echo "Cannot inspect guix-dev; see Docker's error above. If missing, run make setup-guix-container in ~/dot_files." >&2
         return 1
