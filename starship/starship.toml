@@ -47,8 +47,9 @@ symbol = " "   # nf-dev-python
 disabled = true
 
 # Which machine: on OrbStack the container hostname is a random ID, so lead
-# with the purple circle / orb emoji (U+1F7E3).  On other hosts (minius,
-# geeeks, barnowl), show the plain hostname without the orb.
+# with the purple circle / orb emoji (U+1F7E3) and cut the ID to its first
+# seven characters, like a short git hash.  On other hosts (minius, geeeks,
+# barnowl), show the plain hostname without the orb.
 [custom.host]
 shell = ["sh"]
 when = 'true'
@@ -57,7 +58,7 @@ read -r v < /proc/version 2>/dev/null
 h="${HOSTNAME:-$(hostname)}"
 h="${h%%.*}"
 case "$v" in
-  *orbstack*|*OrbStack*) printf "\360\237\237\243 %s" "$h" ;;
+  *orbstack*|*OrbStack*) printf "\360\237\237\243 %.7s" "$h" ;;
   *) printf "%s" "$h" ;;
 esac
 '''
