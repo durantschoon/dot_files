@@ -2183,8 +2183,15 @@ else
 	@launchctl bootstrap gui/$$(id -u) $(GPG_BRIDGE_PLIST_DST)
 	@# First, so its no-autostart is in place before the import below runs gpg.
 	@echo "==> (re)starting the container end (the entrypoint also starts it on every container start)"
+	@# Detached, so wait for the NEW listener: the old socat answers until the
+	@# restart kills it, hence the socket must also be newer than the marker.
+	@$(GUIX_DOCKER) exec guix-dev touch /tmp/gpg-bridge.restart
 	@$(GUIX_DOCKER) exec -d guix-dev /root/dot_files/build-aux/guix-container-gpg-bridge.sh --restart
-	@sleep 2
+	@for i in $$(seq 15); do \
+	  $(GUIX_DOCKER) exec guix-dev sh -lc 'test /root/.gnupg/S.gpg-agent -nt /tmp/gpg-bridge.restart \
+	    && gpg-connect-agent "GETINFO version" /bye 2>/dev/null | grep -q "^D "' && exit 0; \
+	  sleep 1; \
+	done; echo "    (container end not answering after 15 s; the check below says why)"
 	@echo "==> importing the public key $(GPG_SIGNING_KEY) and its ownertrust into guix-dev"
 	@gpg --export $(GPG_SIGNING_KEY) | $(GUIX_DOCKER) exec -i guix-dev sh -lc 'gpg --batch --quiet --import'
 	@gpg --export-ownertrust | grep "^$$(gpg --with-colons --fingerprint $(GPG_SIGNING_KEY) | awk -F: '/^fpr/{print $$10; exit}'):" \
