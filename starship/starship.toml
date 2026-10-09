@@ -158,7 +158,7 @@ elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
 fi
 '''
 symbol = "\U0001F403\U0001F41A "
-style = "bold yellow"
+style = "bold bright-green"
 format = " [\\[$symbol$output\\]]($style)"
 
 [custom.guix]
@@ -208,5 +208,5 @@ elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
 fi
 '''
 symbol = "\U0001F403 "
-style = "bold yellow"
+style = "bold bright-green"
 format = " [\\[$symbol$output\\]]($style)"
