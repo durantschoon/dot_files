@@ -2170,11 +2170,15 @@ setup-guix-bitbucket-key: setup-guix-container
 # tailscaled and the registered agent sessions (build-aux/guix-container-*).
 GUIX_CONTAINER_STOP_TIMEOUT ?= 30
 
+# docker stop/restart print nothing until the container is down, so say up
+# front that the silence is the grace period and not a hang.
 guix-container-stop:
+	 @echo "==> stopping guix-dev: up to $(GUIX_CONTAINER_STOP_TIMEOUT) s of silence while its sessions exit (then SIGKILL)"
 	 $(GUIX_DOCKER) stop -t $(GUIX_CONTAINER_STOP_TIMEOUT) guix-dev
 	 @echo "guix-dev stopped; 'orb-guix' or 'make guix-container-restart' starts it again"
 
 guix-container-restart:
+	 @echo "==> restarting guix-dev: up to $(GUIX_CONTAINER_STOP_TIMEOUT) s of silence while its sessions exit (then SIGKILL)"
 	 $(GUIX_DOCKER) restart -t $(GUIX_CONTAINER_STOP_TIMEOUT) guix-dev
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
 
