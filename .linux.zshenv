@@ -26,6 +26,13 @@ if [[ -n "$WSL_DISTRO_NAME" ]] || grep -qi microsoft /proc/version 2>/dev/null; 
     export BROWSER=wslview
 fi
 
+# Debian / Ubuntu / WSL: Debian and Ubuntu's /etc/zsh/zshrc runs compinit by
+# default unless skip_global_compinit is set.  Skip it here so compinit is not
+# run twice on every new terminal, and so it does not choke on dangling vendor
+# completion symlinks (such as Docker Desktop's vendor-completions/_docker when
+# Docker is stopped) before our own .zshrc configures fpath and fallback stubs.
+export skip_global_compinit=1
+
 [[ -s /usr/share/powerline/bindings/bash/powerline.sh ]] && source /usr/share/powerline/bindings/bash/powerline.sh
 
 [[ -s "$HOME/.cargo/env" ]] && . $HOME/.cargo/env
