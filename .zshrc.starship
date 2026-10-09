@@ -156,7 +156,7 @@ function dotfiles_apply_hint() {
     local short_host="${(L)HOST%%.*}"
     local hint
     if grep -qi orbstack /proc/version 2>/dev/null; then
-        hint="you're in orb-guix, you run: make apply\nto test signing: make check-gpg-bridge, not make check-gpg (the key lives on the Mac)"
+        hint="you're in orb-guix, you run: make apply\ngpg broken here? on the Mac: make check-gpg-bridge"
     elif [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux ]]; then
         hint="you're on your android phone, just pull and source your z dots: git pull && source ~/.zshrc"
     else
