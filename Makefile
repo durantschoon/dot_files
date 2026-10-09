@@ -1296,6 +1296,11 @@ check-gpg:
 .PHONY: check-ssh check-ssh-agent
 check-ssh:
 	@echo "==> gpg-agent as ssh agent"
+	@if [ -n "$(IN_GUIX_DEV)" ]; then \
+	  echo "    skipped in guix-dev: ssh uses per-forge key files (make setup-guix-github-key);"; \
+	  echo "    gpg goes through the Mac bridge (make check-gpg-bridge, on the Mac)"; \
+	  exit 0; \
+	fi
 	@if ! command -v gpgconf >/dev/null 2>&1; then \
 	  echo "    skipped: no gpgconf here (gpg-ssh-agent layer not deployed)"; \
 	  exit 0; \

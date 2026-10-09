@@ -394,6 +394,7 @@ field below follows this file's convention of not importing
     (has-gsettings?       . #t)                                     ;[session]
     (never-suspend-on-ac? . #t)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
+    (local-gpg-agent?     . #t)
     (wayland-display      . "wayland-0")))
 
 ;; The foreign-distro session: guix home as a package manager on someone
@@ -420,7 +421,28 @@ field below follows this file's convention of not importing
     (has-gsettings?       . #t)                                     ;[session]
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
+    (local-gpg-agent?     . #t)
     (wayland-display      . "wayland-0")))
+
+;; The guix-dev container (OrbStack on the Mac, Docker on WSL): the foreign
+;; session minus a local gpg-agent.
+;;
+;;   local-gpg-agent?   #f here.  The container signs through the Mac's agent
+;;                      (build-aux/guix-container-gpg-bridge.sh), which writes
+;;                      no-autostart to ~/.gnupg/common.conf so no local agent
+;;                      takes over its socket.  A shepherd gpg-agent reads the
+;;                      same file and exits on every start ("not starting in
+;;                      supervised mode due to no-autostart", 2026-10-09), so
+;;                      the gpg-ssh-agent layer is left out.  ssh in the
+;;                      container uses per-forge key files instead
+;;                      (build-aux/setup-guix-github-key.sh).
+(define %guix-dev-session
+  (map (lambda (entry)
+         (case (car entry)
+           ((name) '(name . guix-dev))
+           ((local-gpg-agent?) '(local-gpg-agent? . #f))
+           (else entry)))
+       %foreign-session))
 
 ;; The EWM trial session (docs/EWM_TRIAL_PLAN.md), deployed by home/ewm.scm.
 ;;
@@ -471,6 +493,7 @@ field below follows this file's convention of not importing
     (has-gsettings?       . #f)                                     ;[session]
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
+    (local-gpg-agent?     . #t)
     (wayland-display      . "wayland-1")))
 
 ;; assq rather than assq-ref, so a mistyped key errors instead of returning
@@ -988,6 +1011,7 @@ call, so extensions never collide; only genuine double ownership does."
   (layer
    #:name 'gpg-ssh-agent
    #:synopsis "gpg-agent as the one agent for gpg AND ssh"
+   #:requires '(local-gpg-agent?)
    #:services
    (lambda (session)
      (list
@@ -1064,7 +1088,7 @@ call, so extensions never collide; only genuine double ownership does."
                           ;; keyd controls a host's input devices. A foreign
                           ;; OrbStack container cannot do that, so do not emit
                           ;; a sudo/setup prompt there.
-                          (unless (or (eq? '#$(session-ref session 'name) 'foreign)
+                          (unless (or (memq '#$(session-ref session 'name) '(foreign guix-dev))
                                       (file-exists? "/etc/keyd/default.conf"))
                             (format #t "--- KEYD SETUP REQUIRED ---~%")
                             (format #t "To enable system-wide Emacs keys, run:~%")
