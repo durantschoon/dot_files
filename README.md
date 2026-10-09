@@ -246,6 +246,12 @@ The key is named `github_orbstack_guix`, is used only for `github.com`, and is
 never written to this repository. On WSL, omit `--context orbstack` from the
 test command (or use the context selected by `GUIX_DOCKER_CONTEXT`).
 
+Bitbucket works the same way with its own key, `bitbucket_orbstack_guix`:
+`make setup-guix-bitbucket-key` from the Mac, or
+`build-aux/setup-guix-github-key.sh bitbucket` from inside the container. Add
+the printed key under Bitbucket Personal settings → SSH keys and test with
+`ssh -T git@bitbucket.org`.
+
 Commit signing inside the container goes through the Mac's gpg-agent instead
 of a copied secret key: `make setup-gpg-bridge` (mac only; needs
 `brew install socat`) installs a loopback socat LaunchAgent and imports only

@@ -284,6 +284,7 @@ help-text:
 	@echo "  make check-ssh-github - check-ssh, then a live 'ssh -T git@github.com' with triage hints"
 	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
+	@echo "  make setup-guix-bitbucket-key - The same for Bitbucket"
 	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
 	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
 	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
@@ -2009,7 +2010,7 @@ check-locale:
 	  exit 1; \
 	fi
 
-.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
+.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -2148,6 +2149,9 @@ setup-guix-container:
 # private key never comes from the host and is never checked into this repo.
 setup-guix-github-key: setup-guix-container
 	 $(GUIX_DOCKER) exec -it guix-dev /root/dot_files/build-aux/setup-guix-github-key.sh
+
+setup-guix-bitbucket-key: setup-guix-container
+	 $(GUIX_DOCKER) exec -it guix-dev /root/dot_files/build-aux/setup-guix-github-key.sh bitbucket
 
 # Commit signing inside guix-dev through the Mac's gpg-agent.
 #
