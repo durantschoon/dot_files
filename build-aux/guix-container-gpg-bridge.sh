@@ -20,20 +20,30 @@ lock=/tmp/guix-container-gpg-bridge.lock
 
 [ -x "$socat" ] || { echo "gpg bridge: $socat missing (make setup-guix-container)" >&2; exit 1; }
 
-# kill_matching PATTERN: TERM every process whose command line matches the
-# case PATTERN, except this script.  The image has no ps/pkill.
+# kill_matching PROGRAM ARGS: TERM every process whose program name (argv[0]
+# without its directory) matches the case pattern PROGRAM and whose arguments
+# match ARGS, except this script.  Matching the program separately keeps an
+# editor, a pager or a `sh -c' command line that merely mentions the pattern
+# alive.  The image has no ps/pkill.
 kill_matching() {
     for proc in /proc/[0-9]*; do
         pid=${proc#/proc/}
         [ "$pid" = "$$" ] && continue
         cmd=$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null) || continue
-        case "$cmd" in $1) kill "$pid" 2>/dev/null ;; esac
+        prog=${cmd%% *}
+        args=${cmd#* }
+        # Some kernels (binfmt, as under OrbStack) list the program twice.
+        next=${args%% *}
+        [ "${next##*/}" = "${prog##*/}" ] && args=${args#* }
+        case "$args" in -c\ *) continue ;; esac
+        case "${prog##*/}" in $1) ;; *) continue ;; esac
+        case "$args" in $2) kill "$pid" 2>/dev/null ;; esac
     done
 }
 
 if [ "${1:-}" = --restart ]; then
-    kill_matching "*guix-container-gpg-bridge.sh*"
-    kill_matching "*socat UNIX-LISTEN:$socket,*"
+    kill_matching sh "*/guix-container-gpg-bridge.sh*"
+    kill_matching socat "UNIX-LISTEN:$socket,*"
     sleep 1
 fi
 
@@ -48,7 +58,7 @@ grep -qx no-autostart "$gnupghome/common.conf" 2>/dev/null ||
     echo no-autostart >>"$gnupghome/common.conf"
 # One started before that line existed; shepherd's socket-activated agent
 # under $XDG_RUNTIME_DIR is left alone (it serves ssh, not this socket).
-kill_matching "*gpg-agent --homedir $gnupghome *--daemon*"
+kill_matching gpg-agent "--homedir $gnupghome *--daemon*"
 
 # The listener stays up even while the Mac side is down, so gpg sees a
 # refused request instead of a missing socket.

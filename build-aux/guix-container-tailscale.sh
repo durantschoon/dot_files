@@ -75,20 +75,28 @@ write_session_env() {
     [ -x "$zsh" ] && sed -i "s#^\(root:[^:]*:0:0:[^:]*:[^:]*:\).*#\1$zsh#" /etc/passwd
 }
 
-# kill_matching PATTERN: TERM every process whose command line matches the case
-# PATTERN, except this script (same helper as guix-container-gpg-bridge.sh).
+# kill_matching PROGRAM ARGS: TERM every process whose program name matches
+# PROGRAM and whose arguments match ARGS, except this script (same helper as
+# guix-container-gpg-bridge.sh, which says why the two are matched apart).
 kill_matching() {
     for proc in /proc/[0-9]*; do
         pid=${proc#/proc/}
         [ "$pid" = "$$" ] && continue
         cmd=$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null) || continue
-        case "$cmd" in $1) kill "$pid" 2>/dev/null ;; esac
+        prog=${cmd%% *}
+        args=${cmd#* }
+        # Some kernels (binfmt, as under OrbStack) list the program twice.
+        next=${args%% *}
+        [ "${next##*/}" = "${prog##*/}" ] && args=${args#* }
+        case "$args" in -c\ *) continue ;; esac
+        case "${prog##*/}" in $1) ;; *) continue ;; esac
+        case "$args" in $2) kill "$pid" 2>/dev/null ;; esac
     done
 }
 
 case ${1:-} in
     --install) install_tailscale; exit ;;
-    --restart) kill_matching "*/tailscaled --tun=userspace-networking *"; sleep 1 ;;
+    --restart) kill_matching tailscaled "--tun=userspace-networking *"; sleep 1 ;;
     "") ;;
     *) die "usage: $0 [--install|--restart]" ;;
 esac

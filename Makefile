@@ -2187,6 +2187,7 @@ else
 	@# restart kills it, hence the socket must also be newer than the marker.
 	@$(GUIX_DOCKER) exec guix-dev touch /tmp/gpg-bridge.restart
 	@$(GUIX_DOCKER) exec -d guix-dev /root/dot_files/build-aux/guix-container-gpg-bridge.sh --restart
+	@echo "==> waiting up to 15 s for the container end to answer"
 	@for i in $$(seq 15); do \
 	  $(GUIX_DOCKER) exec guix-dev sh -lc 'test /root/.gnupg/S.gpg-agent -nt /tmp/gpg-bridge.restart \
 	    && gpg-connect-agent "GETINFO version" /bye 2>/dev/null | grep -q "^D "' && exit 0; \
