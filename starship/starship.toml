@@ -24,15 +24,23 @@ scan_timeout = 1000
 # (default: 500ms). Increased to prevent timeouts under WSL filesystem latency.
 command_timeout = 1000
 
-# Right-hand prompt: the Guix version on any host with a pulled Guix (Guix
-# System or a foreign distro) and inside a `guix shell' (a shell follows the
-# buffalo inside one; nothing is shown on hosts without Guix), which machine,
-# the history event number to recall with !N, and the time and date
-# (the old zsh RPROMPT's "[%h]" and "[%* on %D]").  Modules named in
-# right_format drop out of $all, so the left prompt no longer repeats them.
+# Prompt layout.  First line, right edge: the Guix version on any host with a
+# pulled Guix (Guix System or a foreign distro) and inside a `guix shell' (a
+# shell follows the buffalo inside one; nothing is shown on hosts without
+# Guix).  Right-hand prompt on the second line: which machine, the history
+# event number to recall with !N, and the time and date (the old zsh RPROMPT's
+# "[%h]" and "[%* on %D]").  Modules named in format or right_format drop out
+# of $all, so the left prompt does not repeat them.
 # The left prompt leads with an ssh marker, as it did when hostname lived there.
-format = "${env_var.SSH_CONNECTION}$all"
-right_format = "${custom.guix_shell}${custom.guix}${custom.host} ${env_var.STARSHIP_HISTNO}$time"
+format = "${env_var.SSH_CONNECTION}$all$fill${custom.guix_shell}${custom.guix}$line_break$character"
+right_format = "${custom.host} ${env_var.STARSHIP_HISTNO}$time"
+
+# zsh's RPROMPT sits on the prompt's last line only, so right_format cannot
+# span two lines.  The Guix segment goes on the first line instead, pushed to
+# the right edge by $fill (blank, not the default dots).  Naming $fill,
+# $line_break and $character takes them out of $all, so they appear once.
+[fill]
+symbol = " "
 
 [package]
 symbol = " "   # nf-oct-package
@@ -107,66 +115,98 @@ disabled = true
 shell = ["sh"]
 when = 'test -n "$GUIX_ENVIRONMENT"'
 command = '''
+# A channel commit's numeric version, from `git describe' in Guix's own
+# checkout cache: "1.5.0-15021 df2d121" is 15021 commits past tag v1.5.0.
+# ~70ms a call, so the answer is cached per commit (it never changes);
+# without git or the checkout, the bare hash.
+ver() {
+  c="$HOME/.cache/starship-guix/$1"
+  if [ ! -s "$c" ] && command -v git >/dev/null 2>&1; then
+    for d in "$HOME"/.cache/guix/checkouts/*/; do
+      v=$(git -C "$d" describe --tags --long --abbrev=7 "$1" 2>/dev/null) || continue
+      mkdir -p "${c%/*}"
+      printf '%s' "$v" | sed 's/^v//; s/-g\([0-9a-f]*\)$/ \1/' > "$c"
+      break
+    done
+  fi
+  if [ -s "$c" ]; then cat "$c"; else printf '%s' "$1"; fi
+}
+show() {  # $1 guix commit, $2 nonguix commit (may be empty)
+  [ -n "$1" ] || return 0
+  ver "$1"
+  [ -n "$2" ] && printf ', \360\237\232\253\360\237\220\203 %s' "$(ver "$2")"
+  return 0
+}
 m="$HOME/.config/guix/current/manifest"
 [ -r "$m" ] || m=/run/current-system/profile/manifest
 if [ -r "$m" ]; then
-  awk '
+  show $(awk '
     $0 ~ /"guix"/ && !g { f=1; next }
     f { gsub(/[ "]/, ""); g = substr($0, 1, 7); f=0 }
     $0 ~ /"nonguix"/ && !ng { nf=1; next }
     nf { gsub(/[ "]/, ""); ng = substr($0, 1, 7); nf=0 }
-    END {
-      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
-      else if (g) printf "%s", g
-    }
-  ' "$m"
+    END { print g, ng }
+  ' "$m")
 elif command -v guix >/dev/null 2>&1; then
-  guix describe 2>/dev/null | awk '
+  show $(guix describe 2>/dev/null | awk '
     $1 == "guix" && !g { g = substr($2, 1, 7) }
     $1 == "nonguix" && !ng { ng = substr($2, 1, 7) }
-    END {
-      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
-      else if (g) printf "%s", g
-    }
-  '
+    END { print g, ng }
+  ')
 elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
-  "$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { printf "%s", substr($NF, 1, 7) }'
+  show $("$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }')
 fi
 '''
 symbol = "\U0001F403\U0001F41A "
 style = "bold yellow"
-format = "[\\[$symbol$output\\] ]($style)"
+format = " [\\[$symbol$output\\]]($style)"
 
 [custom.guix]
 shell = ["sh"]
 when = 'test -x "$HOME/.config/guix/current/bin/guix" && test -z "$GUIX_ENVIRONMENT"'
 command = '''
+# A channel commit's numeric version, from `git describe' in Guix's own
+# checkout cache: "1.5.0-15021 df2d121" is 15021 commits past tag v1.5.0.
+# ~70ms a call, so the answer is cached per commit (it never changes);
+# without git or the checkout, the bare hash.
+ver() {
+  c="$HOME/.cache/starship-guix/$1"
+  if [ ! -s "$c" ] && command -v git >/dev/null 2>&1; then
+    for d in "$HOME"/.cache/guix/checkouts/*/; do
+      v=$(git -C "$d" describe --tags --long --abbrev=7 "$1" 2>/dev/null) || continue
+      mkdir -p "${c%/*}"
+      printf '%s' "$v" | sed 's/^v//; s/-g\([0-9a-f]*\)$/ \1/' > "$c"
+      break
+    done
+  fi
+  if [ -s "$c" ]; then cat "$c"; else printf '%s' "$1"; fi
+}
+show() {  # $1 guix commit, $2 nonguix commit (may be empty)
+  [ -n "$1" ] || return 0
+  ver "$1"
+  [ -n "$2" ] && printf ', \360\237\232\253\360\237\220\203 %s' "$(ver "$2")"
+  return 0
+}
 m="$HOME/.config/guix/current/manifest"
 [ -r "$m" ] || m=/run/current-system/profile/manifest
 if [ -r "$m" ]; then
-  awk '
+  show $(awk '
     $0 ~ /"guix"/ && !g { f=1; next }
     f { gsub(/[ "]/, ""); g = substr($0, 1, 7); f=0 }
     $0 ~ /"nonguix"/ && !ng { nf=1; next }
     nf { gsub(/[ "]/, ""); ng = substr($0, 1, 7); nf=0 }
-    END {
-      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
-      else if (g) printf "%s", g
-    }
-  ' "$m"
+    END { print g, ng }
+  ' "$m")
 elif command -v guix >/dev/null 2>&1; then
-  guix describe 2>/dev/null | awk '
+  show $(guix describe 2>/dev/null | awk '
     $1 == "guix" && !g { g = substr($2, 1, 7) }
     $1 == "nonguix" && !ng { ng = substr($2, 1, 7) }
-    END {
-      if (g && ng) printf "%s, \360\237\232\253\360\237\220\203 %s", g, ng
-      else if (g) printf "%s", g
-    }
-  '
+    END { print g, ng }
+  ')
 elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
-  "$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { printf "%s", substr($NF, 1, 7) }'
+  show $("$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }')
 fi
 '''
 symbol = "\U0001F403 "
 style = "bold yellow"
-format = "[\\[$symbol$output\\] ]($style)"
+format = " [\\[$symbol$output\\]]($style)"
