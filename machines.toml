@@ -1,0 +1,17 @@
+# Authoritative machine inventory. Hub enrollment fills full fingerprints.
+# Add other machines here before enrolling; names are Tailscale/SSH hostnames.
+[gpg]
+hub = "minius"
+primary_fingerprint = "7CE816967443FCECCE0BF1B76A2DAE7008D4F938"
+subkey_expiry = "2027-02-08"
+
+[machines.minius]
+signing_subkey = ""
+
+[machines.geeeks]
+signing_subkey = ""
+# Adopt the already-created subkey rather than generating another.
+existing_subkey_id = "23570C8AFDE416D9"
+
+[machines.barnowl]
+signing_subkey = ""

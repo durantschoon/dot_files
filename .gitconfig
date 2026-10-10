@@ -54,3 +54,6 @@
 [protocol "rad"]
 	allow = always
 
+# Machine-specific signing selection, writable independently of Guix Home.
+[include]
+	path = ~/.config/git/gpg-machine.conf

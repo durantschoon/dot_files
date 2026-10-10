@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""Machine-specific GPG enrollment. Requires Python 3.11+, GnuPG and SSH."""
+import argparse
+import contextlib
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import socket
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+
+ROOT = Path(__file__).resolve().parent.parent
+INVENTORY = ROOT / 'machines.toml'
+PRIMARY_RE = re.compile(r'[A-F0-9]{40}')
+NAME_RE = re.compile(r'[a-z0-9][a-z0-9-]*')
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def atomic_write(path, content, mode=0o600):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name)
+    try:
+        with os.fdopen(fd, 'w') as out:
+            os.fchmod(out.fileno(), mode)
+            out.write(content)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def inventory():
+    data = tomllib.loads(INVENTORY.read_text())
+    if not PRIMARY_RE.fullmatch(data['gpg']['primary_fingerprint']):
+        raise ValueError('Invalid primary fingerprint')
+    for name, machine in data['machines'].items():
+        if not NAME_RE.fullmatch(name):
+            raise ValueError('Invalid machine name: ' + name)
+        fingerprint = machine['signing_subkey']
+        if fingerprint and not PRIMARY_RE.fullmatch(fingerprint):
+            raise ValueError('Expected full signing fingerprint for ' + name)
+    return data
+
+
+def local_name():
+    return socket.gethostname().split('.')[0].lower()
+
+
+def subkeys(primary):
+    listing = run('gpg', '--batch', '--with-colons', '--with-subkey-fingerprint',
+                  '--list-keys', primary, capture_output=True, text=True).stdout
+    result = {}
+    record = None
+    for line in listing.splitlines():
+        fields = line.split(':')
+        if fields[0] in ('pub', 'sub'):
+            record = fields
+        elif fields[0] == 'fpr' and record and record[0] == 'sub':
+            result[fields[9]] = record
+            record = None
+    return result
+
+
+def validate_subkey(keys, fingerprint):
+    record = keys.get(fingerprint)
+    if not record or 's' not in record[11].lower() or record[1] in ('r', 'e', 'd'):
+        raise ValueError('Missing, expired, revoked or non-signing subkey: ' + fingerprint)
+
+
+def assign(name, fingerprint):
+    text = INVENTORY.read_text()
+    pattern = rf'(\[machines\.{re.escape(name)}\]\s*\n)(.*?)(?=\n\[|\Z)'
+    def update(match):
+        body, count = re.subn(r'^signing_subkey\s*=.*$',
+                             'signing_subkey = "' + fingerprint + '"',
+                             match[2], flags=re.M)
+        if count != 1:
+            raise ValueError('Expected one signing_subkey entry for ' + name)
+        return match[1] + body
+    updated, count = re.subn(pattern, update, text, flags=re.S)
+    if count != 1:
+        raise ValueError('Missing machine section: ' + name)
+    atomic_write(INVENTORY, updated, 0o644)
+
+
+@contextlib.contextmanager
+def hub_lock():
+    state = Path.home() / '.gnupg' / 'gpg-hub'
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(state, 0o700)
+    with (state / 'lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield state
+
+
+def hub_create(name):
+    with hub_lock() as state:
+        data = inventory()
+        if local_name() != data['gpg']['hub']:
+            raise ValueError('Run hub operations on ' + data['gpg']['hub'])
+        if name not in data['machines']:
+            raise ValueError('Register the machine in machines.toml first: ' + name)
+        primary = data['gpg']['primary_fingerprint']
+        machine = data['machines'][name]
+        keys = subkeys(primary)
+        fingerprint = machine['signing_subkey']
+        pending = state / (name + '.json')
+        if not fingerprint:
+            existing = machine.get('existing_subkey_id')
+            if existing:
+                matches = [f for f in keys if f.endswith(existing.upper())]
+                if len(matches) != 1:
+                    raise ValueError('Import the existing public/secret subkey on the hub before adopting ' + name)
+                fingerprint = matches[0]
+            else:
+                if pending.exists():
+                    before = set(json.loads(pending.read_text()))
+                    new = set(keys) - before
+                    if len(new) > 1:
+                        raise ValueError('Ambiguous interrupted enrollment; assign the fingerprint manually')
+                else:
+                    before = set(keys)
+                    new = set()
+                    atomic_write(pending, json.dumps(sorted(before)))
+                if not new:
+                    run('gpg', '--quick-add-key', primary, 'ed25519', 'sign', data['gpg']['subkey_expiry'])
+                    keys = subkeys(primary)
+                    new = set(keys) - before
+                if len(new) != 1:
+                    raise ValueError('Could not identify the new signing subkey')
+                fingerprint = new.pop()
+            validate_subkey(keys, fingerprint)
+            if any(m['signing_subkey'] == fingerprint for n, m in data['machines'].items() if n != name):
+                raise ValueError('Subkey already assigned to another machine')
+            assign(name, fingerprint)
+        validate_subkey(keys, fingerprint)
+        pending.unlink(missing_ok=True)
+        staged = state / (name + '-' + fingerprint + '.asc')
+        if not staged.exists():
+            fd, temporary = tempfile.mkstemp(dir=state, prefix='.export-')
+            try:
+                with os.fdopen(fd, 'wb') as out:
+                    run('gpg', '--armor', '--export-secret-subkeys', fingerprint + '!', stdout=out)
+                    out.flush()
+                    os.fsync(out.fileno())
+                if not Path(temporary).stat().st_size:
+                    raise ValueError('No secret subkey exported; import it on the hub first')
+                os.replace(temporary, staged)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        print(name + ': ' + fingerprint)
+        print('Inventory updated on hub; commit machines.toml and publish the public bundle.')
+
+
+def export(name):
+    with hub_lock() as state:
+        data = inventory()
+        if local_name() != data['gpg']['hub']:
+            raise ValueError('Run hub operations on ' + data['gpg']['hub'])
+        fingerprint = data['machines'][name]['signing_subkey']
+        validate_subkey(subkeys(data['gpg']['primary_fingerprint']), fingerprint)
+        # stdout contains ONLY the assigned secret-subkey export.
+        with (state / (name + '-' + fingerprint + '.asc')).open('rb') as source:
+            shutil.copyfileobj(source, sys.stdout.buffer)
+
+
+
+def remote_command(action, name):
+    # Convention: the hub checkout lives at ~/dot_files; no unquoted user input.
+    args = shlex.join(['python3', 'bin/gpg-hub', action, '--machine', name])
+    return 'cd "$HOME/dot_files" && ' + args
+
+
+def configure(fingerprint):
+    path = Path.home() / '.config' / 'git' / 'gpg-machine.conf'
+    atomic_write(path, '[user]\n\tsigningkey = ' + fingerprint + '!\n')
+    effective = run('git', 'config', '--get', 'user.signingkey', capture_output=True, text=True).stdout.strip()
+    if effective != fingerprint + '!':
+        raise ValueError('Git override is not active. Deploy the updated .gitconfig and remove later signingkey overrides, then retry.')
+
+
+def spoke_copy(name, hub):
+    data = inventory()
+    hub = hub or data['gpg']['hub']
+    if not NAME_RE.fullmatch(hub) or name not in data['machines']:
+        raise ValueError('Unknown machine or invalid hub name')
+    if hub == local_name():
+        hub_create(name)
+        configure(inventory()['machines'][name]['signing_subkey'])
+    else:
+        run('ssh', '-t', hub, 'export GPG_TTY=$(tty) PINENTRY_USER_DATA=USE_TTY=1; ' + remote_command('hub-create', name))
+        remote = run('ssh', hub, 'cat "$HOME/dot_files/machines.toml"', capture_output=True, text=True).stdout
+        remote_data = tomllib.loads(remote)
+        if remote_data['gpg']['primary_fingerprint'] != data['gpg']['primary_fingerprint']:
+            raise ValueError('Hub primary fingerprint differs from local inventory')
+        fingerprint = remote_data['machines'][name]['signing_subkey']
+        if not PRIMARY_RE.fullmatch(fingerprint):
+            raise ValueError('Hub returned an invalid subkey fingerprint')
+        exporter = subprocess.Popen(['ssh', hub, remote_command('export', name)], stdout=subprocess.PIPE)
+        try:
+            imported = subprocess.run(['gpg', '--import'], stdin=exporter.stdout)
+            exporter.stdout.close()
+            export_rc = exporter.wait()
+            if imported.returncode or export_rc:
+                raise ValueError('Subkey transfer failed; Git configuration was not changed')
+        finally:
+            if exporter.poll() is None:
+                exporter.terminate()
+                exporter.wait()
+        primary = data['gpg']['primary_fingerprint']
+        run('gpg', '--import-ownertrust', input=primary + ':6:\n', text=True)
+        configure(fingerprint)
+    # Verifies an actual signature through the configured agent.
+    run('make', '-C', str(ROOT), 'check-gpg')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=['hub-create', 'spoke-copy', 'hub-teardown', 'export'])
+    parser.add_argument('--machine', default=os.environ.get('MACHINE') or local_name())
+    parser.add_argument('--hub')
+    args = parser.parse_args()
+    if sys.stdin.isatty():
+        os.environ['GPG_TTY'] = os.ttyname(sys.stdin.fileno())
+        if os.environ.get('SSH_CONNECTION'):
+            os.environ['PINENTRY_USER_DATA'] = 'USE_TTY=1'
+        run('gpg-connect-agent', 'updatestartuptty', '/bye', stdout=subprocess.DEVNULL)
+    if args.action in ('hub-create', 'spoke-copy') and not sys.stdin.isatty():
+        raise ValueError('Run enrollment from a real terminal for passphrase prompts and signing verification')
+    if not NAME_RE.fullmatch(args.machine):
+        raise ValueError('Invalid machine name')
+    if args.action == 'hub-create':
+        hub_create(args.machine)
+    elif args.action == 'spoke-copy':
+        spoke_copy(args.machine, args.hub)
+    elif args.action == 'export':
+        export(args.machine)
+    else:
+        with hub_lock() as state:
+            if local_name() != inventory()['gpg']['hub']:
+                raise ValueError('Run teardown on the hub')
+            if list(state.glob('*.json')):
+                raise ValueError('Unfinished enrollment exists; rerun hub-create before teardown')
+            exports = list(state.glob('*.asc')) + list(state.glob('.export-*'))
+            for path in exports:
+                path.unlink()
+            print(f'Removed {len(exports)} staged exports; keyring and inventory retained.')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+        print('gpg-hub: ' + str(error), file=sys.stderr)
+        sys.exit(1)

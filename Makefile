@@ -277,6 +277,9 @@ help-text:
 	@echo "Keys, SSH and Commit Signing (GPG):"
 	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
 	@echo "                       + add the [include] of .gitconfig to ~/.gitconfig (see docs/GPG.md)"
+	@echo "  make gpg-hub-create - Create/register a signing subkey on the hub (MACHINE=name)"
+	@echo "  make gpg-spoke-copy - Enroll this machine via the hub in machines.toml (HUB=name override)"
+	@echo "  make gpg-hub-teardown - Remove staged secret-subkey exports on the hub"
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
 	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
@@ -1158,13 +1161,16 @@ else
 endif
 	@echo "==> gnupg config done; now: make check-gpg"
 
-# First-time gpg setup on a new machine, interactively: bin/gpg-new-machine
-# walks docs/GPG.md "New machine" (Tailscale, key transfer from SOURCE --
-# default minius -- config, check-gpg), explaining each command and what it
-# will prompt for before running it.  make gpg-new-machine SOURCE=barnowl
-.PHONY: gpg-new-machine
-gpg-new-machine:
-	@$(CURDIR)/bin/gpg-new-machine $(SOURCE)
+# Inventory-backed hub/spoke enrollment; Python 3.11+ is required.
+.PHONY: gpg-hub-create gpg-spoke-copy gpg-hub-teardown check-gpg-enrollment
+gpg-hub-create:
+	@python3 "$(CURDIR)/bin/gpg-hub" hub-create $(if $(MACHINE),--machine "$(MACHINE)")
+gpg-spoke-copy:
+	@python3 "$(CURDIR)/bin/gpg-hub" spoke-copy $(if $(MACHINE),--machine "$(MACHINE)") $(if $(HUB),--hub "$(HUB)")
+gpg-hub-teardown:
+	@python3 "$(CURDIR)/bin/gpg-hub" hub-teardown
+check-gpg-enrollment:
+	@python3 "$(CURDIR)/tests/gpg/enrollment.py"
 
 # Can `git commit' sign on THIS machine?  Walks the chain in the order it
 # fails in practice and prints the fix at the first broken link:
@@ -1204,7 +1210,7 @@ check-gpg:
 	sec=$$(gpg --batch --with-colons --list-secret-keys "$$key" 2>/dev/null | grep '^sec:' | head -1); \
 	if [ -z "$$sec" ]; then \
 	  echo "    [--] secret   : no secret key for $$key in $$HOME/.gnupg"; \
-	  echo "         fix: import it from a machine that has it -- docs/GPG.md, \"New machine\""; \
+	  echo "         fix: make gpg-spoke-copy -- docs/GPG.md, \"Hub and spoke enrollment\""; \
 	  exit 1; \
 	fi; \
 	exp=$$(echo "$$sec" | cut -d: -f7); now=$$(date +%s); \
@@ -1498,9 +1504,9 @@ gpg-add-subkey:
 # gpg-export-github -- export updated public key bundle for GitHub
 .PHONY: gpg-export-github
 gpg-export-github:
-	@key=$$(git config --get user.signingkey || echo "0x6A2DAE7008D4F938"); \
+	@key=$$(python3 -c 'import tomllib; print(tomllib.load(open("machines.toml", "rb"))["gpg"]["primary_fingerprint"])') || exit 1; \
 	out="$$HOME/durantschoon-pubkey.asc"; \
-	gpg --armor --export "$$key" > "$$out"; \
+	gpg --armor --export "$$key" > "$$out" || exit 1; \
 	echo "==> Exported public key bundle to $$out"; \
 	echo "    Upload this file to GitHub: Settings -> SSH and GPG keys"
 

@@ -22,7 +22,7 @@ The key: `0x6A2DAE7008D4F938`, fingerprint
 `7CE8 1696 7443 FCEC CE0B F1B7 6A2D AE70 08D4 F938`, RSA 4096, made
 2024-08-29. The primary key certifies and signs; the encryption subkey was
 rotated on 2026-02-08. Dedicated Ed25519 signing subkeys are generated per
-machine with `make gpg-add-subkey` (e.g. `0x23570C8AFDE416D9` on `geeeks`).
+machine through `make gpg-spoke-copy` (e.g. `0x23570C8AFDE416D9` on `geeeks`).
 All expire 2027-02-08. `make check-gpg` starts warning 30 days before.
 
 Signing is on for commits and tags in the tracked `.gitconfig`, so a machine
@@ -30,112 +30,67 @@ without the secret key cannot commit until it has it. That is deliberate: a
 silent unsigned commit is worse than a loud failure. To commit once without
 signing: `git commit --no-gpg-sign`.
 
-## New machine
+## Hub and spoke enrollment
 
-`bin/gpg-new-machine` (or `make gpg-new-machine SOURCE=<host>`) walks these
-steps interactively on the new machine: it suggests Tailscale if it is not up,
-asks for the source machine (default `minius`), and before each command says
-what it does and what you will be asked for -- your login password for the
-source, then your GPG passphrase in a pinentry. `--dry-run` shows every step
-without running any. The steps by hand:
+`machines.toml` is the machine inventory and public signing-subkey registry.
+The hub is `minius`; its checkout convention is `~/dot_files`. Install Python
+3.11+, GnuPG, a working pinentry, and SSH on the hub and spokes. The hub keeps
+the primary secret key; spokes request certification there over SSH.
 
-1. Install gpg and a pinentry.
-   - mac: `brew install gnupg pinentry-mac`
-   - linux (guix): nothing; `gnupg` and `pinentry-gnome3` come from the
-     home layers with `make apply`.
-   - WSL: the same `make apply`, which also brings `pinentry-gtk2`. WSLg has
-     a display but no GNOME prompter, so the agent's pinentry there is a
-     chooser (`pinentry-auto`) that opens a window on the Windows desktop.
-2. Bring the key over. If the NEW machine can ssh to a machine that has it
-   (Tailscale makes this the common case), stream it -- the key then never
-   touches the new machine's disk outside the keyring, and ownertrust needs
-   no file at all:
+Deploy this version of dot_files on both sides before enrolling. Run
+`make install-gnupg` on native macOS/Termux; on Guix run the usual home apply
+command (`make apply-wayland` on geeeks, `make apply` elsewhere). This deploys
+the Git include for `~/.config/git/gpg-machine.conf`; enrollment writes that
+local file without replacing Guix's managed `~/.gitconfig`.
 
-   ```sh
-   # 1. the EXPORT needs a pinentry, and pinentry needs a terminal, so a
-   #    plain `ssh src 'gpg --export...'` dies with "Inappropriate ioctl for
-   #    device".  Export to a file on the source, from a real terminal.
-   #    The two exports are not decoration: `ssh host 'cmd'` runs a
-   #    NON-interactive shell, which never reads .zshrc, so neither variable
-   #    is set.  Without them a Mac source opens its pinentry-mac window on
-   #    its own screen and the export ends with "error receiving key from
-   #    agent: Operation cancelled" / "WARNING: nothing exported".
-   ssh -t <src> 'export GPG_TTY=$(tty) PINENTRY_USER_DATA=USE_TTY=1; umask 077; gpg --export-secret-keys --armor 0x6A2DAE7008D4F938 > ~/gpg-xfer.asc'
+1. On minius, add every intended machine to `machines.toml`, with an empty
+   `signing_subkey`. Names must match local short hostnames, or specify
+   `MACHINE=name` when enrolling. The initial inventory lists only the
+   machines already identified: minius, geeeks and barnowl.
+2. On minius: `make gpg-hub-create` creates/registers minius's signing subkey.
+   Run `make gpg-spoke-copy` there too to select it locally. To pre-create
+   another machine's subkey: `make gpg-hub-create MACHINE=barnowl`.
+3. On each spoke, from a real terminal: `make gpg-spoke-copy` (optionally
+   `HUB=minius MACHINE=barnowl`). The command requests creation over SSH with
+   a terminal for the hub passphrase, reads the assigned full fingerprint,
+   streams only that secret signing subkey into GnuPG, marks the known
+   primary fingerprint ultimately trusted, selects the subkey with `!`, and
+   runs `make check-gpg`. The hub stages passphrase-protected, mode-600 exports
+   at `~/.gnupg/gpg-hub/<machine>-<fingerprint>.asc`; no export is saved on the
+   spoke outside its keyring.
+4. On minius, review and commit the updated `machines.toml`, then
+   `make gpg-export-github` and upload the public bundle to GitHub/Codeberg.
+   New subkeys require another upload. Other machines can import that public
+   bundle to learn all assignments. Only the hub updates the tracked inventory;
+   spokes select their assignment from the hub and receive inventory updates
+   through the usual Git sync.
+5. After every machine passes verification, `make gpg-hub-teardown` on minius
+   removes staged `.asc` files and interrupted export temporaries. It refuses
+   cleanup while a subkey assignment is unfinished. It retains keys and the
+   inventory. Re-enrollment after teardown regenerates the export, reusing
+   the assigned key. Removing files unlinks them; filesystem snapshots may
+   retain old blocks.
 
-   # 2. stream it into the keyring and delete the source copy in one go:
-   ssh <src> 'cat ~/gpg-xfer.asc; rm ~/gpg-xfer.asc' | gpg --import
-   ssh <src> 'gpg --export-ownertrust' | gpg --import-ownertrust
-   ```
+Repeated enrollment reuses recorded subkeys. Hub updates use a file lock and
+atomic replacement. A pending creation record allows an interrupted run to
+recover its newly created subkey; ambiguous recovery stops for manual review.
+Avoid unrelated manual subkey creation during enrollment. Hub inventory
+changes are left uncommitted for review, never automatically pushed.
 
-   What success looks like (minius -> barnowl, 2026-09-30). The export
-   prints nothing after the passphrase prompt, and the ownertrust import
-   prints nothing at all; the import and the listing are the evidence:
+Geeeks's existing subkey is identified by `existing_subkey_id`; import its
+updated public and secret subkey bundle on minius before enrolling geeeks.
+The hub refuses to silently replace that assignment if it cannot find it.
 
-   ```
-   ❯ ssh minius 'cat ~/gpg-xfer.asc; rm ~/gpg-xfer.asc' | gpg --import
-   gpg: key 0x6A2DAE7008D4F938: "Durant Schoon <durant.schoon@gmail.com>" not changed
-   gpg: key 0x6A2DAE7008D4F938: secret key imported
-   gpg: Total number processed: 1
-   gpg:              unchanged: 1
-   gpg:       secret keys read: 1
-   gpg:   secret keys imported: 1
+The primary secret key and other secret subkeys already present on spokes are
+not removed by importing a signing subkey. After verified enrollment and a
+validated primary-key backup/revocation certificate, clean up those copies
+separately. Containers forwarding the Mac agent use the Mac's signing subkey
+and need its current public bundle; they are not independent secret-key spokes.
 
-   ❯ gpg --list-secret-keys --keyid-format long 0x6A2DAE7008D4F938
-   sec   rsa4096/6A2DAE7008D4F938 2024-08-29 [SC] [expires: 2027-02-08]
-         Key fingerprint = 7CE8 1696 7443 FCEC CE0B  F1B7 6A2D AE70 08D4 F938
-   uid                 [ultimate] Durant Schoon <durant.schoon@gmail.com>
-   uid                 [ultimate] [jpeg image of size 10080]
-   ssb   rsa3072/2F87B7B7FD06F067 2026-02-08 [E] [expires: 2027-02-08]
-   ```
-
-   `secret key imported` and a `sec` line are the key itself; `[ultimate]`
-   is the ownertrust (`[unknown]` there means that import did not take).
-   `not changed` only says the public half was already in this keyring; on
-   an empty one that line reads `public key ... imported` instead.
-
-   (Also worked end to end minius -> geeeks, 2026-09-28.)  With no ssh path
-   between the machines, fall back to two files moved by USB stick --
-   **not** through a repo, chat or cloud drive:
-
-   ```sh
-   gpg --export-secret-keys --armor 0x6A2DAE7008D4F938 > ~/gpg-secret.asc
-   gpg --export-ownertrust > ~/gpg-ownertrust.txt
-   # ...move, import as above, then on both machines:
-   command rm ~/gpg-secret.asc ~/gpg-ownertrust.txt
-   ```
-
-   The export is still passphrase-protected, but treat it like the key.  And
-   be honest about what `rm` does: it unlinks, it does not erase -- on APFS
-   and every journalling/CoW filesystem the blocks can survive in free space
-   or snapshots.  (An earlier revision said `rm -P`; that flag is BSD-only
-   -- GNU rm rejects it -- and even on a Mac it cannot overwrite what a
-   snapshot already holds.)  If a copy may have rested where you cannot
-   account for it, the real remedy is changing the key's passphrase.
-
-   If ownertrust was not moved, mark the key as yours so gpg stops warning
-   about it: `gpg --edit-key 0x6A2DAE7008D4F938`, then `trust`, `5`, `save`.
-3. Put the config in place and restart the agent.
-
-   ```sh
-   cd ~/dot_files
-   make install-gnupg      # links gnupg/*.conf; mac: renders gpg-agent.conf, adds the .gitconfig include
-   make apply              # linux only: gpg-agent.conf and ~/.gitconfig come from guix home
-   ```
-
-4. Prove it, from a real terminal (it prompts once):
-
-   ```sh
-   make check-gpg
-   ```
-
-   Every line should be `[ok]`. The last step signs a message through the
-   agent, which is exactly what `git commit` does.
-
-Optional, once: if gpg-agent should also serve ssh keys on this machine,
-`ssh-add ~/.ssh/<your key>` imports them and `make check-ssh` shows the
-state (there is no one canonical key name -- minius, for one, has
-`id_ed25519_ds`): the `ssh-add -l` of the gpg world, with the unlocked/locked state of
-each key. (`make check-ssh-agent` still works as an alias.)
+A later signing-key override in a native `~/.gitconfig` or a repository's local
+config can override the machine include. Enrollment detects this and stops;
+remove that override and retry. Exported encryption subkeys are not included
+by this signing-only workflow.
 
 ## Day to day
 
@@ -210,12 +165,13 @@ What the restricted socket means in practice:
 
 ## When the key expires (2027-02-08)
 
-Extend it on one machine, then re-export to the others and re-upload the
+Extend it on the hub, including every machine signing subkey, then re-export
+to the others and re-upload the
 public key to GitHub. Expiry is a public-key attribute, so the other
 machines need the fresh public key, not a new secret key:
 
 ```sh
-gpg --edit-key 0x6A2DAE7008D4F938      # `expire` (primary), then `key 1`, `expire` (subkey), `save`
+gpg --edit-key 0x6A2DAE7008D4F938      # `expire` (primary); select/expire each subkey in turn, then `save`
 gpg --armor --export 0x6A2DAE7008D4F938 > ~/gpg-public.asc   # import this on the other machines
 ```
 
@@ -270,7 +226,7 @@ messages behind the usual failures:
   `gpg.program = /usr/local/bin/gpg` in `~/.gitconfig` pointing at an old
   MacGPG2 is the classic mac cause; the tracked config sets no
   `gpg.program` so git uses the one on PATH.
-- **`No secret key`**. The key is not on this machine; "New machine" above.
+- **`No secret key`**. The signing subkey is not on this machine; run `make gpg-spoke-copy`.
 - **`unsafe permissions on homedir`**. `chmod 700 ~/.gnupg`.
 - **Piles of `.#lk0x...` files in `~/.gnupg`**. Lock files from gpg
   processes that were killed. Harmless; tidy with
