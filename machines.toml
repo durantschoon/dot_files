@@ -6,7 +6,7 @@ primary_fingerprint = "7CE816967443FCECCE0BF1B76A2DAE7008D4F938"
 subkey_expiry = "2027-02-08"
 
 [machines.minius]
-signing_subkey = ""
+signing_subkey = "F64750966E672AB3552EF14EC4E66F1E89EE3EB8"
 
 [machines.geeeks]
 signing_subkey = ""
@@ -14,4 +14,13 @@ signing_subkey = ""
 existing_subkey_id = "23570C8AFDE416D9"
 
 [machines.barnowl]
+signing_subkey = ""
+
+[machines.durants-z-fold5]
+signing_subkey = ""
+
+[machines.orb-guix]
+signing_subkey = ""
+
+[machines.tailscale-termux]
 signing_subkey = ""
