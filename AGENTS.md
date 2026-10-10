@@ -39,6 +39,7 @@ The user is migrating to a declarative Guix setup with distinct "home" and "syst
 *   **Manifests & Channels:** `manifests/`, `channels.scm`, `system/channels-geeeks.scm`
 *   **Per-directory environments:** `direnv/direnvrc` (deployed by `home/common.scm`)
 *   **System timezone (foreign distros, e.g. orb-guix):** `setup-timezone` / `check-timezone` in `Makefile` (`/etc/localtime`); on Guix System it is `(timezone ...)` in `system/geeeks.scm`
+*   **Incoming SSH:** `bin/sshd-setup`, `setup-sshd` / `check-sshd` in `Makefile` (automatic on apply/setup-native), `system/keys/minius.pub`; Guix System declares sshd in `system/geeeks.scm`. Tests: `tests/ssh/bootstrap.py` (`make check-sshd-bootstrap`).
 *   **System locale (foreign distros, e.g. orb-guix, WSL):** `setup-locale` / `check-locale` in `Makefile` (generates `LOCALE` for the distro glibc; fixes the `setlocale: LC_ALL` warning)
 *   **Known-warning filter:** `bin/expected-warnings` (hides and counts the warnings `apply`/`apply-wayland` are known to print; add new ones to its `%EXPECTED` table)
 *   **Documentation:** `docs/GUIX_MIGRATION_PLAN.md`, `docs/GENERATIONS_AND_ROLLBACK.md`, `docs/EWM_TRIAL_PLAN.md`

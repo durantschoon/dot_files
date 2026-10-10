@@ -282,6 +282,9 @@ help-text:
 	@echo "  make gpg-hub-teardown - Remove staged secret-subkey exports on the hub"
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
+	@echo "  make setup-sshd    - Install/enable incoming SSH (automatic during apply/setup-native)"
+	@echo "  make check-sshd    - Check the incoming SSH server (distinct from check-ssh)"
+	@echo "                       (not part of 'make check': may prompt for sudo)"
 	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
 	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
 	@echo "  make setup-bitbucket-ssh - Migrate this user's Bitbucket SSH host trust and Host blocks"
@@ -385,7 +388,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude install-uv install-agy install-herdr
+setup-native: set_up_links install-claude install-uv install-agy install-herdr setup-sshd
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
@@ -1574,7 +1577,7 @@ EXPECTED_WARNINGS_SUMMARY = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/ex
 
 PULLED_GUIX = $$( g="$$HOME/.config/guix/current/bin/guix"; [ -x "$$g" ] && echo "$$g" || echo guix )
 
-apply: warn-dotfiles-home
+apply: warn-dotfiles-home setup-sshd
 	@if [ -d /run/current-system ]; then \
 	  echo "==> note: on Guix System Wayland, use 'make apply-wayland' (or 'make apply-ewm');"; \
 	  echo "    'make apply' deploys home/base.scm (foreign/headless profile)"; \
@@ -1630,7 +1633,7 @@ apply: warn-dotfiles-home
 	@# failure here must not skip anything above it.
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
-apply-wayland: warn-dotfiles-home
+apply-wayland: warn-dotfiles-home setup-sshd
 	$(EXPECTED_WARNINGS_RESET)
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
@@ -1692,7 +1695,7 @@ apply-wayland: warn-dotfiles-home
 # The claude submodule IS still required: the claude-code layer reads
 # ../claude/* via local-file, and an uninitialized submodule fails the
 # reconfigure with an opaque "no such file" from the store builder.
-apply-ewm: warn-dotfiles-home
+apply-ewm: warn-dotfiles-home setup-sshd
 	@echo "==> git submodule update --init claude"
 	@git submodule update --init claude
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
@@ -3270,6 +3273,25 @@ check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
 	@echo "==> system/: all checks passed"
+
+# Incoming remote access belongs to the host OS, not Guix Home.
+# Not a prerequisite of `check': on macOS, reading Remote Login state goes
+# through sudo, and `check' must stay runnable without a prompt.
+.PHONY: setup-sshd check-sshd check-sshd-bootstrap
+setup-sshd:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "SSH server bootstrap runs in WSL; native Windows setup is not supported."
+else
+	@python3 "$(CURDIR)/bin/sshd-setup" setup
+endif
+check-sshd:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "SSH server check runs in WSL; native Windows is skipped."
+else
+	@python3 "$(CURDIR)/bin/sshd-setup" check
+endif
+check-sshd-bootstrap:
+	@python3 "$(CURDIR)/tests/ssh/bootstrap.py"
 
 # The end-to-end gate for .jobs.zsh and bin/job-tee.  Deliberately NOT a
 # prerequisite of `check': every other check above only reads files, while this

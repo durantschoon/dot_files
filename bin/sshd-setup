@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Install/start or check the host's SSH server (not the client-side SSH agent)."""
+import argparse
+import json
+import os
+from pathlib import Path
+import pwd
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def run(*args, root=False, **kwargs):
+    if root and os.geteuid() != 0:
+        args = ('sudo', *args)
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def output(*args, root=False):
+    return run(*args, root=root, capture_output=True, text=True).stdout.strip()
+
+
+def platform():
+    if sys.platform == 'darwin':
+        return 'mac'
+    if sys.platform != 'linux':
+        return 'unsupported'
+    if os.environ.get('TERMUX_VERSION') or Path('/data/data/com.termux').exists():
+        return 'termux'
+    if Path('/run/current-system').is_dir():
+        return 'guix'
+    # WSL may contain /.dockerenv in nested environments; the running OS wins.
+    kernel = Path('/proc/sys/kernel/osrelease').read_text().lower()
+    if 'microsoft' not in kernel and (Path('/.dockerenv').exists() or Path('/run/.containerenv').exists()):
+        return 'container'
+    return 'linux'
+
+
+def login_account():
+    name = os.environ.get('SSH_LOGIN_USER') or os.environ.get('SUDO_USER') or pwd.getpwuid(os.getuid()).pw_name
+    account = pwd.getpwnam(name)
+    if account.pw_uid == 0:
+        raise ValueError('Set SSH_LOGIN_USER to the non-root account you want to reach over SSH')
+    return account
+
+
+def authorize_hub(account):
+    # The existing Guix System allowlist is also the bootstrap key for foreign hosts.
+    key = (ROOT / 'system/keys/minius.pub').read_text().strip()
+    pieces = key.split()
+    if len(pieces) < 2 or not pieces[0].startswith(('ssh-', 'ecdsa-')):
+        raise ValueError('Invalid public key in system/keys/minius.pub')
+    home = Path(account.pw_dir)
+    privileged = os.geteuid() != account.pw_uid
+    directory = home / '.ssh'
+    path = directory / 'authorized_keys'
+    run('install', '-d', '-m', '700', '-o', str(account.pw_uid), '-g', str(account.pw_gid), str(directory), root=privileged)
+    current = output('cat', str(path), root=privileged) if path.exists() else ''
+    def same_key(line):
+        tokens = line.split()
+        return any(tokens[i:i + 2] == pieces[:2] for i in range(len(tokens) - 1))
+    if not any(same_key(line) for line in current.splitlines()):
+        # Append the public key, preserving existing authorized keys and their options.
+        with tempfile.NamedTemporaryFile(mode='w') as temporary:
+            temporary.write(current + ('\n' if current else '') + key + '\n')
+            temporary.flush()
+            run('install', '-m', '600', '-o', str(account.pw_uid), '-g', str(account.pw_gid),
+                temporary.name, str(path), root=privileged)
+    else:
+        run('chmod', '600', str(path), root=privileged)
+        run('chown', f'{account.pw_uid}:{account.pw_gid}', str(path), root=privileged)
+    print(f'    [ok] minius public key authorized for {account.pw_name}')
+
+
+def linux_service():
+    for unit in ('ssh.service', 'sshd.service'):
+        try:
+            state = output('systemctl', 'show', unit, '--property=LoadState', '--value')
+            if state == 'loaded':
+                return unit
+        except subprocess.CalledProcessError:
+            pass
+    raise ValueError('No SSH systemd service found after installation')
+
+
+def install_linux():
+    if Path('/usr/sbin/sshd').exists():
+        return
+    if shutil.which('apt-get'):
+        run('apt-get', 'update', root=True)
+        run('apt-get', 'install', '-y', 'openssh-server', root=True)
+    elif shutil.which('dnf'):
+        run('dnf', 'install', '-y', 'openssh-server', root=True)
+    elif shutil.which('yum'):
+        run('yum', 'install', '-y', 'openssh-server', root=True)
+    elif shutil.which('pacman'):
+        run('pacman', '-S', '--needed', '--noconfirm', 'openssh', root=True)
+    else:
+        raise ValueError('No supported native package manager for openssh-server')
+
+
+def configure_linux():
+    # Prepend a dedicated Include: sshd uses the first value of each setting.
+    config = Path('/etc/ssh/sshd_config')
+    policy_path = '/etc/ssh/dot-files-sshd.conf'
+    include = 'Include ' + policy_path
+    original = output('cat', str(config), root=True)
+    previous_policy = output('cat', policy_path, root=True) if Path(policy_path).exists() else None
+    policy = 'PermitRootLogin no\nPubkeyAuthentication yes\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n'
+    with tempfile.TemporaryDirectory(prefix='dot-files-sshd-') as scratch:
+        def install_text(name, text, destination):
+            source = Path(scratch) / name
+            source.write_text(text)
+            run('install', '-m', '644', str(source), destination, root=True)
+        try:
+            install_text('policy', policy, policy_path)
+            lines = original.splitlines()
+            if not lines or lines[0] != include:
+                if not Path(str(config) + '.before-dot-files').exists():
+                    run('cp', '-p', str(config), str(config) + '.before-dot-files', root=True)
+                install_text('sshd_config', include + '\n' + original + '\n', str(config))
+            run('install', '-d', '-m', '755', '/run/sshd', root=True)
+            run('/usr/sbin/sshd', '-t', root=True)
+        except subprocess.CalledProcessError:
+            install_text('original', original + '\n', str(config))
+            if previous_policy is None:
+                run('rm', '-f', policy_path, root=True)
+            else:
+                install_text('previous-policy', previous_policy + '\n', policy_path)
+            raise
+
+
+def tailscale_running():
+    status = json.loads(output('tailscale', 'status', '--json'))
+    if status.get('BackendState') != 'Running':
+        raise ValueError('Container Tailscale is not logged in/running; run make setup-container-tailscale')
+
+
+def setup():
+    kind = platform()
+    print('==> SSH server setup (' + kind + ')')
+    if kind == 'guix':
+        # Guix System owns the daemon config and its public-key allowlist.
+        run('herd', 'start', 'ssh-daemon', root=True)
+    elif kind == 'container':
+        if not shutil.which('tailscale'):
+            run('make', '-C', str(ROOT), 'setup-container-tailscale')
+        else:
+            try:
+                tailscale_running()
+            except (ValueError, subprocess.CalledProcessError):
+                run('make', '-C', str(ROOT), 'setup-container-tailscale')
+        run('tailscale', 'set', '--ssh', root=True)
+    elif kind == 'mac':
+        authorize_hub(login_account())
+        run('/usr/sbin/systemsetup', '-setremotelogin', 'on', root=True)
+    elif kind == 'linux':
+        if not Path('/run/systemd/system').is_dir():
+            raise ValueError('SSH automatic startup needs systemd; on WSL enable systemd in /etc/wsl.conf and restart WSL')
+        account = login_account()
+        install_linux()
+        authorize_hub(account)
+        configure_linux()
+        unit = linux_service()
+        run('systemctl', 'enable', unit, root=True)
+        # Reload keeps existing sessions alive; start also works on a fresh install.
+        run('systemctl', 'reload-or-restart', unit, root=True)
+    elif kind == 'termux':
+        if not shutil.which('sshd'):
+            run('pkg', 'install', '-y', 'openssh')
+        authorize_hub(login_account())
+        run('ssh-keygen', '-A')
+        try:
+            with socket.create_connection(('127.0.0.1', 8022), timeout=3):
+                pass
+        except OSError:
+            run('sshd', '-o', 'PasswordAuthentication=no', '-o', 'KbdInteractiveAuthentication=no')
+    else:
+        print('    SSH server bootstrap is not supported on this platform')
+        return
+    check()
+
+
+def check():
+    kind = platform()
+    print('==> SSH server check (' + kind + ')')
+    if kind == 'guix':
+        status = output('herd', 'status', 'ssh-daemon', root=True)
+        if 'It is running' not in status:
+            raise ValueError('Guix SSH service is stopped; apply the system configuration')
+    elif kind == 'container':
+        tailscale_running()
+        if not json.loads(output('tailscale', 'debug', 'prefs')).get('RunSSH'):
+            raise ValueError('Tailscale SSH is disabled; run make setup-sshd')
+    elif kind == 'linux':
+        unit = linux_service()
+        run('systemctl', 'is-enabled', '--quiet', unit)
+        run('systemctl', 'is-active', '--quiet', unit)
+    elif kind == 'mac':
+        if 'Remote Login: On' not in output('/usr/sbin/systemsetup', '-getremotelogin', root=True):
+            raise ValueError('macOS Remote Login is off; run make setup-sshd')
+    elif kind == 'termux':
+        with socket.create_connection(('127.0.0.1', 8022), timeout=3) as connection:
+            if not connection.recv(255).startswith(b'SSH-'):
+                raise ValueError('No SSH greeting on Termux port 8022')
+    else:
+        print('    skipped: unsupported platform')
+        return
+    print('    [ok] SSH server is enabled/running')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=('setup', 'check'))
+    args = parser.parse_args()
+    (setup if args.action == 'setup' else check)()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print('sshd-setup: ' + str(error), file=sys.stderr)
+        sys.exit(1)
