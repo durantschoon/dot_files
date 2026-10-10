@@ -49,9 +49,12 @@ class Enrollment(unittest.TestCase):
             return original_run(*args, **kwargs)
         self.gpg_run = patch.object(hub, 'run', side_effect=unattended_run)
         self.gpg_run.start()
+        self.change_patch = patch.object(hub, 'change_subkey_passphrase')
+        self.change_mock = self.change_patch.start()
 
     def tearDown(self):
         command('gpgconf', '--kill', 'gpg-agent')
+        self.change_patch.stop()
         self.gpg_run.stop()
         self.hostname.stop()
         self.paths.stop()
@@ -139,6 +142,7 @@ else:
 """)
         ssh.chmod(0o755)
         original_run = hub.run
+        self.change_mock.reset_mock()
         checked = []
         def run_without_make(*args, **kwargs):
             if args[0] == 'make':
@@ -158,6 +162,10 @@ else:
             self.assertEqual(selected, fingerprint + '!')
             command('gpg', '--batch', '--local-user', selected, '--sign', input=b'actual spoke signature')
             self.assertEqual(len(checked), 1)
+            self.change_mock.assert_not_called()
+            hub.spoke_copy('first', None)
+            self.change_mock.assert_called_once_with('first', fingerprint)
+            self.assertEqual(len(checked), 2)
             command('gpgconf', '--kill', 'gpg-agent')
 
     def test_protected_export_is_staged_and_teardown_preserves_keys(self):
@@ -217,6 +225,7 @@ def run(*args, **kwargs):
         args = ('gpg', '--batch', '--pinentry-mode', 'loopback', '--passphrase', '', *args[1:])
     return subprocess.run(args, check=True, **kwargs)
 h.run = run
+h.change_subkey_passphrase = lambda *args: None
 h.hub_create(sys.argv[3])
 """)
         processes = [subprocess.Popen(['python3', str(worker), str(ROOT / 'bin/gpg-hub'),
@@ -230,6 +239,93 @@ h.hub_create(sys.argv[3])
         self.assertTrue(machines['second']['signing_subkey'])
         self.assertNotEqual(machines['first']['signing_subkey'], machines['second']['signing_subkey'])
         self.assertEqual(len(hub.subkeys(self.primary)), 2)
+
+    def test_every_enrollment_changes_passphrase_and_replaces_export(self):
+        hub.hub_create('first')
+        fingerprint = hub.inventory()['machines']['first']['signing_subkey']
+        self.change_mock.assert_called_once_with('first', fingerprint, True)
+        staged = self.keyring / 'gpg-hub' / ('first-' + fingerprint + '.asc')
+        staged.write_text('old-password export')
+        hub.hub_create('first')
+        self.assertEqual(self.change_mock.call_count, 2)
+        self.change_mock.assert_called_with('first', fingerprint, False)
+        self.assertIn('BEGIN PGP PRIVATE KEY BLOCK', staged.read_text())
+        self.assertEqual(len(hub.subkeys(self.primary)), 1)
+
+    def test_cancelled_passphrase_change_leaves_no_stale_export(self):
+        hub.hub_create('first')
+        fingerprint = hub.inventory()['machines']['first']['signing_subkey']
+        staged = self.keyring / 'gpg-hub' / ('first-' + fingerprint + '.asc')
+        self.change_mock.side_effect = ValueError('cancelled')
+        with self.assertRaises(ValueError):
+            hub.hub_create('first')
+        self.assertFalse(staged.exists())
+        self.assertEqual(hub.inventory()['machines']['first']['signing_subkey'], fingerprint)
+
+    def test_passphrase_change_uses_only_assigned_subkey(self):
+        hub.hub_create('first')
+        fingerprint = hub.inventory()['machines']['first']['signing_subkey']
+        self.change_patch.stop()
+        grip = hub.secret_keygrip(fingerprint)
+        output = io.StringIO()
+        original_run = hub.run
+        def agent_run(*args, **kwargs):
+            if args[0] == 'gpg-connect-agent':
+                self.assertEqual(args, ('gpg-connect-agent', 'PASSWD ' + grip, '/bye'))
+                return subprocess.CompletedProcess(args, 0, 'OK\n', '')
+            return original_run(*args, **kwargs)
+        with patch.object(hub, 'run', side_effect=agent_run), patch('sys.stdout', output):
+            hub.change_subkey_passphrase('first', fingerprint, inherited=True)
+        self.assertIn('primary/master passphrase', output.getvalue())
+        self.assertIn('New passphrase + confirmation', output.getvalue())
+        self.assertIn('primary/master passphrase stays unchanged', output.getvalue())
+        with self.assertRaises(ValueError):
+            hub.change_subkey_passphrase('first', self.primary)
+        def error_run(*args, **kwargs):
+            if args[0] == 'gpg-connect-agent':
+                return subprocess.CompletedProcess(args, 0, 'ERR 83886179 Operation cancelled\n', '')
+            return original_run(*args, **kwargs)
+        with patch.object(hub, 'run', side_effect=error_run), self.assertRaises(ValueError):
+            hub.change_subkey_passphrase('first', fingerprint)
+        self.change_mock = self.change_patch.start()
+
+    def test_real_passphrase_change_preserves_primary_secret(self):
+        hub.hub_create('first')
+        fingerprint = hub.inventory()['machines']['first']['signing_subkey']
+        grip = hub.secret_keygrip(fingerprint)
+        listing = command('gpg', '--with-colons', '--with-keygrip', '--list-secret-keys', self.primary, text=True).stdout
+        primary_grip = next(line.split(':')[9] for line in listing.splitlines() if line.startswith('grp:'))
+        primary_file = self.keyring / 'private-keys-v1.d' / (primary_grip + '.key')
+        before = primary_file.read_bytes()
+        pinentry = self.home / 'test-pinentry'
+        pinentry.write_text("""#!/usr/bin/env python3
+import sys
+print('OK test pinentry', flush=True)
+for line in sys.stdin:
+    cmd = line.strip()
+    if cmd == 'GETPIN':
+        print('D new-test-signing-passphrase', flush=True)
+    elif cmd == 'BYE':
+        print('OK', flush=True)
+        break
+    print('OK', flush=True)
+""")
+        pinentry.chmod(0o755)
+        (self.keyring / 'gpg-agent.conf').write_text('pinentry-program ' + str(pinentry) + '\n')
+        command('gpgconf', '--kill', 'gpg-agent')
+        self.change_patch.stop()
+        hub.change_subkey_passphrase('first', fingerprint)
+        self.change_mock = self.change_patch.start()
+        self.assertEqual(primary_file.read_bytes(), before)
+        command('gpgconf', '--kill', 'gpg-agent')
+        exported = command('gpg', '--batch', '--pinentry-mode', 'loopback',
+                           '--passphrase', 'new-test-signing-passphrase',
+                           '--export-secret-subkeys', fingerprint + '!').stdout
+        self.assertTrue(exported)
+        command('gpgconf', '--kill', 'gpg-agent')
+        wrong = subprocess.run(['gpg', '--batch', '--pinentry-mode', 'loopback', '--passphrase', '',
+                                '--export-secret-subkeys', fingerprint + '!'], capture_output=True)
+        self.assertNotEqual(wrong.returncode, 0)
 
     def test_machine_include_does_not_replace_managed_config(self):
         managed = self.home / 'managed.gitconfig'

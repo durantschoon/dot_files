@@ -71,6 +71,24 @@ local file without replacing Guix's managed `~/.gitconfig`.
    the assigned key. Removing files unlinks them; filesystem snapshots may
    retain old blocks.
 
+Each enrollment changes the assigned signing subkey's passphrase before
+exporting, including when its fingerprint is already recorded. Printed steps
+explain each prompt: SSH authentication if needed, the primary/master passphrase
+for creating/certifying a new subkey, the current subkey passphrase, a new machine
+signing passphrase and its confirmation, then the new passphrase for export and
+signing verification. Cached passwords may suppress some prompts. Choose a new
+signing passphrase distinct from the master passphrase; the workflow changes only
+the selected subkey, never the primary key. Passphrases are entered through
+pinentry and are not stored in the inventory or handled by this script.
+
+Existing spokes may retain their old local key protection when importing the
+same subkey again. For those machines, enrollment also asks to change the local
+subkey passphrase after import: use its current local passphrase to unlock it,
+then choose the desired local signing passphrase. Fresh spokes use the incoming
+export's new passphrase. Changes on one machine do not update other copies of
+the key automatically. Old staged exports are removed before changing protection;
+failed or cancelled changes leave no old export available for transfer.
+
 Repeated enrollment reuses recorded subkeys. Hub updates use a file lock and
 atomic replacement. A pending creation record allows an interrupted run to
 recover its newly created subkey; ambiguous recovery stops for manual review.
