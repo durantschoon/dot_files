@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Print local tmux sessions belonging to a repo, including its worktrees."""
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+def run(*args):
+    try:
+        result = subprocess.run(args, text=True, capture_output=True)
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except OSError:
+        return ""
+
+
+def repo_identity(directory):
+    common = run("git", "-C", str(directory), "rev-parse", "--git-common-dir")
+    return (Path(directory) / common).resolve() if common else Path(directory).resolve()
+
+
+def headline(directory, task):
+    notes = Path(directory) / "logs" / f"{task}.notes.md"
+    recap = notes.with_name(f"{task}.recap.md")
+    for file, pattern in ((notes, r"^(?:#+|>)\s*(\S.*)"),
+                          (recap, r".*Current Subtask:\**\s*(\S.*)")):
+        try:
+            for line in file.read_text().splitlines():
+                match = re.match(pattern, line)
+                if match:
+                    return ("> " if file == notes else "") + match[1].strip()
+        except (OSError, UnicodeError):
+            pass
+    return "(no status yet)"
+
+
+def sessions(directory):
+    identity = repo_identity(directory)
+    rows = run("tmux", "list-sessions", "-F",
+               "#{session_name}\t#{session_path}\t#{session_activity}\t#{@agent-job-engine}")
+    found = []
+    for row in rows.splitlines():
+        fields = row.split("\t")
+        if len(fields) < 3:
+            continue
+        name, root, activity = fields[:3]
+        if repo_identity(root) != identity:
+            continue
+        env = dict(line.split("=", 1) for line in
+                   run("tmux", "show-environment", "-t", "=" + name).splitlines()
+                   if "=" in line and not line.startswith("-"))
+        slug = re.sub(r"[^a-z0-9]+", "-", Path(root).name.lower()).strip("-")
+        task = env.get("JOB_TASK") or ("main" if name == slug else
+                                       name[len(slug) + 1:] if name.startswith(slug + "-") else name)
+        engine = fields[3] if len(fields) > 3 else ""
+        label = f"{name}" + (f" [{engine}]" if engine else "")
+        found.append((int(activity or 0), name, f"  {label}  {headline(root, task)}"))
+    return [row[2] for row in sorted(found, key=lambda row: (-row[0], row[1]))]
+
+
+if __name__ == "__main__":
+    for line in sessions(sys.argv[1] if len(sys.argv) > 1 else os.getcwd()):
+        print(line.replace("\r", " ").replace("\t", " ").replace("\x1b", ""))

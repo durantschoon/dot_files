@@ -92,13 +92,21 @@ brief =
             [ -n "$note" ] && break
         done
     fi
-    if [ "$ahead$behind$mod$unt$stash" != "00000" ] || [ -n "$subs$note" ]; then
+    sessions=
+    if [ -n "$MR_BRIEF_NOTE" ]; then
+        session_helper=${MR_SESSION_HELPER:-"$HOME/dot_files/bin/repo-sessions"}
+        if [ -x "$session_helper" ]; then
+            sessions=$("$session_helper" "$MR_REPO")
+        fi
+    fi
+    if [ "$ahead$behind$mod$unt$stash" != "00000" ] || [ -n "$subs$note$sessions" ]; then
         # fixed layout -- mr-brief colours by column position:
         # repo 1-42, branch 44-63, ^aa vbb  Mcc ?dd See from column 65,
         # then `  sub path^N ...' and the note, each after two spaces
         printf '%-42s %-20s ^%2s v%2s  M%2s ?%2s S%2s%s%s\n' \
             "$repo" "$branch" "$ahead" "$behind" "$mod" "$unt" "$stash" \
             "${subs:+  sub$subs}" "${note:+  $note}"
+        [ -z "$sessions" ] || printf '%s\n' "$sessions"
     fi
 # pushahead: `git push' only where the branch is ahead of its upstream.
 # Repos with no upstream or nothing to push exit quietly, so with -m they

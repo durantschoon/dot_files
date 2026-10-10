@@ -484,6 +484,11 @@ whose unit of work is not a numbered stage says what a task is about — and,
 failing that, for a `stage-NN` task, the title and first `## Motivation`
 paragraph of `docs/stages/stage-NN-PROMPT.md` plus whether its report exists.
 
+`tmux-dash` groups session rows by repo alphabetically, across configured
+hosts, with the most recently active session first within each group. Every
+row remains selectable and editable; missing session headlines are shown as
+`(no status yet)`. `tmux-pick` keeps its current-repo view.
+
 In `tmux-pick` / `tmux-dash`:
 
 - **`?`** toggles a preview pane showing that block for the highlighted row —

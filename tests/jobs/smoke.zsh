@@ -956,6 +956,14 @@ haslit "9h ... the local server's session is there"  "${(F)DASH_LINES}" "local|$
 haslit "9h ... the remote server's session too"      "${(F)DASH_LINES}" "fakehost|$SLUG-claude"$'\t'
 haslit "9h ... and the labels carry the repo column" "${(F)DASH_LINES}" "$SLUG "
 
+# Dashboard groups repos across hosts while retaining recency inside a group.
+_tmux_group_rows 'local|b-old|1|0|10|/tmp/b|codex' \
+  'fakehost|a-new|1|0|30|/tmp/a|claude' 'local|b-new|1|0|40|/tmp/b|codex'
+eq "9h grouped rows retain session identity and recency" "${(F)reply}" \
+  $'fakehost|a-new|1|0|30|/tmp/a|claude\nlocal|b-new|1|0|40|/tmp/b|codex\nlocal|b-old|1|0|10|/tmp/b|codex'
+_tmux_group_rows
+eq "9h empty dashboard has no phantom row" "$#reply" 0
+
 # --- item 3: the bindings fzf was actually given ----------------------------
 # Read back from the recorded argv. Each --bind value is its own word, so the
 # binding for a key is the line that starts with it.

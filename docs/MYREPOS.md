@@ -106,6 +106,15 @@ Repos/ds/embodied-tamp                     main                 ^ 0 v 0  M 0 ? 2
 dot_files                                  main                 ^ 0 v 0  M 1 ? 0 S 0  (w/claude) splitting .mrconfig public/private
 ```
 
+`mr-brief-deluxe` also shows each local tmux session beneath its repo,
+including sessions launched in Git worktrees of that repo. A clean repo with
+live sessions is included. Each row carries the full session name, its agent
+engine when recorded, and its own notes headline (or recap's `Current Subtask`).
+Missing session notes show `(no status yet)`; another session's notes are never
+used as a substitute. Edit with `job-note TASK` from the session's checkout.
+This session census is local; use `tmux-dash` for the configured remote hosts.
+The executable helper is `bin/repo-sessions`; it requires Python 3 and tmux.
+
 ### `mr-push-ahead`: push only what is ahead
 
 `mr push` runs `git push` in every repo, which is noisy and fails in repos

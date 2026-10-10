@@ -1027,10 +1027,21 @@ _tmux_repo_rows() {
   _job_hosts; local -a hosts=("${reply[@]}")
   _tmux_collect_rows "$re" "${hosts[@]}"
 }
-# Every session on every host, most recent first. Also answers in `reply'.
+# Every session on every host, grouped by repo; newest first within each repo.
 _tmux_all_rows() {
   _job_hosts; local -a hosts=("${reply[@]}")
   _tmux_collect_rows "." "${hosts[@]}"
+  _tmux_group_rows "${reply[@]}"
+}
+# Sort by repo slug across hosts, retaining recency within each group. Keep
+# the original rows intact: picker keys, note paths and attach targets survive.
+_tmux_group_rows() {
+  local row
+  local -a keyed
+  for row in "$@"; do keyed+=("$(_tmux_row_repo "$row")|$row"); done
+  typeset -ga reply
+  reply=("${(@f)$(print -l -- "${keyed[@]}" | LC_ALL=C sort -t'|' -k1,1 -k6,6nr -k2,3 | cut -d'|' -f2-)}")
+  (( $#keyed )) || reply=()
 }
 # ---------------------------------------------------------------------------
 # One display line per row, in columns that fit what is actually in them
@@ -1196,8 +1207,14 @@ _tmux_label() {
     [[ -n $agent ]] && sess+=" [$agent]"
   fi
   local line
-  line=$(printf '%-8s %s%-*s %2s win  %-8s %s' "$f[1]" "$repo" "$_JOB_W_SESS" "$sess" "$f[3]" \
-    "$( (( f[4] )) && print attached || print detached )" "$(_job_ago "$f[5]")")
+  if (( all )); then
+    # Put the repo first so groups are visible; spend the remaining space on
+    # the headline. Window counts and activity remain in the notes preview.
+    line=$(printf '%s%-*s %-8s' "$repo" "$_JOB_W_SESS" "$sess" "$f[1]")
+  else
+    line=$(printf '%-8s %s%-*s %2s win  %-8s %s' "$f[1]" "$repo" "$_JOB_W_SESS" "$sess" "$f[3]" \
+      "$( (( f[4] )) && print attached || print detached )" "$(_job_ago "$f[5]")")
+  fi
   if [[ -n $rowstat ]]; then
     rowstat=${${rowstat//$'\t'/ }//$'\n'/ }
     integer room=$(( _JOB_LABEL_COLS - ${#line} - 2 ))
@@ -1364,6 +1381,7 @@ _tmux_pick_lines() {
   integer i
   for (( i = 1; i <= $#rows; i++ )); do
     r=$rows[i]
+    (( all )) && [[ -z ${stats[i]-} ]] && stats[i]="(no status yet)"
     reply+=("${${(s:|:)r}[1]}|${${(s:|:)r}[2]}"$'\t'"$(_tmux_label "$r" $all "${stats[i]-}")"$'\t'"${${(@s:|:)r}[6]}")
   done
   (( all )) || reply+=("new"$'\t'"new session '$(job-name)' on $JOB_HOST"$'\t'"$(job-root)")
@@ -1712,12 +1730,12 @@ tmux-peek() {
   host=$reply[1]
   _job_tmux_attach_polite "$host" "$name"
 }
-# tmux-dash: every session on this host and homebase, grouped by recency; pick one to
+# tmux-dash: every session on this host and homebase, grouped by repo; pick one to
 # attach. tmux-pick --all under another name, and it takes the same flags.
 tmux-dash() { tmux-pick --all "$@"; }
 
 # tmux-dash-universal: every session on every compute platform in the
-# Tailscale network, grouped by recency; pick one to attach.
+# Tailscale network, grouped by repo; pick one to attach.
 tmux-dash-universal() { tmux-pick --all --universal "$@"; }
 alias tdu=tmux-dash-universal
 
