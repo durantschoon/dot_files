@@ -806,6 +806,11 @@ eq "7a tmux-go attaches where the session lives" \
    "$(tmux-go claude 2>/dev/null)" "attach fakehost $SLUG-claude"
 eq "7a' tmux-take is the same verb" \
    "$(tmux-take claude 2>/dev/null)" "attach fakehost $SLUG-claude"
+eq "7a'' tmux-remote-launch passes an explicit --on through" \
+   "$(tmux-remote-launch claude --on fakehost 2>/dev/null)" "attach fakehost $SLUG-claude"
+out=$(tmux-remote-launch claude 2>&1); rc=$?
+eq "7a'' tmux-remote-launch without --on defaults to minius ..." "$rc" "1"
+has "7a'' ... and refuses, since the session lives on fakehost" "$out" "--on says minius"
 
 out=$(tmux-run claude -- sh -c 'echo remote; exit 0' 2>&1); rc=$?
 eq "7b tmux-run follows the session to fakehost" "$rc" "0"
@@ -2421,6 +2426,7 @@ out=$(
   try '' tmux-go --on ''
   try '' launchd-run t --restart ''
   try - tmux-rm -
+  try - tmux-remote-launch -
   try '' agent-rm ''
   try '' tmux-run t make ''
   try '' docker-run t --image i -- git ''
@@ -2430,6 +2436,7 @@ haslit "N15c ... including the live session"     "$out" "comptask:tmux@local"
 has "N15c --on offers hosts"                      "$out" "compadd: local"
 has "N15c --restart offers its policies"          "$out" "compadd: no on-failure always"
 has "N15c '-' on an rm verb offers --all"         "$out" "compadd: --all"
+has "N15c '-' on tmux-remote-launch offers --on"   "$out" "compadd: --on"
 has "N15c agent-* asks for the engine first"      "$out" "compadd: claude agy codex cursor"
 has "N15c *-run hands the words after TASK to _normal" "$out" "normal: make  @2"
 has "N15c ... and the words after --"             "$out" "normal: git  @2"

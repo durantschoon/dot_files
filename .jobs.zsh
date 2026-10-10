@@ -1312,9 +1312,10 @@ tmux-go() {
 # names it so the take-over reads as deliberate.
 tmux-take() { tmux-go "$@"; }
 
-# tmux-remote-launch [TASK] [--on HOST]: attach to the session on a remote machine 
-# (minius by default), creating it if needed. Use this to run jobs on a device that 
-# you have higher confidence will stay up longer than your current device.
+# tmux-remote-launch [TASK] [--on HOST]: tmux-go with --on defaulting to minius,
+# so a new session lands on the machine you trust to stay up longer than this one.
+# An explicit --on is passed through untouched. Like tmux-go, it refuses when the
+# session already lives on a different host than the one --on names.
 tmux-remote-launch() {
   local has_on=0
   local arg
@@ -2656,7 +2657,7 @@ _job_complete() {
     local -a opts
     case $verb in
       *-rm)                     opts=(--all) ;;
-      tmux-go|tmux-take|tmux-new|tmux-peek) opts=(--on) ;;
+      tmux-go|tmux-take|tmux-new|tmux-peek|tmux-remote-launch) opts=(--on) ;;
       *-run)                    opts=(--restart --image --on --) ;;
       job-promote)              opts=(--to --image --restart --now) ;;
       job-logs|tmux-logs|launchd-logs|docker-logs) opts=(-n --no-follow -l) ;;
