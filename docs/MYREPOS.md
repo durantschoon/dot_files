@@ -92,28 +92,62 @@ mr --force checkout    # --force overrides the skip; clones what is missing
 
 `--force -d <path> checkout` clones just one.
 
-### `mr-brief-deluxe`: with the job-note headline
+### `mr-agents`: agents and their tasks, with an editable Org table
 
-`mr-brief-deluxe` is `mr-brief` with one more column: the repo's notes
-headline from the tmux/launchd job runner (`job-note` writes
-`logs/<task>.notes.md`; the headline is its first `#` heading or `> `
-line, newest notes file first, the same rule `herdr-notes-sync` uses for
-the Herdr sidebar). A repo with a headline gets a line even when it is
-otherwise clean.
+`mr-brief` shows Git state. `mr-agents` separately groups all locally known
+agents by repo: live tmux agent sessions plus the persistent agent registry,
+so a registered agent is still visible when its session disappears. Git
+worktree sessions group under their parent repo; their checkout is shown.
+The former `mr-brief-deluxe` command and single repo headline are retired.
 
+```sh
+mr-agents                          # grouped activity summary
+mr-agents --repo ~/Repos/ds/media-announce
+mr-agents --refresh                # create/update the editable Org file
+mr-agents --org                    # print the table
+mr-agents --csv                    # optional spreadsheet export
+emacs ~/.local/state/agent-jobs/agents.org
 ```
-Repos/ds/embodied-tamp                     main                 ^ 0 v 0  M 0 ? 2 S 0  (w/agy) stage 12 green, writing lesson 18
-dot_files                                  main                 ^ 0 v 0  M 1 ? 0 S 0  (w/claude) splitting .mrconfig public/private
-```
 
-`mr-brief-deluxe` also shows each local tmux session beneath its repo,
-including sessions launched in Git worktrees of that repo. A clean repo with
-live sessions is included. Each row carries the full session name, its agent
-engine when recorded, and its own notes headline (or recap's `Current Subtask`).
-Missing session notes show `(no status yet)`; another session's notes are never
-used as a substitute. Edit with `job-note TASK` from the session's checkout.
-This session census is local; use `tmux-dash` for the configured remote hosts.
-The executable helper is `bin/repo-sessions`; it requires Python 3 and tmux.
+The file defaults to `$XDG_STATE_HOME/agent-jobs/agents.org` (or
+`~/.local/state/agent-jobs/agents.org`). Override it with `MR_AGENTS_FILE`
+for both the view and recovery commands; `--file` overrides one invocation.
+Your editable columns are `desired_state` (`ACTIVE` or `PAUSED`) and `notes`.
+Save the file in Emacs before refreshing. The scripts refresh observed state,
+checkout and task headlines while preserving those two columns and prose
+outside the marked table. New agents get `ACTIVE`. Rows you added, or agents
+no longer registered, are retained as `UNTRACKED`; rows from another host are
+`UNOBSERVED`, since this command does not survey remote hosts.
+
+`PAUSED` is a recovery intent, separate from observed `RUNNING`, `STOPPED`,
+or `MISSING`. It does not terminate a running session. `agent-relaunch`
+(and `claude-relaunch`, `codex-relaunch`, `agy-relaunch`, `herdr-revive`)
+skips paused sessions; malformed controls block recovery of missing sessions.
+Direct `agent-run` and existing macOS login LaunchAgents are independent
+launch paths and do not consult this file. No automatic restarts are added.
+
+Each headline comes from that task's own `logs/TASK.notes.md`, or its recap's
+`Current Subtask`. Another task's headline is never substituted. Edit it with
+`job-note TASK` in the indicated checkout. Headline age uses the source file's
+modification time; the summary flags `STALE` after 24 hours by default
+(`--stale-hours` changes this). Running means an agent command is visible in a
+live tmux pane; it does not imply that the agent is progressing or unblocked.
+Bare agents outside tmux are covered by `tmux-hygiene --agents`, not this view.
+
+The existing homebase timer refreshes the Org file every tick (10 minutes),
+on the designated homebase only. It preserves your controls and notes. If
+Emacs saves while a refresh is running, the refresh checks the file for a
+change before replacing it and refuses detected concurrent edits. Malformed
+Org rows are reported rather than discarded. Keep column names and the
+`MR-AGENTS` table markers intact; escape literal table pipes as `\vert{}`.
+An Emacs edit lock blocks refresh while you have unsaved edits. Save or close
+the buffer to let the next tick refresh it; use `auto-revert-mode` to reload
+external updates when the buffer is unmodified.
+
+Further hygiene can report missing agents, stale/missing headlines, sessions
+waiting for input, repeated crashes, and completed tasks awaiting review.
+Before adding automatic recovery, add a completed/retired state and restart
+backoff; `ACTIVE` alone is not evidence that an old task should run forever.
 
 ### `mr-push-ahead`: push only what is ahead
 

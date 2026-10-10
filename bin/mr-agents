@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""A local agent census, grouped by repo, with Org and CSV exports."""
+import argparse
+import csv
+import os
+import io
+from pathlib import Path
+import re
+import socket
+import subprocess
+import sys
+import time
+import tempfile
+
+
+def run(*args):
+    try:
+        result = subprocess.run(args, text=True, capture_output=True, timeout=10)
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def clean(value):
+    return re.sub(r"[\x00-\x1f\x7f]", " ", str(value))
+
+
+def repo_identity(directory):
+    root = Path(directory).expanduser().resolve()
+    common = run("git", "-C", str(root), "rev-parse", "--git-common-dir")
+    if common:
+        gitdir = (root / common).resolve()
+        if gitdir.name == ".git":
+            return str(gitdir.parent)
+    return run("git", "-C", str(root), "rev-parse", "--show-toplevel") or str(root)
+
+
+def task_for(name, root, env):
+    slug = re.sub(r"[^a-z0-9]+", "-", Path(root).name.lower()).strip("-")
+    return env.get("JOB_TASK") or ("main" if name == slug else
+                                   name[len(slug) + 1:] if name.startswith(slug + "-") else name)
+
+
+def headline(directory, task, now):
+    for suffix, pattern in (("notes", r"^(?:#+|>)\s*(\S.*)"),
+                            ("recap", r".*Current Subtask:\**\s*(\S.*)")):
+        file = Path(directory) / "logs" / f"{task}.{suffix}.md"
+        try:
+            for line in file.read_text().splitlines():
+                match = re.match(pattern, line)
+                if match:
+                    return clean(match[1].strip()), max(0, int((now - file.stat().st_mtime) / 60)), suffix
+        except (OSError, UnicodeError):
+            pass
+    return "(no status yet)", "", ""
+
+
+def registry_records(directory):
+    records = {}
+    for file in sorted(directory.glob("*.conf"), key=lambda p: p.stat().st_mtime):
+        try:
+            data = dict(line.split("=", 1) for line in file.read_text().splitlines() if "=" in line)
+        except (OSError, UnicodeError):
+            continue
+        if all(data.get(key) for key in ("name", "root", "engine", "task")):
+            records[data["name"]] = {
+                "session": data["name"], "checkout": data["root"], "agent": data["engine"],
+                "task": data["task"], "state": "MISSING", "source": "registry",
+            }
+    return records
+
+
+AGENT_COMMANDS = {"claude", "codex", "agy", "gemini"}
+SHELL_COMMANDS = {"sh", "bash", "zsh", "fish", "dash"}
+
+
+def host_name():
+    if os.environ.get("MR_AGENTS_HOST"):
+        return os.environ["MR_AGENTS_HOST"]
+    try:
+        if "orbstack" in Path("/proc/version").read_text().lower():
+            return "orb-guix"
+    except OSError:
+        pass
+    return socket.gethostname()
+
+
+def control_file():
+    return Path(os.environ.get("MR_AGENTS_FILE", str(
+        Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "agent-jobs/agents.org"
+    ))).expanduser()
+
+
+BEGIN, END = "# BEGIN MR-AGENTS", "# END MR-AGENTS"
+
+
+def controls(file):
+    if not file.exists():
+        return {}, ""
+    text = file.read_text()
+    if text.count(BEGIN) != 1 or text.count(END) != 1 or text.index(BEGIN) > text.index(END):
+        raise ValueError(f"{file}: expected one MR-AGENTS table block; leaving the file unchanged")
+    block = text.split(BEGIN, 1)[1].split(END, 1)[0]
+    header, found = None, {}
+    for line in block.splitlines():
+        if not line.strip():
+            continue
+        if not line.startswith("|") or not line.endswith("|"):
+            raise ValueError(f"{file}: malformed table row")
+        if re.fullmatch(r"\|[-+]+\|", line):
+            continue
+        cells = [cell.strip().replace(r"\vert{}", "|") for cell in line[1:-1].split("|")]
+        if header is None:
+            header = cells
+            if not all(field in header for field in ("host", "session", "desired_state", "notes")):
+                raise ValueError(f"{file}: table needs host, session, desired_state and notes columns")
+            continue
+        if len(cells) != len(header):
+            raise ValueError(f"{file}: table row has the wrong number of cells")
+        row = dict(zip(header, cells))
+        key = (row["host"], row["session"])
+        if not all(key) or key in found:
+            raise ValueError(f"{file}: missing or duplicate host/session identity")
+        row["desired_state"] = row["desired_state"].upper()
+        if row["desired_state"] not in ("ACTIVE", "PAUSED"):
+            raise ValueError(f"{file}: desired_state must be ACTIVE or PAUSED for {row['session']}")
+        found[key] = row
+    if header is None:
+        raise ValueError(f"{file}: missing table header")
+    return found, text
+
+
+def apply_controls(records, saved):
+    seen = set()
+    for record in records:
+        key = (record["host"], record["session"])
+        seen.add(key)
+        old = saved.get(key, {})
+        record["desired_state"] = old.get("desired_state", "ACTIVE")
+        record["notes"] = old.get("notes", "")
+    # Keep manually tracked rows and controls for agents no longer registered.
+    for key, row in saved.items():
+        if key not in seen:
+            record = {field: row.get(field, "") for field in FIELDS}
+            record["state"] = "UNTRACKED" if key[0] == host_name() else "UNOBSERVED"
+            record["headline_age_minutes"] = ""
+            records.append(record)
+    return sorted(records, key=lambda r: (r["repo"], r["host"], r["session"]))
+
+
+def census(registry=None, now=None):
+    now = time.time() if now is None else now
+    registry = registry or Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "agent-jobs"
+    records = registry_records(registry)
+    panes = {}
+    for row in run("tmux", "list-panes", "-a", "-F",
+                   "#{session_name}\t#{pane_current_command}\t#{pane_dead}").splitlines():
+        fields = row.split("\t")
+        if len(fields) == 3:
+            panes.setdefault(fields[0], []).append((fields[1], fields[2] == "1"))
+    for row in run("tmux", "list-sessions", "-F",
+                   "#{session_name}\t#{session_path}\t#{@agent-job-engine}").splitlines():
+        fields = row.split("\t")
+        if len(fields) < 2:
+            continue
+        name, root = fields[:2]
+        env = dict(line.split("=", 1) for line in
+                   run("tmux", "show-environment", "-t", "=" + name).splitlines()
+                   if "=" in line and not line.startswith("-"))
+        live_commands = {command for command, dead in panes.get(name, []) if not dead}
+        inferred = sorted(live_commands & AGENT_COMMANDS)
+        engine = (fields[2] if len(fields) > 2 else "") or env.get("JOB_AGENT_ENGINE")
+        engine = engine or records.get(name, {}).get("agent") or (inferred[0] if inferred else "")
+        if not engine:
+            continue  # ordinary terminal sessions are not agents
+        task = env.get("JOB_TASK") or records.get(name, {}).get("task") or task_for(name, root, env)
+        records[name] = {
+            "session": name, "checkout": root, "agent": engine, "task": task,
+            "state": "RUNNING" if inferred else "STOPPED" if name in panes and
+                     live_commands <= SHELL_COMMANDS else "UNKNOWN",
+            "source": "registry+tmux" if name in records else "tmux",
+        }
+    for record in records.values():
+        record["host"] = host_name()
+        record["checkout"] = str(Path(record["checkout"]).expanduser().resolve())
+        record["repo"] = repo_identity(record["checkout"])
+        record["headline"], record["headline_age_minutes"], record["headline_source"] = headline(
+            record["checkout"], record["task"], now)
+    return sorted(records.values(), key=lambda r: (r["repo"], r["session"]))
+
+
+FIELDS = ["host", "repo", "checkout", "session", "agent", "task", "state", "headline",
+          "headline_age_minutes", "headline_source", "source", "desired_state", "notes"]
+
+ORG_FIELDS = ["host", "repo", "agent", "session", "task", "desired_state", "state", "headline",
+              "headline_age_minutes", "checkout", "notes"]
+
+
+def display_path(value):
+    try:
+        return str(Path(value).relative_to(Path.home()))
+    except ValueError:
+        return value
+
+
+def print_org(records, out=sys.stdout):
+    fields = ORG_FIELDS
+    print("#+TITLE: Agent activity", file=out)
+    print("# Edit desired_state (ACTIVE/PAUSED) and notes. mr-agents --refresh preserves both.", file=out)
+    print("# PAUSED prevents agent-relaunch recovery; it does not stop a running agent.", file=out)
+    print("# Refresh other fields; edit task headlines with job-note TASK in the checkout.", file=out)
+    print(BEGIN, file=out)
+    print("| " + " | ".join(fields) + " |", file=out)
+    print("|" + "+".join("-" * (len(field) + 2) for field in fields) + "|", file=out)
+    for record in records:
+        print("| " + " | ".join(clean(record[field]).replace("|", r"\vert{}") for field in fields) + " |", file=out)
+    print(END, file=out)
+
+
+def refresh(file, records, original):
+    if os.path.lexists(file.with_name(".#" + file.name)):
+        raise ValueError(f"{file}: Emacs edit lock is present; save or close the buffer before refreshing")
+    stream = io.StringIO()
+    print_org(records, stream)
+    rendered = stream.getvalue()
+    if original:
+        body = rendered.split(BEGIN, 1)[1].split(END, 1)[0]
+        rendered = original.split(BEGIN, 1)[0] + BEGIN + body + END + original.split(END, 1)[1]
+    file.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp = tempfile.mkstemp(dir=file.parent, prefix=".agents-", suffix=".org")
+    try:
+        with os.fdopen(descriptor, "w") as out:
+            out.write(rendered)
+        # An Emacs save while the census ran must not get overwritten.
+        current = file.read_text() if file.exists() else ""
+        if current != original:
+            raise ValueError(f"{file} changed during refresh; retry after saving your edits")
+        os.replace(temp, file)
+    finally:
+        if Path(temp).exists():
+            Path(temp).unlink()
+
+
+def print_grouped(records, stale_hours, out=sys.stdout):
+    counts = {state: sum(r["state"] == state for r in records) for state in ("RUNNING", "STOPPED", "MISSING", "UNKNOWN", "UNTRACKED", "UNOBSERVED")}
+    print("Agents: " + ", ".join(f"{n} {state.lower()}" for state, n in counts.items() if n) if records else "No known agents.", file=out)
+    paused = sum(record["desired_state"] == "PAUSED" for record in records)
+    if paused:
+        print(f"Paused for recovery: {paused}", file=out)
+    previous = None
+    for record in records:
+        if record["repo"] != previous:
+            print("\n" + clean(display_path(record["repo"])), file=out)
+            previous = record["repo"]
+        age = record["headline_age_minutes"]
+        age_text = "" if age == "" else f" · headline {age // 60}h old" if age >= 60 else f" · headline {age}m old"
+        stale = " · STALE" if age != "" and age >= stale_hours * 60 else ""
+        desired = " PAUSED" if record["desired_state"] == "PAUSED" else ""
+        print(clean(f"  {record['session']} [{record['agent']}] {record['state']}{desired}  {record['headline']}{age_text}{stale}"), file=out)
+        if record["checkout"] != record["repo"]:
+            print("    checkout: " + clean(display_path(record["checkout"])), file=out)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--org", action="store_true", help="print an Emacs Org table")
+    output.add_argument("--csv", action="store_true", help="print a CSV census")
+    parser.add_argument("--repo", type=Path, help="filter to this repo, including its worktrees")
+    parser.add_argument("--stale-hours", type=float, default=24, help="flag headline age (default: 24)")
+    parser.add_argument("--file", type=Path, default=control_file(), help="editable Org control file")
+    parser.add_argument("--refresh", action="store_true", help="refresh the Org file, preserving PAUSED and notes")
+    parser.add_argument("--is-paused", metavar="SESSION", help="recovery guard: exit 0 if paused, 1 if active, 2 on error")
+    args = parser.parse_args()
+    if args.stale_hours < 0:
+        parser.error("--stale-hours must be nonnegative")
+    saved, original = controls(args.file)
+    if args.is_paused:
+        if args.refresh or args.org or args.csv or args.repo:
+            parser.error("--is-paused cannot be combined with output, refresh or filtering")
+        row = saved.get((host_name(), args.is_paused), {})
+        return 0 if row.get("desired_state") == "PAUSED" else 1
+    records = apply_controls(census(), saved)
+    if args.refresh:
+        if args.repo:
+            parser.error("--refresh cannot be filtered with --repo")
+        refresh(args.file, records, original)
+        print(f"Refreshed {args.file}", file=sys.stderr)
+    if args.repo:
+        identity = repo_identity(args.repo)
+        records = [record for record in records if record["repo"] == identity]
+    if args.org:
+        print_org(records)
+    elif args.csv:
+        writer = csv.DictWriter(sys.stdout, fieldnames=FIELDS)
+        writer.writeheader()
+        writer.writerows(records)
+    else:
+        print_grouped(records, args.stale_hours)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, ValueError) as error:
+        print(f"mr-agents: {error}", file=sys.stderr)
+        sys.exit(2)
