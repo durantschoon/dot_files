@@ -87,6 +87,11 @@ typeset -g ED_ARGV=$BASE/editor-argv.txt  # the fake $EDITOR's recorded argv
 typeset -g PT=${0:A:h}/private-tmux
 [[ -x $PT ]] || { print -u2 "smoke: cannot execute $PT"; exit 1 }
 typeset -g PT_DEFAULT_DIR=${TMUX_TMPDIR:-/tmp}
+# The same goes for $PATH: the guard runs from the cleanup, after $BASE (and the
+# $SYSBIN symlinks with it) is gone, so on a host whose tmux lives only off the
+# suite's fixed PATH (Guix: ~/.guix-home/profile/bin) it would find no tmux and
+# read the live server as empty.
+typeset -g PT_DEFAULT_PATH=$PATH
 
 # The two servers, as thin wrappers. Defined here, above the cleanup function,
 # because the cleanup function calls them and an EXIT trap can fire at any
@@ -95,7 +100,7 @@ ltmux() { PRIVATE_TMUX_DIR=$TMUX_LOCAL  "$PT" "$@" }
 rtmux() { PRIVATE_TMUX_DIR=$TMUX_REMOTE "$PT" "$@" }
 # The one permitted question for the user's own server: which sessions are on
 # it. private-tmux has no way to spell any other subcommand against it.
-pt_default_sessions() { PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
+pt_default_sessions() { PATH=$PT_DEFAULT_PATH PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
 # Captured before anything else runs, and before any trap is installed, so the
 # guard in the cleanup always has something honest to compare against.
 typeset -g SMOKE_DEFAULT_BEFORE="$(pt_default_sessions)"
