@@ -87,6 +87,11 @@ typeset -g ED_ARGV=$BASE/editor-argv.txt  # the fake $EDITOR's recorded argv
 typeset -g PT=${0:A:h}/private-tmux
 [[ -x $PT ]] || { print -u2 "smoke: cannot execute $PT"; exit 1 }
 typeset -g PT_DEFAULT_DIR=${TMUX_TMPDIR:-/tmp}
+# The same goes for $PATH: the guard runs from the cleanup, after $BASE (and the
+# $SYSBIN symlinks with it) is gone, so on a host whose tmux lives only off the
+# suite's fixed PATH (Guix: ~/.guix-home/profile/bin) it would find no tmux and
+# read the live server as empty.
+typeset -g PT_DEFAULT_PATH=$PATH
 
 # The two servers, as thin wrappers. Defined here, above the cleanup function,
 # because the cleanup function calls them and an EXIT trap can fire at any
@@ -95,7 +100,7 @@ ltmux() { PRIVATE_TMUX_DIR=$TMUX_LOCAL  "$PT" "$@" }
 rtmux() { PRIVATE_TMUX_DIR=$TMUX_REMOTE "$PT" "$@" }
 # The one permitted question for the user's own server: which sessions are on
 # it. private-tmux has no way to spell any other subcommand against it.
-pt_default_sessions() { PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
+pt_default_sessions() { PATH=$PT_DEFAULT_PATH PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
 # Captured before anything else runs, and before any trap is installed, so the
 # guard in the cleanup always has something honest to compare against.
 typeset -g SMOKE_DEFAULT_BEFORE="$(pt_default_sessions)"
@@ -806,6 +811,11 @@ eq "7a tmux-go attaches where the session lives" \
    "$(tmux-go claude 2>/dev/null)" "attach fakehost $SLUG-claude"
 eq "7a' tmux-take is the same verb" \
    "$(tmux-take claude 2>/dev/null)" "attach fakehost $SLUG-claude"
+eq "7a'' tmux-remote-launch passes an explicit --on through" \
+   "$(tmux-remote-launch claude --on fakehost 2>/dev/null)" "attach fakehost $SLUG-claude"
+out=$(tmux-remote-launch claude 2>&1); rc=$?
+eq "7a'' tmux-remote-launch without --on defaults to minius ..." "$rc" "1"
+has "7a'' ... and refuses, since the session lives on fakehost" "$out" "--on says minius"
 
 out=$(tmux-run claude -- sh -c 'echo remote; exit 0' 2>&1); rc=$?
 eq "7b tmux-run follows the session to fakehost" "$rc" "0"
@@ -2421,6 +2431,7 @@ out=$(
   try '' tmux-go --on ''
   try '' launchd-run t --restart ''
   try - tmux-rm -
+  try - tmux-remote-launch -
   try '' agent-rm ''
   try '' tmux-run t make ''
   try '' docker-run t --image i -- git ''
@@ -2430,6 +2441,7 @@ haslit "N15c ... including the live session"     "$out" "comptask:tmux@local"
 has "N15c --on offers hosts"                      "$out" "compadd: local"
 has "N15c --restart offers its policies"          "$out" "compadd: no on-failure always"
 has "N15c '-' on an rm verb offers --all"         "$out" "compadd: --all"
+has "N15c '-' on tmux-remote-launch offers --on"   "$out" "compadd: --on"
 has "N15c agent-* asks for the engine first"      "$out" "compadd: claude agy codex cursor"
 has "N15c *-run hands the words after TASK to _normal" "$out" "normal: make  @2"
 has "N15c ... and the words after --"             "$out" "normal: git  @2"

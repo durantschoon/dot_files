@@ -570,18 +570,24 @@ done
 # success. `should-not-exist' is the witness: if the command ran at all, it is
 # there.
 
-command chmod 555 "$LOGS" || fail "6  could not make $LOGS read-only"
-OUT=$("$JT" t6 sh -c 'touch should-not-exist' 2>&1); RC=$?
-command chmod 755 "$LOGS" || fail "6  could not restore the mode of $LOGS"
+# Root ignores the mode bits, so as root the log directory cannot be made
+# unwritable this way and job-tee (rightly) records the run: nothing to test.
+if (( UID == 0 )); then
+  skip "6  job-tee refuses when it cannot write the log" "running as root, which ignores the read-only mode"
+else
+  command chmod 555 "$LOGS" || fail "6  could not make $LOGS read-only"
+  OUT=$("$JT" t6 sh -c 'touch should-not-exist' 2>&1); RC=$?
+  command chmod 755 "$LOGS" || fail "6  could not restore the mode of $LOGS"
 
-rceq "6  job-tee refuses with 1 when it cannot write the log" "$RC" "1" "$OUT"
-has  "6  ... naming the path it could not write" "$OUT" "logs/t6."
-has  "6  ... and the uid it ran as" "$OUT" "(uid $UID)"
-eq   "6  ... in a single line on stderr" "$(print -r -- "$OUT" | command wc -l | command tr -d ' ')" "1"
-eq   "6  ... and the command never ran" \
-     "$([[ -e $REPO/should-not-exist ]] && print it-ran)" ""
-eq   "6  ... and no t6 log was left behind" "$(print -r -- $LOGS/t6.*(N))" ""
-note "6  it said: [$(oneline "$OUT")]"
+  rceq "6  job-tee refuses with 1 when it cannot write the log" "$RC" "1" "$OUT"
+  has  "6  ... naming the path it could not write" "$OUT" "logs/t6."
+  has  "6  ... and the uid it ran as" "$OUT" "(uid $UID)"
+  eq   "6  ... in a single line on stderr" "$(print -r -- "$OUT" | command wc -l | command tr -d ' ')" "1"
+  eq   "6  ... and the command never ran" \
+       "$([[ -e $REPO/should-not-exist ]] && print it-ran)" ""
+  eq   "6  ... and no t6 log was left behind" "$(print -r -- $LOGS/t6.*(N))" ""
+  note "6  it said: [$(oneline "$OUT")]"
+fi
 
 # The refusal must not be a permanent state: the very next run, with the mode
 # back, works.
