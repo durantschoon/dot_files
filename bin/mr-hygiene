@@ -480,13 +480,14 @@ def sync_loose_ends(repos: list[dict], loose_ends_path: Path, unmanaged_agents: 
     stashes_repos = [r for r in repos if r["stash_count"] > 0]
     new_items: list[str] = []
     for r in stashes_repos:
-        oldest_age = max(s["age_days"] for s in r["stashes"]) if r["stashes"] else 0
+        # No stash age here: it grows daily and would rewrite LOOSE-ENDS.md
+        # every day.  The full report keeps the ages.
         summary_stash = r["stashes"][0]["message"]
         if len(summary_stash) > 50:
             summary_stash = summary_stash[:47] + "..."
         new_items.append(
             f"**Repo Hygiene ({r['name']}):** {r['stash_count']} stash(es) "
-            f"(oldest: {oldest_age}d, e.g. \"{summary_stash}\")"
+            f"(e.g. \"{summary_stash}\")"
         )
 
     if unmanaged_agents:
