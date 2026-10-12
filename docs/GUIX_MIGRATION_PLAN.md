@@ -6,6 +6,9 @@ _A comprehensive roadmap for converting legacy dotfiles and language toolchains 
 
 ## TL;DR (Bootstrap)
 
+For a fresh machine without Guix or GitHub SSH access, start with
+[the Linux seed checklist](LINUX_SEED.md) and `bin/seed-linux`.
+
 ```bash
 git clone https://github.com/durantschoon/dot_files ~/dot_files
 cd ~/dot_files
