@@ -1,6 +1,6 @@
 # New Linux machine: seed steps
 
-Run as your intended regular login user with sudo access. This installs the
+The preferred foreign distro is Pop!_OS. Run as your intended regular login user with sudo access. This installs the
 Guix package manager on an existing Linux distro, then applies Guix Home.
 
 1. Get sudo access and an internet connection.
@@ -31,11 +31,19 @@ curl -fLsS https://raw.githubusercontent.com/durantschoon/dot_files/main/bin/see
 bash seed-linux
 ```
 
-The script supports apt-get, dnf, and pacman and pauses for SSH key creation
-and GitHub registration. Accept GitHub's host key after checking its fingerprint
-against https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints.
-Reruns reuse the key and checkout and skip installing Guix if it is available.
-They still rerun the distro prerequisite installation and `make apply`.
+The script targets Pop!_OS and also supports Debian/Ubuntu. It checks installed
+packages and installs only missing prerequisites; it skips an existing Guix
+installation and starts its daemon only if stopped. It first tests GitHub access
+using your current SSH config and agent. If that works, key setup and registration
+are skipped. Otherwise it discovers existing private keys, reuses a sole key, or
+asks which to use when several exist. Create a key only when none exists.
+
+For a key outside `~/.ssh`, run `SEED_SSH_KEY=/path/to/key bash seed-linux`.
+Registration is requested only if access still fails after loading the key.
+Accept GitHub's host key after checking its fingerprint against
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints.
+An existing checkout is reused without pulling or resetting it. If Guix Home
+already exists, the script asks whether to reapply and defaults to skipping it.
 
 `make apply` pulls Guix and applies `home/base.scm`; it does not replace your
 Linux operating system. Guix System Wayland machines use `make apply-wayland`
