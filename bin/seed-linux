@@ -10,6 +10,14 @@ fi
 [[ $(uname -s) == Linux && $EUID != 0 ]] || {
     echo 'Run on Linux as your regular login user, with sudo access.' >&2; exit 1;
 }
+confirm() {
+    local answer
+    while true; do
+        read -r -p "$1 [Y/n] " answer
+        case $answer in ''|y|Y|yes|YES) return 0 ;; n|N|no|NO) return 1 ;; esac
+        echo 'Please answer yes or no.'
+    done
+}
 command -v sudo >/dev/null || { echo 'Install sudo and grant your user access first.' >&2; exit 1; }
 # Pop!_OS is Ubuntu-based. Query packages before invoking apt or sudo.
 if command -v apt-get >/dev/null; then
@@ -43,6 +51,8 @@ if ! command -v guix >/dev/null; then
     curl -fLsS https://guix.gnu.org/guix-install.sh -o "$seed_tmp/guix-install.sh"
     echo 'Starting the official interactive Guix installer; enable substitutes when asked.'
     sudo bash "$seed_tmp/guix-install.sh"
+else
+    confirm "Found Guix at $(command -v guix). Use this installation?" || exit 0
 fi
 command -v guix >/dev/null || { echo 'Guix is not on PATH; log in again and rerun this script.' >&2; exit 1; }
 guix --version
@@ -57,7 +67,13 @@ fi
 guix gc --list-roots >/dev/null
 # Test existing SSH config/agent first, including hardware-backed keys.
 seed_private_url=git@github.com:durantschoon/claude-config.git
+seed_use_access=no
 if git ls-remote "$seed_private_url" HEAD >/dev/null 2>&1; then
+    if confirm 'Existing GitHub SSH access works. Use this connection?'; then
+        seed_use_access=yes
+    fi
+fi
+if [[ $seed_use_access == yes ]]; then
     echo 'GitHub SSH access already works; skipping key setup and registration.'
 else
     install -d -m 700 "$HOME/.ssh"
@@ -73,20 +89,33 @@ else
         done
     fi
     if [[ -z $seed_key ]]; then
-        if (( ${#seed_keys[@]} == 1 )); then
-            seed_key=${seed_keys[0]}
-        elif (( ${#seed_keys[@]} > 1 )); then
-            printf 'Existing private key: %s\n' "${seed_keys[@]}"
-            read -r -p 'Full path of the key to use for GitHub: ' seed_key
-            [[ -f $seed_key ]] || { echo 'Key path does not exist.' >&2; exit 1; }
-        else
-            seed_key="$HOME/.ssh/id_ed25519"
-            [[ ! -e $seed_key && ! -e $seed_key.pub ]] || {
-                echo 'Existing key files found; set SEED_SSH_KEY to your private key path.' >&2; exit 1;
-            }
-            read -r -p 'Email/comment for the new SSH key: ' seed_comment
-            ssh-keygen -t ed25519 -C "$seed_comment" -f "$seed_key"
+        for seed_candidate in "${seed_keys[@]}"; do
+            if [[ -f "$seed_candidate.pub" ]]; then
+                ssh-keygen -lf "$seed_candidate.pub" || true
+            fi
+            if confirm "Found SSH key $seed_candidate. Use this one?"; then
+                seed_key=$seed_candidate
+                break
+            fi
+        done
+        if [[ -z $seed_key ]]; then
+            read -r -p 'Enter another private key path, or press Enter to create a new key: ' seed_key
+            if [[ -z $seed_key ]]; then
+                seed_default="$HOME/.ssh/id_ed25519"
+                if [[ -e $seed_default || -e $seed_default.pub ]]; then
+                    seed_default="$HOME/.ssh/id_ed25519_github"
+                fi
+                read -r -p "New key path [$seed_default]: " seed_key
+                seed_key=${seed_key:-$seed_default}
+                [[ ! -e $seed_key && ! -e $seed_key.pub ]] || {
+                    echo 'That path already exists; rerun and choose an unused path.' >&2; exit 1;
+                }
+                read -r -p 'Email/comment for the new SSH key: ' seed_comment
+                ssh-keygen -t ed25519 -C "$seed_comment" -f "$seed_key"
+            fi
         fi
+    else
+        confirm "Use the SSH key specified by SEED_SSH_KEY ($seed_key)?" || exit 0
     fi
     [[ -f $seed_key ]] || { echo "Private key missing: $seed_key" >&2; exit 1; }
     [[ -f "$seed_key.pub" ]] || ssh-keygen -y -f "$seed_key" > "$seed_key.pub"
@@ -115,6 +144,8 @@ git ls-remote git@github.com:durantschoon/dot_files.git HEAD >/dev/null
 seed_repo="$HOME/dot_files"
 if [[ ! -e "$seed_repo" ]]; then
     git clone git@github.com:durantschoon/dot_files.git "$seed_repo"
+else
+    confirm "Found existing checkout $seed_repo. Use it?" || exit 0
 fi
 [[ -d "$seed_repo/.git" || -f "$seed_repo/.git" ]] || { echo "$seed_repo exists but is not a Git checkout." >&2; exit 1; }
 [[ $(git -C "$seed_repo" remote get-url origin) == *durantschoon/dot_files* ]] || {

@@ -34,15 +34,17 @@ bash seed-linux
 The script targets Pop!_OS and also supports Debian/Ubuntu. It checks installed
 packages and installs only missing prerequisites; it skips an existing Guix
 installation and starts its daemon only if stopped. It first tests GitHub access
-using your current SSH config and agent. If that works, key setup and registration
-are skipped. Otherwise it discovers existing private keys, reuses a sole key, or
-asks which to use when several exist. Create a key only when none exists.
+using your current SSH config and agent. If that works, it asks whether to use that connection; accepting skips key setup
+and registration. Otherwise it discovers existing private keys, offers each discovered key for confirmation, showing its public fingerprint when
+available. You can accept a key, provide another path, or create a new key at an
+unused path, even when other keys exist. Existing keys are never overwritten.
 
 For a key outside `~/.ssh`, run `SEED_SSH_KEY=/path/to/key bash seed-linux`.
 Registration is requested only if access still fails after loading the key.
 Accept GitHub's host key after checking its fingerprint against
 https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints.
-An existing checkout is reused without pulling or resetting it. If Guix Home
+It asks before using an existing Guix installation or checkout. Declining exits
+without replacing either. A reused checkout is not pulled or reset. If Guix Home
 already exists, the script asks whether to reapply and defaults to skipping it.
 
 `make apply` pulls Guix and applies `home/base.scm`; it does not replace your
