@@ -29,6 +29,8 @@ The repository contains a unified job runner abstraction for `tmux`, `launchd`, 
 When you are stuck, blocked (a merge conflict, a question only the user can answer) or have finished a long-running task, do not just print it to the terminal: read [the herdr-notify skill](skills/herdr-notify/SKILL.md) and push a notification to the Herdr UI with `herdr notification show "<Title>" --body "<what you need>"` (`--sound request` when you need the user to proceed, `--sound done` when only reporting completion). This applies to every model family and needs no relay through another agent.
 
 ## 2. Guix Configuration (`guix home`, `guix system`)
+
+* **First-machine seed:** `bin/seed-linux`, `docs/LINUX_SEED.md` cover prerequisites, Guix installation, SSH/GitHub access, cloning and `make apply`. Reusable agent instructions: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`.
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
 *   **Entry points:** `Makefile` (Look at targets like `apply`, `reconfigure`, `guix-config`)
 *   **Home Layer (User prefs):** `home/base.scm`, `home/common.scm`, `home/wayland.scm`, `home/ewm.scm` (EWM trial, `make apply-ewm`)

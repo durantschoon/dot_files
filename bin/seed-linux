@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Run as the intended login user, before cloning dot_files.
+set -euo pipefail
+if [[ ${1:-} == --help ]]; then
+    echo 'Usage: bash seed-linux [--help]'
+    echo 'Installs prerequisites and Guix, creates an SSH key, clones ~/dot_files, then runs make apply.'
+    exit 0
+fi
+[[ $# == 0 ]] || { echo 'Unknown argument; use --help.' >&2; exit 1; }
+[[ $(uname -s) == Linux && $EUID != 0 ]] || {
+    echo 'Run on Linux as your regular login user, with sudo access.' >&2; exit 1;
+}
+command -v sudo >/dev/null || { echo 'Install sudo and grant your user access first.' >&2; exit 1; }
+sudo -v
+if command -v apt-get >/dev/null; then
+    sudo apt-get update
+    sudo apt-get install -y git make openssh-client curl ca-certificates wget gnupg xz-utils uidmap
+elif command -v dnf >/dev/null; then
+    sudo dnf install -y git make openssh-clients curl ca-certificates wget gnupg2 xz shadow-utils
+elif command -v pacman >/dev/null; then
+    sudo pacman -Syu --needed git make openssh curl ca-certificates wget gnupg xz shadow
+else
+    echo 'Supported distro package managers: apt-get, dnf, pacman.' >&2; exit 1
+fi
+# A previous installation may exist without being on this shell's PATH.
+export PATH="$HOME/.config/guix/current/bin:$HOME/.guix-profile/bin:/var/guix/profiles/per-user/root/current-guix/bin:$PATH"
+if ! command -v guix >/dev/null; then
+    seed_tmp=$(mktemp -d)
+    trap 'rm -rf "$seed_tmp"' EXIT
+    curl -fLsS https://guix.gnu.org/guix-install.sh -o "$seed_tmp/guix-install.sh"
+    echo 'Starting the official interactive Guix installer; enable substitutes when asked.'
+    sudo bash "$seed_tmp/guix-install.sh"
+fi
+command -v guix >/dev/null || { echo 'Guix is not on PATH; log in again and rerun this script.' >&2; exit 1; }
+guix --version
+if command -v systemctl >/dev/null && [[ -d /run/systemd/system ]]; then
+    sudo systemctl start guix-daemon.service
+fi
+# Confirm that the daemon accepts a store operation before starting a long pull.
+guix gc --list-roots >/dev/null
+install -d -m 700 "$HOME/.ssh"
+seed_key="$HOME/.ssh/id_ed25519"
+if [[ ! -e "$seed_key" ]]; then
+    [[ ! -e "$seed_key.pub" ]] || { echo "Public key exists without $seed_key; restore the private key first." >&2; exit 1; }
+    read -r -p 'Email/comment for the new SSH key: ' seed_comment
+    ssh-keygen -t ed25519 -C "$seed_comment" -f "$seed_key"
+fi
+[[ -f "$seed_key.pub" ]] || ssh-keygen -y -f "$seed_key" > "$seed_key.pub"
+eval "$(ssh-agent -s)"
+trap 'ssh-agent -k >/dev/null; [[ -z ${seed_tmp:-} ]] || rm -rf "$seed_tmp"' EXIT
+ssh-add "$seed_key"
+echo 'Add this PUBLIC key at https://github.com/settings/ssh/new:'
+cat "$seed_key.pub"
+read -r -p 'Press Enter after registering the key with the GitHub account that can access your private repos. ' _
+# GitHub ssh -T returns 1 on successful authentication; ls-remote tests real access.
+git ls-remote git@github.com:durantschoon/dot_files.git HEAD >/dev/null
+git ls-remote git@github.com:durantschoon/claude-config.git HEAD >/dev/null
+seed_repo="$HOME/dot_files"
+if [[ ! -e "$seed_repo" ]]; then
+    git clone git@github.com:durantschoon/dot_files.git "$seed_repo"
+fi
+[[ -d "$seed_repo/.git" || -f "$seed_repo/.git" ]] || { echo "$seed_repo exists but is not a Git checkout." >&2; exit 1; }
+cd "$seed_repo"
+make apply
+echo 'Bootstrap complete. Log out and back in to load Guix Home and start user services.'
