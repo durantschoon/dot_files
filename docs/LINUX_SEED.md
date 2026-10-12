@@ -16,14 +16,7 @@ Guix package manager on an existing Linux distro, then applies Guix Home.
 
 ## Run the seed script before cloning
 
-Until this branch is published, transfer `bin/seed-linux` to the new machine
-as `seed-linux`, then run:
-
-```sh
-bash seed-linux
-```
-
-Once published on main, download it without needing Git or SSH first:
+Download the script without needing Git or SSH first:
 
 ```sh
 # Install curl first if missing: sudo apt-get install curl (Debian/Ubuntu).
