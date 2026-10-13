@@ -840,6 +840,35 @@ call, so extensions never collide; only genuine double ownership does."
                               (error "failed to clear GNOME AC suspend timeout")) ;[session]
                             (format #t "power: automatic suspend on AC disabled; battery policy unchanged~%"))))))))
 
+;; GNOME-based desktops, including Pop!_OS 22.04: apply the preference
+;; for both mice and touchpads, and read it back to detect dconf failures.
+(define %natural-scrolling-layer
+  (layer
+   #:name 'natural-scrolling
+   #:synopsis "enable natural scrolling for mouse and touchpad"
+   #:requires '(has-gsettings?)                                      ;[session]
+   #:services
+   (lambda (session)
+     (list
+      (simple-service
+       'natural-scrolling-activation home-activation-service-type
+       #~(begin
+           (use-modules (ice-9 format) (ice-9 popen) (ice-9 rdelim))
+           (let ((gsettings (string-append #$glib:bin "/bin/gsettings"))) ;[session]
+             (for-each
+              (lambda (schema)
+                (system* gsettings "set" schema "natural-scroll" "true") ;[session]
+                (let* ((port (open-input-pipe
+                              (string-append gsettings " get " schema ;[session]
+                                             " natural-scroll")))
+                       (got (read-line port)))
+                  (close-pipe port)
+                  (if (equal? got "true")
+                      (format #t "natural-scrolling: enabled for ~a~%" schema)
+                      (format #t "natural-scrolling: could not enable for ~a; run in your desktop session:~%  gsettings set ~a natural-scroll true~%" schema schema))))
+              '("org.gnome.desktop.peripherals.mouse"                 ;[session]
+                "org.gnome.desktop.peripherals.touchpad")))))))))    ;[session]
+
 ;; console-font: GNOME Console (kgx) has no per-profile font setting; it
 ;; renders in the system monospace font, so that key is what puts
 ;; CaskaydiaCove (the ligature-keeping cut -- CaskaydiaMono is the same face
@@ -1486,6 +1515,7 @@ call, so extensions never collide; only genuine double ownership does."
 ;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
 (define %default-layers
   (list %power-layer
+        %natural-scrolling-layer
         %console-font-layer
         %dotfiles-layer
         %zsh-layer
