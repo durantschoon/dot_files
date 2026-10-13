@@ -220,7 +220,7 @@ Would you like me to fetch it for you?"; then
                    --tries=1 --timeout=30 --no-verbose -O- | gpg --import -; then
                 continue
             fi
-            
+
             key_obtained=false
             # Try to fetch keys from an available keyserver
             for key_server in $PUBLIC_KEYSERVERS; do
@@ -229,7 +229,7 @@ Would you like me to fetch it for you?"; then
                     break
                 fi
             done
-            
+
             if $key_obtained; then
                 continue
             fi
