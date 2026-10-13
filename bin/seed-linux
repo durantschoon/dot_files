@@ -46,13 +46,26 @@ cleanup() {
 trap cleanup EXIT
 # A previous installation may exist without being on this shell's PATH.
 export PATH="$HOME/.config/guix/current/bin:$HOME/.guix-profile/bin:/var/guix/profiles/per-user/root/current-guix/bin:$PATH"
+seed_installer="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../guix-install.sh"
+ensure_seed_installer() {
+    if [[ ! -f $seed_installer ]]; then
+        if [[ -z $seed_tmp ]]; then seed_tmp=$(mktemp -d); fi
+        curl -fLsS https://raw.githubusercontent.com/durantschoon/dot_files/main/guix-install.sh -o "$seed_tmp/guix-install.sh"
+        seed_installer="$seed_tmp/guix-install.sh"
+    fi
+}
 if ! command -v guix >/dev/null; then
-    seed_tmp=$(mktemp -d)
-    curl -fLsS https://guix.gnu.org/guix-install.sh -o "$seed_tmp/guix-install.sh"
-    echo 'Starting the official interactive Guix installer; enable substitutes when asked.'
-    sudo bash "$seed_tmp/guix-install.sh"
+    ensure_seed_installer
+    echo 'Starting the repository Guix installer; enable substitutes when asked.'
+    sudo bash "$seed_installer"
 else
     confirm "Found Guix at $(command -v guix). Use this installation?" || exit 0
+    if [[ -f /sys/module/apparmor/parameters/enabled ]] &&
+       grep -q '^Y' /sys/module/apparmor/parameters/enabled; then
+        ensure_seed_installer
+        # The installer asks before validating/installing existing policies.
+        sudo bash "$seed_installer" --setup-apparmor
+    fi
 fi
 command -v guix >/dev/null || { echo 'Guix is not on PATH; log in again and rerun this script.' >&2; exit 1; }
 guix --version

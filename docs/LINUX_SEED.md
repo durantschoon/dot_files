@@ -6,7 +6,7 @@ Guix package manager on an existing Linux distro, then applies Guix Home.
 1. Get sudo access and an internet connection.
 2. Install basic distro tools: Git, Make, SSH, curl, CA certificates, wget,
    GnuPG, xz, and user namespace helpers.
-3. Install Guix with its official interactive installer; enable substitutes.
+3. Install Guix with the repository’s upstream-based interactive installer; enable substitutes.
 4. Verify Guix and its daemon work.
 5. Create an Ed25519 SSH key with a passphrase, or reuse an existing key.
 6. Add the public key to your GitHub account; confirm access to both dot_files
@@ -60,3 +60,6 @@ Official Guix installation reference:
 https://guix.gnu.org/manual/en/html_node/Binary-Installation.html
 
 Reusable agent workflow: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`.
+
+For the ZFS/configure AppArmor failure and policy validation/rollback behavior,
+see [Guix AppArmor compatibility](GUIX_APPARMOR.md).

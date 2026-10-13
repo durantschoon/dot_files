@@ -3747,3 +3747,9 @@ emacs-unserve:
 	else \
 	  echo "No Emacs daemon was running."; \
 	fi
+
+# Rootless tests of the foreign-distro installer policy transaction.
+.PHONY: check-guix-installer
+check-guix-installer:
+	bash -n guix-install.sh bin/seed-linux
+	python3 tests/guix/apparmor.py
