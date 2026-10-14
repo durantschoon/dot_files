@@ -24,6 +24,9 @@ def command(*args, **kwargs):
 
 class Enrollment(unittest.TestCase):
     def setUp(self):
+        self.confirm_patch = patch.object(hub, 'confirm_password_stage')
+        self.confirm_patch.start()
+        self.addCleanup(self.confirm_patch.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         self.keyring = self.home / '.gnupg'
@@ -226,6 +229,7 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 h.run = run
 h.change_subkey_passphrase = lambda *args: None
+h.confirm_password_stage = lambda: None
 h.hub_create(sys.argv[3])
 """)
         processes = [subprocess.Popen(['python3', str(worker), str(ROOT / 'bin/gpg-hub'),
@@ -341,6 +345,19 @@ for line in sys.stdin:
         self.assertIn('signingkey = old', managed.read_text())
         effective = command('git', 'config', '--file', str(link), '--includes', '--get', 'user.signingkey', text=True).stdout.strip()
         self.assertEqual(effective, fingerprint + '!')
+
+
+class Confirmation(unittest.TestCase):
+    def test_explicit_y_required(self):
+        with patch('builtins.input', return_value='y'):
+            hub.confirm_password_stage()
+        for reply in ('', 'n', 'yes', 'a-passphrase'):
+            with self.subTest(reply=reply), patch('builtins.input', return_value=reply):
+                with self.assertRaisesRegex(ValueError, 'cancelled'):
+                    hub.confirm_password_stage()
+        with patch('builtins.input', side_effect=EOFError):
+            with self.assertRaisesRegex(ValueError, 'cancelled'):
+                hub.confirm_password_stage()
 
 
 if __name__ == '__main__':

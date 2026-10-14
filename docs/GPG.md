@@ -32,6 +32,15 @@ signing: `git commit --no-gpg-sign`.
 
 ## Hub and spoke enrollment
 
+Enrollment explains each upcoming password stage and waits for an explicit
+`y` before proceeding. Anything else cancels. Enter passphrases only in
+GnuPG/pinentry, never at the `y` confirmation. A new subkey needs the master
+passphrase for certification, then its current (initially inherited master)
+passphrase to change protection, followed by a new machine signing passphrase
+and confirmation. Export, import and test signing use the new signing
+passphrase. Existing subkeys skip certification, and cached unlock prompts
+may be skipped. Both hub and spoke need the updated script.
+
 `machines.toml` is the machine inventory and public signing-subkey registry.
 The hub is `minius`; its checkout convention is `~/dot_files`. Install Python
 3.11+, GnuPG, a working pinentry, and SSH on the hub and spokes. The hub keeps

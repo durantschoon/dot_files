@@ -25,6 +25,16 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def confirm_password_stage():
+    print('    Enter passphrases only in GnuPG/pinentry, never at this confirmation.', flush=True)
+    try:
+        answer = input('Ready for these password prompts? Type y to proceed: ')
+    except (EOFError, KeyboardInterrupt):
+        raise ValueError('Enrollment cancelled before password prompts') from None
+    if answer.strip().lower() != 'y':
+        raise ValueError('Enrollment cancelled before password prompts')
+
+
 def atomic_write(path, content, mode=0o600):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name)
@@ -115,6 +125,7 @@ def change_subkey_passphrase(name, fingerprint, inherited=False):
     print('    New passphrase + confirmation: choose a separate machine signing passphrase.', flush=True)
     print('    Only this signing subkey changes; the primary/master passphrase stays unchanged.', flush=True)
     print('    GnuPG may skip the current-passphrase prompt if it is cached.', flush=True)
+    confirm_password_stage()
     result = run('gpg-connect-agent', 'PASSWD ' + grip, '/bye', capture_output=True, text=True)
     # Assuan errors may be printed even when gpg-connect-agent exits successfully.
     if any(line.startswith('ERR') for line in result.stdout.splitlines()) or not any(
@@ -183,6 +194,7 @@ def hub_create(name):
                     print('==> Create and certify a signing subkey for ' + name, flush=True)
                     print('    Primary/master passphrase: authorizes certification of the new subkey.', flush=True)
                     print('    This step does not set the final signing passphrase; that comes next.', flush=True)
+                    confirm_password_stage()
                     run('gpg', '--quick-add-key', primary, 'ed25519', 'sign', data['gpg']['subkey_expiry'])
                     keys = subkeys(primary)
                     new = set(keys) - before
@@ -202,6 +214,7 @@ def hub_create(name):
         print('==> Export the assigned signing subkey', flush=True)
         print('    Enter the NEW signing-subkey passphrase if asked: it unlocks the key for export.', flush=True)
         print('    The staged .asc file is protected by that new signing passphrase.', flush=True)
+        confirm_password_stage()
         fd, temporary = tempfile.mkstemp(dir=state, prefix='.export-')
         try:
             with os.fdopen(fd, 'wb') as out:
@@ -256,6 +269,11 @@ def spoke_copy(name, hub):
         print('==> Connect to the GPG hub ' + hub, flush=True)
         print('    SSH login/key password, if asked: authenticates the connection to the hub.', flush=True)
         print('    The hub will explain its GPG prompts before creating/changing/exporting your subkey.', flush=True)
+        print('    Order: master passphrase to certify a NEW subkey; then current subkey passphrase', flush=True)
+        print('    (initially the master passphrase), then choose and confirm a NEW machine signing', flush=True)
+        print('    passphrase. Export, import and test signing use that NEW signing passphrase.', flush=True)
+        print('    Existing subkeys skip certification; cached unlock prompts may be skipped.', flush=True)
+        confirm_password_stage()
         run('ssh', '-t', hub, 'export GPG_TTY=$(tty) PINENTRY_USER_DATA=USE_TTY=1; ' + remote_command('hub-create', name))
         remote = run('ssh', hub, 'cat "$HOME/dot_files/machines.toml"', capture_output=True, text=True).stdout
         remote_data = tomllib.loads(remote)
@@ -269,6 +287,7 @@ def spoke_copy(name, hub):
         print('    SSH may ask for login authentication again for the transfer.', flush=True)
         print('    GPG import may ask for the NEW signing passphrase chosen on the hub.', flush=True)
         print("    This unlocks the incoming export for storage in this machine's keyring.", flush=True)
+        confirm_password_stage()
         exporter = subprocess.Popen(['ssh', hub, remote_command('export', name)], stdout=subprocess.PIPE)
         try:
             imported = subprocess.run(['gpg', '--import'], stdin=exporter.stdout)
@@ -288,6 +307,7 @@ def spoke_copy(name, hub):
         configure(fingerprint)
     print('==> Verify signing', flush=True)
     print("    Enter this machine's signing-subkey passphrase if asked, to sign a test message.", flush=True)
+    confirm_password_stage()
     # Verifies an actual signature through the configured agent.
     run('make', '-C', str(ROOT), 'check-gpg')
 
