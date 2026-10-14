@@ -1482,7 +1482,7 @@ gpg-add-subkey:
 	  echo "    Subkeys must be generated on a machine holding the master certify key." >&2; exit 1; \
 	fi; \
 	export GPG_TTY=$$(tty 2>/dev/null || echo "$$TTY"); \
-	export PINENTRY_USER_DATA="USE_TTY=1"; \
+	[ -n "$$SSH_CONNECTION" ] && export PINENTRY_USER_DATA="USE_TTY=1" || true; \
 	gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1; \
 	echo "==> Adding $(GPG_SUBKEY_ALGO) signing subkey to $$key..."; \
 	echo "    Fingerprint: $$fpr"; \
