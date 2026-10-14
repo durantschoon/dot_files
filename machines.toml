@@ -14,7 +14,7 @@ signing_subkey = ""
 existing_subkey_id = "23570C8AFDE416D9"
 
 [machines.barnowl]
-signing_subkey = ""
+signing_subkey = "64AAF1BB5EC0BF9B436148807F7DCDEA5B9E20C1"
 
 [machines.durants-z-fold5]
 signing_subkey = ""
