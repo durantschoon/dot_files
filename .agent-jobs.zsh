@@ -1379,9 +1379,9 @@ agy-help()     { agent-help agy "$@" }
 # codex wrappers
 codex-run() {
   local -x CODEX_START_ARGS=""
-  if (( ${+aliases[codex-auto-workspace]} )); then
-    echo $'\e[1;37;41m codex-auto-workspace alias detected, running with codex-auto-workspace... \e[0m'
-    local val="$aliases[codex-auto-workspace]"
+  if (( ${+aliases[codex-auto]} )); then
+    echo $'\e[1;37;41m codex-auto alias detected, running with codex-auto... \e[0m'
+    local val="$aliases[codex-auto]"
     local args="${val#* }"
     [[ "$args" == "$val" ]] && args=""
     CODEX_START_ARGS="$args"
