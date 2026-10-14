@@ -173,6 +173,7 @@ agent-run() {
       return 1
     fi
     print -u2 "agent-run: '$name' already running; refreshing its relaunch agent and attaching"
+    [[ $engine == agy ]] && tmux set-option -t "=$name" mouse on 2>/dev/null
   else
     _agent_job_confirm "$task" "$name" "$engine" || return
     job-init || return
@@ -191,6 +192,7 @@ agent-run() {
     local quoted_cmd=${(j: :)${(qq)cmd}}
     tmux new-session -d -s "$name" -n "$engine" -c "$root" "${cenv[@]}" "$quoted_cmd" || return
     tmux set-option -t "$name" @agent-job-engine "$engine" || return
+    [[ $engine == agy ]] && tmux set-option -t "$name" mouse on 2>/dev/null
     print -u2 "agent-run: started '$name' at $root  ($bin $start_args${@:+ + prompt})"
   fi
 
@@ -210,6 +212,7 @@ agent-run() {
   [[ -n $TMUX_TMPDIR ]] && envp+="export TMUX_TMPDIR=${(qq)TMUX_TMPDIR}; "
   local tmuxq=${(qq)tmux_bin}
   local relaunch="${envp}${tmuxq} has-session -t ${(qq):-=$name} 2>/dev/null || $tmuxq new-session -d -s ${(qq)name} -n ${(qq)engine} -c ${(qq)root} ${cenvq}${(qq)resume}; $tmuxq set-option -t ${(qq)name} @agent-job-engine ${(qq)engine}"
+  [[ $engine == agy ]] && relaunch+="; $tmuxq set-option -t ${(qq)name} mouse on"
   local label
   label=$(launchd-label "$task") || return
 
@@ -788,6 +791,7 @@ agent-herdr() {
     [[ $owner == "$engine" ]] || continue
     [[ -z $want || $name == "$want" ]] || continue
     (( seen++ ))
+    [[ $owner == agy ]] && tmux set-option -t "=$name" mouse on 2>/dev/null
     if (( ${attached:-0} > 0 )); then
       print -u2 "agent-herdr: $name already has a client attached -- leaving it"
       continue
@@ -970,10 +974,12 @@ agent-adopt() {
 
   if tmux has-session -t "=$name" 2>/dev/null; then
     print -u2 "agent-adopt: '$name' is already running; refreshing its relaunch definition only"
+    [[ $engine == agy ]] && tmux set-option -t "=$name" mouse on 2>/dev/null
   else
     job-init || return
     tmux new-session -d -s "$name" -n "$engine" -c "$root" "${cenv[@]}" "$quoted_cmd" || return
     tmux set-option -t "$name" @agent-job-engine "$engine" || return
+    [[ $engine == agy ]] && tmux set-option -t "$name" mouse on 2>/dev/null
     print -u2 "agent-adopt: adopted $engine conversation $conv as '$name' at $root"
   fi
 
@@ -983,6 +989,7 @@ agent-adopt() {
   [[ -n $TMUX_TMPDIR ]] && envp+="export TMUX_TMPDIR=${(qq)TMUX_TMPDIR}; "
   local tmuxq=${(qq)tmux_bin}
   local relaunch="${envp}${tmuxq} has-session -t ${(qq):-=$name} 2>/dev/null || $tmuxq new-session -d -s ${(qq)name} -n ${(qq)engine} -c ${(qq)root} ${cenvq}${(qq)quoted_cmd}; $tmuxq set-option -t ${(qq)name} @agent-job-engine ${(qq)engine}"
+  [[ $engine == agy ]] && relaunch+="; $tmuxq set-option -t ${(qq)name} mouse on"
   local label
   label=$(launchd-label "$task") || return
 
