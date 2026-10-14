@@ -186,7 +186,15 @@ What the restricted socket means in practice:
   `build-aux/guix-container-gpg` (set through `GIT_CONFIG_*` in
   `compose.guix.yaml`). Before it signs, it checks the container's cache
   with `KEYINFO`. If the cache is cold, it prints `gpg: passphrase needed ...
-  unlock in the pinentry window on the Mac's own screen` to the terminal.
+  Look for the pinentry window on the containing Mac` to the terminal.
+  It also prints recovery commands when signing fails: in a local terminal
+  on the containing Mac (minius), outside orb-guix / guix-dev, run
+  `make check-gpg-bridge` from `~/dot_files`. If the bridge passes but signing
+  remains locked, run `make unlock-gpg` there. Retry the original command
+  inside the container and answer any Mac pinentry window. The bridge check
+  verifies connectivity, not unlocked signing; the container's separate cache
+  may still need its own prompt. If that prompt fails, use the agent startup
+  environment fix above.
 - `gpg: problem with fast path key listing: Forbidden - ignored` is noise from
   the same restriction.
 
