@@ -32,6 +32,15 @@ signing: `git commit --no-gpg-sign`.
 
 ## Hub and spoke enrollment
 
+Enrollment explains each upcoming password stage and waits for an explicit
+`y` before proceeding. Anything else cancels. Enter passphrases only in
+GnuPG/pinentry, never at the `y` confirmation. A new subkey needs the master
+passphrase for certification, then its current (initially inherited master)
+passphrase to change protection, followed by a new machine signing passphrase
+and confirmation. Export, import and test signing use the new signing
+passphrase. Existing subkeys skip certification, and cached unlock prompts
+may be skipped. Both hub and spoke need the updated script.
+
 `machines.toml` is the machine inventory and public signing-subkey registry.
 The hub is `minius`; its checkout convention is `~/dot_files`. Install Python
 3.11+, GnuPG, a working pinentry, and SSH on the hub and spokes. The hub keeps
@@ -70,6 +79,24 @@ local file without replacing Guix's managed `~/.gitconfig`.
    inventory. Re-enrollment after teardown regenerates the export, reusing
    the assigned key. Removing files unlinks them; filesystem snapshots may
    retain old blocks.
+
+Each enrollment changes the assigned signing subkey's passphrase before
+exporting, including when its fingerprint is already recorded. Printed steps
+explain each prompt: SSH authentication if needed, the primary/master passphrase
+for creating/certifying a new subkey, the current subkey passphrase, a new machine
+signing passphrase and its confirmation, then the new passphrase for export and
+signing verification. Cached passwords may suppress some prompts. Choose a new
+signing passphrase distinct from the master passphrase; the workflow changes only
+the selected subkey, never the primary key. Passphrases are entered through
+pinentry and are not stored in the inventory or handled by this script.
+
+Existing spokes may retain their old local key protection when importing the
+same subkey again. For those machines, enrollment also asks to change the local
+subkey passphrase after import: use its current local passphrase to unlock it,
+then choose the desired local signing passphrase. Fresh spokes use the incoming
+export's new passphrase. Changes on one machine do not update other copies of
+the key automatically. Old staged exports are removed before changing protection;
+failed or cancelled changes leave no old export available for transfer.
 
 Repeated enrollment reuses recorded subkeys. Hub updates use a file lock and
 atomic replacement. A pending creation record allows an interrupted run to

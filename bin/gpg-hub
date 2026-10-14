@@ -25,6 +25,16 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def confirm_password_stage():
+    print('    Enter passphrases only in GnuPG/pinentry, never at this confirmation.', flush=True)
+    try:
+        answer = input('Ready for these password prompts? Type y to proceed: ')
+    except (EOFError, KeyboardInterrupt):
+        raise ValueError('Enrollment cancelled before password prompts') from None
+    if answer.strip().lower() != 'y':
+        raise ValueError('Enrollment cancelled before password prompts')
+
+
 def atomic_write(path, content, mode=0o600):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name)
@@ -78,6 +88,51 @@ def validate_subkey(keys, fingerprint):
         raise ValueError('Missing, expired, revoked or non-signing subkey: ' + fingerprint)
 
 
+def secret_keygrip(fingerprint):
+    try:
+        listing = run('gpg', '--batch', '--with-colons', '--with-keygrip',
+                      '--list-secret-keys', fingerprint + '!', capture_output=True, text=True).stdout
+    except subprocess.CalledProcessError:
+        return None
+    selected = False
+    available = False
+    for line in listing.splitlines():
+        fields = line.split(':')
+        if fields[0] in ('sec', 'ssb'):
+            selected = False
+            available = fields[0] == 'ssb' and len(fields) > 14 and fields[14] == '+'
+        elif fields[0] == 'fpr':
+            selected = available and fields[9] == fingerprint
+        elif fields[0] == 'grp' and selected:
+            grip = fields[9]
+            if not PRIMARY_RE.fullmatch(grip):
+                raise ValueError('Invalid signing-subkey keygrip')
+            return grip
+    return None
+
+
+def change_subkey_passphrase(name, fingerprint, inherited=False):
+    grip = secret_keygrip(fingerprint)
+    if not grip:
+        raise ValueError('Usable signing-subkey secret key not found: ' + fingerprint)
+    print(f'==> Change the signing-subkey passphrase for {name}', flush=True)
+    print('    Current passphrase: unlocks this signing subkey.', flush=True)
+    if inherited:
+        print('    This newly created subkey initially uses your primary/master passphrase.', flush=True)
+    else:
+        print('    For an older enrollment this may still be your primary/master passphrase;', flush=True)
+        print('    otherwise enter the passphrase previously chosen for this subkey.', flush=True)
+    print('    New passphrase + confirmation: choose a separate machine signing passphrase.', flush=True)
+    print('    Only this signing subkey changes; the primary/master passphrase stays unchanged.', flush=True)
+    print('    GnuPG may skip the current-passphrase prompt if it is cached.', flush=True)
+    confirm_password_stage()
+    result = run('gpg-connect-agent', 'PASSWD ' + grip, '/bye', capture_output=True, text=True)
+    # Assuan errors may be printed even when gpg-connect-agent exits successfully.
+    if any(line.startswith('ERR') for line in result.stdout.splitlines()) or not any(
+            line == 'OK' for line in result.stdout.splitlines()):
+        raise ValueError('Passphrase change cancelled or failed: ' + result.stdout.strip())
+
+
 def assign(name, fingerprint):
     text = INVENTORY.read_text()
     pattern = rf'(\[machines\.{re.escape(name)}\]\s*\n)(.*?)(?=\n\[|\Z)'
@@ -116,6 +171,7 @@ def hub_create(name):
         keys = subkeys(primary)
         fingerprint = machine['signing_subkey']
         pending = state / (name + '.json')
+        inherited = False
         if not fingerprint:
             existing = machine.get('existing_subkey_id')
             if existing:
@@ -133,7 +189,12 @@ def hub_create(name):
                     before = set(keys)
                     new = set()
                     atomic_write(pending, json.dumps(sorted(before)))
+                inherited = True
                 if not new:
+                    print('==> Create and certify a signing subkey for ' + name, flush=True)
+                    print('    Primary/master passphrase: authorizes certification of the new subkey.', flush=True)
+                    print('    This step does not set the final signing passphrase; that comes next.', flush=True)
+                    confirm_password_stage()
                     run('gpg', '--quick-add-key', primary, 'ed25519', 'sign', data['gpg']['subkey_expiry'])
                     keys = subkeys(primary)
                     new = set(keys) - before
@@ -147,19 +208,25 @@ def hub_create(name):
         validate_subkey(keys, fingerprint)
         pending.unlink(missing_ok=True)
         staged = state / (name + '-' + fingerprint + '.asc')
-        if not staged.exists():
-            fd, temporary = tempfile.mkstemp(dir=state, prefix='.export-')
-            try:
-                with os.fdopen(fd, 'wb') as out:
-                    run('gpg', '--armor', '--export-secret-subkeys', fingerprint + '!', stdout=out)
-                    out.flush()
-                    os.fsync(out.fileno())
-                if not Path(temporary).stat().st_size:
-                    raise ValueError('No secret subkey exported; import it on the hub first')
-                os.replace(temporary, staged)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
+        # Never leave an export protected by a previous passphrase available.
+        staged.unlink(missing_ok=True)
+        change_subkey_passphrase(name, fingerprint, inherited)
+        print('==> Export the assigned signing subkey', flush=True)
+        print('    Enter the NEW signing-subkey passphrase if asked: it unlocks the key for export.', flush=True)
+        print('    The staged .asc file is protected by that new signing passphrase.', flush=True)
+        confirm_password_stage()
+        fd, temporary = tempfile.mkstemp(dir=state, prefix='.export-')
+        try:
+            with os.fdopen(fd, 'wb') as out:
+                run('gpg', '--armor', '--export-secret-subkeys', fingerprint + '!', stdout=out)
+                out.flush()
+                os.fsync(out.fileno())
+            if not Path(temporary).stat().st_size:
+                raise ValueError('No secret subkey exported; import it on the hub first')
+            os.replace(temporary, staged)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
         print(name + ': ' + fingerprint)
         print('Inventory updated on hub; commit machines.toml and publish the public bundle.')
 
@@ -174,7 +241,6 @@ def export(name):
         # stdout contains ONLY the assigned secret-subkey export.
         with (state / (name + '-' + fingerprint + '.asc')).open('rb') as source:
             shutil.copyfileobj(source, sys.stdout.buffer)
-
 
 
 def remote_command(action, name):
@@ -200,6 +266,14 @@ def spoke_copy(name, hub):
         hub_create(name)
         configure(inventory()['machines'][name]['signing_subkey'])
     else:
+        print('==> Connect to the GPG hub ' + hub, flush=True)
+        print('    SSH login/key password, if asked: authenticates the connection to the hub.', flush=True)
+        print('    The hub will explain its GPG prompts before creating/changing/exporting your subkey.', flush=True)
+        print('    Order: master passphrase to certify a NEW subkey; then current subkey passphrase', flush=True)
+        print('    (initially the master passphrase), then choose and confirm a NEW machine signing', flush=True)
+        print('    passphrase. Export, import and test signing use that NEW signing passphrase.', flush=True)
+        print('    Existing subkeys skip certification; cached unlock prompts may be skipped.', flush=True)
+        confirm_password_stage()
         run('ssh', '-t', hub, 'export GPG_TTY=$(tty) PINENTRY_USER_DATA=USE_TTY=1; ' + remote_command('hub-create', name))
         remote = run('ssh', hub, 'cat "$HOME/dot_files/machines.toml"', capture_output=True, text=True).stdout
         remote_data = tomllib.loads(remote)
@@ -208,6 +282,12 @@ def spoke_copy(name, hub):
         fingerprint = remote_data['machines'][name]['signing_subkey']
         if not PRIMARY_RE.fullmatch(fingerprint):
             raise ValueError('Hub returned an invalid subkey fingerprint')
+        already_present = secret_keygrip(fingerprint) is not None
+        print('==> Import the signing subkey on ' + name, flush=True)
+        print('    SSH may ask for login authentication again for the transfer.', flush=True)
+        print('    GPG import may ask for the NEW signing passphrase chosen on the hub.', flush=True)
+        print("    This unlocks the incoming export for storage in this machine's keyring.", flush=True)
+        confirm_password_stage()
         exporter = subprocess.Popen(['ssh', hub, remote_command('export', name)], stdout=subprocess.PIPE)
         try:
             imported = subprocess.run(['gpg', '--import'], stdin=exporter.stdout)
@@ -221,7 +301,13 @@ def spoke_copy(name, hub):
                 exporter.wait()
         primary = data['gpg']['primary_fingerprint']
         run('gpg', '--import-ownertrust', input=primary + ':6:\n', text=True)
+        if already_present:
+            print('==> This machine already had the subkey; import may retain its old local protection.', flush=True)
+            change_subkey_passphrase(name, fingerprint)
         configure(fingerprint)
+    print('==> Verify signing', flush=True)
+    print("    Enter this machine's signing-subkey passphrase if asked, to sign a test message.", flush=True)
+    confirm_password_stage()
     # Verifies an actual signature through the configured agent.
     run('make', '-C', str(ROOT), 'check-gpg')
 
