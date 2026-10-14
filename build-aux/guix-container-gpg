@@ -15,7 +15,9 @@
 signing=
 for arg in "$@"; do
     case "$arg" in
-        --sign|--detach-sign|--clearsign|--clear-sign|-*[bs]*) signing=1 ;;
+        --sign|--detach-sign|--clearsign|--clear-sign) signing=1 ;;
+        --*) ;;
+        -*[bs]*) signing=1 ;;
     esac
 done
 
@@ -31,12 +33,37 @@ if [ -n "$signing" ]; then
         # (Probe in a subshell: a failed redirection on exec ends dash.)
         if (exec 3>/dev/tty) 2>/dev/null; then exec 3>/dev/tty; else exec 3>&2; fi
         cat >&3 <<'EOF'
-gpg: passphrase needed.  The container cannot prompt here: unlock in the
-     pinentry window on the Mac's own screen (once covers 8 h).  Only over
-     ssh?  This will fail ("Inappropriate ioctl for device"); do it at the
-     Mac.  docs/GPG.md, "Signing inside the guix-dev container".
+gpg: passphrase needed. Look for the pinentry window on the containing Mac.
+     If signing fails, run these from ~/dot_files in a LOCAL terminal on
+     the containing Mac (minius), outside orb-guix / guix-dev:
+       make check-gpg-bridge
+       make unlock-gpg
+     The first checks the bridge; if it passes but signing remains locked,
+     the second prompts for your signing-key passphrase on the Mac.
+     Then retry the original command inside the container and answer any
+     Mac pinentry window: the container has a separate passphrase cache.
+     See docs/GPG.md, "Signing inside the guix-dev container".
 EOF
     fi
 fi
 
+if [ -n "$signing" ]; then
+    gpg "$@"
+    result=$?
+    if [ "$result" -ne 0 ]; then
+        cat >&2 <<'EOF'
+gpg: signing failed inside orb-guix / guix-dev.
+     On the containing Mac (minius), in a LOCAL terminal at ~/dot_files:
+       make check-gpg-bridge
+     If that check passes but signing is still locked, run there:
+       make unlock-gpg
+     Then retry inside the container; answer any pinentry window on the Mac.
+     A working bridge does not mean the signing passphrase is cached.
+     The container has a separate cache, so unlocking on the Mac alone may
+     not unlock it. If pinentry still fails, see docs/GPG.md,
+     "Signing inside the guix-dev container" (agent startup environment).
+EOF
+    fi
+    exit "$result"
+fi
 exec gpg "$@"
