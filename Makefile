@@ -2271,6 +2271,11 @@ else
 	else \
 	  echo "    [ok] signing key : $(GPG_SIGNING_KEY) held by the Mac agent (secret part stays on the Mac)"; \
 	fi; \
+	echo "    next: if signing inside orb-guix / guix-dev fails or needs unlocking,"; \
+	echo "          run make unlock-gpg from ~/dot_files in a LOCAL terminal on the"; \
+	echo "          enclosing Mac (minius), outside the container. Complete the prompt,"; \
+	echo "          then retry signing inside the container and answer any Mac pinentry window."; \
+	echo "    note: this check verifies the bridge and key presence, not unlocked signing."; \
 	echo "    note: the container has its own passphrase cache and cannot choose where it is"; \
 	echo "          asked; see docs/GPG.md, \"Signing inside the guix-dev container\""; \
 	exit $$rc
