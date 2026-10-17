@@ -9,7 +9,7 @@
 #    which is a variable recognized by the spacemacs code
 
 # this script is intended to be called by another script which has determined the operating system
-[[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--wsl|--linux|--windows] [--force]" && exit 1
+[[ $# -eq 0 ]] && echo "Usage: $0 [--mac|--wsl|--linux|--termux|--windows] [--force]" && exit 1
 
 # Idempotent: when emacs runs, ~/.emacs.d is already a Spacemacs checkout and
 # ~/.spacemacs.d exists, there is nothing to do -- re-running would move
@@ -134,6 +134,16 @@ while [[ $# -gt 0 ]]; do
         # this is an older emacs: ee sudo apt install emacs -y
         ee sudo snap install emacs --classic
         linux_post_emacs_install
+        shift;;
+
+    --termux)
+        echo "Termux detected: installing emacs via pkg (no sudo)..."
+        if ! command -v emacs >/dev/null 2>&1; then
+            if command -v pkg >/dev/null 2>&1; then
+                pkg install -y emacs || true
+            fi
+        fi
+        unix_family_setup
         shift;;
 
     --windows)

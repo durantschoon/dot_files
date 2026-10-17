@@ -765,6 +765,8 @@ ifneq ("","$(unix_family)")
 # Unix again
 ifeq ("$flavor",$(FLAVOR_WSL))
 	$(eval emacs_flag := wsl) # eval ensures that emacs_flag is set properly within the recipe scope
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	$(eval emacs_flag := termux)
 else
 	$(eval emacs_flag := "$(os)")
 endif
