@@ -64,7 +64,7 @@ write_session_env() {
     {
         echo "# Written by build-aux/guix-container-tailscale.sh at container start."
         for var in JOB_CONTAINER_SELF GUIX_LOCPATH LANG LC_ALL XDG_RUNTIME_DIR \
-                   GPG_AGENT_BRIDGE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+                   SHELL GPG_AGENT_BRIDGE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
             eval "val=\${$var-}"
             [ -n "$val" ] && printf ': "${%s:=%s}"; export %s\n' "$var" "$val" "$var"
         done

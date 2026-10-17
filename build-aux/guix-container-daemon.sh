@@ -9,6 +9,18 @@ set -u
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-root}"
 install -d -m 700 "$runtime_dir"
 export XDG_RUNTIME_DIR="$runtime_dir"
+# Make zsh the standard shell in the container (OrbStack GUI terminal, docker exec).
+zsh_bin=""
+if [ -x /root/.guix-profile/bin/zsh ]; then
+    zsh_bin=/root/.guix-profile/bin/zsh
+elif [ -x /root/.guix-home/profile/bin/zsh ]; then
+    zsh_bin=/root/.guix-home/profile/bin/zsh
+fi
+if [ -n "$zsh_bin" ]; then
+    ln -sfn "$zsh_bin" /bin/zsh
+    grep -qx /bin/zsh /etc/shells 2>/dev/null || echo /bin/zsh >>/etc/shells
+    sed -i 's#^\(root:[^:]*:0:0:[^:]*:[^:]*:\).*#\1/bin/zsh#' /etc/passwd
+fi
 # Only guix-dev may run a daemon against these volumes. A killed container
 # can leave its Unix socket behind; no process survives container recreation.
 rm -f /var/guix/daemon-socket/socket

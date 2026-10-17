@@ -17,6 +17,7 @@ services:
       JOB_CONTAINER_SELF: guix-dev
       GUIX_LOCPATH: /root/.guix-profile/lib/locale
       XDG_RUNTIME_DIR: /tmp/xdg-runtime-root
+      SHELL: /bin/zsh
       # The Mac's gpg-agent, via the loopback socat LaunchAgent that
       # `make setup-gpg-bridge' installs.  Port must match GPG_BRIDGE_PORT.
       GPG_AGENT_BRIDGE: host.docker.internal:45123
