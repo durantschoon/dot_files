@@ -67,7 +67,7 @@ v=""
 [ -f /proc/version ] && read -r v < /proc/version 2>/dev/null
 h="${HOSTNAME:-$(hostname)}"
 h="${h%%.*}"
-if [ "$h" = "localhost" ] && { [ -n "$TERMUX_VERSION" ] || [ -d "/data/data/com.termux" ] || [ -n "$ANDROID_ROOT" ]; }; then
+if [ "$h" = "localhost" ] || [ -z "$h" ]; then
   h="android_termux"
 fi
 case "$v" in

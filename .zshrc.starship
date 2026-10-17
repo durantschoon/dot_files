@@ -78,6 +78,7 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 
 # Initialize starship prompt
 if command -v starship >/dev/null 2>&1; then
+    [[ -z "$STARSHIP_CONFIG" && ! -f "$HOME/.config/starship.toml" && -f "$HOME/dot_files/starship/starship.toml" ]] && export STARSHIP_CONFIG="$HOME/dot_files/starship/starship.toml"
     eval "$(starship init zsh)"
     # Starship's right prompt shows the history event number (%h, the N in
     # !N), but starship is a child process: hand it over in the environment.
