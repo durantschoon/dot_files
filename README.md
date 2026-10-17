@@ -738,6 +738,37 @@ git clone https://github.com/durantschoon/dot_files ~/dot_files
 mkdir -p ~/Repos && git clone <your repo> ~/Repos/myproj   # same path under $HOME as on the Mac
 ```
 
+#### GitHub Authentication on Termux
+
+Configure your Git commit identity:
+
+```sh
+git config --global user.name "Durant Schoon"
+git config --global user.email "durant.schoon@gmail.com"
+```
+
+GitHub does **not** accept your account password for Git operations over HTTPS. You have three ways to authenticate:
+
+1. **SSH Key (Recommended):**
+   Generate a dedicated key on the phone:
+   ```sh
+   ssh-keygen -t ed25519 -C "phone-termux"
+   cat ~/.ssh/id_ed25519.pub
+   ```
+   Add this public key to GitHub (**Settings → SSH and GPG keys → New SSH key**). Then use SSH clone URLs (or update an existing repo: `git remote set-url origin git@github.com:durantschoon/dot_files.git`).
+
+2. **Personal Access Token (PAT) over HTTPS:**
+   Create a token at **GitHub → Settings → Developer Settings → Personal Access Tokens (Classic)** with the `repo` scope.
+   * When Git prompts for a password, paste this token (not your web password).
+   * **Per-device token:** Always create a separate PAT per machine/phone (named e.g. `phone-termux`). If your phone is ever lost or replaced, you can revoke that single token without disrupting other devices.
+
+3. **GitHub CLI (`gh auth login`):**
+   Authenticate via your mobile browser with a one-time code:
+   ```sh
+   pkg install gh
+   gh auth login
+   ```
+
 `~/.ssh/config` on the phone:
 
 ```ssh-config
