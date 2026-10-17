@@ -738,6 +738,12 @@ git clone https://github.com/durantschoon/dot_files ~/dot_files
 mkdir -p ~/Repos && git clone <your repo> ~/Repos/myproj   # same path under $HOME as on the Mac
 ```
 
+> **Note on Android keyboard & extra-keys layout:**
+> - The preferred soft keyboard on Android is [Unexpected Keyboard](https://github.com/Julow/Unexpected-Keyboard) (available on F-Droid / Google Play), which provides fast gesture access to punctuation, symbols, and modifiers directly from the keyboard surface.
+> - Because Unexpected Keyboard provides convenient minus/hyphen input, `-` is omitted from the extra-keys toolbar in `termux.properties` (leaving an empty space under `/`).
+> - The toolbar places `ESC` and `TAB` in the first column, `CTRL` and `ALT` in the third, and spatially arranges native arrow keys (`UP`, `DOWN`, `LEFT`, `RIGHT`) together with paging and tmux macros.
+
+
 #### GitHub Authentication on Termux (First-Time Setup)
 
 When setting up Termux on a new phone, Git needs your identity and credentials:
