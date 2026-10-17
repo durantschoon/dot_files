@@ -3,6 +3,12 @@
 ###############################################################################
 # Colors and prompt
 
+# On Termux, Android defaults hostname to localhost; override to android_termux
+if [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux || "$PREFIX" == *com.termux* ]]; then
+    export HOST="android_termux"
+    export HOSTNAME="android_termux"
+fi
+
 autoload -U colors && colors
 # PS1="%{$fg[red]%}%n%{$reset_color%}@%{$fg[blue]%}%m %{$fg[yellow]%}%2~ %{$reset_color%}%% "
 # PS1="%{$fg[red]%}%n%{$reset_color%} %{$fg[yellow]%}%2~ %{$fg[blue]%}[%h] %{$reset_color%}%% "

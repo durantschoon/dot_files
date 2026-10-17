@@ -24,3 +24,6 @@ signing_subkey = ""
 
 [machines.tailscale-termux]
 signing_subkey = ""
+
+[machines.android_termux]
+signing_subkey = ""

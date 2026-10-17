@@ -123,4 +123,4 @@ fi
 
 echo ""
 echo "Termux setup complete!"
-echo "Extra keys toolbar and Cascadia Mono Nerd Font are installed and active."
+echo "Extra keys toolbar, Cascadia Mono Nerd Font, and android_termux hostname are configured."
