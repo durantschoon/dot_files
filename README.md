@@ -732,10 +732,10 @@ says attached or detached), read.
 Termux setup (phone side):
 
 ```sh
-pkg install openssh zsh git tmux fzf
+pkg install git
 git clone https://github.com/durantschoon/dot_files ~/dot_files
+~/dot_files/bin/termux-setup   # installs packages, Cascadia Mono NF font, extra-keys, and links dotfiles
 mkdir -p ~/Repos && git clone <your repo> ~/Repos/myproj   # same path under $HOME as on the Mac
-echo 'source ~/dot_files/.jobs.zsh' >> ~/.zshrc
 ```
 
 `~/.ssh/config` on the phone:

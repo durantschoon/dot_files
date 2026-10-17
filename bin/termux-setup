@@ -1,0 +1,126 @@
+#!/usr/bin/env sh
+#
+# termux-setup -- bootstrap and configure dotfiles, Nerd Font, and extra-keys in Termux.
+#
+# Usage:
+#   ~/dot_files/bin/termux-setup
+#
+
+set -eu
+
+# -----------------------------------------------------------------------------
+# Detect Termux environment
+# -----------------------------------------------------------------------------
+is_termux() {
+    [ -n "${TERMUX_VERSION:-}" ] || \
+    [ -d "/data/data/com.termux" ] || \
+    [ "${PREFIX:-}" = "/data/data/com.termux/files/usr" ] || \
+    [ "$(uname -o 2>/dev/null || true)" = "Android" ]
+}
+
+if ! is_termux; then
+    echo "Error: This script is intended to run inside Termux on Android." >&2
+    echo "Detected OS: $(uname -s 2>/dev/null || echo unknown), Kernel: $(uname -r 2>/dev/null || echo unknown)" >&2
+    exit 1
+fi
+
+echo "==> Termux environment detected (TERMUX_VERSION=${TERMUX_VERSION:-installed})"
+
+# -----------------------------------------------------------------------------
+# Resolve repository root
+# -----------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+
+# -----------------------------------------------------------------------------
+# Install essential Termux packages via pkg
+# -----------------------------------------------------------------------------
+if command -v pkg >/dev/null 2>&1; then
+    echo "==> Updating pkg and installing packages..."
+    pkg update -y
+    pkg install -y openssh zsh git tmux fzf curl file make mg
+    pkg install -y cmake myrepos fastfetch starship gnupg || true
+else
+    echo "Warning: 'pkg' command not found. Skipping package installation." >&2
+fi
+
+# -----------------------------------------------------------------------------
+# Set up ~/.termux directory, font, and termux.properties
+# -----------------------------------------------------------------------------
+mkdir -p "$HOME/.termux"
+RELOAD_NEEDED=0
+
+# 1. Monospaced Nerd Font
+FONT_SRC="$DOTFILES_DIR/system/fonts/CascadiaMonoNF-Regular-patched.ttf"
+FONT_DST="$HOME/.termux/font.ttf"
+if [ -f "$FONT_SRC" ]; then
+    if [ ! -f "$FONT_DST" ] || ! cmp -s "$FONT_SRC" "$FONT_DST" 2>/dev/null; then
+        echo "==> Installing Cascadia Mono NF (patched with Nerd Font & mode line glyphs) to ~/.termux/font.ttf..."
+        cp -f "$FONT_SRC" "$FONT_DST"
+        RELOAD_NEEDED=1
+    else
+        echo "==> Font already up to date: ~/.termux/font.ttf"
+    fi
+else
+    echo "Warning: Font source not found at $FONT_SRC" >&2
+fi
+
+# 2. termux.properties (extra-keys toolbar & settings)
+PROPS_SRC="$DOTFILES_DIR/termux/termux.properties"
+PROPS_DST="$HOME/.termux/termux.properties"
+if [ -f "$PROPS_SRC" ]; then
+    if [ ! -f "$PROPS_DST" ] || ! cmp -s "$PROPS_SRC" "$PROPS_DST" 2>/dev/null; then
+        echo "==> Installing termux.properties (extra-keys & navigation layout) to ~/.termux/termux.properties..."
+        cp -f "$PROPS_SRC" "$PROPS_DST"
+        RELOAD_NEEDED=1
+    else
+        echo "==> Configuration already up to date: ~/.termux/termux.properties"
+    fi
+else
+    echo "Warning: Configuration source not found at $PROPS_SRC" >&2
+fi
+
+# -----------------------------------------------------------------------------
+# Reload Termux settings immediately if changes were made
+# -----------------------------------------------------------------------------
+if [ "$RELOAD_NEEDED" -eq 1 ]; then
+    if command -v termux-reload-settings >/dev/null 2>&1; then
+        echo "==> Reloading Termux settings..."
+        termux-reload-settings
+    else
+        echo "Note: termux-reload-settings not in PATH; changes will apply when Termux is restarted."
+    fi
+fi
+
+# -----------------------------------------------------------------------------
+# Run make set_up_links if make exists
+# -----------------------------------------------------------------------------
+if command -v make >/dev/null 2>&1 && [ -f "$DOTFILES_DIR/Makefile" ]; then
+    echo "==> Setting up dotfile symlinks via 'make set_up_links'..."
+    (cd "$DOTFILES_DIR" && make set_up_links)
+else
+    echo "==> Linking essential dotfiles manually..."
+    ln -sfn "$DOTFILES_DIR/.zshrc.starship" "$HOME/.zshrc"
+    ln -sfn "$DOTFILES_DIR/.aliases" "$HOME/.aliases"
+    ln -sfn "$DOTFILES_DIR/.tmux.conf" "$HOME/.tmux.conf"
+    ln -sfn "$DOTFILES_DIR/.shared.zshenv" "$HOME/.shared.zshenv"
+    ln -sfn "$DOTFILES_DIR/.shared.zshrc" "$HOME/.shared.zshrc"
+    mkdir -p "$HOME/.config"
+    ln -sfn "$DOTFILES_DIR/starship/starship.toml" "$HOME/.config/starship.toml"
+fi
+
+# -----------------------------------------------------------------------------
+# Ensure default shell is zsh if installed
+# -----------------------------------------------------------------------------
+if command -v zsh >/dev/null 2>&1; then
+    ZSH_BIN="$(command -v zsh)"
+    CURRENT_SHELL="$(basename "${SHELL:-}")"
+    if [ "$CURRENT_SHELL" != "zsh" ]; then
+        echo "==> Setting default shell to zsh ($ZSH_BIN)..."
+        chsh -s "$ZSH_BIN" || true
+    fi
+fi
+
+echo ""
+echo "Termux setup complete!"
+echo "Extra keys toolbar and Cascadia Mono Nerd Font are installed and active."

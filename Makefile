@@ -711,6 +711,22 @@ endif
 	fi
 ifeq ("$(os)","$(OS_LINUX)")
 	ln -si ~/dot_files/.wayland.zshenv ~/.wayland.zshenv || echo
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@mkdir -p ~/.termux
+	@if [ -f ~/dot_files/termux/termux.properties ]; then \
+		cmp -s ~/dot_files/termux/termux.properties ~/.termux/termux.properties 2>/dev/null || { \
+			cp -f ~/dot_files/termux/termux.properties ~/.termux/termux.properties; \
+			echo "installed ~/.termux/termux.properties"; \
+		}; \
+	fi
+	@if [ -f ~/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf ]; then \
+		cmp -s ~/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf ~/.termux/font.ttf 2>/dev/null || { \
+			cp -f ~/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf ~/.termux/font.ttf; \
+			echo "installed ~/.termux/font.ttf (Cascadia Mono NF + mode line glyphs)"; \
+		}; \
+	fi
+	@command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings || true
+endif
 endif
 	@mkdir -p ~/dot_files/bin
 	@if [ ! -e "$$HOME/bin" ]; then \

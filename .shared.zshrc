@@ -208,3 +208,26 @@ _env-cd() {
     _describe 'enveloped directories' dirs
 }
 compdef _env-cd env-cd
+
+# Termux configuration & font sync: ensure ~/.termux is configured on shell start
+if [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux || "$PREFIX" == *com.termux* ]]; then
+    _termux_reloaded=0
+    _termux_props_src="$HOME/dot_files/termux/termux.properties"
+    _termux_props_dst="$HOME/.termux/termux.properties"
+    if [[ -f "$_termux_props_src" ]] && { [[ ! -f "$_termux_props_dst" ]] || ! cmp -s "$_termux_props_src" "$_termux_props_dst" 2>/dev/null; }; then
+        mkdir -p "$HOME/.termux"
+        cp -f "$_termux_props_src" "$_termux_props_dst"
+        _termux_reloaded=1
+    fi
+    _termux_font_src="$HOME/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf"
+    _termux_font_dst="$HOME/.termux/font.ttf"
+    if [[ -f "$_termux_font_src" ]] && { [[ ! -f "$_termux_font_dst" ]] || ! cmp -s "$_termux_font_src" "$_termux_font_dst" 2>/dev/null; }; then
+        mkdir -p "$HOME/.termux"
+        cp -f "$_termux_font_src" "$_termux_font_dst"
+        _termux_reloaded=1
+    fi
+    if (( _termux_reloaded )) && (( $+commands[termux-reload-settings] )); then
+        termux-reload-settings
+    fi
+    unset _termux_props_src _termux_props_dst _termux_font_src _termux_font_dst _termux_reloaded
+fi
