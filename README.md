@@ -738,36 +738,69 @@ git clone https://github.com/durantschoon/dot_files ~/dot_files
 mkdir -p ~/Repos && git clone <your repo> ~/Repos/myproj   # same path under $HOME as on the Mac
 ```
 
-#### GitHub Authentication on Termux
+#### GitHub Authentication on Termux (First-Time Setup)
 
-Configure your Git commit identity:
+When setting up Termux on a new phone, Git needs your identity and credentials:
 
+##### 1. Set your Git username and email
+Run these commands once on the phone:
 ```sh
 git config --global user.name "Durant Schoon"
 git config --global user.email "durant.schoon@gmail.com"
 ```
 
-GitHub does **not** accept your account password for Git operations over HTTPS. You have three ways to authenticate:
+##### 2. Which password does Git want over HTTPS?
+When Git prompts:
+```text
+Username for 'https://github.com': durantschoon
+Password for 'https://durantschoon@github.com':
+```
+* **Username:** Enter `durantschoon`.
+* **Password:** **Do NOT enter your GitHub web account login password.** GitHub removed account password authentication for Git operations in August 2021; it will fail with `remote: Support for password authentication was removed`.
+* **You must enter a Personal Access Token (PAT):**
+  1. Open GitHub in a browser: **Settings → Developer Settings → Personal Access Tokens → Tokens (classic)**.
+  2. Click **Generate new token (classic)**.
+  3. Note: Name it after this specific device (e.g. `phone-termux` or `pixel-termux`).
+  4. Scopes: Check **`repo`** (Full control of private repositories).
+  5. Click **Generate token**, copy the `ghp_...` string, and paste it into Termux's Password prompt (note: Termux will not echo characters while pasting).
 
-1. **SSH Key (Recommended):**
-   Generate a dedicated key on the phone:
-   ```sh
-   ssh-keygen -t ed25519 -C "phone-termux"
-   cat ~/.ssh/id_ed25519.pub
-   ```
-   Add this public key to GitHub (**Settings → SSH and GPG keys → New SSH key**). Then use SSH clone URLs (or update an existing repo: `git remote set-url origin git@github.com:durantschoon/dot_files.git`).
+##### 3. Do I need a separate token per machine/phone?
+* **Yes, always generate a separate token (or SSH key) per device.**
+* **Why:** Device isolation. If you lose your phone, upgrade, or wipe it, you can revoke just the `phone-termux` token in GitHub Settings with one click, without locking out your Mac, desktop, or cloud instances.
 
-2. **Personal Access Token (PAT) over HTTPS:**
-   Create a token at **GitHub → Settings → Developer Settings → Personal Access Tokens (Classic)** with the `repo` scope.
-   * When Git prompts for a password, paste this token (not your web password).
-   * **Per-device token:** Always create a separate PAT per machine/phone (named e.g. `phone-termux`). If your phone is ever lost or replaced, you can revoke that single token without disrupting other devices.
+##### 4. Avoid retyping the token on every push
+Tell Git on Termux to cache or store your credentials:
+```sh
+# Cache in memory for 1 month (2592000 seconds)
+git config --global credential.helper 'cache --timeout=2592000'
 
-3. **GitHub CLI (`gh auth login`):**
-   Authenticate via your mobile browser with a one-time code:
-   ```sh
-   pkg install gh
-   gh auth login
-   ```
+# Or store on disk in ~/.git-credentials:
+# git config --global credential.helper store
+```
+
+##### 5. Even better: SSH Key (avoid tokens entirely)
+SSH keys are usually much easier on a phone than dealing with long tokens:
+```sh
+# 1. Generate an Ed25519 key on the phone:
+ssh-keygen -t ed25519 -C "phone-termux"
+
+# 2. Print and copy the public key:
+cat ~/.ssh/id_ed25519.pub
+
+# 3. Add it to GitHub: Settings → SSH and GPG keys → New SSH key
+
+# 4. Switch dot_files remote to SSH:
+git remote set-url origin git@github.com:durantschoon/dot_files.git
+```
+
+##### 6. Alternative: GitHub CLI (`gh auth login`)
+You can authenticate via the phone browser using a short code:
+```sh
+pkg install gh
+gh auth login
+# Choose: GitHub.com → SSH or HTTPS → Login with a web browser
+# Copy the one-time code and confirm in your phone's browser
+```
 
 `~/.ssh/config` on the phone:
 
