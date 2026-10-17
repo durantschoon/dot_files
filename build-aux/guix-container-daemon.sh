@@ -1,6 +1,9 @@
 #!/bin/bash
-set -eu
+set -e
+# System and Guix profile scripts are not nounset-safe (e.g. GUIX_PYTHONPATH
+# when Python is installed in a profile).
 source /etc/profile
+set -u
 # Guix Home's login hook expects a session runtime directory. Containers do
 # not have a graphical login session, so provide a private equivalent.
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp/xdg-runtime-root}"
