@@ -9,8 +9,9 @@ and centred in the target's monospace advance width.
 
 system/fonts/CascadiaMonoNF-Regular-patched.ttf was built with:
     TARGET  ttf/static/CascadiaMonoNF-Regular.ttf from Cascadia Code v2407.24
-    SOURCE  NotoSansSymbols2-Regular.ttf (hinted ttf, notofonts)
+    SOURCE  NotoSansSymbols2-Regular.ttf (hinted ttf, notofonts) / Apple Symbols.ttf
     CODEPOINTS  23F4 23F5 23F6 23F7  (the ⏵⏵ in Claude Code's mode line)
+                21B9 21E5 21E4        (↹ ⇥ ⇤ tab and tab-bar symbols for Termux)
 Install it in Termux as ~/.termux/font.ttf, then run termux-reload-settings.
 """
 
