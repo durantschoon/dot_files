@@ -54,6 +54,15 @@
 [protocol "rad"]
 	allow = always
 
+# Bitbucket's old SSH hostname retires 2026-11-12. Cover clones, submodules and
+# automation using this config; HTTPS URLs keep their original transport.
+[url "git@ssh.bitbucket.org:"]
+	insteadOf = git@bitbucket.org:
+[url "ssh://git@ssh.bitbucket.org/"]
+	insteadOf = ssh://git@bitbucket.org/
+[url "ssh://git@ssh.bitbucket.org:"]
+	insteadOf = ssh://git@bitbucket.org:
+
 # Machine-specific signing selection, writable independently of Guix Home.
 [include]
 	path = ~/.config/git/gpg-machine.conf

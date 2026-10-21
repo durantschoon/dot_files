@@ -284,6 +284,8 @@ help-text:
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
 	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
 	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
+	@echo "  make setup-bitbucket-ssh - Migrate this user's Bitbucket SSH host trust and Host blocks"
+	@echo "  make check-bitbucket-ssh - Test the Bitbucket SSH migration without network access"
 	@echo "  make check-ssh-github - check-ssh, then a live 'ssh -T git@github.com' with triage hints"
 	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
@@ -729,6 +731,7 @@ ifeq ($(flavor),$(FLAVOR_TERMUX))
 endif
 endif
 	@mkdir -p ~/dot_files/bin
+	@sh bin/setup-bitbucket-ssh
 	@if [ ! -e "$$HOME/bin" ]; then \
 		ln -si ~/dot_files/bin ~/bin || true; \
 	elif [ -d "$$HOME/bin" ] && [ ! -L "$$HOME/bin" ]; then \
@@ -1317,7 +1320,13 @@ check-gpg:
 # hour, so it would make `check' fail for reasons that are not config drift.
 # The socket test comes before any gpg-connect-agent call, because that
 # command autostarts an agent and this target must not have side effects.
-.PHONY: check-ssh check-ssh-agent
+.PHONY: setup-bitbucket-ssh check-bitbucket-ssh check-ssh check-ssh-agent
+setup-bitbucket-ssh:
+	@sh bin/setup-bitbucket-ssh
+
+check-bitbucket-ssh:
+	@sh tests/bitbucket-ssh-smoke.sh
+
 check-ssh:
 	@echo "==> gpg-agent as ssh agent"
 	@if [ -n "$(IN_GUIX_DEV)" ]; then \

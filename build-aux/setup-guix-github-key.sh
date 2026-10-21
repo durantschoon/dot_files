@@ -18,8 +18,8 @@ case $forge in
         ;;
     bitbucket)
         key=/root/.ssh/bitbucket_orbstack_guix
-        hosts='bitbucket.org'
-        hostname=bitbucket.org
+        hosts='bitbucket.org ssh.bitbucket.org'
+        hostname=ssh.bitbucket.org
         where='Bitbucket (Personal settings > SSH keys)'
         ;;
     *) echo "usage: $0 [github|bitbucket]" >&2; exit 2 ;;
@@ -29,6 +29,9 @@ profile=/root/.guix-profile
 [ -f "$profile/etc/profile" ] && . "$profile/etc/profile"
 
 install -d -m 700 /root/.ssh
+if [ "$forge" = bitbucket ]; then
+    sh "$(dirname "$0")/../bin/setup-bitbucket-ssh"
+fi
 if [ ! -f "$key" ]; then
     ssh-keygen -t ed25519 -f "$key" -C "orbstack-guix-$forge-$(hostname)"
 else

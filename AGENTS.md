@@ -56,6 +56,7 @@ There are dedicated tools for running interactive AI sessions as background jobs
 **Agent Instruction:** When modifying AI workflows or CLI commands related to `agent-`, `claude-`, `agy-` or `codex-`, focus heavily on `.agent-jobs.zsh`.
 
 ## 4. Shell & Environment Baseline
+* **Bitbucket SSH migration:** `.gitconfig` (SSH URL rewrites), `bin/setup-bitbucket-ssh` (host trust and legacy Host blocks), `docs/BITBUCKET_SSH.md`; native `set_up_links` and the Guix `%dotfiles-layer` activation deploy it. Container key setup: `build-aux/setup-guix-github-key.sh`. Check with `make check-bitbucket-ssh`.
 For standard shell setup not related to the background job runners:
 *   **Core Zsh:** `.zshrc`, `.zprofile`, `.aliases`, `.shared.zshenv`, `.shared.zshrc`
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`

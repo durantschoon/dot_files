@@ -250,7 +250,9 @@ Bitbucket works the same way with its own key, `bitbucket_orbstack_guix`:
 `make setup-guix-bitbucket-key` from the Mac, or
 `build-aux/setup-guix-github-key.sh bitbucket` from inside the container. Add
 the printed key under Bitbucket Personal settings → SSH keys and test with
-`ssh -T git@bitbucket.org`.
+`ssh -T git@ssh.bitbucket.org`.
+See [the Bitbucket SSH migration](docs/BITBUCKET_SSH.md) for all machines,
+existing clones, CI and network rules.
 
 Commit signing inside the container goes through the Mac's gpg-agent instead
 of a copied secret key: `make setup-gpg-bridge` (mac only; needs

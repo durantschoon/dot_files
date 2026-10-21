@@ -935,6 +935,18 @@ call, so extensions never collide; only genuine double ownership does."
                                  (local-bin (string-append local "/bin")))
                             (unless (file-exists? local) (mkdir local))
                             (unless (file-exists? local-bin) (mkdir local-bin)))))
+      (simple-service 'bitbucket-ssh-activation home-activation-service-type
+                      #~(unless
+                         (zero?
+                          (system* #$(file-append (specification->package "coreutils") "/bin/env")
+                                   (string-append
+                                    "PATH=" #$(file-append (specification->package "coreutils") "/bin")
+                                    ":" #$(file-append (specification->package "grep") "/bin")
+                                    ":" #$(file-append (specification->package "diffutils") "/bin")
+                                    ":" #$(file-append (specification->package "gawk") "/bin"))
+                                   #$(file-append (specification->package "bash") "/bin/sh")
+                                   #$(local-file "../bin/setup-bitbucket-ssh")))
+                         (error "Bitbucket SSH activation failed")))
       ;; Codex rewrites ~/.codex/config.toml itself, so the repo merges in
       ;; only the keys it owns (daemon_auto_start = false; see the header of
       ;; bin/codex-defaults).  PATH is passed through env so the script's
