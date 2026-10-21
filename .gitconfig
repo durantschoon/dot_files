@@ -47,6 +47,7 @@
 [diff]
 	submodule = log
 [alias]
+	gs = switch
 	alias-pr = "!f() { git fetch -fu ${2:-origin} refs/pull/$1/head:pr/$1 && git checkout pr/$1; }; f"
 	alias-sdiff = !git diff && git submodule foreach 'git diff'
 	alias-spush = push --recurse-submodules=on-demand
