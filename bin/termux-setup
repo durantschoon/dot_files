@@ -38,10 +38,21 @@ DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 if command -v pkg >/dev/null 2>&1; then
     echo "==> Updating pkg and installing packages..."
     pkg update -y
-    pkg install -y openssh zsh git tmux fzf curl file make mg
-    pkg install -y cmake myrepos fastfetch starship gnupg || true
+    pkg install -y openssh zsh git tmux fzf curl wget file make mg coreutils
+    pkg install -y cmake myrepos fastfetch starship gnupg termux-services || true
 else
     echo "Warning: 'pkg' command not found. Skipping package installation." >&2
+fi
+
+# -----------------------------------------------------------------------------
+# Install Tailscale CLI for Termux (bropines/tailscale-termux-cli)
+# -----------------------------------------------------------------------------
+if ! command -v tailscale >/dev/null 2>&1; then
+    echo "==> Installing Tailscale CLI for Termux..."
+    curl -fsSL https://raw.githubusercontent.com/bropines/tailscale-termux-cli/main/remote-install.sh | bash || \
+        echo "Warning: Tailscale installation failed. You can retry with: curl -fsSL https://raw.githubusercontent.com/bropines/tailscale-termux-cli/main/remote-install.sh | bash" >&2
+else
+    echo "==> Tailscale CLI already installed: $(command -v tailscale)"
 fi
 
 # -----------------------------------------------------------------------------

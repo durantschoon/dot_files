@@ -736,7 +736,8 @@ Termux setup (phone side):
 ```sh
 pkg install git
 git clone https://github.com/durantschoon/dot_files ~/dot_files
-~/dot_files/bin/termux-setup   # installs packages, Cascadia Mono NF font, extra-keys, and links dotfiles
+~/dot_files/bin/termux-setup   # installs packages, Tailscale CLI, Cascadia Mono NF font, extra-keys, and links dotfiles
+tailscale-cli up               # authenticate Tailscale in Termux (starts tailscaled if needed)
 mkdir -p ~/Repos && git clone <your repo> ~/Repos/myproj   # same path under $HOME as on the Mac
 ```
 
