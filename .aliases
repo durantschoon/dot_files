@@ -375,17 +375,17 @@ alias geeeks='ssh durant@geeeks'
 # Emacs daemon over ssh  (see `make emacs-serve` on the host machine)
 # -----------------------------------------------------------------------------
 
-# eam = Emacs Attach Minius. Attaches a terminal frame to the Emacs daemon
-# running on minius. The make target echoes the ssh command it runs, so you
-# don't have to remember the two -t flags.
+# eam = Emacs Attach Make. Attaches a terminal frame to the Emacs daemon
+# running on the home base (EMACS_HOST defaults to HOME_BASE, orb-guix). The make
+# target echoes the ssh command it runs, so you don't have to remember the two -t flags.
 # Extra args pass straight through to make, e.g.
-#   eam EMACS_HOST=geeeks
+#   eam EMACS_HOST=minius
 #   eam REMOTE_EMACSCLIENT=/opt/homebrew/bin/emacsclient
 eam() {
     # NOTE: 'status' is read-only in zsh, hence 'rc'
     local rc
     pushd "$HOME/dot_files" > /dev/null || return 1
-    make emacs-attach EMACS_HOST=minius "$@"
+    make emacs-attach "$@"
     rc=$?
     popd > /dev/null
     return $rc

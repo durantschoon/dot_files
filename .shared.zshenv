@@ -117,3 +117,7 @@ export DRIFT_CONFIG="$DRIFT_HOME/test.toml"
 
 # envelope vault
 export ENVELOPE_VAULT_DIR=~/.envelope_vault
+
+# Default 'home base' host across all tailscale machines
+export HOME_BASE="${HOME_BASE:-orb-guix}"
+export HOMEBASE="${HOMEBASE:-$HOME_BASE}"
