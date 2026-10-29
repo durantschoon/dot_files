@@ -121,3 +121,6 @@ export ENVELOPE_VAULT_DIR=~/.envelope_vault
 # Default 'home base' host across all tailscale machines
 export HOME_BASE="${HOME_BASE:-orb-guix}"
 export HOMEBASE="${HOMEBASE:-$HOME_BASE}"
+
+# Default timezone across all environments (America/New_York follows EDT/EST)
+export TZ="${TZ:-America/New_York}"

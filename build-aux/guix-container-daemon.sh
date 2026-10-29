@@ -21,6 +21,12 @@ if [ -n "$zsh_bin" ]; then
     grep -qx /bin/zsh /etc/shells 2>/dev/null || echo /bin/zsh >>/etc/shells
     sed -i 's#^\(root:[^:]*:0:0:[^:]*:[^:]*:\).*#\1/bin/zsh#' /etc/passwd
 fi
+# Ensure system timezone matches America/New_York (Debian image defaults to UTC).
+tz="${TZ:-America/New_York}"
+if [ -f "/usr/share/zoneinfo/$tz" ]; then
+    ln -sfn "/usr/share/zoneinfo/$tz" /etc/localtime
+    echo "$tz" > /etc/timezone
+fi
 # Only guix-dev may run a daemon against these volumes. A killed container
 # can leave its Unix socket behind; no process survives container recreation.
 rm -f /var/guix/daemon-socket/socket
