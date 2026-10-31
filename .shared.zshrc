@@ -229,5 +229,8 @@ if [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux || "$PREFIX" == *com.term
     if (( _termux_reloaded )) && (( $+commands[termux-reload-settings] )); then
         termux-reload-settings
     fi
+    if ! (( $+commands[python3] )); then
+        print -u2 "Termux: python3 not found. Run 'pkg install python' or '~/dot_files/bin/termux-setup' to enable make targets."
+    fi
     unset _termux_props_src _termux_props_dst _termux_font_src _termux_font_dst _termux_reloaded
 fi

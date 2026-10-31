@@ -587,8 +587,8 @@ ifeq ($(PACKAGE_MANAGER),apt)
 else ifeq ($(PACKAGE_MANAGER),pkg)
 	@echo "Detected Termux pkg package manager - installing required packages"
 	pkg update -y
-	pkg install -y openssh zsh git tmux fzf curl file make mg
-	pkg install -y cmake myrepos fastfetch starship gnupg || true
+	pkg install -y openssh zsh git tmux fzf curl file make mg python
+	pkg install -y cmake myrepos fastfetch starship gnupg coreutils || true
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
 	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
