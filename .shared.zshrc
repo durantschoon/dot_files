@@ -188,12 +188,15 @@ glowtmux() {
 }
 
 # env-* commands
+[[ -f "$ENVELOPE_MAIN_DIR/scripts/envelope-worktree.zsh" ]] && source "$ENVELOPE_MAIN_DIR/scripts/envelope-worktree.zsh"
+
 env-cd() {
     if [[ -z "$1" ]]; then
         cd "$HOME/Repos/enveloped"
         return
     fi
     local target="$HOME/Repos/enveloped/$1"
+    [[ "$1" == main || "$1" == ENVELOPE_MAIN ]] && target="$ENVELOPE_MAIN_DIR"
     if [[ -d "$target" ]]; then
         cd "$target"
     else
@@ -204,7 +207,7 @@ env-cd() {
 
 _env-cd() {
     local -a dirs
-    dirs=("$HOME/Repos/enveloped"/*(N/:t))
+    dirs=("${ENVELOPE_MAIN_DIR:h}"/*(N/:t))
     _describe 'enveloped directories' dirs
 }
 compdef _env-cd env-cd

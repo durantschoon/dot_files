@@ -135,7 +135,7 @@ def parse_checkout(checkout):
             pos.append(w); i += 1
         return ("clone", pos[0], branch, rest) if pos else None
     if len(words) >= 7 and words[0] == "git" and words[1] == "-C" and words[3:5] == ["worktree", "add"]:
-        anchor = words[2]                       # "$MR_REPO/../main"
+        anchor = words[2]                       # "$MR_REPO/../ENVELOPE_MAIN"
         if anchor.startswith("$MR_REPO/"):
             return ("worktree", anchor[len("$MR_REPO/"):], words[6], rest)
     return None

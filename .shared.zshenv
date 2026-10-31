@@ -118,6 +118,16 @@ export DRIFT_CONFIG="$DRIFT_HOME/test.toml"
 # envelope vault
 export ENVELOPE_VAULT_DIR=~/.envelope_vault
 
+# Primary envelope tooling checkout (independent of the branch checked out).
+# Keep existing hosts working until each host has moved its checkout.
+if [[ -z "${ENVELOPE_MAIN_DIR:-}" ]]; then
+    if [[ -d "$HOME/Repos/enveloped/ENVELOPE_MAIN" ]]; then
+        export ENVELOPE_MAIN_DIR="$HOME/Repos/enveloped/ENVELOPE_MAIN"
+    else
+        export ENVELOPE_MAIN_DIR="$HOME/Repos/enveloped/main"
+    fi
+fi
+
 # Default 'home base' host across all tailscale machines
 export HOME_BASE="${HOME_BASE:-orb-guix}"
 export HOMEBASE="${HOMEBASE:-$HOME_BASE}"
