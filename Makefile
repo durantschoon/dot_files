@@ -319,9 +319,9 @@ help-text:
 	@echo "                       a stand-in Proton root, so it needs no account; not part of 'make check')"
 	@echo ""
 	@echo "Daemons and System Services:"
-	@echo "  make setup-tailscale - Install tailscaled as a system LaunchDaemon (mac only;"
+	@echo "  make setup-tailscale - Install Tailscale on Termux, or the macOS LaunchDaemon;"
 	@echo "                       runs at boot before login, unlike the menu-bar app)"
-	@echo "  make check-tailscale - Verify the daemon is deployed, loaded and on the tailnet"
+	@echo "  make check-tailscale - Start and verify Tailscale on Termux; verify the macOS daemon"
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
@@ -2631,6 +2631,9 @@ TAILSCALED_BIN       := /opt/homebrew/bin/tailscaled
 TAILSCALE_BIN        := /opt/homebrew/bin/tailscale
 
 setup-tailscale:
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@sh bin/termux-tailscale setup
+else
 ifneq ("$(os)","$(OS_MAC)")
 	@echo ""
 	@echo "  *** setup-tailscale is mac-only (detected $(os)) ***"
@@ -2719,6 +2722,7 @@ else
 	@echo "  Verify with: make check-tailscale"
 	@echo ""
 endif
+endif
 
 # Answers "is this machine actually on the tailnet, and will it still be after
 # a reboot?" -- which are different questions.  A running daemon that was
@@ -2741,6 +2745,10 @@ endif
 # Tailscale would lowercase it.  (LocalHostName, not `uname -n': the latter is
 # MiniUs.local here, and the .local would never match.)
 check-tailscale:
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@if ! command -v tailscale >/dev/null 2>&1; then $(MAKE) setup-tailscale || exit 1; fi
+	@sh bin/termux-tailscale check
+else
 	@echo "==> tailscaled system daemon"
 ifneq ("$(os)","$(OS_MAC)")
 	@echo "    skipped: mac-only (detected $(os))"
@@ -2824,6 +2832,12 @@ else
 	fi; \
 	exit $$rc
 endif
+endif
+
+# The aggregate check only reads state, including on Termux.
+.PHONY: check-tailscale-status
+check-tailscale-status:
+	@sh bin/termux-tailscale status
 
 update: warn-dotfiles-home
 	@echo "==> guix pull"
@@ -3244,7 +3258,7 @@ check-home-ownership:
 # WSL the target degrades to a single printed line.  (check-guix-container is
 # absent by contrast because it needs a running container, not because reaching
 # across to Windows is itself disqualifying.)
-check: check-timezone check-system check-session-coupling check-tailscale check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs
+check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

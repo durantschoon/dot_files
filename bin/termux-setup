@@ -55,9 +55,8 @@ fi
 # Install Tailscale CLI for Termux (bropines/tailscale-termux-cli)
 # -----------------------------------------------------------------------------
 if ! command -v tailscale >/dev/null 2>&1; then
-    echo "==> Installing Tailscale CLI for Termux..."
-    curl -fsSL https://raw.githubusercontent.com/bropines/tailscale-termux-cli/main/remote-install.sh | bash || \
-        echo "Warning: Tailscale installation failed. You can retry with: curl -fsSL https://raw.githubusercontent.com/bropines/tailscale-termux-cli/main/remote-install.sh | bash" >&2
+    sh "$DOTFILES_DIR/bin/termux-tailscale" setup || \
+        echo "Warning: Tailscale installation failed. Retry with: make setup-tailscale" >&2
 else
     echo "==> Tailscale CLI already installed: $(command -v tailscale)"
 fi
