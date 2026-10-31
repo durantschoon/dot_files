@@ -1287,13 +1287,20 @@ check-gpg:
 	    exit 1; \
 	  fi; \
 	  echo "    signing a test message through the agent (may prompt for the passphrase)..."; \
-	  if echo "make check-gpg" | gpg --sign --local-user "$$key" -o /dev/null 2>/tmp/check-gpg.$$$$; then \
+	  tmpdir=$${TMPDIR:-/tmp}; \
+	  if [ "$(flavor)" = "$(FLAVOR_TERMUX)" ] && [ -z "$${TMPDIR:-}" ]; then \
+	    tmpdir=$${PREFIX:-/data/data/com.termux/files/usr}/tmp; \
+	  fi; \
+	  errfile=$$(mktemp "$$tmpdir/check-gpg.XXXXXXXX") || { \
+	    echo "    [--] sign     : cannot create a temporary file in $$tmpdir"; exit 1; \
+	  }; \
+	  if echo "make check-gpg" | gpg --sign --local-user "$$key" -o /dev/null 2>"$$errfile"; then \
 	    echo "    [ok] sign     : works"; \
 	  else \
-	    echo "    [--] sign     : $$(tail -1 /tmp/check-gpg.$$$$)"; \
+	    echo "    [--] sign     : $$(tail -1 "$$errfile")"; \
 	    echo "         fix: see docs/GPG.md, \"Troubleshooting\""; \
-	    command rm -f /tmp/check-gpg.$$$$; exit 1; \
-	  fi; command rm -f /tmp/check-gpg.$$$$; \
+	    command rm -f "$$errfile"; exit 1; \
+	  fi; command rm -f "$$errfile"; \
 	else \
 	  echo "    [..] sign     : skipped (no terminal to prompt on; run make check-gpg from a shell)"; \
 	fi; \
