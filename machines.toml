@@ -20,7 +20,7 @@ signing_subkey = ""
 signing_subkey = "64AAF1BB5EC0BF9B436148807F7DCDEA5B9E20C1"
 
 [machines.razrfold]
-signing_subkey = ""
+signing_subkey = "0AF4326CAEE372A0C2D5C875E15E9B401A45E25D"
 
 [machines.orb-guix]
 signing_subkey = ""
