@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Run as the intended login user, before cloning dot_files.
 set -euo pipefail
+if [[ $(uname -s) == Darwin ]]; then
+    echo 'seed-linux is for Linux (Pop!_OS). It does not set up Guix on macOS.' >&2
+    exit 1
+fi
 if [[ ${1:-} == --help ]]; then
     echo 'Usage: bash seed-linux [--help]'
     echo 'Installs prerequisites and Guix, creates an SSH key, clones ~/dot_files, then runs make apply.'

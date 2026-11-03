@@ -1273,6 +1273,10 @@ main()
 
 # Sourcing exposes functions for unprivileged fixture tests, without installation.
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    if [[ $(uname -s) == Darwin ]]; then
+        echo 'This installer is for Linux (Pop!_OS and other foreign distros). It does not install Guix or change AppArmor policy on macOS.' >&2
+        exit 1
+    fi
     if [[ ${1:-} == --help ]]; then
         echo "Usage: bash guix-install.sh [--uninstall | --setup-apparmor]"
         echo "--setup-apparmor validates/repairs Guix profiles on an existing installation."

@@ -209,6 +209,27 @@ sys_maybe_setup_apparmor
         self.assertEqual(self.run_install().returncode, 0)
         self.assertEqual(profile.read_bytes(), (self.target / 'guix-daemon').read_bytes())
 
+    def test_darwin_execution_says_not_for_macos(self):
+        bindir = self.root / 'fakebin'
+        bindir.mkdir()
+        uname = bindir / 'uname'
+        uname.write_text('#!/bin/sh\necho Darwin\n')
+        uname.chmod(0o755)
+        path = os.pathsep.join((str(bindir), os.environ['PATH']))
+        expected = {
+            ROOT / 'guix-install.sh':
+                'This installer is for Linux (Pop!_OS and other foreign distros). '
+                'It does not install Guix or change AppArmor policy on macOS.',
+            ROOT / 'bin/seed-linux':
+                'seed-linux is for Linux (Pop!_OS). It does not set up Guix on macOS.',
+        }
+        for script, sentence in expected.items():
+            result = subprocess.run(['bash', str(script), '--help'],
+                env=dict(os.environ, PATH=path), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn(sentence, result.stderr)
+            self.assertEqual(result.stdout, '')
+
     def test_real_parser_when_available(self):
         parser = os.environ.get('APPARMOR_TEST_PARSER')
         base = os.environ.get('APPARMOR_TEST_BASE')
