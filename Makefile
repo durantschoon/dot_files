@@ -3305,6 +3305,7 @@ check-sshd-bootstrap:
 # failures in the others rather than being explained by them.
 .PHONY: check-jobs
 check-jobs:
+	@python3 tests/jobs/mr-agents.py
 	@./tests/jobs/tee-smoke.zsh
 	@./tests/jobs/smoke.zsh
 	@./tests/jobs/claude-smoke.zsh

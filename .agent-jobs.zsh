@@ -13,7 +13,8 @@
 # agent-relaunch ENGINE [--all|TASK]
 #                                 recover missing sessions for this engine;
 #                                 at most one per checkout, with live sessions
-#                                 taking precedence over missing siblings.
+#                                 taking precedence over missing siblings;
+#                                 honors PAUSED in the mr-agents Org table.
 # agent-adopt ENGINE [--no-attach] TASK CONVERSATION_ID
 #                                 wrap an EXISTING conversation in a tracked
 #                                 session, pinned by id so recovery returns to
@@ -56,6 +57,16 @@
 # are shown below for the selected engine; default is each CLI's own config.
 
 typeset -g AGENT_JOB_CONFIRM=${AGENT_JOB_CONFIRM:-${CLAUDE_JOB_CONFIRM:-yes}}
+typeset -g _AGENT_JOBS_FILE=${${(%):-%x}:A}
+
+# Read the editable Org recovery intent without refreshing it. A bad control
+# file must block recovery rather than make a PAUSED row disappear.
+_agent_pause_check() {
+  local helper="${_AGENT_JOBS_FILE:h}/bin/mr-agents"
+  [[ -f $helper ]] || helper="$HOME/dot_files/bin/mr-agents"
+  [[ -f $helper ]] || { print -u2 "agent-relaunch: mr-agents pause guard is missing"; return 2 }
+  python3 "$helper" --is-paused "$1"
+}
 
 # Directory for file-based cross-platform agent job registry
 _agent_registry_dir() {
@@ -602,7 +613,19 @@ agent-relaunch() {
   local -A chosen
   local -a skip_label skip_why
   local cur a_at b_at a_mt b_mt why
+  integer pause_rc
   for label in "${missing[@]}"; do
+    _agent_pause_check "$nameof[$label]"
+    pause_rc=$?
+    if (( pause_rc != 1 )); then
+      skip_label+=("$label")
+      if (( pause_rc == 0 )); then
+        skip_why+=("PAUSED in the mr-agents Org table")
+      else
+        skip_why+=("cannot read the mr-agents Org controls; recovery blocked")
+      fi
+      continue
+    fi
     wd=$wdof[$label]
     # Pinned by id: its conversation is its own, so there is nothing to
     # de-duplicate it against and it is always recovered. Keyed by label
@@ -662,7 +685,7 @@ agent-relaunch() {
 
   local -a kicked
   if (( ! ${#chosen} )); then
-    print -u2 "agent-relaunch: nothing kicked -- every missing session's checkout is already held by a live one"
+    print -u2 "agent-relaunch: nothing kicked -- every missing session was skipped"
     agent-status "$engine"
     return 0
   fi

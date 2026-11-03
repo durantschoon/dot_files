@@ -10,6 +10,8 @@
 #                          (via tmux-hygiene --auto-kill), once an hour
 #   autosave.sh            media-announce's snapshot of uncommitted work to
 #                          origin wip/<name>/<label>, every tick (10 min)
+#   mr-agents --refresh    update the editable Org activity table every tick;
+#                          preserve PAUSED and notes, never restart agents
 #
 # The scheduler is declared everywhere -- a shepherd timer from the Guix Home
 # `homebase' layer on Linux, a LaunchAgent that `homebase on' writes on macOS
@@ -192,6 +194,16 @@ run_mr_hygiene() {
   fi
 }
 
+run_agent_census() {
+  local census="$(dirname "$0")/mr-agents"
+  if "$census" --refresh >>"$state_dir/mr-agents.out" 2>&1; then
+    log "mr-agents: ok"
+  else
+    log "mr-agents: FAILED (see $state_dir/mr-agents.out)"
+    return 1
+  fi
+}
+
 tick() {
   local force=0 name rc=0
   [ "${1-}" = --force ] && force=1
@@ -205,6 +217,7 @@ tick() {
   # Exported for the whole tick: mr-hygiene's queue drain runs autosave too.
   export AUTOSAVE_HOST=${name:-$(default_name)}
   run_autosave "$AUTOSAVE_HOST" || rc=1
+  run_agent_census || rc=1
   run_mr_hygiene "$force" || rc=1
   rmdir "$tick_lock" 2>/dev/null
   return $rc

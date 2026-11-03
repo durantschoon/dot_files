@@ -486,10 +486,12 @@ whose unit of work is not a numbered stage says what a task is about — and,
 failing that, for a `stage-NN` task, the title and first `## Motivation`
 paragraph of `docs/stages/stage-NN-PROMPT.md` plus whether its report exists.
 
-`tmux-dash` groups session rows by repo alphabetically, across configured
-hosts, with the most recently active session first within each group. Every
-row remains selectable and editable; missing session headlines are shown as
-`(no status yet)`. `tmux-pick` keeps its current-repo view.
+For an overall agent census, use `mr-agents`: live and registered agents,
+grouped by repo, with independent task headlines. `mr-agents --refresh`
+creates an editable Org table in `~/.local/state/agent-jobs/agents.org`.
+Edit `desired_state` to `PAUSED` to prevent `agent-relaunch` recovery; periodic
+homebase refreshes preserve that flag and your `notes` column. See
+[the activity-table workflow](docs/MYREPOS.md#mr-agents-agents-and-their-tasks-with-an-editable-org-table).
 
 In `tmux-pick` / `tmux-dash`:
 

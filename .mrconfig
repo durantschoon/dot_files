@@ -80,33 +80,13 @@ brief =
     # survives (a repo outside ~ shows its resolved path, which is long)
     repo="${MR_REPO#$HOME/}"
     [ ${#repo} -gt 42 ] && repo="~$(printf '%s' "$repo" | tail -c 41)"
-    # MR_BRIEF_NOTE=1 (mr-brief-deluxe) adds the repo's jobs-notes headline:
-    # newest logs/*.notes.md first, first non-empty `#' heading or `> ' line
-    # wins -- the same rule as herdr-notes-sync in .jobs.zsh.  A note counts
-    # as something to report, so a clean repo with a note still gets a line.
-    note=
-    if [ -n "$MR_BRIEF_NOTE" ]; then
-        for f in $(ls -t "$MR_REPO"/logs/*.notes.md 2>/dev/null); do
-            [ -r "$f" ] || continue
-            note=$(sed -E -n 's/^(#+|>)[[:space:]]*//p' "$f" | sed -E -n '/./{s/[[:space:]]+$//;p;q;}')
-            [ -n "$note" ] && break
-        done
-    fi
-    sessions=
-    if [ -n "$MR_BRIEF_NOTE" ]; then
-        session_helper=${MR_SESSION_HELPER:-"$HOME/dot_files/bin/repo-sessions"}
-        if [ -x "$session_helper" ]; then
-            sessions=$("$session_helper" "$MR_REPO")
-        fi
-    fi
-    if [ "$ahead$behind$mod$unt$stash" != "00000" ] || [ -n "$subs$note$sessions" ]; then
+    if [ "$ahead$behind$mod$unt$stash" != "00000" ] || [ -n "$subs" ]; then
         # fixed layout -- mr-brief colours by column position:
         # repo 1-42, branch 44-63, ^aa vbb  Mcc ?dd See from column 65,
-        # then `  sub path^N ...' and the note, each after two spaces
-        printf '%-42s %-20s ^%2s v%2s  M%2s ?%2s S%2s%s%s\n' \
+        # then `  sub path^N ...' after two spaces
+        printf '%-42s %-20s ^%2s v%2s  M%2s ?%2s S%2s%s\n' \
             "$repo" "$branch" "$ahead" "$behind" "$mod" "$unt" "$stash" \
-            "${subs:+  sub$subs}" "${note:+  $note}"
-        [ -z "$sessions" ] || printf '%s\n' "$sessions"
+            "${subs:+  sub$subs}"
     fi
 # pushahead: `git push' only where the branch is ahead of its upstream.
 # Repos with no upstream or nothing to push exit quietly, so with -m they

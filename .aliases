@@ -77,7 +77,7 @@ config: ~/.mrconfig (dot_files, PUBLIC repos)  +  dot_files/private/mrconfig (pr
 ${B}COMMANDS${R}
   mr-brief             one line per repo with something to report; clean ones hidden
   mr-brief | grep si/  plain text when piped, so grep/sort work
-  mr-brief-deluxe      the same plus each repo's job-note headline (logs/*.notes.md)
+  mr-agents            agents grouped by repo, with session state and task headlines
   mr-push-ahead        git push only where ^ is > 0   (--dry-run to preview)
   mr-hygiene           scan all repos for stashes/hygiene, update SQLite & reports
   homebase [on|off]    which machine runs mr-hygiene + autosave on a timer
@@ -150,12 +150,9 @@ mr-brief() {
             num(ah, GR), num(be, RD), num(mo, YL), num(un, MG), num(st, BL), note
     }'
 }
-# mr-brief plus each repo's jobs-notes headline (job-note, logs/*.notes.md)
-# as a trailing column; a repo with a note but nothing else to report is
-# shown too.  MR_BRIEF_NOTE is read by the brief action in .mrconfig.
-mr-brief-deluxe() {
-    MR_BRIEF_NOTE=1 mr-brief "$@"
-}
+# Retired: agent headlines belong to mr-agents, independent of Git status.
+# Clear an old definition when this file is re-sourced in an existing shell.
+(( $+functions[mr-brief-deluxe] )) && unfunction mr-brief-deluxe
 # `history' in zsh is `fc -l', which defaults to the LAST 16 EVENTS -- unlike
 # bash, where it prints everything. The "1" means "from event 1", i.e. all of
 # it. Without it `hg' greps only the last 16 lines and quietly reports nothing
