@@ -286,8 +286,10 @@ export HISTCONTROL=ignorespace:ignoredups
 export GPG_TTY=$(tty)
 # Over ssh, prompt in this terminal rather than a pinentry-mac window on the
 # Mac's screen; bin/pinentry-auto reads this.  Same block as .zshrc.starship.
-if [[ -n "$SSH_CONNECTION" ]]; then
+if [[ -n "$SSH_CONNECTION" || ( "$OSTYPE" == linux* && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" && ! -d /mnt/wslg ) ]]; then
     export PINENTRY_USER_DATA=USE_TTY=1
+else
+    export PINENTRY_USER_DATA=USE_GUI=1
 fi
 if [[ -t 0 && "$SSH_AUTH_SOCK" == *gpg-agent* ]] && (( $+commands[gpg-connect-agent] )); then
     gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1

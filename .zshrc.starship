@@ -100,8 +100,13 @@ export GPG_TTY=$(tty)
 
 # Over ssh or in bare Linux console TTYs (where no GUI windowing system is
 # present to render pinentry-gnome3), ask for the passphrase in THIS terminal.
-if [[ -n "$SSH_CONNECTION" || ( -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" ) ]]; then
+# Otherwise explicitly set USE_GUI=1 so gpg sends OPTION pinentry-user-data to
+# gpg-agent, overriding any USE_TTY=1 baked into gpg-agent's own startup env
+# if the daemon was originally autostarted from an ssh session.
+if [[ -n "$SSH_CONNECTION" || ( "$OSTYPE" == linux* && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" && ! -d /mnt/wslg ) ]]; then
     export PINENTRY_USER_DATA=USE_TTY=1
+else
+    export PINENTRY_USER_DATA=USE_GUI=1
 fi
 
 # Tell gpg-agent which terminal to prompt on for SSH.  GPG_TTY above only
