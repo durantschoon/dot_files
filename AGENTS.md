@@ -32,6 +32,7 @@ When you are stuck, blocked (a merge conflict, a question only the user can answ
 
 * **First-machine seed:** `bin/seed-linux`, `docs/LINUX_SEED.md` cover prerequisites, Guix installation, SSH/GitHub access, cloning and `make apply`. Reusable agent instructions: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`.
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
+*   **Foreign-distro installer / AppArmor:** `guix-install.sh`, `bin/seed-linux`, `docs/GUIX_APPARMOR.md`, `tests/guix/apparmor.py` and its fixtures (`make check-guix-installer`).
 *   **Entry points:** `Makefile` (Look at targets like `apply`, `reconfigure`, `guix-config`)
 *   **Home Layer (User prefs):** `home/base.scm`, `home/common.scm`, `home/wayland.scm`, `home/ewm.scm` (EWM trial, `make apply-ewm`)
 *   **System Layer (Host configs):** `system/`, `system/README.md`
