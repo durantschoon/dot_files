@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""Grant the worktree-cleanup commands each agent can allow.
+
+Idempotent.  Merges allow entries into the Claude Code and Cursor CLI
+configs and leaves every other key alone.  Rewrites
+~/.codex/rules/dot_files.rules whole, because that file belongs to this
+repo.  agy has no per-command allowlist, so it is reported and skipped.
+
+The Cursor entries are the CLI allowlist (~/.cursor/cli-config.json).
+The IDE auto-review classifier does not read that file.
+
+    bin/agent-permissions           apply
+    bin/agent-permissions --check   report gaps, write nothing, exit 1 if any
+
+Honors CLAUDE_CONFIG_DIR, CODEX_HOME, and CURSOR_CONFIG_DIR.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+CLAUDE_ALLOW = (
+    "Bash(git branch -D:*)",
+    "Bash(git -C * branch -D *)",
+    "Bash(git worktree remove:*)",
+    "Bash(git -C * worktree remove *)",
+    "Bash(git worktree prune:*)",
+    "Bash(git -C * worktree prune*)",
+)
+
+# command:args globs.  `*` matches the rest of that argument span, so
+# `branch -D*` covers `git branch -D <name>` and `-C * branch -D*` covers
+# `git -C <dir> branch -D <name>`.
+CURSOR_ALLOW = (
+    "Shell(git:branch -D*)",
+    "Shell(git:-C * branch -D*)",
+    "Shell(git:worktree remove*)",
+    "Shell(git:-C * worktree remove*)",
+    "Shell(git:worktree prune*)",
+    "Shell(git:-C * worktree prune*)",
+)
+
+CODEX_RULES = (
+    'prefix_rule(pattern=["git", "branch", "-D"], decision="allow")\n'
+    'prefix_rule(pattern=["git", "worktree", ["remove", "prune"]], '
+    'decision="allow")\n'
+)
+
+
+def _home() -> Path:
+    home = os.environ.get("HOME")
+    if not home:
+        raise SystemExit("agent-permissions: HOME is not set")
+    return Path(home)
+
+
+def claude_settings() -> Path:
+    base = os.environ.get("CLAUDE_CONFIG_DIR") or str(_home() / ".claude")
+    return Path(base) / "settings.json"
+
+
+def cursor_config() -> Path:
+    base = os.environ.get("CURSOR_CONFIG_DIR") or str(_home() / ".cursor")
+    return Path(base) / "cli-config.json"
+
+
+def codex_rules() -> Path:
+    base = os.environ.get("CODEX_HOME") or str(_home() / ".codex")
+    return Path(base) / "rules" / "dot_files.rules"
+
+
+def _die(message: str) -> None:
+    raise SystemExit(f"agent-permissions: {message}")
+
+
+def _skip_ws(text: str, index: int) -> int:
+    while index < len(text) and text[index] in " \t\r\n":
+        index += 1
+    return index
+
+
+def _matching(text: str, index: int, open_ch: str, close_ch: str) -> int:
+    """Index of the closer matching the opener at index."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for cursor in range(index, len(text)):
+        char = text[cursor]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == open_ch:
+            depth += 1
+        elif char == close_ch:
+            depth -= 1
+            if depth == 0:
+                return cursor
+    _die(f"unbalanced {open_ch}{close_ch} while editing JSON")
+    return index
+
+
+def _parse_string(text: str, index: int) -> tuple[str, int]:
+    if text[index] != '"':
+        _die("expected a JSON string")
+    end = _matching_string_end(text, index)
+    try:
+        value = json.loads(text[index:end])
+    except json.JSONDecodeError as error:
+        _die(f"invalid JSON string: {error}")
+    return value, end
+
+
+def _matching_string_end(text: str, index: int) -> int:
+    escaped = False
+    for cursor in range(index + 1, len(text)):
+        char = text[cursor]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            return cursor + 1
+    _die("unterminated JSON string")
+    return index
+
+
+def _value_end(text: str, index: int) -> int:
+    char = text[index]
+    if char == "{":
+        return _matching(text, index, "{", "}") + 1
+    if char == "[":
+        return _matching(text, index, "[", "]") + 1
+    if char == '"':
+        return _parse_string(text, index)[1]
+    cursor = index
+    while cursor < len(text) and text[cursor] not in ",}] \t\r\n":
+        cursor += 1
+    return cursor
+
+
+def _object_entries(text: str, open_index: int) -> tuple[list[tuple[str, int, int]], int]:
+    """Top-level pairs of the object whose '{' is at open_index.
+
+    Each triple is (key, value_start, value_end).  The second result is
+    the index of the object's closing brace.
+    """
+    close = _matching(text, open_index, "{", "}")
+    cursor = open_index + 1
+    entries: list[tuple[str, int, int]] = []
+    while True:
+        cursor = _skip_ws(text, cursor)
+        if cursor >= close:
+            break
+        if text[cursor] == ",":
+            cursor += 1
+            continue
+        key, cursor = _parse_string(text, cursor)
+        cursor = _skip_ws(text, cursor)
+        if cursor >= len(text) or text[cursor] != ":":
+            _die("expected ':' after a JSON key")
+        cursor = _skip_ws(text, cursor + 1)
+        value_start = cursor
+        cursor = _value_end(text, cursor)
+        entries.append((key, value_start, cursor))
+    return entries, close
+
+
+def _array_strings(text: str, open_index: int) -> tuple[list[tuple[str, int]], int]:
+    close = _matching(text, open_index, "[", "]")
+    cursor = open_index + 1
+    items: list[tuple[str, int]] = []
+    while True:
+        cursor = _skip_ws(text, cursor)
+        if cursor >= close:
+            break
+        if text[cursor] == ",":
+            cursor += 1
+            continue
+        if text[cursor] != '"':
+            _die("permissions.allow entries must be strings")
+        value, cursor = _parse_string(text, cursor)
+        items.append((value, cursor))
+    return items, close
+
+
+def _allow_block(entries: tuple[str, ...], indent: str) -> str:
+    lines = ",\n".join(f"{indent}  {json.dumps(entry)}" for entry in entries)
+    return f'{indent}"allow": [\n{lines}\n{indent}]'
+
+
+def _insert_allow(text: str, entries: tuple[str, ...]) -> str:
+    """Return text with entries added to the root permissions.allow list.
+
+    Every byte outside that list stays as it was.
+    """
+    start = _skip_ws(text, 0)
+    if start >= len(text) or text[start] != "{":
+        _die("settings file is not a JSON object")
+    pairs, _close = _object_entries(text, start)
+    permissions = next((item for item in pairs if item[0] == "permissions"), None)
+    if permissions is None:
+        wrapped = (
+            ',\n  "permissions": {\n'
+            + _allow_block(entries, "    ")
+            + "\n  }"
+        )
+        if not pairs:
+            wrapped = wrapped[1:]  # drop the comma when the object is empty
+            return text[: start + 1] + wrapped + text[start + 1 :]
+        _key, _value_start, value_end = pairs[-1]
+        return text[:value_end] + wrapped + text[value_end:]
+
+    _key, value_start, value_end = permissions
+    value_start = _skip_ws(text, value_start)
+    if text[value_start] != "{":
+        _die('"permissions" is not a JSON object')
+    fields, _perm_close = _object_entries(text, value_start)
+    allow = next((item for item in fields if item[0] == "allow"), None)
+    if allow is None:
+        addition = "\n" + _allow_block(entries, "    ")
+        if fields:
+            _fkey, _fstart, fend = fields[-1]
+            return text[:fend] + "," + addition + text[fend:]
+        return text[: value_start + 1] + addition + "\n  " + text[value_start + 1 :]
+
+    _akey, allow_start, _allow_end = allow
+    allow_start = _skip_ws(text, allow_start)
+    if text[allow_start] != "[":
+        _die('"permissions.allow" is not a JSON array')
+    items, array_close = _array_strings(text, allow_start)
+    present = {value for value, _end in items}
+    missing = [entry for entry in entries if entry not in present]
+    if not missing:
+        return text
+    rendered = ",\n      ".join(json.dumps(entry) for entry in missing)
+    if not items:
+        return (
+            text[: allow_start + 1]
+            + "\n      "
+            + rendered
+            + "\n    "
+            + text[array_close:]
+        )
+    _value, last_end = items[-1]
+    return text[:last_end] + ",\n      " + rendered + text[last_end:]
+
+
+def _read_json_object(path: Path) -> str | None:
+    """Return the file text, or None when the file does not exist.
+
+    Refuses a symlink so a store path or a linked config is not rewritten.
+    """
+    if path.is_symlink():
+        _die(f"{path} is a symlink; refusing to edit it")
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text()
+    except OSError as error:
+        _die(f"cannot read {path}: {error}")
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as error:
+        _die(f"{path} is not valid JSON ({error})")
+    if not isinstance(parsed, dict):
+        _die(f"{path} is not a JSON object")
+    return text
+
+
+def _missing_allow(text: str | None, entries: tuple[str, ...]) -> list[str]:
+    if text is None:
+        return list(entries)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as error:
+        _die(f"invalid JSON ({error})")
+    allow = parsed.get("permissions", {})
+    if not isinstance(allow, dict):
+        _die('"permissions" is not a JSON object')
+    current = allow.get("allow", [])
+    if not isinstance(current, list):
+        _die('"permissions.allow" is not a JSON array')
+    return [entry for entry in entries if entry not in current]
+
+
+def _write_new(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    directory = path.parent
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=directory, prefix=path.name + ".", delete=False
+    )
+    try:
+        handle.write(text)
+        handle.close()
+        os.chmod(handle.name, 0o644)
+        os.replace(handle.name, path)
+    except Exception:
+        handle.close()
+        try:
+            os.unlink(handle.name)
+        except OSError:
+            pass
+        raise
+
+
+def _write_replaced(path: Path, text: str) -> None:
+    mode = path.stat().st_mode & 0o777
+    directory = path.parent
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=directory, prefix=path.name + ".", delete=False
+    )
+    try:
+        handle.write(text)
+        handle.close()
+        os.chmod(handle.name, mode)
+        os.replace(handle.name, path)
+    except Exception:
+        handle.close()
+        try:
+            os.unlink(handle.name)
+        except OSError:
+            pass
+        raise
+
+
+def _ensure_json_allow(
+    path: Path,
+    entries: tuple[str, ...],
+    created: str,
+    check: bool,
+    label: str,
+) -> bool:
+    """Merge entries into path.  Return True when the file already had them."""
+    text = _read_json_object(path)
+    missing = _missing_allow(text, entries)
+    if not missing:
+        if check:
+            print(f"    [ok] {label:<12}: {path}")
+        return True
+    if check:
+        print(f"    [--] {label:<12}: missing {len(missing)} in {path}; fix: make agent-permissions")
+        return False
+    if text is None:
+        _write_new(path, created)
+    else:
+        updated = _insert_allow(text, tuple(missing))
+        if updated == text:
+            return True
+        if not updated.endswith("\n"):
+            updated += "\n"
+        _write_replaced(path, updated)
+    # Confirm the merge landed, and that a created file parses.
+    confirmed = _missing_allow(_read_json_object(path), entries)
+    if confirmed:
+        _die(f"failed to record {confirmed} in {path}")
+    print(f"agent-permissions: updated {path}")
+    return True
+
+
+def _claude_created(entries: tuple[str, ...]) -> str:
+    body = _allow_block(entries, "    ")
+    return '{\n  "permissions": {\n' + body + "\n  }\n}\n"
+
+
+def _cursor_created(entries: tuple[str, ...]) -> str:
+    body = _allow_block(entries, "    ")
+    return (
+        '{\n  "version": 1,\n  "permissions": {\n'
+        + body
+        + ',\n    "deny": []\n  }\n}\n'
+    )
+
+
+def _ensure_codex(check: bool) -> bool:
+    path = codex_rules()
+    current = None
+    if path.exists():
+        if path.is_symlink():
+            _die(f"{path} is a symlink; refusing to edit it")
+        current = path.read_text()
+    if current == CODEX_RULES:
+        if check:
+            print(f"    [ok] {'codex':<12}: {path}")
+        return True
+    if check:
+        print(f"    [--] {'codex':<12}: {path} is missing or stale; fix: make agent-permissions")
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        _write_replaced(path, CODEX_RULES)
+    else:
+        _write_new(path, CODEX_RULES)
+    print(f"agent-permissions: updated {path}")
+    return True
+
+
+def main(argv: list[str]) -> int:
+    if argv[1:] not in ([], ["--check"]):
+        _die("usage: agent-permissions [--check]")
+    check = argv[1:] == ["--check"]
+    if check:
+        print("==> agent permissions")
+    results = (
+        _ensure_json_allow(
+            claude_settings(), CLAUDE_ALLOW, _claude_created(CLAUDE_ALLOW), check, "claude"
+        ),
+        _ensure_codex(check),
+        _ensure_json_allow(
+            cursor_config(), CURSOR_ALLOW, _cursor_created(CURSOR_ALLOW), check, "cursor"
+        ),
+    )
+    if check:
+        print(f"    [ok] {'agy':<12}: no per-command allowlist; nothing to grant")
+    return 0 if all(results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

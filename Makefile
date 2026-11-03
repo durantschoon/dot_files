@@ -338,6 +338,9 @@ help-text:
 	@echo "  make setup-radicle - Run radicle-node so it survives reboots: a LaunchAgent on mac,"
 	@echo "                       the Shepherd service elsewhere (stops a hand-started node first)"
 	@echo "  make check-radicle - Verify rad, git-remote-rad, the identity, the service and the node"
+	@echo "  make agent-permissions - Grant git branch -D / worktree remove / worktree prune"
+	@echo "                       to Claude Code, Codex, and the Cursor CLI (agy has no allowlist)"
+	@echo "  make check-agent-permissions - Smoke-test that grant and report gaps (part of make check)"
 	@echo ""
 	@echo "Emacs Remote Server:"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
@@ -682,6 +685,8 @@ endif
 	@# Codex writes its own config.toml, so merge the repo's keys in rather
 	@# than linking it (Guix Home does the same at activation)
 	$(CURDIR)/bin/codex-defaults
+	@# Worktree-cleanup grants.  Same merge the Guix activation runs.
+	$(CURDIR)/bin/agent-permissions
 	@# Yazi keymap config
 	@mkdir -p ~/.config/yazi
 	@if [ -f ~/dot_files/yazi/keymap.toml ]; then \
@@ -2063,7 +2068,7 @@ check-locale:
 	  exit 1; \
 	fi
 
-.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container guix-container-stop guix-container-restart setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge install-radicle setup-radicle check-radicle setup-protondrive check-protondrive
+.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container guix-container-stop guix-container-restart setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge install-radicle setup-radicle check-radicle agent-permissions check-agent-permissions setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -2475,6 +2480,13 @@ check-radicle:
 	  echo "    [ok] node        : running, $$peers connected peer(s)"; \
 	fi; \
 	exit $$rc
+
+agent-permissions:
+	$(CURDIR)/bin/agent-permissions
+
+check-agent-permissions:
+	@sh tests/agent-permissions-smoke.sh
+	@$(CURDIR)/bin/agent-permissions --check
 
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
@@ -3306,7 +3318,9 @@ check-home-ownership:
 # across to Windows is itself disqualifying.)  check-radicle probes too (rad
 # self, rad node status, herd/launchctl status) and is here so a machine whose
 # rad:// remotes cannot fetch fails `make check' instead of a morning review.
-check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle
+# check-agent-permissions reads the grant files and runs a scratch-HOME smoke
+# test; it writes nothing.
+check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

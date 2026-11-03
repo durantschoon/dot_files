@@ -965,6 +965,17 @@ call, so extensions never collide; only genuine double ownership does."
                                   ":" #$(file-append (specification->package "gawk") "/bin"))
                                  #$(file-append bash "/bin/bash")
                                  #$(local-file "../bin/codex-defaults")))
+      ;; Worktree-cleanup grants (git branch -D, git worktree remove/prune).
+      ;; Claude Code and the Cursor CLI rewrite their JSON configs, and Codex
+      ;; owns the rest of rules/, so this merges rather than linking.  See
+      ;; bin/agent-permissions.
+      (simple-service 'agent-permissions-activation home-activation-service-type
+                      #~(unless
+                         (zero?
+                          (system* #$(file-append (specification->package "python")
+                                                  "/bin/python3")
+                                   #$(local-file "../bin/agent-permissions")))
+                         (error "agent-permissions activation failed")))
       (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
                      `(".tmux.conf" ,(local-file "../.tmux.conf" "tmux.conf"))
