@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Driving Mode</title>
+    <link rel="icon" href="data:,">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <style>
+        body { 
+            font-family: -apple-system, sans-serif; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            height: 100vh; background: #111; color: white; margin: 0; overflow: hidden;
+        }
+        button { 
+            background: #007aff; border: none; border-radius: 50%; font-size: 28px; font-weight: bold;
+            color: white; cursor: pointer; box-shadow: 0 4px 30px rgba(0,122,255,0.6); 
+            width: 250px; height: 250px; transition: 0.3s; z-index: 10;
+        }
+        button.active { 
+            background: #ff3b30; box-shadow: 0 4px 30px rgba(255,59,48,0.6); 
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,59,48, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 30px rgba(255,59,48, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,59,48, 0); }
+        }
+        h1 { margin-bottom: 10px; font-weight: 300; letter-spacing: 2px; z-index: 10; }
+        p { color: #888; text-align: center; max-width: 300px; line-height: 1.5; z-index: 10; margin-bottom: 30px;}
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        #logs {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            height: 30%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .log-entry {
+            background: rgba(0,0,0,0.6);
+            color: #0f0;
+            padding: 8px 12px;
+            margin-top: 5px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            animation: fadeOut 8s forwards;
+            word-wrap: break-word;
+        }
+
+        .log-error {
+            color: #ff3b30;
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 1; transform: translateY(10px); }
+            10% { opacity: 1; transform: translateY(0); }
+            80% { opacity: 1; }
+            100% { opacity: 0; display: none; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <h1>DRIVING MODE</h1>
+    <p>Tap the button. Leave phone in cupholder.</p>
+    <button id="btn">START</button>
+    <div id="logs"></div>
+
+    <script>
+        const btn = document.getElementById('btn');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const logsDiv = document.getElementById('logs');
+        
+        let ws;
+        let audioCtx;
+        let analyser;
+        let dataArray;
+
+        // Custom on-screen logger
+        function log(msg, isError=false) {
+            console.log(msg);
+            const el = document.createElement('div');
+            el.className = 'log-entry' + (isError ? ' log-error' : '');
+            el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logsDiv.appendChild(el);
+            // Fade out and remove after 8 seconds
+            setTimeout(() => {
+                if (el.parentNode) el.parentNode.removeChild(el);
+            }, 8500);
+        }
+
+        // Full-screen waveform drawer
+        function drawWaveform() {
+            requestAnimationFrame(drawWaveform);
+            if (!analyser) return;
+
+            analyser.getByteTimeDomainData(dataArray);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#007aff';
+            ctx.beginPath();
+            
+            const sliceWidth = canvas.width * 1.0 / analyser.frequencyBinCount;
+            let x = 0;
+            
+            for(let i = 0; i < analyser.frequencyBinCount; i++) {
+                const v = dataArray[i] / 128.0;
+                const y = v * canvas.height / 2;
+                if(i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+                x += sliceWidth;
+            }
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        btn.onclick = async () => {
+            if (ws) return; 
+            btn.textContent = "LISTENING";
+            btn.classList.add("active");
+            log("Initializing session...");
+
+            // Connect WebSocket
+            const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            const wsUrl = `${protocol}://${location.host}/ws`;
+            log(`Connecting to ${wsUrl}...`);
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => log("WebSocket Connected!");
+            ws.onclose = () => log("WebSocket Closed", true);
+            ws.onerror = (e) => log("WebSocket Error", true);
+
+            // Audio Output
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+                log("AudioContext Resumed");
+            }
+            let nextPlayTime = audioCtx.currentTime;
+            
+            ws.onmessage = async (event) => {
+                const arrayBuffer = await event.data.arrayBuffer();
+                log(`⬇️ Received ${arrayBuffer.byteLength} bytes from Gemini`);
+                const view = new Int16Array(arrayBuffer);
+                const float32 = new Float32Array(view.length);
+                for(let i=0; i<view.length; i++) float32[i] = view[i]/32768.0;
+                
+                const buffer = audioCtx.createBuffer(1, float32.length, 24000);
+                buffer.getChannelData(0).set(float32);
+                
+                const source = audioCtx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioCtx.destination);
+                
+                if (nextPlayTime < audioCtx.currentTime) nextPlayTime = audioCtx.currentTime;
+                source.start(nextPlayTime);
+                nextPlayTime += buffer.duration;
+            };
+
+            // Audio Input (Mic)
+            try {
+                log("Requesting mic permissions...");
+                const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+                log("Mic accessed. Starting stream...");
+                
+                const source = audioCtx.createMediaStreamSource(stream);
+                
+                // Visualizer
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 2048;
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                source.connect(analyser);
+                drawWaveform();
+
+                const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+                
+                let chunkCount = 0;
+                processor.onaudioprocess = (e) => {
+                    if(ws.readyState !== WebSocket.OPEN) return;
+                    const float32 = e.inputBuffer.getChannelData(0);
+                    const int16 = new Int16Array(float32.length);
+                    for(let i=0; i<float32.length; i++) {
+                        const s = Math.max(-1, Math.min(1, float32[i]));
+                        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    ws.send(int16.buffer);
+                    chunkCount++;
+                    // Only log every 100 chunks so we don't spam the UI
+                    if(chunkCount % 100 === 0) log(`⬆️ Sent 100 audio chunks...`);
+                };
+                
+                source.connect(processor);
+                processor.connect(audioCtx.destination);
+            } catch (err) {
+                log("Mic error: " + err.message, true);
+            }
+        };
+    </script>
+</body>
+</html>

@@ -2648,3 +2648,53 @@ emacs-unserve:
 	else \
 	  echo "No Emacs daemon was running."; \
 	fi
+
+# ---------------------------------------------------------------------------
+# Tmux-Dash Driving Mode (Voice UI)
+# ---------------------------------------------------------------------------
+.PHONY: voice-help voice-server driving-server voice-ngrok voice-server-kill driving-server-kill voice-ngrok-kill voice-server-restart driving-server-restart voice-ngrok-restart
+
+voice-help:
+	@echo "======================================================================"
+	@echo "🏎️  Tmux-Dash Driving Mode (Voice UI)"
+	@echo "======================================================================"
+	@echo "To run the full stack, you must open 3 separate terminals on the Mac Mini"
+	@echo "and run one of the following commands in each:"
+	@echo ""
+	@echo "  Terminal 1: make voice-server   (Parses tmux jobs & handles files)"
+	@echo "  Terminal 2: make driving-server (WebRTC Gemini Audio Bridge)"
+	@echo "  Terminal 3: make voice-ngrok    (Creates secure HTTPS tunnel)"
+	@echo ""
+	@echo "Once all three are running, copy the 'https://...ngrok.app' URL"
+	@echo "from Terminal 3 and open it on your Android phone's Chrome browser."
+	@echo "======================================================================"
+
+voice-server:
+	@echo "Starting the internal API on port 8642..."
+	python3 voice_server.py
+
+driving-server:
+	@echo "Starting the FastAPI WebRTC bridge on port 9000..."
+	uvicorn driving_server:app --host 0.0.0.0 --port 9000
+
+voice-ngrok:
+	@echo "Creating secure HTTPS tunnel for the phone..."
+	ngrok http 9000
+
+voice-server-kill:
+	@echo "Killing voice_server.py on port 8642..."
+	lsof -ti :8642 | xargs kill -9 || true
+
+driving-server-kill:
+	@echo "Killing driving_server.py on port 9000..."
+	lsof -ti :9000 | xargs kill -9 || true
+
+voice-ngrok-kill:
+	@echo "Killing ngrok..."
+	pkill -9 ngrok || true
+
+voice-server-restart: voice-server-kill voice-server
+
+driving-server-restart: driving-server-kill driving-server
+
+voice-ngrok-restart: voice-ngrok-kill voice-ngrok
