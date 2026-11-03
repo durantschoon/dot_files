@@ -415,12 +415,15 @@ gpg-here() {
 if [[ "$(uname)" == "Darwin" ]]; then
 
     alias claude="~/.claude/local/claude"
-    alias oemacs='open -a /Applications/Emacs.app'
-    alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
     alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
     alias gitk=git-gui # brew install git-gui
     # get gtime with `brew install gnu-time`
     alias ip_addr='ipconfig getifaddr en0 || ipconfig getifaddr en1'
+    alias mcs='pushd ~/Repos/ds/media-announce; make calendar-status; popd'
+    alias mca='pushd ~/Repos/ds/media-announce; make calendar-agenda; popd'
+    alias mcd='pushd ~/Repos/ds/media-announce; make calendar-drain; popd'
+    alias oemacs='open -a /Applications/Emacs.app'
+    alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
 
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
@@ -1325,3 +1328,5 @@ alias ebn-lab='ebn-lab-start'
 # claude-run / claude-status / claude-rm -- a Claude Code session as a job (tmux + launchd relaunch).
 [[ -n "$ZSH_VERSION" && -f ~/dot_files/.agent-jobs.zsh ]] && source ~/dot_files/.agent-jobs.zsh
 alias tu='tmux-up'
+
+#  LocalWords:  popd
