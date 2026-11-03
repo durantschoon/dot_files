@@ -341,6 +341,7 @@ help-text:
 	@echo "  make agent-permissions - Grant git branch -D / worktree remove / worktree prune"
 	@echo "                       to Claude Code, Codex, and the Cursor CLI (agy has no allowlist)"
 	@echo "  make check-agent-permissions - Smoke-test that grant and report gaps (part of make check)"
+	@echo "  make check-worktrees - Classify abandoned worktrees in scratch repos (part of make check)"
 	@echo ""
 	@echo "Emacs Remote Server:"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
@@ -2488,6 +2489,10 @@ check-agent-permissions:
 	@sh tests/agent-permissions-smoke.sh
 	@$(CURDIR)/bin/agent-permissions --check
 
+.PHONY: check-worktrees
+check-worktrees:
+	@python3 tests/hygiene/worktrees.py
+
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
 	 $(GUIX_DOCKER) exec guix-dev make check-timezone
@@ -3319,8 +3324,8 @@ check-home-ownership:
 # self, rad node status, herd/launchctl status) and is here so a machine whose
 # rad:// remotes cannot fetch fails `make check' instead of a morning review.
 # check-agent-permissions reads the grant files and runs a scratch-HOME smoke
-# test; it writes nothing.
-check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions
+# test; it writes nothing.  check-worktrees classifies scratch git repos.
+check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

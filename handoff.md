@@ -48,17 +48,19 @@ deletes anything.
 
 ### Where it fits
 
-Not built yet. The force-delete grants it needs are applied by
+Built. `bin/worktree_hygiene.py` does the classification, and `mr-hygiene`
+runs it once a day (stamp `~/.config/repo-hygiene/worktrees.last`;
+`--worktrees` forces a scan, `--worktrees-only` skips the rest). It writes
+the section into `REPO-HYGIENE.md` and one `**Repo Hygiene (Worktrees):**`
+line through the loose-ends queue. It never deletes anything. The
+force-delete grants it prints commands for are applied by
 `bin/agent-permissions`.
 
-Extend `bin/mr-hygiene` (it already walks every `mr` repo, records to
-`~/.config/repo-hygiene/hygiene.db`, and writes `REPO-HYGIENE.md` /
-`LOOSE-ENDS.md`) with a **worktrees** section, rather than adding a new
-scanner. It already runs from the `homebase` tick; gate the worktree scan to
-once a day (e.g. a `worktrees.last` stamp beside `mr-hygiene.last`), or add
-`mr-hygiene --worktrees-only` and call it from the tick when the stamp is
-older than 24 h. Keep it stdlib-only and zero-token like the rest of
-`mr-hygiene`.
+The scan extends `bin/mr-hygiene` (the `mr` walk, `hygiene.db`,
+`REPO-HYGIENE.md`, and the loose-ends queue) instead of adding a new
+command. The homebase tick already runs `mr-hygiene`, and the stamp above
+keeps the worktree pass to once a day. It stays standard-library Python
+and spends no LLM tokens. The algorithm below is what it implements.
 
 ### Algorithm
 

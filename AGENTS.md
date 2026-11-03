@@ -53,7 +53,7 @@ There are dedicated tools for running interactive AI sessions as background jobs
 *   **Testing:** `tests/jobs/claude-smoke.zsh`
 *   **Gemini Configs:** `gemini/hooks.json`, `gemini/scripts/`, `gemini/skills/`
 
-*   **Homebase hygiene jobs:** `bin/homebase` (`on`/`off`/`status`/`tick`; gates `bin/mr-hygiene` + `bin/tmux-hygiene` and media-announce autosave to one machine), the `homebase` layer in `home/common.scm` (shepherd timer), and the homebase handoff in `agent-stash-all`/`agent-stash-pop`
+*   **Homebase hygiene jobs:** `bin/homebase` (`on`/`off`/`status`/`tick`; gates `bin/mr-hygiene` + `bin/tmux-hygiene` and media-announce autosave to one machine), the `homebase` layer in `home/common.scm` (shepherd timer), and the homebase handoff in `agent-stash-all`/`agent-stash-pop`. Once a day `mr-hygiene` also reports abandoned worktrees (`bin/worktree_hygiene.py`); it never deletes them.
 *   **Worktree-cleanup grants:** `bin/agent-permissions` merges `git branch -D`, `git worktree remove`, and `git worktree prune` into Claude Code `permissions.allow`, Codex `~/.codex/rules/dot_files.rules`, and the Cursor CLI `~/.cursor/cli-config.json`. `set_up_links` and the Guix dotfiles-layer activation run it. `make check-agent-permissions` (part of `make check`) only reads. agy has no per-command allowlist.
 
 **Agent Instruction:** When modifying AI workflows or CLI commands related to `agent-`, `claude-`, `agy-` or `codex-`, focus heavily on `.agent-jobs.zsh`.

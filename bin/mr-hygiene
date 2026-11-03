@@ -18,6 +18,9 @@ Usage:
   mr-hygiene --quiet        # Silent run for launchd / cron timers
   mr-hygiene --json         # Dump JSON to stdout
   mr-hygiene --no-loose-ends# Skip updating LOOSE-ENDS.md
+  mr-hygiene --worktrees    # Scan abandoned worktrees now (otherwise once a day)
+  mr-hygiene --worktrees-only
+  mr-hygiene --no-worktrees # Do not scan; still include the last report
 
 Zero API tokens. Python 3 standard library only.
 """
@@ -42,6 +45,16 @@ DEFAULT_LOOSE_ENDS = MEDIA_ANNOUNCE / "docs" / "LOOSE-ENDS.md"
 
 # Date day-of-week formatting matching media-announce AGENTS.md rule (U M T W R F S)
 DOW = ["M", "T", "W", "R", "F", "S", "U"]
+
+
+def worktree_hygiene():
+    """Load bin/worktree_hygiene.py beside this script."""
+    import importlib.util
+    path = Path(__file__).with_name("worktree_hygiene.py")
+    spec = importlib.util.spec_from_file_location("worktree_hygiene", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def format_dt(dt: datetime.datetime) -> str:
@@ -356,7 +369,8 @@ def save_to_db(conn: sqlite3.Connection, repos: list[dict], duration: float, unm
 # Markdown Report Generation
 # -----------------------------------------------------------------------------
 
-def generate_markdown(repos: list[dict], duration: float, unmanaged_agents: list[dict] = None) -> str:
+def generate_markdown(repos: list[dict], duration: float, unmanaged_agents: list[dict] = None,
+                      worktree_markdown: str = "") -> str:
     """Generate structured Markdown hygiene report."""
     now = datetime.datetime.now()
     now_str = format_dt(now)
@@ -386,6 +400,9 @@ def generate_markdown(repos: list[dict], duration: float, unmanaged_agents: list
         f"**Summary:** {' | '.join(summary_parts)}",
         "",
     ]
+    if worktree_markdown:
+        lines.append(worktree_markdown.rstrip())
+        lines.append("")
 
     # Section 0: Unmanaged Agent Sessions Outside Tmux
     if unmanaged_agents:
@@ -465,7 +482,39 @@ def generate_markdown(repos: list[dict], duration: float, unmanaged_agents: list
 # Loose-Ends Synchronization
 # -----------------------------------------------------------------------------
 
-def sync_loose_ends(repos: list[dict], loose_ends_path: Path, unmanaged_agents: list[dict] = None) -> tuple[bool, str]:
+def enqueue_loose_ends(loose_ends_path: Path, payload: dict) -> tuple[bool, str]:
+    """Drop one queue file and drain it.  The applier is the only writer."""
+    media_announce = loose_ends_path.parent.parent
+    queue_dir = media_announce / "logs" / "loose-ends-queue"
+    priorities_server = media_announce / "scripts" / "priorities_server.py"
+    if not priorities_server.exists():
+        return False, f"Skipped LOOSE-ENDS.md update: no queue applier at {priorities_server}"
+
+    now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    writer = str(payload.get("writer") or "mr-hygiene")
+    try:
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        # Write under a temporary name, then rename: the server drains every
+        # 5 s and rejects a half-written .json.
+        n = 1
+        while (queue_dir / f"{now_utc}-{writer}-{n}.json").exists():
+            n += 1
+        q_file = queue_dir / f"{now_utc}-{writer}-{n}.json"
+        tmp = q_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.rename(q_file)
+    except OSError as e:
+        return False, f"Queue error: {e}"
+
+    res = subprocess.run([sys.executable, str(priorities_server), "--drain"],
+                         capture_output=True, text=True, cwd=media_announce)
+    if res.returncode != 0:
+        return False, f"Enqueued {q_file.name}; drain failed ({res.returncode}): {res.stderr.strip()} -- it applies on the next drain"
+    return True, f"Enqueued & drained via loose-ends-queue ({res.stdout.strip()})"
+
+
+def sync_loose_ends(repos: list[dict], loose_ends_path: Path, unmanaged_agents: list[dict] = None,
+                    worktree_item: str | None = None) -> tuple[bool, str]:
     """Hand the hygiene items to LOOSE-ENDS.md's one writer, the media-announce queue.
 
     Contract: media-announce docs/LOOSE-ENDS-WRITERS.md.  Nobody but the applier
@@ -473,10 +522,6 @@ def sync_loose_ends(repos: list[dict], loose_ends_path: Path, unmanaged_agents: 
     `sync_prefix` operation and runs `--drain`.  Without the queue it does
     nothing: the old direct edit duplicated items once the ladder had run.
     """
-    media_announce = loose_ends_path.parent.parent
-    queue_dir = media_announce / "logs" / "loose-ends-queue"
-    priorities_server = media_announce / "scripts" / "priorities_server.py"
-
     stashes_repos = [r for r in repos if r["stash_count"] > 0]
     new_items: list[str] = []
     for r in stashes_repos:
@@ -494,43 +539,23 @@ def sync_loose_ends(repos: list[dict], loose_ends_path: Path, unmanaged_agents: 
         new_items.append(
             f"**Repo Hygiene (Agents):** {len(unmanaged_agents)} unmanaged agent session(s) outside tmux (upgrade via `tmux-hygiene -u` or `tu <engine>`)"
         )
+    if worktree_item:
+        new_items.append(worktree_item)
 
-    if not priorities_server.exists():
-        return False, f"Skipped LOOSE-ENDS.md update: no queue applier at {priorities_server}"
-
-    now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    payload = {
+    return enqueue_loose_ends(loose_ends_path, {
         "op": "sync_prefix",
         "prefix": "**Repo Hygiene (",
         "items": new_items,
         "writer": "mr-hygiene",
-    }
-    try:
-        queue_dir.mkdir(parents=True, exist_ok=True)
-        # Write under a temporary name, then rename: the server drains every
-        # 5 s and rejects a half-written .json.
-        n = 1
-        while (queue_dir / f"{now_utc}-mr-hygiene-{n}.json").exists():
-            n += 1
-        q_file = queue_dir / f"{now_utc}-mr-hygiene-{n}.json"
-        tmp = q_file.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.rename(q_file)
-    except OSError as e:
-        return False, f"Queue error: {e}"
-
-    res = subprocess.run([sys.executable, str(priorities_server), "--drain"],
-                         capture_output=True, text=True, cwd=media_announce)
-    if res.returncode != 0:
-        return False, f"Enqueued {q_file.name}; drain failed ({res.returncode}): {res.stderr.strip()} -- it applies on the next drain"
-    return True, f"Enqueued & drained via loose-ends-queue ({res.stdout.strip()})"
+    })
 
 
 # -----------------------------------------------------------------------------
 # Terminal Presentation
 # -----------------------------------------------------------------------------
 
-def print_terminal_summary(repos: list[dict], duration: float, verbose: bool, unmanaged_agents: list[dict] = None):
+def print_terminal_summary(repos: list[dict], duration: float, verbose: bool, unmanaged_agents: list[dict] = None,
+                           worktree_summary: str | None = None):
     """Print colorized terminal summary."""
     is_tty = sys.stdout.isatty()
     B = "\033[1m" if is_tty else ""
@@ -550,6 +575,8 @@ def print_terminal_summary(repos: list[dict], duration: float, verbose: bool, un
 
     print(f"\n{B}myrepos Hygiene Summary{R} {D}({len(repos)} repos in {duration:.2f}s){R}")
     print(f"{'='*60}")
+    if worktree_summary:
+        print(f"{YL}Worktrees:{R} {worktree_summary}")
 
     if unmanaged_agents:
         print(f"{RD}{B}🤖 Unmanaged Agent Sessions Outside Tmux ({len(unmanaged_agents)} detected):{R}")
@@ -618,6 +645,10 @@ def main():
     parser.add_argument("--json", action="store_true", help="Output JSON results to stdout")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed stash stats")
     parser.add_argument("-q", "--quiet", action="store_true", help="Quiet mode (no terminal output)")
+    parser.add_argument("--worktrees", action="store_true", help="Scan abandoned worktrees even if today's report is fresh")
+    parser.add_argument("--no-worktrees", action="store_true", help="Do not scan worktrees; keep the last report")
+    parser.add_argument("--worktrees-only", action="store_true", help="Scan abandoned worktrees and skip the rest")
+    parser.add_argument("--no-fetch", action="store_true", help="Classify worktrees from the refs already fetched")
 
     args = parser.parse_args()
 
@@ -628,8 +659,47 @@ def main():
             print("No repositories found via `mr -d / ls`.")
         sys.exit(1)
 
+    wt = worktree_hygiene()
+    cache_path = args.db.parent / "worktrees.json"
+    stamp_path = args.db.parent / "worktrees.last"
+
+    def refresh_worktrees() -> dict:
+        report = wt.scan(paths, fetch=not args.no_fetch)
+        return wt.write_cache(cache_path, stamp_path, report, fetched=not args.no_fetch)
+
+    if args.worktrees_only:
+        payload = refresh_worktrees()
+        if not args.quiet:
+            print(payload["markdown"], end="")
+        if not args.no_loose_ends and args.loose_ends.exists():
+            if payload["item"]:
+                op = {
+                    "op": "upsert_by_prefix",
+                    "prefix": "**Repo Hygiene (Worktrees):**",
+                    "text": payload["item"],
+                    "writer": "mr-hygiene",
+                }
+            else:
+                op = {
+                    "op": "remove_by_prefix",
+                    "prefix": "**Repo Hygiene (Worktrees):**",
+                    "writer": "mr-hygiene",
+                }
+            ok, msg = enqueue_loose_ends(args.loose_ends, op)
+            if not ok:
+                print(f"[Note] {msg}", file=sys.stderr)
+        return
+
     with ThreadPoolExecutor(max_workers=8) as ex:
         repos = list(ex.map(inspect_repo, paths))
+
+    if not args.no_worktrees and (args.worktrees or wt.stamp_due(stamp_path)):
+        worktrees = refresh_worktrees()
+    else:
+        worktrees = wt.read_cache(cache_path)
+    worktree_markdown = worktrees["markdown"] if worktrees else ""
+    worktree_item = worktrees.get("item") if worktrees else None
+    worktree_summary = worktrees.get("summary") if worktrees else None
 
     duration = time.time() - t0
 
@@ -648,7 +718,7 @@ def main():
     if not args.no_md:
         try:
             args.md.parent.mkdir(parents=True, exist_ok=True)
-            md_content = generate_markdown(repos, duration, unmanaged_agents)
+            md_content = generate_markdown(repos, duration, unmanaged_agents, worktree_markdown)
             args.md.write_text(md_content, encoding="utf-8")
         except Exception as e:
             if not args.quiet:
@@ -656,7 +726,7 @@ def main():
 
     # 3. Update LOOSE-ENDS.md
     if not args.no_loose_ends and args.loose_ends.exists():
-        ok, msg = sync_loose_ends(repos, args.loose_ends, unmanaged_agents)
+        ok, msg = sync_loose_ends(repos, args.loose_ends, unmanaged_agents, worktree_item)
         if not ok:
             # Even --quiet reports this: a timer run logs stderr.
             print(f"[Note] {msg}", file=sys.stderr)
@@ -676,10 +746,11 @@ def main():
             "duration_sec": duration,
             "repos_count": len(repos),
             "unmanaged_agents": unmanaged_agents,
+            "worktrees": worktree_summary,
             "repos": repos
         }, indent=2))
     elif not args.quiet:
-        print_terminal_summary(repos, duration, args.verbose, unmanaged_agents)
+        print_terminal_summary(repos, duration, args.verbose, unmanaged_agents, worktree_summary)
 
 
 if __name__ == "__main__":

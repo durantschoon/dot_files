@@ -201,7 +201,19 @@ that repo's queue (`logs/loose-ends-queue/`, contract in its
 mr-hygiene             # scan all repos, update DB & reports, print summary
 mr-hygiene --verbose   # show detailed stash diffstat in terminal
 mr-hygiene --quiet     # silent run for launchd/cron timers
+mr-hygiene --worktrees # classify abandoned worktrees now, instead of once a day
 ```
+
+Once a day (stamp `~/.config/repo-hygiene/worktrees.last`) the same run also
+lists abandoned linked worktrees, including submodule worktrees, and writes
+the section into `REPO-HYGIENE.md`. It never deletes anything. A clean
+worktree whose branch is already in its landing branch is "safe"; one that
+landed only as an equivalent patch needs `git branch -D`; a dirty or
+unlanded worktree idle at least 3 days needs a look. Live envelope
+checkouts (`~/Repos/enveloped/e*`) and each repo's main worktree are
+skipped. The one-line count goes to `LOOSE-ENDS.md` through the same queue.
+Fetch failures are named in the section; the classification then uses the
+refs already on disk.
 
 It runs unattended on the **homebase** only -- the one machine where the
 agents live. `bin/homebase` owns that: a 10-minute timer (shepherd

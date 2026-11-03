@@ -7,7 +7,10 @@
 #   mr-hygiene --quiet     stash/dirty/drift scan of every myrepos repo; it
 #                          also feeds LOOSE-ENDS.md through the media-announce
 #                          queue and auto-kills critical tmux zombies
-#                          (via tmux-hygiene --auto-kill), once an hour
+#                          (via tmux-hygiene --auto-kill), once an hour.
+#                          The abandoned-worktree report inside that scan
+#                          runs once a day (stamp: ~/.config/repo-hygiene/
+#                          worktrees.last) and never deletes anything.
 #   autosave.sh            media-announce's snapshot of uncommitted work to
 #                          origin wip/<name>/<label>, every tick (10 min)
 #   mr-agents --refresh    update the editable Org activity table every tick;
@@ -46,6 +49,7 @@ state_dir=${HOMEBASE_STATE:-$HOME/.local/state/homebase}
 marker=$state_dir/active
 log_file=$state_dir/tick.log
 hygiene_stamp=$state_dir/mr-hygiene.last
+worktree_stamp=${HOME}/.config/repo-hygiene/worktrees.last
 tick_lock=$state_dir/tick.lock   # global: the EXIT trap outlives tick()
 hygiene_minutes=${HOMEBASE_HYGIENE_MINUTES:-55}
 autosave_repo=${HOMEBASE_AUTOSAVE_REPO:-$HOME/Repos/ds/media-announce}
@@ -235,6 +239,7 @@ status() {
   fi
   scheduler_status
   echo "mr-hygiene last ok: $( [ -e "$hygiene_stamp" ] && echo "$(minutes_since "$hygiene_stamp") min ago" || echo never)"
+  echo "worktrees last scan: $( [ -e "$worktree_stamp" ] && echo "$(minutes_since "$worktree_stamp") min ago" || echo never)"
   command -v python3 >/dev/null 2>&1 || echo "WARNING:   no python3 on PATH (mr-hygiene cannot run)"
   if [ -f "$log_file" ]; then
     echo "last log lines:"
