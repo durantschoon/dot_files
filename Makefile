@@ -345,7 +345,7 @@ help-text:
 	@echo ""
 	@echo "Emacs Remote Server:"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
-	@echo "  make emacs-attach  - Attach to a remote daemon (default: EMACS_HOST=$$(HOME_BASE))"
+	@echo "  make emacs-attach  - Attach to a remote daemon (default: EMACS_HOST=$$(HOMEBASE))"
 	@echo "  make emacs-unserve - Stop the Emacs daemon"
 	@echo ""
 	@echo "Verification and Smoke Tests:"
@@ -2793,7 +2793,7 @@ endif
 # is checked as carefully as the process.
 #
 # It also asserts the NAME, because the name is load-bearing here: EMACS_HOST
-# defaults to $(HOME_BASE) (orb-guix; previously minius) and the `eam' alias
+# defaults to $(HOMEBASE) (orb-guix; previously minius) and the `eam' alias
 # uses it, so both reach this machine by its MagicDNS name.  When a node re-registers while its name is
 # still held by another node -- which is exactly what happened moving off the
 # App Store app, since the daemon generates a fresh node key rather than
@@ -3687,12 +3687,11 @@ reconfigure: check-system
 # ---------------------------------------------------------------------------
 .PHONY: emacs-serve emacs-receive-ssh emacs-unserve emacs-attach emacs-connect-ssh
 
-# Default home base machine on the tailnet (override: HOME_BASE=... or HOMEBASE=...)
+# Default home base machine on the tailnet (override: HOMEBASE=...)
 HOMEBASE ?= orb-guix
-HOME_BASE ?= $(HOMEBASE)
 
 # Host running `make emacs-serve`. Override: make emacs-attach EMACS_HOST=geeeks
-EMACS_HOST ?= $(HOME_BASE)
+EMACS_HOST ?= $(HOMEBASE)
 # Use a full path here if ssh's non-interactive shell can't find emacsclient,
 # e.g. make emacs-attach REMOTE_EMACSCLIENT=/opt/homebrew/bin/emacsclient
 REMOTE_EMACSCLIENT ?= emacsclient
@@ -3775,12 +3774,12 @@ emacs-serve:
 	echo ""; \
 	echo "  # Or, from a checkout of this repo on the other machine:"; \
 	TARGET_HOST="$${TS_HOST:-$$SHORT_HOST.local}"; \
-	if [ "$$TARGET_HOST" = "$(HOME_BASE)" ]; then \
+	if [ "$$TARGET_HOST" = "$(HOMEBASE)" ]; then \
 	  echo "  make emacs-attach EMACS_HOST=$$TARGET_HOST"; \
-	  echo "  # (EMACS_HOST=$$TARGET_HOST is the default because HOME_BASE is set to $(HOME_BASE) on all tailscale machines: bare 'make emacs-attach' works directly)"; \
+	  echo "  # (EMACS_HOST=$$TARGET_HOST is the default because HOMEBASE is set to $(HOMEBASE) on all tailscale machines: bare 'make emacs-attach' works directly)"; \
 	else \
 	  echo "  make emacs-attach EMACS_HOST=$$TARGET_HOST"; \
-	  echo "  # (EMACS_HOST defaults to $(HOME_BASE) via HOME_BASE on all tailscale machines; override with EMACS_HOST=$$TARGET_HOST)"; \
+	  echo "  # (EMACS_HOST defaults to $(HOMEBASE) on all tailscale machines; override with EMACS_HOST=$$TARGET_HOST)"; \
 	fi; \
 	echo ""; \
 	echo "=== Read-only peek (no attaching, no stray keystrokes) ==="; \
@@ -3806,8 +3805,8 @@ emacs-serve:
 emacs-attach:
 	@echo ""
 	@echo "=== Attaching to the Emacs daemon on $(EMACS_HOST) ==="
-	@if [ "$(EMACS_HOST)" = "$(HOME_BASE)" ]; then \
-	  echo "  (using default HOME_BASE=$(HOME_BASE); override with EMACS_HOST=<host>)"; \
+	@if [ "$(EMACS_HOST)" = "$(HOMEBASE)" ]; then \
+	  echo "  (using default HOMEBASE=$(HOMEBASE); override with EMACS_HOST=<host>)"; \
 	fi
 	@echo ""
 	@echo "  ssh -t $(EMACS_HOST) $(REMOTE_EMACSCLIENT) -t"
