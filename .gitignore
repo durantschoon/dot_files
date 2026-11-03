@@ -28,3 +28,7 @@ espanso/match/private.yml
 # safety net in case a .secrets.env is ever created inside the repo dir.
 .secrets.env
 logs/
+
+# Voice prototype runtime leftovers (server log and the local Gradio cert).
+server.log
+.gradio/
