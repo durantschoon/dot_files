@@ -49,7 +49,7 @@ class AgentsTest(unittest.TestCase):
                 rows = module.census(registry=registry)
             self.assertEqual(len(rows), 3)
             by_name = {row["session"]: row for row in rows}
-            self.assertEqual(by_name["renamed"]["repo"], str(repo))
+            self.assertEqual(by_name["renamed"]["repo"], str(repo.resolve()))
             self.assertEqual(by_name["renamed"]["state"], "RUNNING")
             self.assertEqual(by_name["renamed"]["headline"], "adversarial | suite")
             self.assertEqual(by_name["repo-missing"]["state"], "MISSING")
