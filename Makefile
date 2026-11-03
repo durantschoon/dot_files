@@ -334,9 +334,13 @@ help-text:
 	@echo "  make setup-locale - Generate LOCALE (default en_US.UTF-8) for the distro glibc"
 	@echo "                       (foreign distros such as orb-guix and WSL; apt; needs root)"
 	@echo "  make check-locale - Verify LOCALE is installed (fixes setlocale warnings)"
-	@echo "  make setup-radicle - Run radicle-node as a LaunchAgent so it survives reboots (mac only;"
-	@echo "                       stops a hand-started node first, see docs/MYREPOS.md)"
-	@echo "  make check-radicle - Verify rad, the identity, the LaunchAgent and the node"
+	@echo "  make install-radicle - brew install radicle (mac; part of setup-native; Guix: layer 'radicle')"
+	@echo "  make setup-radicle - Run radicle-node so it survives reboots: a LaunchAgent on mac,"
+	@echo "                       the Shepherd service elsewhere (stops a hand-started node first)"
+	@echo "  make check-radicle - Verify rad, git-remote-rad, the identity, the service and the node"
+	@echo "  make agent-permissions - Grant git branch -D / worktree remove / worktree prune"
+	@echo "                       to Claude Code, Codex, and the Cursor CLI (agy has no allowlist)"
+	@echo "  make check-agent-permissions - Smoke-test that grant and report gaps (part of make check)"
 	@echo ""
 	@echo "Emacs Remote Server:"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
@@ -388,7 +392,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude install-uv install-agy install-herdr setup-sshd
+setup-native: set_up_links install-claude install-uv install-agy install-herdr install-radicle setup-sshd
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
@@ -681,6 +685,8 @@ endif
 	@# Codex writes its own config.toml, so merge the repo's keys in rather
 	@# than linking it (Guix Home does the same at activation)
 	$(CURDIR)/bin/codex-defaults
+	@# Worktree-cleanup grants.  Same merge the Guix activation runs.
+	$(CURDIR)/bin/agent-permissions
 	@# Yazi keymap config
 	@mkdir -p ~/.config/yazi
 	@if [ -f ~/dot_files/yazi/keymap.toml ]; then \
@@ -2062,7 +2068,7 @@ check-locale:
 	  exit 1; \
 	fi
 
-.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container guix-container-stop guix-container-restart setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge setup-radicle check-radicle setup-protondrive check-protondrive
+.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container guix-container-stop guix-container-restart setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge install-radicle setup-radicle check-radicle agent-permissions check-agent-permissions setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -2365,13 +2371,16 @@ check-container-tailscale:
 
 # The Radicle node (rad://... remotes, e.g. the GIPS submodule of
 # Repos/enveloped/eGIPS) as a LaunchAgent, so it is up after a reboot instead
-# of only when someone remembered `rad node start'.  Mac only: the Guix hosts
-# would want a Shepherd service instead.  A template like the gpg bridge
+# of only when someone remembered `rad node start'.  On the Guix hosts the
+# 'radicle' layer in home/common.scm installs rad/radicle-node/git-remote-rad
+# and declares a `radicle-node' Shepherd service instead; setup-radicle there
+# (re)starts that service.  A template like the gpg bridge
 # (radicle-node's brew prefix, the log path), so the drift check compares
 # against a fresh render.  setup stops a node that is already running --
 # typically one from `rad node start' -- because two nodes cannot share
 # ~/.radicle/node/control.sock.  The identity itself (`rad auth') is NOT
-# created here: it is a key pair, made once per person, interactively.
+# created here: it is a key pair, made once per person, interactively.  Until
+# it exists the zsh login warning in .shared.zshrc says so in every new shell.
 RADICLE_LABEL     := com.durantschoon.radicle-node
 RADICLE_PLIST_SRC := system/launchd/$(RADICLE_LABEL).plist
 RADICLE_PLIST_DST := $(HOME)/Library/LaunchAgents/$(RADICLE_LABEL).plist
@@ -2382,10 +2391,31 @@ render-radicle-plist = sed -e 's|@RADICLE_NODE@|$(RADICLE_NODE_BIN)|' \
 	  -e 's|@PATH@|$(patsubst %/,%,$(dir $(RADICLE_NODE_BIN))):/usr/bin:/bin:/usr/sbin:/sbin|' \
 	  -e 's|@LOG@|$(RADICLE_LOG)|' $(RADICLE_PLIST_SRC)
 
+install-radicle:
+ifeq ($(os),$(OS_MAC))
+	@command -v rad >/dev/null 2>&1 || brew install radicle
+else
+	@command -v rad >/dev/null 2>&1 \
+	  || echo "  *** rad not found: on Guix hosts run 'make apply' (layer 'radicle'); elsewhere see https://radicle.xyz/install ***"
+endif
+
 setup-radicle:
 ifneq ("$(os)","$(OS_MAC)")
-	@echo "  *** setup-radicle is mac-only (detected $(os)) ***"
-	@exit 1
+	@command -v herd >/dev/null 2>&1 && herd status radicle-node >/dev/null 2>&1 || { \
+	  echo "  *** no radicle-node Shepherd service here: run 'make apply' (Guix Home layer 'radicle') ***"; exit 1; }
+	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
+	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
+	  echo "  *** $(RADICLE_HOME)/keys/radicle has a passphrase; Shepherd cannot type it. ***"; \
+	  echo "      keep using 'rad node start' in a terminal, or remove it: ssh-keygen -p -f $(RADICLE_HOME)/keys/radicle"; \
+	  exit 1; }
+	@if ! herd status radicle-node 2>/dev/null | grep -q 'It is running\|running since' && pgrep -x radicle-node >/dev/null; then \
+	  echo "==> stopping the hand-started node (pid $$(pgrep -x radicle-node | tr '\n' ' '))"; \
+	  rad node stop >/dev/null 2>&1 || pkill -x radicle-node || true; \
+	  i=0; while pgrep -x radicle-node >/dev/null && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	fi
+	@herd restart radicle-node
+	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
+	@$(MAKE) --no-print-directory check-radicle
 else
 	@test -n "$(RADICLE_NODE_BIN)" || { echo "  *** radicle-node not found: brew install radicle ***"; exit 1; }
 	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
@@ -2415,6 +2445,11 @@ check-radicle:
 	else \
 	  echo "    [ok] rad         : $$(rad --version)"; \
 	fi; \
+	if ! command -v git-remote-rad >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] git-remote-rad: missing, so 'git fetch' from rad:// fails; fix: make install-radicle"; \
+	else \
+	  echo "    [ok] git-remote-rad: $$(command -v git-remote-rad)"; \
+	fi; \
 	if ! rad self --did >/dev/null 2>&1; then \
 	  rc=1; echo "    [--] identity    : none; fix: rad auth"; \
 	else \
@@ -2431,14 +2466,27 @@ check-radicle:
 	  else \
 	    echo "    [ok] LaunchAgent : $(RADICLE_LABEL) running"; \
 	  fi; \
+	elif command -v herd >/dev/null 2>&1; then \
+	  if ! herd status radicle-node >/dev/null 2>&1; then \
+	    rc=1; echo "    [--] Shepherd    : no radicle-node service; fix: make apply (layer 'radicle')"; \
+	  else \
+	    echo "    [ok] Shepherd    : radicle-node service declared"; \
+	  fi; \
 	fi; \
 	if ! rad node status >/dev/null 2>&1; then \
-	  rc=1; echo "    [--] node        : not running; fix: make setup-radicle (mac) or rad node start"; \
+	  rc=1; echo "    [--] node        : not running; fix: make setup-radicle"; \
 	else \
 	  peers=$$(rad node status 2>/dev/null | grep -c 'z6Mk.*✓' || true); \
 	  echo "    [ok] node        : running, $$peers connected peer(s)"; \
 	fi; \
 	exit $$rc
+
+agent-permissions:
+	$(CURDIR)/bin/agent-permissions
+
+check-agent-permissions:
+	@sh tests/agent-permissions-smoke.sh
+	@$(CURDIR)/bin/agent-permissions --check
 
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
@@ -3267,8 +3315,12 @@ check-home-ownership:
 # change none of it, so the no-side-effects contract below still holds, and off
 # WSL the target degrades to a single printed line.  (check-guix-container is
 # absent by contrast because it needs a running container, not because reaching
-# across to Windows is itself disqualifying.)
-check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs
+# across to Windows is itself disqualifying.)  check-radicle probes too (rad
+# self, rad node status, herd/launchctl status) and is here so a machine whose
+# rad:// remotes cannot fetch fails `make check' instead of a morning review.
+# check-agent-permissions reads the grant files and runs a scratch-HOME smoke
+# test; it writes nothing.
+check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

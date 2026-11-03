@@ -159,6 +159,22 @@ fi
 
 export SPACEMACSDIR=$HOME/.spacemacs.d
 
+#########
+# Radicle
+#########
+
+# rad:// remotes (the GIPS submodule) need a running radicle-node to push,
+# and git-remote-rad to fetch.  Nag once per new shell while either is
+# missing, so a machine without `rad auth' does not go unnoticed until a
+# fetch fails.  RADICLE_WARN=0 silences it; `make check-radicle' explains.
+if [[ ${RADICLE_WARN:-1} != 0 ]] && (( $+commands[rad] )); then
+    if ! (( $+commands[git-remote-rad] )); then
+        print -u2 "radicle: git-remote-rad missing -- make -C ~/dot_files check-radicle"
+    elif ! pgrep -x radicle-node >/dev/null 2>&1; then
+        print -u2 "radicle: node not running -- make -C ~/dot_files check-radicle"
+    fi
+fi
+
 ######
 # misc
 ######

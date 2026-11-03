@@ -965,6 +965,17 @@ call, so extensions never collide; only genuine double ownership does."
                                   ":" #$(file-append (specification->package "gawk") "/bin"))
                                  #$(file-append bash "/bin/bash")
                                  #$(local-file "../bin/codex-defaults")))
+      ;; Worktree-cleanup grants (git branch -D, git worktree remove/prune).
+      ;; Claude Code and the Cursor CLI rewrite their JSON configs, and Codex
+      ;; owns the rest of rules/, so this merges rather than linking.  See
+      ;; bin/agent-permissions.
+      (simple-service 'agent-permissions-activation home-activation-service-type
+                      #~(unless
+                         (zero?
+                          (system* #$(file-append (specification->package "python")
+                                                  "/bin/python3")
+                                   #$(local-file "../bin/agent-permissions")))
+                         (error "agent-permissions activation failed")))
       (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
                      `(".tmux.conf" ,(local-file "../.tmux.conf" "tmux.conf"))
@@ -1526,6 +1537,43 @@ call, so extensions never collide; only genuine double ownership does."
                       #:documentation
                       "Run `homebase tick' every 10 minutes; a no-op unless this machine is the homebase."))))))
 
+;; radicle: rad, radicle-node and git-remote-rad, for rad://... remotes (the
+;; GIPS submodule of Repos/enveloped/eGIPS; without git-remote-rad, `git
+;; fetch' there dies with "remote helper 'rad' aborted session").  The node
+;; runs as a Shepherd service -- the counterpart of the mac LaunchAgent that
+;; `make setup-radicle' installs.  The identity (`rad auth') is made once per
+;; person, interactively, so the start is gated on the key existing: without
+;; it the service stays stopped, and `make check-radicle' plus the login
+;; warning in .shared.zshrc say what to run.  A passphrase-protected key makes
+;; the node exit at once; respawn then gives up, and check-radicle reports it.
+(define %radicle-layer
+  (layer
+   #:name 'radicle
+   #:synopsis "Radicle CLI + git-remote-rad, and radicle-node under Shepherd"
+   #:packages '("radicle")
+   #:services
+   (list
+    (simple-service 'radicle-node home-shepherd-service-type
+                    (list
+                     (shepherd-service
+                      (provision '(radicle-node))
+                      (documentation "Radicle node for rad:// remotes; needs `rad auth' first.")
+                      (start #~(lambda args
+                                 (let* ((home (or (getenv "RAD_HOME")
+                                                  (string-append (getenv "HOME") "/.radicle")))
+                                        (key (string-append home "/keys/radicle")))
+                                   (if (file-exists? key)
+                                       (apply (make-forkexec-constructor
+                                               (list #$(file-append (specification->package "radicle")
+                                                                    "/bin/radicle-node")))
+                                              args)
+                                       (begin
+                                         (format #t "radicle-node: no identity at ~a; run `rad auth', then `make setup-radicle'~%" key)
+                                         #f)))))
+                      (stop #~(make-kill-destructor))
+                      (respawn? #t)
+                      (auto-start? #t)))))))
+
 ;; Enabled layers, in service order.  A machine wanting a subset passes its
 ;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
 (define %default-layers
@@ -1540,7 +1588,8 @@ call, so extensions never collide; only genuine double ownership does."
         %espanso-layer
         %claude-code-layer
         %gemini-layer
-        %homebase-layer))
+        %homebase-layer
+        %radicle-layer))
 
 (define* (dotfiles-home session #:key (layers %default-layers)
                         (extra-services '()))
