@@ -129,8 +129,7 @@ if [[ -z "${ENVELOPE_MAIN_DIR:-}" ]]; then
 fi
 
 # Default 'home base' host across all tailscale machines
-export HOME_BASE="${HOME_BASE:-orb-guix}"
-export HOMEBASE="${HOMEBASE:-$HOME_BASE}"
+export HOMEBASE="${HOMEBASE:-orb-guix}"
 
 # Default timezone across all environments (America/New_York follows EDT/EST)
 export TZ="${TZ:-America/New_York}"

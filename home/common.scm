@@ -928,7 +928,6 @@ call, so extensions never collide; only genuine double ownership does."
       (simple-service 'dotfiles-environment-variables
                       home-environment-variables-service-type
                       '(("PATH" . "$HOME/.local/bin:$HOME/bin:$PATH")
-                        ("HOME_BASE" . "orb-guix")
                         ("HOMEBASE" . "orb-guix")
                         ("TZ" . "America/New_York")))
       (simple-service 'local-bin-activation home-activation-service-type

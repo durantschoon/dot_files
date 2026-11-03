@@ -373,7 +373,7 @@ alias geeeks='ssh durant@geeeks'
 # -----------------------------------------------------------------------------
 
 # eam = Emacs Attach Make. Attaches a terminal frame to the Emacs daemon
-# running on the home base (EMACS_HOST defaults to HOME_BASE, orb-guix). The make
+# running on the home base (EMACS_HOST defaults to HOMEBASE, orb-guix). The make
 # target echoes the ssh command it runs, so you don't have to remember the two -t flags.
 # Extra args pass straight through to make, e.g.
 #   eam EMACS_HOST=minius
