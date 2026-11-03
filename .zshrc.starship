@@ -1,8 +1,11 @@
 # -*- mode: shell-script -*-
 
-# Set umask for better file permissions (group-writable)
-# This helps when working as root in Docker containers with mounted volumes
-umask 002
+# umask 002 (group-writable files) helps when working as root in Docker
+# containers with mounted volumes.  Not on macOS: there it makes every
+# directory Homebrew creates group-writable, and compinit then refuses the
+# completion dirs under /opt/homebrew/share ("insecure directories") on every
+# new shell.  macOS keeps the default 022.
+[[ "$OSTYPE" == darwin* ]] || umask 002
 
 # Custom completion function path (must precede compinit so completions are indexed)
 mkdir -p ~/.zfunc
@@ -17,9 +20,26 @@ EOF
 fi
 fpath=(~/.zsh ~/.zfunc $fpath)
 
-# Enable completion system
-autoload -Uz compinit
-compinit
+# Enable completion system.
+#
+# Plain `compinit' stops to ask "Ignore insecure directories and continue?"
+# whenever compaudit dislikes a dir in fpath or one of its PARENTS -- on macOS
+# typically a group-writable /opt/homebrew/share, the parent of Homebrew's
+# zsh-completions dir.  Homebrew's own fix is `chmod -R go-w $(brew
+# --prefix)/share'; `make set_up_links' runs it.  A new shell must never block
+# on that question, so audit first: if something is insecure, say what and how
+# to fix it, then load with -i, which skips the insecure dirs instead of asking.
+# ZSH_DISABLE_COMPFIX in .mac.zshenv does not help here -- oh-my-zsh reads
+# it, compinit does not.  compaudit lists the dirs on stdout, header on stderr.
+autoload -Uz compinit compaudit
+if _insecure_dirs=$(compaudit 2>/dev/null); [[ -z "$_insecure_dirs" ]]; then
+    compinit
+else
+    print -u2 "compinit: skipping insecure completion dirs: ${(f)_insecure_dirs}"
+    print -u2 "          fix: chmod -R go-w ${(f)_insecure_dirs}   (then open a new shell)"
+    compinit -i
+fi
+unset _insecure_dirs
 
 # History configuration
 HISTFILE=~/.zsh_history
@@ -45,22 +65,12 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 # Load aliases
 [[ -f $HOME/.aliases ]] && source $HOME/.aliases
 
-# Shared configuration is NOT sourced here.
-#
-# There used to be `[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc', which is
-# dead under guix home and looks like a missing file when you go looking: no
-# ~/.shared.zshrc link exists, so the [ -f ] guard fails and the line silently
-# does nothing.
-#
-# That is not a broken deployment. home-zsh-configuration CONCATENATES the files
-# in its `zshrc' field into one ~/.config/zsh/.zshrc rather than symlinking each
-# into $HOME -- .shared.zshrc is the next entry in that list, so its contents
-# already follow this file's, in order, with nothing to source. (Confirmed: the
-# generated .zshrc is 254 lines and contains .shared.zshrc's definitions.)
-#
-# Restoring the line would be actively wrong -- if ~/.shared.zshrc ever did
-# exist, everything in it would run twice.  Machines that DO symlink it into
-# $HOME use the top-level .zshrc, which keeps its own copy of the line.
+[ -f ~/.shared.zshrc ] && source ~/.shared.zshrc
+
+# Guix Home ignores the above line because it does not create a ~/.shared.zshrc symlink
+# (it concatenates .shared.zshrc directly into ~/.config/zsh/.zshrc).
+# However, Mac native environments DO create the ~/.shared.zshrc symlink and MUST source it 
+# here, otherwise they lose autojump, nvm, and other shared configs!
 
 # Environment-specific configuration
 [[ -f ~/.HOME && -f ~/dot_files/.home.zshrc ]] && source ~/dot_files/.home.zshrc
@@ -68,9 +78,19 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 
 # Initialize starship prompt
 if command -v starship >/dev/null 2>&1; then
+    [[ -z "$STARSHIP_CONFIG" && ! -f "$HOME/.config/starship.toml" && -f "$HOME/dot_files/starship/starship.toml" ]] && export STARSHIP_CONFIG="$HOME/dot_files/starship/starship.toml"
     eval "$(starship init zsh)"
+    # Starship's right prompt shows the history event number (%h, the N in
+    # !N), but starship is a child process: hand it over in the environment.
+    _starship_export_histno() { export STARSHIP_HISTNO=${(%):-%h} }
+    autoload -Uz add-zsh-hook
+    add-zsh-hook precmd _starship_export_histno
 else
-    echo "Starship not found. Install with: guix install starship"
+    if [[ "$OSTYPE" == darwin* ]]; then
+        echo "Starship not found. Install with: brew install starship  (make set_up_links does this)"
+    else
+        echo "Starship not found. Install with: guix install starship"
+    fi
     # Fallback prompt
     PROMPT='%n@%m %2~ %# '
 fi
@@ -78,12 +98,25 @@ fi
 # GPG configuration
 export GPG_TTY=$(tty)
 
+# Over ssh or in bare Linux console TTYs (where no GUI windowing system is
+# present to render pinentry-gnome3), ask for the passphrase in THIS terminal.
+# Otherwise explicitly set USE_GUI=1 so gpg sends OPTION pinentry-user-data to
+# gpg-agent, overriding any USE_TTY=1 baked into gpg-agent's own startup env
+# if the daemon was originally autostarted from an ssh session.
+if [[ -n "$SSH_CONNECTION" || ( "$OSTYPE" == linux* && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" && ! -d /mnt/wslg ) ]]; then
+    export PINENTRY_USER_DATA=USE_TTY=1
+else
+    export PINENTRY_USER_DATA=USE_GUI=1
+fi
+
 # Tell gpg-agent which terminal to prompt on for SSH.  GPG_TTY above only
 # reaches gpg-agent from gpg itself; ssh never passes it, so for a `git push'
 # the agent uses the terminal last registered by updatestartuptty.  Where there
-# is no graphical prompter (WSL: WSLg has a display but no GNOME gcr-prompter,
-# so pinentry-gnome3 falls back to the terminal), an unregistered or closed
-# terminal means "agent refused operation" and the push fails.
+# is no graphical prompter (a headless box, where pinentry-gnome3 finds no gcr
+# prompter and falls back to the terminal), an unregistered or closed terminal
+# means "agent refused operation" and the push fails.  WSL was that case until
+# the pinentry-auto chooser gave it a WSLg window; `make check-ssh-with-gpg-for-egress' says which
+# one a machine is in.
 #
 # Trade-off: this points the agent at the most recently opened shell, so an
 # unlock prompt can land in a different window from the one you pushed from.
@@ -104,6 +137,8 @@ fi
 # copy of dir every time.  (That is what put .console-ninja/.bin at both position
 # 1 and position 4.)  The array form is idempotent, so re-adding costs nothing.
 add_to_front_of_path "$HOME/.console-ninja/.bin"
+add_to_front_of_path "$HOME/.local/bin"
+add_to_front_of_path "$HOME/bin"
 
 # AVN (if available)
 [[ -s "$HOME/.avn/bin/avn.sh" ]] && source "$HOME/.avn/bin/avn.sh"
@@ -114,4 +149,39 @@ if [[ -z "$INSIDE_EMACS" ]]; then
     precmd() {
         echo -ne "\e]1;${PWD##*/}\a"
     }
+fi
+
+# On cd into ~/dot_files, remind which command applies this host's config.
+# Runs on cd only (not at shell start), and only in interactive shells.
+# The OrbStack guix container gets a random hostname, so it is recognised
+# by /proc/version, and Termux by $TERMUX_VERSION or its data directory,
+# as the Makefile's flavor detection does.
+function dotfiles_apply_hint() {
+    [[ -o interactive ]] || return
+    [[ "${PWD:A}" == "${${:-$HOME/dot_files}:A}" ]] || return
+    local short_host="${(L)HOST%%.*}"
+    local hint
+    if grep -qi orbstack /proc/version 2>/dev/null; then
+        hint="you're in orb-guix, you run: make apply\ngpg broken here? on the Mac: make check-gpg-bridge"
+    elif [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux ]]; then
+        hint="you're on your android phone, just pull and source your z dots: git pull && source ~/.zshrc"
+    else
+        case "$short_host" in
+            android_termux) hint="you're on your android phone, just pull and source your z dots: git pull && source ~/.zshrc" ;;
+            barnowl) hint="you're on barnowl (WSL), you run: make apply (Guix the package manager + guix home; no Guix System here, so not apply-wayland)" ;;
+            minius)  hint="you're on minius, you just pull and source your z dots: git pull && source ~/.zshrc (but see if you can do everything in orb-guix, where you run: make apply)\n%B%F{red}▶ REMINDER: You want to run Herdr in Guix (orb-guix)!%b" ;;
+            geeeks)  hint="you're on geeeks, you run: make apply-wayland (feeling adventurous? make apply-ewm for the EWM trial; back out with: guix home roll-back)" ;;
+            *)       return ;;
+        esac
+    fi
+    print -P "%F{yellow}${hint}%f"
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd dotfiles_apply_hint
+
+# zsh-autosuggestions
+if [ -f ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+    source ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+elif [ -f /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+    source /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 fi

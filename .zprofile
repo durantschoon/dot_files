@@ -5,18 +5,13 @@
 
 # [[ -f ~/.bash_profile ]] && . ~/.bash_profile  # Commented out for performance
 
-# if I'm on a mac, load the mac-specific profile
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    # instead of evaluating, I'll just set the values
-    # eval "$(/opt/homebrew/bin/brew shellenv)"
-
-    export HOMEBREW_PREFIX="/opt/homebrew";
-    export HOMEBREW_CELLAR="/opt/homebrew/Cellar";
-    export HOMEBREW_REPOSITORY="/opt/homebrew";
-    fpath[1,0]="/opt/homebrew/share/zsh/site-functions";
-    PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/Users/durant/.avn/bin:/Users/durant/.console-ninja/.bin:/Users/durant/.bun/bin:/Applications/Visual Studio Code.app/Contents/Resources/app/bin:/Users/durant/.nvm/versions/node/v22.5.1/bin:/Users/durant/.pyenv/shims:/Users/durant/.pyenv/bin:/opt/homebrew/opt/gcc/bin:/usr/local/bin:/Users/durant/Library/pnpm:/Users/durant/.codeium/windsurf/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/X11/bin:/Library/Apple/usr/bin:/usr/local/MacGPG2/bin:/usr/local/go/bin:/Users/durant/.sdkman/candidates/java/current/bin:/Users/durant/.cargo/bin:/Applications/iTerm.app/Contents/Resources/utilities:/Users/durant/.local/bin:/Users/durant/.nvm/versions/node/v22.5.1/lib/node_modules"; export PATH;
-    [ -z "${MANPATH-}" ] || export MANPATH=":${MANPATH#:}";
-    export INFOPATH="/opt/homebrew/share/info:${INFOPATH:-}";
+# if I'm on a mac, load Homebrew's environment.  Evaluated, not pasted: an
+# earlier copy hardcoded the PATH string a 2024 `brew shellenv' printed, which
+# froze a Node version that no longer exists.  shellenv prepends /opt/homebrew
+# again even though .zshenv already added it; the path=() rebuild below
+# collapses the duplicate via `typeset -U path'.
+if [[ "$OSTYPE" == "darwin"* && -x /opt/homebrew/bin/brew ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
 fi
 
 ###############################################################################
@@ -63,4 +58,18 @@ if typeset -f add_to_front_of_path > /dev/null; then
     add_to_front_of_path "$HOME/bin"
 else
     echo ".zprofile: add_to_front_of_path undefined -- is .shared.zshenv deployed?" >&2
+fi
+
+###############################################################################
+# Linux Virtual Terminal (TTY) console defaults
+#
+# When logging in on a raw console (/dev/tty1..tty8) without a graphical display,
+# automatically apply the 32px Terminus Powerline font and configure curses pinentry.
+if [[ "$OSTYPE" == "linux"* && -n "$TTY" && "$TTY" =~ ^/dev/tty[0-9]+$ && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" ]]; then
+    export PINENTRY_USER_DATA="USE_TTY=1"
+    export GPG_TTY="$TTY"
+    command -v gpg-connect-agent >/dev/null 2>&1 && gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true
+    if [[ -f "$HOME/.local/share/consolefonts/ter-powerline-v32n.psf.gz" ]] && command -v setfont >/dev/null 2>&1; then
+        setfont "$HOME/.local/share/consolefonts/ter-powerline-v32n.psf.gz" 2>/dev/null || true
+    fi
 fi

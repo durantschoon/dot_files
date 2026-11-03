@@ -1,0 +1,48 @@
+#!/bin/sh
+# Migrate this user's Bitbucket SSH settings without network access.
+set -eu
+umask 077
+mkdir -p "$HOME/.ssh"
+
+# Published at https://bitbucket.org/site/ssh (verified 2026-10-20).
+# Atlassian's migration notice confirms these keys also serve ssh.bitbucket.org.
+# Pin Ed25519; keep every existing known_hosts entry (including hashed ones).
+key='ssh.bitbucket.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIazEu89wgQZ4bqs3d63QSMzYVa0MuJ2e2gKTKqu+UUO'
+known="$HOME/.ssh/known_hosts"
+touch "$known"
+if ! grep -qxF "$key" "$known"; then
+    printf '\n%s\n' "$key" >> "$known"
+fi
+
+# Keep legacy per-host identity choices when Git starts using the new host.
+# Only touch explicit bitbucket.org Host blocks, preserving other hosts.
+# Include files and bespoke aliases remain machine-specific; see docs.
+config="$HOME/.ssh/config"
+if [ -f "$config" ]; then
+    tmp=$(mktemp "$HOME/.ssh/bitbucket-config.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT HUP INT TERM
+    awk '
+        tolower($1) == "host" {
+            legacy = 0; migrated = 0
+            for (i = 2; i <= NF && $i !~ /^#/; i++) {
+                if (tolower($i) == "bitbucket.org") legacy = 1
+                if (tolower($i) == "ssh.bitbucket.org") migrated = 1
+            }
+            if (legacy && !migrated)
+                sub(/[Bb][Ii][Tt][Bb][Uu][Cc][Kk][Ee][Tt]\.[Oo][Rr][Gg]/,
+                    "bitbucket.org ssh.bitbucket.org")
+        }
+        tolower($1) == "match" { legacy = 0 }
+        legacy && tolower($1) == "hostname" && tolower($2) == "bitbucket.org" {
+            sub(/[Bb][Ii][Tt][Bb][Uu][Cc][Kk][Ee][Tt]\.[Oo][Rr][Gg]/,
+                "ssh.bitbucket.org")
+        }
+        { print }
+    ' "$config" > "$tmp"
+    # Write through any existing symlink, retaining its target and permissions.
+    if ! cmp -s "$config" "$tmp"; then
+        cp -p "$config" "$config.before-bitbucket-ssh"
+        cat "$tmp" > "$config"
+    fi
+fi
+echo 'Bitbucket SSH host trust and legacy Host blocks are up to date.'

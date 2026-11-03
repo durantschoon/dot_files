@@ -18,12 +18,52 @@ graphical session to configure is the one place the machine reaches into
 `home/`. Everything past that fact — which fonts, which editor, which shell —
 does not care.
 
+## Incoming SSH on every install
+
+`make apply`, `make apply-wayland`, `make apply-ewm` and `make setup-native`
+run `make setup-sshd-for-ingress` automatically.
+`make check-sshd-for-ingress` checks the server.
+`make check-ssh-with-gpg-for-egress` checks the client-side GPG/SSH agent.
+
+- On Guix System, the system declaration owns sshd and its key allowlist;
+  setup starts the declared `ssh-daemon` service without rewriting its config.
+- On foreign Linux systems (including WSL), setup installs the distro's
+  OpenSSH server, authorizes `system/keys/minius.pub` for the invoking account,
+  disables root/password/keyboard-interactive login, validates configuration,
+  then enables and starts/reloads the systemd SSH service. Existing authorized
+  keys are preserved. Run with `SSH_LOGIN_USER=durant` if provisioning as root.
+  WSL needs systemd enabled; service startup applies while WSL is running,
+  not while the Windows host has stopped the distro.
+- On macOS, setup authorizes the same public key and enables built-in Remote
+  Login. macOS privacy permissions may require a one-time manual enable in
+  System Settings > General > Sharing; a failed enable is reported, not hidden.
+  Existing macOS authentication policy remains in place.
+- In containers such as orb-guix, setup enables Tailscale SSH, using the
+  existing `setup-container-tailscale` bootstrap if needed. Tailnet login and
+  access rules still apply. No second OpenSSH daemon is installed.
+- On Termux, setup installs/starts OpenSSH with public-key authentication on
+  its default port 8022. Android process lifetime applies; automatic restart
+  after reboot requires Termux:Boot or another Android startup mechanism.
+
+The script uses sudo when host-level changes require it. Guix Home packages
+alone do not install a distro service. Linux setup uses `/usr/sbin/sshd` so a
+Guix profile binary on PATH cannot accidentally validate the wrong daemon.
+The Linux policy is included first in `/etc/ssh/sshd_config`; the first update
+backs up that file as `sshd_config.before-dot-files`. This does not open firewall
+ports or establish routing. Verify a real remote login after first deployment.
+
 ## Host classes, not machines
 
 | File | Host class |
 |---|---|
 | `geeeks.scm` | Framework 13 (AMD Ryzen AI 300), dual-booting Pop!_OS (its GRUB entry is omitted when Pop!_OS is absent) |
 | `channels-geeeks.scm` | the channel pin that class installs from |
+
+The two subdirectories are not host classes: `keys/` holds public keys a class
+config reads with `local-file` (`geeeks.scm` takes its sshd allowlist from
+`keys/minius.pub`), and `launchd/` holds macOS launchd plists for the Mac
+side (`make setup-tailscale`, `setup-orbstack`, `setup-gpg-bridge`), unrelated
+to Guix System.
 
 `geeeks` is not one particular laptop. It is a **host class**: a name for a set
 of installs similar enough to share a single config — same silicon, same

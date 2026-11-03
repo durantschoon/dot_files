@@ -46,12 +46,18 @@
 #   job-note [TASK]      open ./logs/<task>.notes.md in $VISUAL/$EDITOR
 #   job-note-context [TASK]
 #                        the generated context block: state, stage, recap, notes
+#   herdr-notes-sync [-q]
+#                        push each Herdr workspace's notes headline into its
+#                        sidebar row (job-note does this for you on save)
 #   job-promote TASK [--to tmux|launchd|docker] [--image IMG]
 #                        [--restart POLICY] [--now]
 #                        stop TASK where it is and start the SAME command
 #                        under another runner, same name, same logs
 #
 # tmux sessions form ONE namespace across machines: see "Hosts" below.
+#
+# <TAB> after any verb completes this repo's TASK names (never the <repo>-
+# session names `tmux ls' shows): see "Completion" at the end.
 #
 # Sourced from ~/.aliases. Needs zsh; launchd-* need macOS.
 
@@ -113,6 +119,19 @@ job-name() {
   task=$(_job_task "$1") || return
   repo=$(job-repo)
   if [[ $task == main ]]; then print -r -- "$repo"; else print -r -- "$repo-$task"; fi
+}
+
+# Every verb takes a TASK and derives the runner name from it, so typing what
+# `tmux ls' shows doubles the prefix: `tmux-rm lim-LIM-claude' looks for
+# session lim-lim-LIM-claude.  Called where a lookup came up empty, to say
+# what was probably meant.  Silent unless TASK starts with this repo's slug.
+_job_prefix_hint() {
+  local repo; repo=$(job-repo)
+  if [[ $1 == $repo-?* ]]; then
+    print -u2 "  (a TASK has no '$repo-' prefix -- did you mean '${1#$repo-}'? <TAB> completes tasks)"
+  elif [[ -n $1 && $1 == $repo ]]; then
+    print -u2 "  (session '$repo' is the default task: leave TASK out, or say 'main')"
+  fi
 }
 
 # Prepare the repo for jobs: create ./logs and make sure git ignores it.
@@ -359,8 +378,8 @@ job-status() {
 #   line 2+   the recap body, exactly as the skill produced it
 #
 # and the STATUS CONTRACT, which is what a picker shows in the row itself:
-# the first notes line beginning `> ' is that session's one-line status, MARKER
-# AND ALL; with no such line, the recap body's `Current Subtask' value is used
+# the first non-empty notes line beginning `#' (a heading) or `> ' (a status)
+# is that session's one-line status, shown with a `> ' MARKER; with no such line, the recap body's `Current Subtask' value is used
 # instead, without one. A leading `> ' in a row therefore means exactly "a
 # human wrote this", and its absence "this was derived from the recap".
 
@@ -428,13 +447,12 @@ job-recap() {
 # had not written. The worked example lives inside the hint, where it is inert.
 _job_notes_template() {
   local task=$1
-  print -r -- "<!-- Notes for task '$task' -- yours. job-note-context prints this file verbatim, and nothing but your editor ever writes it. -->"
-  print -r -- "<!-- The first line starting with \"> \" is this session's status in tmux-pick / tmux-dash, e.g.  > waiting on review -->"
-  print -r -- "> "
+  print -r -- "# "
 }
 
-# job-note [TASK]: open the task's notes in $VISUAL, else $EDITOR, else vi,
-# creating the file with its hint the first time. Returns the EDITOR's status,
+# job-note [TASK]: open the task's notes in $VISUAL, else $EDITOR, else
+# `emacsclient -t' (or mg where emacsclient is missing), creating the file
+# with its hint the first time. Returns the EDITOR's status,
 # so a picker that ran this knows whether to believe the file changed.
 #
 # The variable is split into words, so an EDITOR of `emacsclient -t' works as
@@ -444,21 +462,117 @@ job-note() {
   local root file; root=$(job-root); file=$root/logs/$task.notes.md
   mkdir -p -- "$root/logs" || return
   [[ -e $file ]] || _job_notes_template "$task" > "$file" || return
-  local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-vi}}})
-  (( $#ed )) || ed=(vi)
-  if [[ ${ed[1]:t} == emacsclient ]]; then
-    script -q /dev/null "${ed[@]}" "$file" </dev/tty >/dev/tty || {
-      print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
-      sleep 3
-      return 1
-    }
-  else
-    "${ed[@]}" "$file" </dev/tty >/dev/tty || {
-      print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
-      sleep 3
-      return 1
-    }
+  local default_ed="mg"
+  if command -v emacsclient >/dev/null 2>&1; then
+    default_ed="emacsclient -t"
   fi
+  local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-$default_ed}}})
+  (( $#ed )) || ed=(${(z)default_ed})
+  # emacsclient -t needs a pty of its own when called from the picker.
+  local -a run; run=("${ed[@]}")
+  [[ ${ed[1]:t} == emacsclient ]] && run=(script -q /dev/null "${ed[@]}")
+  # The picker calls this with stdin/stdout on its own pipes, so the editor is
+  # pointed at the terminal -- when there is one.  With no controlling
+  # terminal (a script, a test, a job) /dev/tty cannot even be opened, and
+  # redirecting to it failed before the editor ran; then the editor gets the
+  # stdin/stdout it was given.
+  local rc
+  if { : </dev/tty } 2>/dev/null; then
+    "${run[@]}" "$file" </dev/tty >/dev/tty; rc=$?
+  else
+    "${run[@]}" "$file"; rc=$?
+  fi
+  (( rc == 0 )) || {
+    print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
+    sleep 3
+    return 1
+  }
+  # The sidebar follows the file: see "Herdr" below. Backgrounded and
+  # disowned so the picker that called this is not held up by the socket.
+  (( $+commands[herdr] )) && { herdr-notes-sync -q >/dev/null 2>&1 &! }
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Herdr: the notes headline in the sidebar
+# ---------------------------------------------------------------------------
+# Herdr's sidebar lists one workspace per repo and, like the old tmux-dash,
+# says only its name. Herdr has no notes of its own, but a workspace accepts
+# custom metadata tokens (`herdr workspace report-metadata --token NAME=VALUE`)
+# and `[ui.sidebar.spaces] rows` in its config.toml renders any token as a row
+# (`$note`). So the headline of the notes file goes in as the token `note',
+# under the source `jobs-notes' (a source is Herdr's way of keeping one
+# writer's tokens apart from another's).
+#
+# Which repo a workspace IS: the git toplevel of its panes' cwds, read from
+# `herdr api snapshot', not its label -- a label is renamed freely and need not
+# be a repo name at all. The first pane that sits inside a repo decides.
+#
+# Which notes file: logs/*.notes.md newest-first by mtime, and the first one
+# with a non-empty headline wins, so a repo with several tasks shows the note
+# most recently written and a fresh template (`# ' and nothing after it) does
+# not mask a real headline under it. The headline is the first non-empty `#'
+# heading or `> ' status line, the same rule the picker's _JOB_STATUS_SH
+# applies to a row.
+#
+# Tokens live in the Herdr server: they outlive this shell but not `herdr
+# server stop', so a restarted server shows nothing until the next sync. A
+# workspace whose repo has no headline gets its token CLEARED, so a deleted or
+# emptied note leaves no ghost in the sidebar.
+#
+#   herdr-notes-sync [-q]    push every workspace's headline; -q says nothing
+#
+# job-note runs it after the editor returns, in the background and quietly, so
+# saving a note updates the sidebar and a Mac without Herdr notices nothing.
+typeset -g _HERDR_NOTES_SOURCE=jobs-notes
+
+# The first `#' heading or `> ' status line of a notes file, stripped of its
+# marker; nothing when the file is unreadable or has neither. Same sed as
+# _JOB_STATUS_SH, kept in step by hand: that one is POSIX sh text shipped to
+# other hosts, this one runs here.
+_job_notes_headline() {
+  [[ -r $1 ]] || return 1
+  sed -E -n 's/^(#+|>)[[:space:]]*//p' "$1" | sed -E -n '/./{s/[[:space:]]+$//;p;q;}'
+}
+
+herdr-notes-sync() {
+  local quiet=0
+  case $1 in
+    -q|--quiet) quiet=1 ;;
+    "") ;;
+    *) print -u2 "usage: herdr-notes-sync [-q]"; return 64 ;;
+  esac
+  (( $+commands[herdr] )) || rehash
+  (( $+commands[herdr] )) || { (( quiet )) || print -u2 "herdr-notes-sync: no herdr on PATH"; return 1 }
+  (( $+commands[jq] ))    || { (( quiet )) || print -u2 "herdr-notes-sync: needs jq"; return 1 }
+  local snap
+  snap=$(herdr api snapshot 2>/dev/null) \
+    || { (( quiet )) || print -u2 "herdr-notes-sync: no Herdr server answered (is it running?)"; return 1 }
+
+  # workspace -> git toplevel, from the first pane whose cwd is in a repo.
+  local -A roots
+  local ws cwd root
+  while IFS=$'\t' read -r ws cwd; do
+    [[ -n ${roots[$ws]} ]] && continue
+    root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || continue
+    roots[$ws]=$root
+  done < <(print -r -- "$snap" | jq -r '.result.snapshot.panes[] | [.workspace_id, .cwd] | @tsv')
+
+  local file headline
+  for ws in ${(ko)roots}; do
+    headline=""
+    for file in "${roots[$ws]}"/logs/*.notes.md(N.om); do
+      headline=$(_job_notes_headline "$file") && [[ -n $headline ]] && break
+    done
+    if [[ -n $headline ]]; then
+      herdr workspace report-metadata "$ws" --source "$_HERDR_NOTES_SOURCE" \
+        --token note="$headline" >/dev/null || continue
+      (( quiet )) || print -r -- "$ws  ${roots[$ws]:t}  $headline"
+    else
+      herdr workspace report-metadata "$ws" --source "$_HERDR_NOTES_SOURCE" \
+        --clear-token note >/dev/null 2>&1
+    fi
+  done
 }
 
 # (b) of the context block: the per-repo override, else this repo's own
@@ -525,33 +639,39 @@ _job_note_recap() {
 # always now; the bottom is the user's own file, printed verbatim. A section
 # with nothing to say is left out rather than printed empty.
 job-note-context() {
-  local task; task=$(_job_task "$1") || return
-  local root repo name; root=$(job-root); repo=$(job-repo)
-  name=$(job-name "$task") || return
+  {
+    local task; task=$(_job_task "$1") || return
+    local root repo name; root=$(job-root); repo=$(job-repo)
+    name=$(job-name "$task") || return
 
-  # (a) what, where, and which runner holds it -- the same live lookups
-  #     job-status makes, plus the session's own last activity.
-  print -r -- "$repo · $task · $root"
-  job-status "$task" 2>/dev/null
-  local act=""
-  if _tmux_where "$name" 2>/dev/null; then
-    act=$(_job_tmux "$reply[1]" list-sessions -F '#{session_name}|#{session_activity}' 2>/dev/null \
-          | command awk -F'|' -v n="$name" '$1 == n { print $2; exit }')
-  fi
-  [[ -n $act ]] && print -r -- "last activity: $(_job_ago "$act")"
+    # (a) what, where, and which runner holds it -- the same live lookups
+    #     job-status makes, plus the session's own last activity.
+    print -r -- "## $repo · $task · $root"
+    print -r -- "\`\`\`"
+    job-status "$task" 2>/dev/null
+    local act=""
+    if _tmux_where "$name" 2>/dev/null; then
+      act=$(_job_tmux "$reply[1]" list-sessions -F '#{session_name}|#{session_activity}' 2>/dev/null \
+            | command awk -F'|' -v n="$name" '$1 == n { print $2; exit }')
+    fi
+    [[ -n $act ]] && print -r -- "last activity: $(_job_ago "$act")"
+    print -r -- "\`\`\`"
 
-  print                                             # (b)
-  print -r -- "notes:"
-  local notes=$root/logs/$task.notes.md
-  if [[ -r $notes ]]; then command cat -- "$notes"
-  else print -r -- "(none — ctrl-e to start one)"
-  fi
+    print                                             # (b)
+    print -r -- "### Notes"
+    local notes=$root/logs/$task.notes.md
+    if [[ -r $notes ]]; then command cat -- "$notes"
+    else print -r -- "*(none — ctrl-e to start one)*"
+    fi
 
-  local block
-  block=$(_job_note_stage "$task" "$root")          # (c)
-  [[ -n $block ]] && { print; print -r -- "$block" }
-  block=$(_job_note_recap "$task" "$root")          # (d)
-  [[ -n $block ]] && { print; print -r -- "$block" }
+    local block
+    block=$(_job_note_stage "$task" "$root")          # (c)
+    [[ -n $block ]] && { print; print -r -- "### Stage"; print -r -- "$block" }
+    block=$(_job_note_recap "$task" "$root")          # (d)
+    [[ -n $block ]] && { print; print -r -- "### Recap"; print -r -- "$block" }
+  } | if command -v glow >/dev/null 2>&1 && [[ -z ${NO_COLOR-} ]]; then
+        if [[ -t 1 ]]; then glow -p -s dark -; else glow -s dark -; fi
+      else command cat; fi
 
   return 0
 }
@@ -560,9 +680,11 @@ job-note-context() {
 # Hosts: one tmux namespace across machines
 # ---------------------------------------------------------------------------
 # tmux sessions are looked up on this machine ("local") and on every host in
-# JOB_HOSTS (ssh names). A host that is this machine, or that Tailscale reports
-# offline, is skipped, so the same JOB_HOSTS can be checked in and used from
-# every device. Names derive from the repo directory, so the same checkout on a
+# JOB_HOSTS -- an ssh name, or `ctr:<container>' for a container dialed with
+# the container CLI (see "Container hosts" below). A host that is this machine,
+# or that Tailscale reports offline (for a container: whose engine is absent or
+# whose container is not running), is skipped, so the same JOB_HOSTS can be
+# checked in and used from every device. Names derive from the repo directory, so the same checkout on a
 # phone and on the Mac agree on them, and a name therefore identifies ONE
 # session wherever it runs: tmux-go attaches to it there instead of creating a
 # twin. A new session goes to --on HOST, else $JOB_HOST, else local.
@@ -575,7 +697,12 @@ if (( ! ${+JOB_HOSTS} )); then
   if (( ${+JOB_HOSTS_EXPORT} )); then
     typeset -ga JOB_HOSTS=(${=JOB_HOSTS_EXPORT})
   else
-    typeset -ga JOB_HOSTS=(minius)
+    # The homebase: the one host checked alongside `local' by default.
+    # It is the Guix container, not the Mac -- that is where the work lives,
+    # and from inside the container this entry is self and costs nothing.
+    # The Mac's own sessions are still reachable with tmux-dash-universal.
+    # Add `minius' back here to have both checked by default.
+    typeset -ga JOB_HOSTS=(ctr:guix-dev)
   fi
 fi
 : ${JOB_HOST:=local}
@@ -626,11 +753,31 @@ _job_ts_status() {
 # Is HOST this machine? Compares with $HOST and the Tailscale self line.
 _job_is_self() {
   local h=${1:l}
+  # A container host is self when we are INSIDE that container, where `local'
+  # already covers its sessions. There is no way to learn one's own container
+  # NAME from inside it -- $HOST is the container id -- so the name is
+  # declared: compose.guix.yaml sets JOB_CONTAINER_SELF=guix-dev. Without it
+  # the entry is not self, and _job_host_offline then reports it unreachable
+  # (no container CLI inside the container), which skips it just as quietly.
+  if _job_host_is_ctr "$h"; then
+    [[ -n ${JOB_CONTAINER_SELF-} && ${h#ctr:} == ${(L)JOB_CONTAINER_SELF} ]]
+    return
+  fi
   [[ $h == local || $h == ${(L)HOST%%.*} ]] && return 0
   [[ -n $h && $h == $(_job_ts_status | awk 'NR==1 {print tolower($2)}') ]]
 }
 # Does Tailscale know HOST and say it is offline?
 _job_host_offline() {
+  # Tailscale answers for ssh hosts; for a container the equivalent questions
+  # are "is there an engine to ask" and "is the container running". Both are
+  # reachability, so both mean offline -- which is what keeps a stopped
+  # container, or a shell with no docker CLI at all (inside the container
+  # itself), from costing an error on every lookup.
+  if _job_host_is_ctr "$1"; then
+    _job_ctr_ready || return 0
+    _docker_running "$(_job_ctr_name "$1")" && return 1
+    return 0
+  fi
   _job_ts_status | awk -v h="${1:l}" 'NR > 1 && tolower($2) == h && /offline/ { f = 1 } END { exit !f }'
 }
 # Hosts worth asking: local first, then reachable JOB_HOSTS.
@@ -649,17 +796,67 @@ _job_host_offline() {
 _job_hosts() {
   _job_ts_status >/dev/null
   typeset -ga reply; reply=(local)
-  local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || reply+=("$h"); done
+  if (( ${_JOB_HOSTS_UNIVERSAL:-0} )); then
+    if command -v tailscale >/dev/null 2>&1; then
+      local -a ts_hosts
+      ts_hosts=(${(f)"$(_job_ts_status | awk 'NR > 1 && !/offline/ { print tolower($2) }')"})
+      local h
+      for h in "${ts_hosts[@]}"; do
+        _job_is_self "$h" || (( ${reply[(I)$h]} )) || reply+=("$h")
+      done
+      # Container hosts are not Tailscale nodes, so the tailnet walk above
+      # cannot see them -- and "every session on every compute platform" has
+      # to include the Guix container, which is where half the work lives.
+      # Taken from JOB_HOSTS, reachability-checked like any other host.
+      for h in "${JOB_HOSTS[@]}"; do
+        _job_host_is_ctr "$h" || continue
+        _job_is_self "$h" || _job_host_offline "$h" || (( ${reply[(I)$h]} )) || reply+=("$h")
+      done
+    else
+      local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || (( ${reply[(I)$h]} )) || reply+=("$h"); done
+    fi
+  else
+    local h; for h in "${JOB_HOSTS[@]}"; do _job_is_self "$h" || _job_host_offline "$h" || reply+=("$h"); done
+  fi
 }
+# ---------------------------------------------------------------------------
+# Container hosts: `ctr:<container>' in JOB_HOSTS
+# ---------------------------------------------------------------------------
+# A JOB_HOSTS entry is normally an ssh name. The Guix container this repo runs
+# under OrbStack cannot be one: it has no sshd, no tailscale, and its hostname
+# is the container id, so `orb-guix' is an alias for a `docker exec' and
+# nothing else. Making it the homebase therefore belongs HERE, at the one
+# chokepoint every host lookup already goes through, rather than in each caller.
+#
+# `ctr:guix-dev' is dialed with the container CLI. Two things fall out for free:
+# argv needs no remote-shell quoting (exec takes it directly, unlike ssh), and
+# `docker exec' carries no ControlMaster, BatchMode or connect timeout, so none
+# of the ssh option sets apply.
+_job_host_is_ctr() { [[ $1 == ctr:* ]] }
+_job_ctr_name()    { print -r -- "${1#ctr:}" }
+# The CLI probe, silenced. Host enumeration walks every JOB_HOSTS entry on
+# every lookup, and _docker_guard's "no working container engine" advice is
+# right for a `docker-*' verb the user typed and wrong as a per-lookup warning.
+# A host whose engine is absent is reported offline instead (_job_host_offline).
+_job_ctr_ready() { _docker_guard >/dev/null 2>&1 }
+
 # Run tmux on HOST, arguments quoted for the remote shell.
 _job_tmux() {
   local host=$1; shift
-  if [[ $host == local ]]; then tmux "$@"; else ssh "${_JOB_SSH_OPTS[@]}" "$host" "tmux ${(j: :)${(qq)@}}"; fi
+  if [[ $host == local ]]; then tmux "$@"
+  elif _job_host_is_ctr "$host"; then
+    _job_ctr_ready || return 1
+    _job_ctr exec "$(_job_ctr_name "$host")" tmux "$@"
+  else ssh "${_JOB_SSH_OPTS[@]}" "$host" "tmux ${(j: :)${(qq)@}}"; fi
 }
 # Run a shell snippet on HOST (for things that need the remote's $HOME).
 _job_sh() {
   local host=$1; shift
-  if [[ $host == local ]]; then sh -c "$*"; else ssh "${_JOB_SSH_OPTS[@]}" "$host" "$*"; fi
+  if [[ $host == local ]]; then sh -c "$*"
+  elif _job_host_is_ctr "$host"; then
+    _job_ctr_ready || return 1
+    _job_ctr exec "$(_job_ctr_name "$host")" sh -c "$*"
+  else ssh "${_JOB_SSH_OPTS[@]}" "$host" "$*"; fi
 }
 # The same, but with a terminal: for a remote command that IS an interactive
 # program -- today, the notes editor behind the picker's ctrl-e. Carries the
@@ -669,6 +866,9 @@ _job_sh() {
 _job_sh_tty() {
   local host=$1; shift
   if [[ $host == local ]]; then sh -c "$*"
+  elif _job_host_is_ctr "$host"; then
+    _job_ctr_ready || return 1
+    _job_ctr exec -it "$(_job_ctr_name "$host")" sh -c "$*"
   else ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "$*"
   fi
 }
@@ -746,6 +946,11 @@ _job_tmux_attach() {
   [[ $mode == ro ]] && flag=-r
   if [[ $host == local ]]; then
     if [[ -n $TMUX ]]; then tmux switch-client -t "=$name"; else tmux attach-session $flag -t "=$name"; fi
+  elif _job_host_is_ctr "$host"; then
+    [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the container's one)"
+    _job_ctr_ready || return 1
+    # -it, because this one IS the interactive attach.
+    _job_ctr exec -it "$(_job_ctr_name "$host")" tmux attach-session $flag -t "=$name"
   else
     [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the remote one)"
     ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session $flag -t ${(qq):-=$name}"
@@ -777,11 +982,12 @@ _job_ago() {
 # tmux: interactive sessions, one per repo (+ one per task), on any host
 # ---------------------------------------------------------------------------
 
-# Session rows "host|name|windows|attached|activity|path" from one host,
-# optionally filtered by a name regex.
+# Session rows "host|name|windows|attached|activity|path|agent" from one host,
+# optionally filtered by a name regex. `agent` is the optional tmux session
+# user option set by .agent-jobs.zsh (claude, agy, codex, ...).
 _tmux_rows() {
   local host=$1 re=${2:-.}
-  _job_tmux "$host" list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}|#{session_activity}|#{session_path}' 2>/dev/null \
+  _job_tmux "$host" list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}|#{session_activity}|#{session_path}|#{@agent-job-engine}' 2>/dev/null \
     | awk -F'|' -v h="$host" -v re="$re" '$1 ~ re { print h "|" $0 }'
 }
 # This repo's sessions (<repo> and <repo>-*) on every host, most recent first.
@@ -791,16 +997,40 @@ _tmux_rows() {
 # subshell, and the warned-once guard would not stick. The host walk itself
 # still runs in a `$( )' -- by then _job_ts_status has already been primed in
 # the caller's shell, so there is nothing left for a subshell to lose.
+# Query session rows from HOSTS, sorting by recency. When _JOB_HOSTS_UNIVERSAL
+# is set (tmux-dash-universal), queries remote hosts in parallel to avoid
+# accumulating sequential SSH connect timeouts across the tailnet.
+_tmux_collect_rows() {
+  local re=${1:-.}
+  shift
+  local -a hosts=("$@")
+  if (( ! ${_JOB_HOSTS_UNIVERSAL:-0} )) || (( $#hosts <= 1 )); then
+    reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h" "$re"; done | sort -t'|' -k5,5nr)"})
+    return
+  fi
+  setopt localoptions nomonitor
+  local tmpdir
+  tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/job-rows.XXXXXX" 2>/dev/null || mktemp -d "/tmp/job-rows.XXXXXX") || return 1
+  local h i=0
+  for h in "${hosts[@]}"; do
+    (( i++ ))
+    (
+      _tmux_rows "$h" "$re" > "$tmpdir/$i" 2>/dev/null
+    ) &
+  done
+  wait
+  reply=(${(f)"$(cat "$tmpdir"/* 2>/dev/null | sort -t'|' -k5,5nr)"})
+  command rm -rf "$tmpdir"
+}
 _tmux_repo_rows() {
-  local h re="^$(job-repo)(-|$)"
+  local re="^$(job-repo)(-|$)"
   _job_hosts; local -a hosts=("${reply[@]}")
-  reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h" "$re"; done | sort -t'|' -k5,5nr)"})
+  _tmux_collect_rows "$re" "${hosts[@]}"
 }
 # Every session on every host, most recent first. Also answers in `reply'.
 _tmux_all_rows() {
-  local h
   _job_hosts; local -a hosts=("${reply[@]}")
-  reply=(${(f)"$(for h in "${hosts[@]}"; do _tmux_rows "$h"; done | sort -t'|' -k5,5nr)"})
+  _tmux_collect_rows "." "${hosts[@]}"
 }
 # ---------------------------------------------------------------------------
 # One display line per row, in columns that fit what is actually in them
@@ -843,6 +1073,10 @@ _tmux_row_task() {
   else                              print -r -- "$f[2]"
   fi
 }
+_tmux_row_agent() {
+  local -a f; f=("${(@s:|:)1}")
+  print -r -- "${f[7]-}"
+}
 
 # _tmux_label_widths [--all] ROW... -- size the columns for this row set.
 # Callers run it once over the rows they are about to print, then _tmux_label
@@ -856,6 +1090,9 @@ _tmux_label_widths() {
     if (( all )); then
       v=$(_tmux_row_repo "$r"); (( ${#v} > wr )) && wr=${#v}
       v=$(_tmux_row_task "$r"); (( ${#v} > ws )) && ws=${#v}
+      v=$(_tmux_row_agent "$r")
+      [[ -n $v ]] && v="$(_tmux_row_task "$r") [$v]"
+      (( ${#v} > ws )) && ws=${#v}
     else
       v=${${(@s:|:)r}[2]};      (( ${#v} > ws )) && ws=${#v}
     fi
@@ -884,8 +1121,10 @@ _tmux_label_widths() {
 # side is somebody else's machine. It reads path/task pairs as positional
 # parameters and prints one line per pair, empty when there is nothing to say.
 #
-# `/./{p;q;}' rather than `1p': the first NON-EMPTY `> ' line wins. A notes
-# file starts life with an empty `> ' line waiting to be filled in, and with
+# `/./{p;q;}' rather than `1p': the first NON-EMPTY `#' or `> ' line wins,
+# whichever comes first -- a heading and a status line are the same thing
+# written two ways, and both have been used. A notes file starts life with an
+# empty marker line waiting to be filled in, and with
 # `1p' that empty line would beat both a real status written under it and the
 # recap -- a template silencing the row it exists to describe.
 #
@@ -900,7 +1139,7 @@ while [ $# -gt 0 ]; do
   d=$1; t=$2; shift 2
   s=
   if [ -r "$d/logs/$t.notes.md" ]; then
-    s=$(sed -n "s/^> //p" "$d/logs/$t.notes.md" | sed -n "/./{p;q;}")
+    s=$(sed -E -n "s/^(#+|>)[[:space:]]*//p" "$d/logs/$t.notes.md" | sed -E -n "/./{s/[[:space:]]+$//;p;q;}")
     [ -n "$s" ] && s="> $s"
   fi
   if [ -z "$s" ] && [ -r "$d/logs/$t.recap.md" ]; then
@@ -950,10 +1189,11 @@ _tmux_row_statuses() {
 # synonym for $?, and a `local status=' inside a function is an error.)
 _tmux_label() {
   local -a f; f=("${(@s:|:)1}")
-  local all=${2:-0} rowstat=${3-} repo="" sess=$f[2]
+  local all=${2:-0} rowstat=${3-} repo="" sess=$f[2] agent=${f[7]-}
   if (( all )); then
     repo=$(printf '%-*s ' "$_JOB_W_REPO" "$(_tmux_row_repo "$1")")
     sess=$(_tmux_row_task "$1")
+    [[ -n $agent ]] && sess+=" [$agent]"
   fi
   local line
   line=$(printf '%-8s %s%-*s %2s win  %-8s %s' "$f[1]" "$repo" "$_JOB_W_SESS" "$sess" "$f[3]" \
@@ -1054,6 +1294,23 @@ tmux-go() {
 # the other client of an attached one (attach -d). The polite-attach hint
 # names it so the take-over reads as deliberate.
 tmux-take() { tmux-go "$@"; }
+
+# tmux-remote-launch [TASK] [--on HOST]: tmux-go with --on defaulting to minius,
+# so a new session lands on the machine you trust to stay up longer than this one.
+# An explicit --on is passed through untouched. Like tmux-go, it refuses when the
+# session already lives on a different host than the one --on names.
+tmux-remote-launch() {
+  local has_on=0
+  local arg
+  for arg in "$@"; do
+    [[ $arg == --on ]] && has_on=1
+  done
+  if (( ! has_on )); then
+    tmux-go "$@" --on minius
+  else
+    tmux-go "$@"
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # tmux-pick / tmux-dash: the list, the refresh key, and the timer
@@ -1214,9 +1471,62 @@ _tmux_pick_preview_cmd() {
   local script='source "$1" 2>/dev/null; _tmux_pick_preview "$2" "$3" 2>/dev/null'
   print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
+_tmux_pick_rename() {
+  local key=$1 spath=$2
+  _tmux_pick_row "$key" "$spath" || {
+    print -u2 "tmux-pick: there is no session yet to rename. (sleeping 3s)"; sleep 3
+    return 1
+  }
+  local new_name
+  printf "Rename session '%s' on %s to: " "$_tmux_pick_name" "$_tmux_pick_host"
+  read -r new_name
+  if [[ -n $new_name && $new_name != "$_tmux_pick_name" ]]; then
+    if [[ $_tmux_pick_host == local ]]; then
+      tmux rename-session -t "=$_tmux_pick_name" "$new_name"
+    else
+      _job_sh "$_tmux_pick_host" "tmux rename-session -t ${(qq):-=$_tmux_pick_name} ${(qq)new_name}"
+    fi
+  fi
+}
+
+_tmux_pick_kill() {
+  local key=$1 spath=$2
+  _tmux_pick_row "$key" "$spath" || {
+    print -u2 "tmux-pick: there is no session yet to kill. (sleeping 3s)"; sleep 3
+    return 1
+  }
+  local ans
+  if ! read -q ans"?Kill session '$_tmux_pick_name' on $_tmux_pick_host? [y/N] "; then
+    print -u2 ""
+    return 0
+  fi
+  print -u2 ""
+  if [[ $_tmux_pick_host == local ]]; then
+    tmux kill-session -t "=$_tmux_pick_name"
+  else
+    _job_sh "$_tmux_pick_host" "tmux kill-session -t ${(qq):-=$_tmux_pick_name}"
+  fi
+}
+
+# The picker's execute() commands want the terminal for their prompts and
+# the editor -- but only when there is one: a redirect to an unopenable
+# /dev/tty fails the whole command before it runs (a script, the smoke
+# suite).  So the child points itself at /dev/tty when it can open it.
+typeset -g _TMUX_PICK_TTY='{ : </dev/tty } 2>/dev/null && exec </dev/tty >/dev/tty; '
+
+_tmux_pick_rename_cmd() {
+  local script="$_TMUX_PICK_TTY"'source "$1" 2>/dev/null; _tmux_pick_rename "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
+}
+
+_tmux_pick_kill_cmd() {
+  local script="$_TMUX_PICK_TTY"'source "$1" 2>/dev/null; _tmux_pick_kill "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
+}
+
 _tmux_pick_edit_cmd() {
-  local script='source "$1" 2>/dev/null; _tmux_pick_edit "$2" "$3"'
-  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3} < /dev/tty > /dev/tty"
+  local script="$_TMUX_PICK_TTY"'source "$1" 2>/dev/null; _tmux_pick_edit "$2" "$3"'
+  print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
 
 # Does the fzf on PATH have every(N)? Probed once per shell from `fzf
@@ -1235,7 +1545,7 @@ _tmux_fzf_has_every() {
   (( _JOB_FZF_EVERY ))
 }
 
-# tmux-pick [--all] [--poll SECONDS]: choose a session and attach. Lists this
+# tmux-pick [--all] [--universal] [--poll SECONDS]: choose a session and attach. Lists this
 # repo's sessions on every host (or every session everywhere with --all), plus
 # a "new session" row. Uses fzf when installed, else a numbered menu.
 #
@@ -1244,12 +1554,13 @@ _tmux_fzf_has_every() {
 # SECONDS for this one call. How a chosen row is attached is unchanged: the
 # polite attach, read-only when another client holds the session.
 tmux-pick() {
-  local all=0 poll=${JOB_PICK_POLL:-120}
-  local usage="usage: tmux-pick [--all] [--poll SECONDS]"
+  local all=0 poll=${JOB_PICK_POLL:-120} universal=0
+  local usage="usage: tmux-pick [--all] [--universal] [--poll SECONDS]"
   while (( $# )); do
     case $1 in
-      --all|-a) all=1; shift ;;
-      --poll)   poll=$2; shift 2 ;;
+      --all|-a)       all=1; shift ;;
+      --universal|-u) universal=1; shift ;;
+      --poll)         poll=$2; shift 2 ;;
       *) print -u2 "tmux-pick: unknown option '$1'"; print -u2 "$usage"; return 64 ;;
     esac
   done
@@ -1258,11 +1569,13 @@ tmux-pick() {
     print -u2 "$usage"; return 64
   }
 
+  (( universal )) && { local -x _JOB_HOSTS_UNIVERSAL=1 }
+
   # The environment the reload command inherits, for the duration of this call
   # only (`local -x'). Captured into plain locals first: `local -x X=$X' reads
   # the name it is in the middle of shadowing.
-  local hosts_now=${(j: :)JOB_HOSTS} host_now=$JOB_HOST cli_now=${JOB_CONTAINER_CLI-}
-  local -x JOB_HOSTS_EXPORT=$hosts_now JOB_HOST=$host_now JOB_CONTAINER_CLI=$cli_now
+  local hosts_now=${(j: :)JOB_HOSTS} host_now=$JOB_HOST cli_now=${JOB_CONTAINER_CLI-} univ_now=${_JOB_HOSTS_UNIVERSAL:-0}
+  local -x JOB_HOSTS_EXPORT=$hosts_now JOB_HOST=$host_now JOB_CONTAINER_CLI=$cli_now _JOB_HOSTS_UNIVERSAL=$univ_now
 
   local -a allflag; (( all )) && allflag=(--all)
   _tmux_pick_lines "${allflag[@]}" >/dev/null
@@ -1271,12 +1584,14 @@ tmux-pick() {
 
   local choice
   if command -v fzf >/dev/null 2>&1; then
-    local reload preview editcmd timer=0
+    local reload preview editcmd renamecmd killcmd timer=0
     reload=$(_tmux_pick_reload_cmd $all)
     preview=$(_tmux_pick_preview_cmd)
     editcmd=$(_tmux_pick_edit_cmd)
+    renamecmd=$(_tmux_pick_rename_cmd)
+    killcmd=$(_tmux_pick_kill_cmd)
     (( poll > 0 )) && _tmux_fzf_has_every && timer=1
-    local hint="enter attach · ctrl-r refresh · ? notes · ctrl-e edit"
+    local hint="enter attach · ctrl-r refresh · ? notes · ctrl-e edit · ctrl-n rename · ctrl-k kill"
     if (( timer )); then                     hint+=" · auto every ${poll}s"
     elif (( poll > 0 )); then                hint+=" · no auto (fzf < 0.$_JOB_FZF_EVERY_MINOR)"
     else                                     hint+=" · auto off"
@@ -1301,9 +1616,11 @@ tmux-pick() {
     # row comes out of the file that was just edited and a list still showing
     # the old one would be lying about work the user had done a second ago.
     binds+=(--bind "ctrl-e:execute($editcmd)+reload($reload)+transform-header($stamp_cmd)")
-    # A preview eating half of a 60-column phone screen hides the list it is
-    # describing, so it starts hidden on a narrow terminal and shown on a wide
-    # one; `?' moves it either way. COLUMNS is 0 in a non-interactive shell, so
+    binds+=(--bind "ctrl-n:execute($renamecmd)+reload($reload)+transform-header($stamp_cmd)")
+    binds+=(--bind "ctrl-k:execute($killcmd)+reload($reload)+transform-header($stamp_cmd)")
+    # A preview beside the list would squeeze a 60-column phone screen to
+    # nothing, so on a narrow terminal it goes BELOW the list (and fzf gets
+    # more height) and on a wide one beside it; `?' toggles it either way. COLUMNS is 0 in a non-interactive shell, so
     # `tput cols' answers instead, and 80 when even that cannot.
     integer cols=${COLUMNS:-0}
     (( cols > 0 )) || cols=${$(command tput cols 2>/dev/null):-80}
@@ -1334,7 +1651,7 @@ tmux-pick() {
     # Without the module there is no timer, and the prompt does not claim one.
     local ticker=0
     (( poll > 0 )) && zmodload zsh/zselect 2>/dev/null && ticker=1
-    local hint="attach> [number, n N=notes, e N=edit, r=refresh, q=quit"
+    local hint="attach> [number, n N=notes, e N=edit, m N=rename, k N=kill, r=refresh, q=quit"
     (( ticker )) && hint+="; auto-refresh ${poll}s"
     hint+="] "
     local ans i
@@ -1360,20 +1677,26 @@ tmux-pick() {
         # ctrl-e on. Everything they print goes to stderr, like the menu
         # itself: this function's STDOUT is the caller's, and a context block
         # on it would be read as an answer.
-        [nN]' '<->|[eE]' '<->)
+        [nN]' '<->|[eE]' '<->|[mM]' '<->|[kK]' '<->)
           local -a w; w=(${=ans}); local num=$w[2] l k p
           if (( num >= 1 && num <= $#lines )); then
             l=$lines[num]; k=${l%%$'\t'*}; p=${l##*$'\t'}
             if [[ ${w[1]:l} == n ]]; then
               _tmux_pick_preview "$k" "$p" >&2
-            else
+            elif [[ ${w[1]:l} == e ]]; then
               _tmux_pick_edit "$k" "$p" >&2
+              _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
+            elif [[ ${w[1]:l} == k ]]; then
+              _tmux_pick_kill "$k" "$p" >&2
+              _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
+            else
+              _tmux_pick_rename "$k" "$p" >&2
               _tmux_pick_lines "${allflag[@]}" >/dev/null; lines=("${reply[@]}")
             fi
           else
             print -u2 "tmux-pick: there is no row $num"
           fi ;;
-        *) print -u2 "tmux-pick: enter a row number, \`n N' for that row's notes, \`e N' to edit them, r to refresh, or q to quit" ;;
+        *) print -u2 "tmux-pick: enter a row number, \`n N' for that row's notes, \`e N' to edit them, \`m N' to rename, r to refresh, or q to quit" ;;
       esac
     done
     [[ -n $choice ]] || return 1
@@ -1386,13 +1709,18 @@ tmux-pick() {
 tmux-peek() {
   _tmux_args "$@" || return
   local name host; name=$(job-name "$_tmux_arg_task") || return
-  _tmux_where "$name" || { _job_hosts; print -u2 "tmux-peek: no session '$name' on ${(j:, :)reply} (tmux-go $_tmux_arg_task creates one)"; return 1; }
+  _tmux_where "$name" || { _job_hosts; print -u2 "tmux-peek: no session '$name' on ${(j:, :)reply} (tmux-go $_tmux_arg_task creates one)"; _job_prefix_hint "$_tmux_arg_task"; return 1; }
   host=$reply[1]
   _job_tmux_attach_polite "$host" "$name"
 }
-# tmux-dash: every session on every host, grouped by recency; pick one to
+# tmux-dash: every session on this host and homebase, grouped by recency; pick one to
 # attach. tmux-pick --all under another name, and it takes the same flags.
 tmux-dash() { tmux-pick --all "$@"; }
+
+# tmux-dash-universal: every session on every compute platform in the
+# Tailscale network, grouped by recency; pick one to attach.
+tmux-dash-universal() { tmux-pick --all --universal "$@"; }
+alias tdu=tmux-dash-universal
 
 # tmux-run TASK [--on HOST] [--] CMD...: run CMD in a window named TASK of the
 # task's session, teeing to ./logs/. Runs where the session already exists,
@@ -1455,6 +1783,57 @@ tmux-run() {
   print -u2 "tmux-run: started '$task' in session '$name' on $host  (tmux-go $task to watch, tmux-logs $task to tail)"
 }
 
+# tmux-help: Print a quick reference guide to the tmux job runner and its keys.
+tmux-help() {
+  command cat << 'EOF'
+Tmux Job Runner - Quick Reference
+
+Commands:
+  tmux-new [TASK]       Create a new background session (default task: main)
+  tmux-run [TASK] cmd.. Run a command in a background session
+  tmux-go [TASK]        Attach to a session (also: tmux-take)
+  tmux-remote-launch    Attach/launch a session on a remote machine (minius by default)
+  tmux-ls               List sessions in the current repo
+  tmux-status [TASK]    Show status of a session
+  tmux-logs [TASK]      Tail the logs of a session
+  tmux-stop [TASK]      Stop a session (prompts for confirmation)
+  tmux-rm [TASK|--all]  Kill the task's session(s)
+  tmux-hibernate        Save local jobs to ~/.tmux-hibernated-jobs and stop them
+  tmux-revive           Restart all jobs previously saved by tmux-hibernate
+  herdr-revive [ENGINE] Recover agent sessions (claude/agy/codex/cursor) and
+                        open each in its own Herdr workspace (.agent-jobs.zsh)
+
+  Which revive?  They cover different sessions; after a reboot or a container
+  restart, run both.
+    tmux-revive    plain jobs (servers, builds, tmux-run commands). Only works
+                   if you ran tmux-hibernate BEFORE shutting down: it replays
+                   the saved list (tmux-hibernate leaves agents out).
+    herdr-revive   agent sessions, needs no prior step. Uses the agent
+                   registry: agent-relaunch --all (resumes each conversation),
+                   then agent-herdr --all (a Herdr tab per detached session,
+                   grouped into one workspace per checkout). Run it inside the
+                   box where Herdr runs (orb-guix); guix-dev already runs the
+                   relaunch half when the container starts.
+
+  tmux-pick [--all]     Interactive fzf menu to pick a session in this repo
+  tmux-dash             Interactive menu of sessions (this host + homebase)
+  tmux-dash-universal   Interactive menu of ALL sessions across Tailscale (tdu)
+  tmux-peek             Attach a detached session in take-over mode
+
+Interactive Keys (tmux-pick / tmux-dash):
+  enter    Attach to the selected session
+  ctrl-r   Refresh the list of sessions
+  ?        Toggle the notes preview window
+  ctrl-e   Edit the notes for the selected session
+  ctrl-n   Rename the selected session
+  ctrl-k   Kill the selected session (prompts for confirmation)
+  esc      Quit the menu
+  
+  (Without fzf, you can type the row number to attach, or 'e 1', 'n 1', 
+   'm 1', or 'k 1' to edit, preview, rename, or kill row 1 respectively.)
+EOF
+}
+
 # tmux-ls: this repo's sessions on every reachable host.
 tmux-ls() {
   local r; local -a rows
@@ -1467,7 +1846,7 @@ tmux-ls() {
 tmux-status() {
   local task name host; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
   if ! _tmux_where "$name"; then
-    _job_hosts; print "tmux:    no session '$name' on ${(j:, :)reply}"; return 1
+    _job_hosts; print "tmux:    no session '$name' on ${(j:, :)reply}"; _job_prefix_hint "$task"; return 1
   fi
   host=$reply[1]
   print "tmux:    session '$name' on $host"
@@ -1481,8 +1860,19 @@ tmux-logs() { job-logs "$@"; }
 # no window named TASK, i.e. a plain interactive session), wherever it lives.
 tmux-stop() {
   local task name host; task=$(_job_task "$1") || return; name=$(job-name "$task") || return
-  _tmux_where "$name" || { print -u2 "tmux-stop: no session '$name'"; return 0; }
+  _tmux_where "$name" || { print -u2 "tmux-stop: no session '$name'"; _job_prefix_hint "$task"; return 0; }
   host=$reply[1]
+  
+  if [[ -t 0 && $JOB_CONFIRM != no ]]; then
+    tmux-ls
+    local ans
+    if ! read -q ans"?Stop tmux task '$task'? [y/N] "; then
+      print
+      return 1
+    fi
+    print
+  fi
+
   if _tmux_has_window "$host" "$name" "$task"; then
     _job_tmux "$host" kill-window -t "=$name:$task" && print -u2 "tmux-stop: closed window '$task' in '$name' on $host"
   else
@@ -1502,9 +1892,127 @@ tmux-rm() {
     return 0
   fi
   name=$(job-name "$1") || return
-  _tmux_where "$name" || { print -u2 "tmux-rm: no session '$name'"; return 0; }
+  _tmux_where "$name" || { print -u2 "tmux-rm: no session '$name'"; _job_prefix_hint "$1"; return 0; }
   host=$reply[1]
   _job_tmux "$host" kill-session -t "=$name" && print -u2 "tmux-rm: killed session '$name' on $host"
+}
+
+# tmux-hibernate: save all local tmux jobs to ~/.tmux-hibernated-jobs and gracefully stop them.
+tmux-hibernate() {
+  local f=~/.tmux-hibernated-jobs
+  local r host name spath task agent
+  local -a rows
+  _tmux_all_rows; rows=("${reply[@]}")
+  
+  local -a to_hibernate
+  for r in "${rows[@]}"; do
+    [[ -n $r ]] || continue
+    host=${r%%|*}
+    name=${${(@s:|:)r}[2]}
+    spath=${${(@s:|:)r}[6]}
+    agent=${${(@s:|:)r}[7]-}
+    task=$(_tmux_row_task "$r")
+
+    if [[ $host != local ]]; then
+      print -u2 "tmux-hibernate: skipping remote session '$name' on $host"
+      continue
+    fi
+    if [[ ! -d $spath ]]; then
+      print -u2 "tmux-hibernate: skipping session '$name' (directory '$spath' does not exist)"
+      continue
+    fi
+    if [[ -n $agent ]]; then
+      print -u2 "tmux-hibernate: skipping $agent agent session '$name' (agent sessions are managed via agent-status / agent-relaunch)"
+      continue
+    fi
+    if [[ $name == *-* ]]; then
+      local maybe_label="local.job.${name%%-*}.${name#*-}"
+      local reg_dir="${XDG_DATA_HOME:-$HOME/.local/share}/agent-jobs"
+      if [[ -f "$HOME/Library/LaunchAgents/$maybe_label.plist" ]] || [[ -f "$reg_dir/$maybe_label.conf" ]]; then
+        print -u2 "tmux-hibernate: skipping agent session '$name' (agent sessions are managed via agent-status / agent-relaunch)"
+        continue
+      fi
+    fi
+    if [[ ! -d $spath/logs ]]; then
+      print -u2 "tmux-hibernate: skipping session '$name' ($spath has no logs/ directory)"
+      continue
+    fi
+    if ! ( cd "$spath" && _job_record_cmd "$task" >/dev/null 2>&1 ); then
+      print -u2 "tmux-hibernate: skipping session '$name' in $spath (no logs/$task.job command record to revive)"
+      continue
+    fi
+
+    to_hibernate+=("$spath"$'\t'"$task")
+  done
+  
+  if (( ${#to_hibernate} == 0 )); then
+    print -u2 "tmux-hibernate: no local jobs running."
+    return 0
+  fi
+  
+  local ans
+  if [[ -t 0 && $JOB_CONFIRM != no ]]; then
+    print -u2 "The following jobs will be hibernated (saved and stopped):"
+    local item
+    for item in "${to_hibernate[@]}"; do
+      print -u2 "  ${item#*$'\t'} (in ${item%%$'\t'*})"
+    done
+    if ! read -q ans"?Hibernate these ${#to_hibernate} jobs? [y/N] "; then
+      print -u2 ""
+      return 1
+    fi
+    print -u2 ""
+  fi
+
+  : > "$f" || return 1
+  
+  local count=0
+  local -x JOB_CONFIRM=no
+  for item in "${to_hibernate[@]}"; do
+    spath=${item%%$'\t'*}
+    task=${item#*$'\t'}
+    
+    print -r -- "$item" >> "$f"
+    print -u2 "tmux-hibernate: stopping '$task' in $spath..."
+    ( cd "$spath" && tmux-stop "$task" >/dev/null 2>&1 )
+    print -u2 "tmux-hibernate: saved and stopped '$task' in $spath"
+    (( count++ ))
+  done
+  
+  print -u2 "tmux-hibernate: $count jobs saved to $f. Use 'tmux-revive' to restart them."
+}
+
+# tmux-revive: restart jobs saved by tmux-hibernate.
+tmux-revive() {
+  local f=~/.tmux-hibernated-jobs
+  if [[ ! -f $f ]]; then
+    print -u2 "tmux-revive: no hibernation file found at $f"
+    return 1
+  fi
+  
+  local spath task count=0
+  while IFS=$'\t' read -r spath task; do
+    [[ -n $spath ]] || continue
+    if [[ ! -d $spath ]]; then
+      print -u2 "tmux-revive: repo $spath no longer exists, skipping '$task'"
+      continue
+    fi
+    
+    (
+      cd "$spath" || exit 1
+      local -a cmd
+      _job_record_cmd "$task" || {
+        print -u2 "tmux-revive: could not read command record for '$task' in $spath"
+        exit 1
+      }
+      cmd=("${reply[@]}")
+      
+      print -u2 "tmux-revive: reviving '$task' in $spath"
+      tmux-run "$task" -- "${cmd[@]}"
+    ) && (( count++ ))
+  done < "$f"
+  
+  print -u2 "tmux-revive: revived $count jobs."
 }
 
 # ---------------------------------------------------------------------------
@@ -2044,7 +2552,7 @@ job-promote() {
     # target is about to claim the name, and two definitions for one task is
     # exactly the ambiguity refused above.
     case $src in
-      tmux)    tmux-stop  "$task" || return ;;
+      tmux)    JOB_CONFIRM=no tmux-stop "$task" || return ;;
       launchd) launchd-rm "$task" || return ;;
       docker)  docker-rm  "$task" || return ;;
     esac
@@ -2068,3 +2576,99 @@ job-promote() {
   print -u2 "job-promote: '$task' promoted $src -> $to (source last exit status ${last:-unknown})"
   print -u2 "             logs continue at logs/$task.latest.log"
 }
+
+# ---------------------------------------------------------------------------
+# Completion: offer TASK names, never session names
+# ---------------------------------------------------------------------------
+# The prefix rule above (<repo>-<task>) is easy to forget at the prompt, so
+# <TAB> offers this repo's tasks with the prefix already stripped.  A task is
+# gathered from every place one leaves a trace: tmux sessions on every host
+# (the same walk as tmux-ls, so --on hosts are included), this repo's launchd
+# plists, and ./logs/<task>.job records -- which also cover Docker tasks
+# without asking a container engine, and tasks that are not running now.
+
+# This repo's tasks, in the assoc _job_task_where: task -> where it was seen.
+_job_task_candidates() {
+  typeset -gA _job_task_where; _job_task_where=()
+  local repo r host name task l f
+  local -a fields
+  repo=$(job-repo)
+  _tmux_repo_rows                       # host|name|windows|attached|activity|path|engine
+  for r in "${reply[@]}"; do
+    fields=("${(@s:|:)r}"); host=$fields[1]; name=$fields[2]
+    if [[ $name == $repo ]]; then task=main; else task=${name#$repo-}; fi
+    _job_task_add "$task" "tmux@$host${${fields[4]:#0}:+ attached}"
+  done
+  if [[ $OSTYPE == darwin* ]]; then
+    for l in $(_launchd_repo_labels); do _job_task_add "${l##*.}" launchd; done
+  fi
+  for f in "$(job-root)"/logs/*.job(N); do _job_task_add "${${f:t}%.job}" log; done
+}
+_job_task_add() { _job_task_where[$1]+="${_job_task_where[$1]:+, }$2"; }
+
+# The completion itself, shared by every verb registered below.
+_job_complete() {
+  local i opt_arg=0 npos=0 first_pos=0
+  # An option that takes a value, per the verbs' own parsers.
+  local -a valued=(--on --restart --image --to --writer -n)
+  # The *-run verbs: everything after `--' (or after TASK) is a command line.
+  for (( i = 2; i < CURRENT; i++ )); do
+    if [[ ${words[i]} == -- ]]; then
+      shift $i words; (( CURRENT -= i )); _normal; return
+    fi
+  done
+  case ${words[CURRENT-1]} in
+    --on)      _job_hosts; compadd -- "${reply[@]}"; return ;;
+    --restart) compadd -- no on-failure always; return ;;
+    --to)      compadd -- tmux launchd docker; return ;;
+    --image|--writer|-n) return 1 ;;
+  esac
+  # How many positional words precede the cursor?
+  for (( i = 2; i < CURRENT; i++ )); do
+    if (( opt_arg )); then opt_arg=0; continue; fi
+    if [[ ${words[i]} == -* ]]; then (( ${valued[(Ie)${words[i]}]} )) && opt_arg=1; continue; fi
+    (( npos++ )); (( first_pos )) || first_pos=$i
+  done
+  local verb=$service want_task_at=0
+  if [[ $verb == agent-* ]]; then
+    # agent-VERB ENGINE TASK
+    (( npos == 0 )) && [[ $PREFIX != -* ]] && { compadd -- claude agy codex cursor; return }
+    want_task_at=1
+  fi
+  if [[ $PREFIX == -* ]]; then
+    local -a opts
+    case $verb in
+      *-rm)                     opts=(--all) ;;
+      tmux-go|tmux-take|tmux-new|tmux-peek|tmux-remote-launch) opts=(--on) ;;
+      *-run)                    opts=(--restart --image --on --) ;;
+      job-promote)              opts=(--to --image --restart --now) ;;
+      job-logs|tmux-logs|launchd-logs|docker-logs) opts=(-n --no-follow -l) ;;
+      job-recap)                opts=(--writer) ;;
+    esac
+    (( $#opts )) && compadd -- "${opts[@]}"
+    return
+  fi
+  if (( npos == want_task_at )); then
+    _job_task_candidates
+    local -a described; local t
+    for t in ${(ok)_job_task_where}; do described+=("$t:${_job_task_where[$t]}"); done
+    _describe -t job-tasks "task (no '$(job-repo)-' prefix)" described
+    return
+  fi
+  # A *-run verb with its TASK given: the rest is the command.
+  if [[ $verb == *-run && $verb != agent-run && $verb != (claude|agy|codex)-run ]]; then
+    shift $(( first_pos + want_task_at )) words; (( CURRENT -= first_pos + want_task_at )); _normal
+  fi
+}
+
+# Registered only when the completion system is up (compinit runs before
+# ~/.aliases sources this file); a plain `zsh -f' source stays silent.
+if (( $+functions[compdef] )); then
+  compdef _job_complete \
+    tmux-{run,status,logs,stop,rm,go,take,new,peek,remote-launch,hibernate,revive} \
+    launchd-{run,status,logs,stop,start,rm,label} \
+    docker-{run,status,logs,stop,start,rm} \
+    job-{status,logs,record,recap,note,note-context,promote,name,logfile} \
+    {claude,agy,codex}-{run,status,relaunch,adopt,conversations,rm} \
+    agent-{run,status,relaunch,adopt,conversations,rm}
+fi

@@ -65,7 +65,7 @@ not me. I know it exists, and choosing not to use it (yet) was deliberate:
   on. Maintaining it is maintaining a config, not a framework, and writing it
   taught the extension model that debugging *any* Guix setup (rde included)
   eventually requires.
-- **Scale doesn't demand it.** Two sessions, one user, seven layers. rde
+- **Scale doesn't demand it.** Three sessions (one an EWM trial), one user, ten layers. rde
   earns its weight when you want its feature *library* — whole desktops,
   mail stacks, dozens of curated features — not when you'd use three.
 
@@ -88,6 +88,11 @@ so the port is bounded, not a rewrite.
 | `check-channels-sync` | the install-time channel pin vs the one the system deploys |
 | `check-system-secrets` | no credentials inlined into `system/*.scm` |
 
+It also runs the read-only per-machine probes `check-tailscale`,
+`check-orbstack`, `check-protondrive`, `check-espanso-windows`,
+`check-home-ownership` and `check-cloud-dirs`; each one that does not apply to
+this platform prints a single skip line.
+
 The `system/` duplication these guard is deliberate: a host class config
 inlines what it needs so it stays evaluable by root from an installer ISO, and
 duplication that can't be removed can at least be made checkable. The *home*
@@ -99,9 +104,9 @@ entries into `home/common.scm`, removing the copies instead of checking them.
 make install-hooks   # once per clone
 ```
 
-points `core.hooksPath` at [`githooks/`](./githooks), so `check-system` also runs
-from a pre-commit hook whenever `system/`, `keyd.conf` or the `Makefile` are
-staged. It checks the staged tree rather than the working tree, so it validates
+points `core.hooksPath` at [`githooks/`](./githooks), so `check-system` and
+`check-session-coupling` also run from a pre-commit hook whenever `home/`,
+`system/`, `keyd.conf` or the `Makefile` are staged. It checks the staged tree rather than the working tree, so it validates
 what you are actually committing. `git commit --no-verify` bypasses it.
 
 ### Guix Home Note: Updating Dotfiles
@@ -114,6 +119,15 @@ Since this repo is managed using **Guix Home**, files like `.aliases`, `.zshrc`,
 make apply           # Update base configuration
 make apply-wayland   # Update wayland/espanso configuration
 ```
+
+The shared tmux and Herdr configs live at [`.tmux.conf`](./.tmux.conf) and
+[`herdr/config.toml`](./herdr/config.toml). Guix Home deploys them from
+`home/common.scm`; native setups link them into `~/.tmux.conf` and
+`~/.config/herdr/config.toml` with `make set_up_links`, which on macOS also
+links `~/Library/Application Support/herdr/config.toml`, the path Herdr
+actually reads there. Herdr itself is ensured automatically by `make apply`,
+`make apply-wayland`, `make update`, and `make setup-native` (or manually
+via `make install-herdr`).
 
 ## Installation
 
@@ -151,7 +165,9 @@ make apply
 ```
 
 Bare `make` also runs `apply`. Use `make setup-native` for the traditional
-symlink setup; `make all` remains a compatibility alias for `setup-native`.
+symlink setup (it also installs Claude Code, uv, agy and herdr if missing, plus
+Ghostty and Yazi with its media stack on macOS, then runs `check-cloud-dirs`);
+`make all` remains a compatibility alias for `setup-native`.
 
 ### 2. MacOS
 
@@ -175,7 +191,7 @@ OrbStack, and selects Docker's `orbstack` context. It intentionally preserves
 contain containers, images, or volumes; those can be deleted separately after
 their contents are no longer needed.
 
-Create or reconcile the Guix container, install make/git/zsh/less/curl/openssh/guile/certificates/UTF-8 locales,
+Create or reconcile the Guix container, install make/git/zsh/less/curl/openssh/socat/guile/certificates/UTF-8 locales,
 and test a real Guix build from the Mac:
 
 ```sh
@@ -230,6 +246,20 @@ The key is named `github_orbstack_guix`, is used only for `github.com`, and is
 never written to this repository. On WSL, omit `--context orbstack` from the
 test command (or use the context selected by `GUIX_DOCKER_CONTEXT`).
 
+Bitbucket works the same way with its own key, `bitbucket_orbstack_guix`:
+`make setup-guix-bitbucket-key` from the Mac, or
+`build-aux/setup-guix-github-key.sh bitbucket` from inside the container. Add
+the printed key under Bitbucket Personal settings → SSH keys and test with
+`ssh -T git@ssh.bitbucket.org`.
+See [the Bitbucket SSH migration](docs/BITBUCKET_SSH.md) for all machines,
+existing clones, CI and network rules.
+
+Commit signing inside the container goes through the Mac's gpg-agent instead
+of a copied secret key: `make setup-gpg-bridge` (mac only; needs
+`brew install socat`) installs a loopback socat LaunchAgent and imports only
+the public key and its ownertrust into `guix-dev`; `make check-gpg-bridge`
+verifies it. See [`docs/GPG.md`](./docs/GPG.md).
+
 The same Compose setup works under WSL with Docker Desktop's WSL integration
 or a Docker Engine in WSL. `make setup-guix-container` selects Docker's
 `default` context on WSL; on macOS it selects OrbStack's `orbstack` context.
@@ -254,6 +284,16 @@ If you want to use these dotfiles natively on macOS without Guix:
    git clone https://github.com/durantschoon/dot_files.git ~/dot_files
    cd ~/dot_files
    make setup-native
+   ```
+
+   On macOS, this also installs the Cascadia Code Nerd Font cask, Ghostty cask,
+   Yazi along with its media-handling stack (`ffmpeg`, `sevenzip`, `jq`, `poppler`,
+   `fd`, `ripgrep`, `fzf`, `zoxide`, `imagemagick`), Claude Code, uv, agy, and
+   herdr via Homebrew. Ghostty and Yazi can also be installed individually with:
+
+   ```sh
+   make install-ghostty
+   make install-yazi
    ```
 
 ### 3. Windows (WSL)
@@ -333,6 +373,11 @@ columns and line up. Values are never truncated to fit — an over-long name
 makes its row longer, because a session name you cannot paste into `tmux-go` is
 not worth having.
 
+Agent sessions are identified in the dashboard. `claude-run`, `agy-run`, and
+`codex-run` record their engine as tmux session metadata at launch, so a
+`tmux-dash` row shows `stage-24 [codex]`; plain tmux sessions have no bracketed
+engine. The marker survives detaching, reboot recovery, and dashboard refresh.
+
 Examples:
 
 ```sh
@@ -404,9 +449,19 @@ task's logs, in the checkout on the host that runs it:
 
 ```sh
 job-recap [TASK] [--writer NAME]   # replace logs/<task>.recap.md with stdin; prints the path
-job-note [TASK]                    # open logs/<task>.notes.md in $VISUAL/$EDITOR
+job-note [TASK]                    # open logs/<task>.notes.md in $VISUAL/$EDITOR (else emacsclient -t, else mg)
 job-note-context [TASK]            # the generated block: state, stage, latest recap, notes
+herdr-notes-sync [-q]              # push each Herdr workspace's notes headline into its sidebar row
 ```
+
+**In Herdr**, the same headline shows under the workspace. `herdr-notes-sync`
+maps every workspace to a repo through its panes' cwd (`herdr api snapshot`),
+takes the first `#` heading or `> ` status line of the most recently written
+`logs/*.notes.md` that has one, and stores it as the workspace token `note`; the `[ui.sidebar.spaces]`
+rows in [`herdr/config.toml`](./herdr/config.toml) render `$note` as a dim
+third row. `job-note` runs the sync in the background after your editor exits.
+Tokens live in the Herdr server, so run it once by hand after
+`herdr server stop`.
 
 `TASK` defaults to **`$JOB_TASK`**, then `main`. Every tmux session `tmux-new`,
 `tmux-go`, `tmux-run` and `claude-run` create — local or remote — now carries
@@ -431,6 +486,13 @@ whose unit of work is not a numbered stage says what a task is about — and,
 failing that, for a `stage-NN` task, the title and first `## Motivation`
 paragraph of `docs/stages/stage-NN-PROMPT.md` plus whether its report exists.
 
+For an overall agent census, use `mr-agents`: live and registered agents,
+grouped by repo, with independent task headlines. `mr-agents --refresh`
+creates an editable Org table in `~/.local/state/agent-jobs/agents.org`.
+Edit `desired_state` to `PAUSED` to prevent `agent-relaunch` recovery; periodic
+homebase refreshes preserve that flag and your `notes` column. See
+[the activity-table workflow](docs/MYREPOS.md#mr-agents-agents-and-their-tasks-with-an-editable-org-table).
+
 In `tmux-pick` / `tmux-dash`:
 
 - **`?`** toggles a preview pane showing that block for the highlighted row —
@@ -446,8 +508,9 @@ host, through the same ssh path the picker already uses, by a fresh `zsh`
 sourcing that machine's `~/dot_files/.jobs.zsh`.
 
 **The `> ` status convention.** The first non-empty notes line beginning `> `
-is that session's one-line status and appears in the row itself, after two
-spaces, **with its `> ` still on it**; with no such line, the recap's
+or `#` (a status line and a heading are the same thing written two ways) is
+that session's one-line status and appears in the row itself, after two
+spaces, **with a `> ` marker on it**; with no such line, the recap's
 `Current Subtask` value is used, *without* a marker. That difference is the
 point of having both sources: a leading `> ` in a row means "I wrote this",
 and its absence means "the recap said this", so a dashboard can be read at a
@@ -464,7 +527,9 @@ tmux-dash                             # the row now ends in "  > waiting on revi
 job-recap --writer gemini < recap.md  # from inside the session; $JOB_TASK names it
 ```
 
-`make check-jobs` runs the end-to-end test in
+`make check-jobs` runs the `bin/job-tee` test
+[`tests/jobs/tee-smoke.zsh`](./tests/jobs/tee-smoke.zsh) (it needs none of the
+below), then the end-to-end test in
 [`tests/jobs/smoke.zsh`](./tests/jobs/smoke.zsh). It is deliberately not part
 of `make check`: it starts two tmux servers, a container and a launchd agent
 (all inside a scratch `$TMPDIR` its exit trap removes), while everything in
@@ -520,7 +585,8 @@ job-promote train --image pytorch/pytorch --restart always --now
 
 ### A Claude Code session as a job (`claude-run`)
 
-[`.claude-jobs.zsh`](./.claude-jobs.zsh) adds one verb family on top of the
+[`.agent-jobs.zsh`](./.agent-jobs.zsh) adds the `claude-*`, `agy-*`, and
+`codex-*` verb families on top of the
 tmux and launchd runners for the case "an interactive Claude session that
 outlives this terminal, that I can attach to from the phone, and that comes
 back after a reboot":
@@ -534,6 +600,11 @@ tmux-go stage-24                # attach, from here or from the phone
 claude-run stage-24             # re-attach; or recreate after a reboot if the agent missed it
 claude-relaunch                 # after a tmux server dies: bring back every missing session
 claude-rm stage-24              # tmux-rm + launchd-rm; the transcript stays
+
+codex-run review "Review this repository"
+codex-status                    # Codex jobs only
+codex-relaunch --all            # recover missing Codex sessions
+codex-rm review
 ```
 
 `claude-relaunch [--all|TASK]` is the verb for "the tmux server went away and
@@ -560,7 +631,8 @@ build is not what this verb is for. A session that comes back and dies again
 (`--continue` with no conversation to continue, for instance) is reported as
 "did NOT come back", with the log to read.
 
-`claude-run` starts `claude --permission-mode $CLAUDE_JOB_MODE PROMPT` in tmux
+`claude-run` starts `claude --permission-mode $AGENT_JOB_MODE PROMPT` (falling
+back to `$CLAUDE_JOB_MODE`, default `auto`) in tmux
 session `myproj-stage-24` at the repo root, then loads
 `local.job.myproj.stage-24` — a RunAtLoad agent that at every login recreates
 that session with `claude … --continue` unless it already exists — and
@@ -576,7 +648,14 @@ must be off for that). After the Mac comes back, `tmux-go` and type `continue`.
 The vocabulary is skill-agnostic on purpose: `TASK` is whatever the repo's own
 workflow calls a unit of work (a numbered stage under one person's stage skill,
 something else under someone else's) and `PROMPT` is what starts it. A repo's
-`MODELS.md` is the place to record which words it uses.
+`AGENTS.md` is the place to record which words it uses.
+
+The shared implementation is `agent-run ENGINE TASK [PROMPT ...]`; the named
+wrappers supply the engine. Codex starts with `codex PROMPT` and recovers with
+`codex resume --last`; AGY starts with `agy -i PROMPT` and recovers with
+`agy continue`. A `cursor` engine is also accepted through the generic
+`agent-*` verbs. Set `CODEX_JOB_BIN`, `AGY_JOB_BIN`, `CURSOR_JOB_BIN`, or
+`AGENT_JOB_BIN` (Claude; `CLAUDE_JOB_BIN` still works) to choose an executable.
 
 `make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
 test: a scratch `$HOME`, a private tmux server reached only through
@@ -657,10 +736,81 @@ says attached or detached), read.
 Termux setup (phone side):
 
 ```sh
-pkg install openssh zsh git tmux fzf
+pkg install git
 git clone https://github.com/durantschoon/dot_files ~/dot_files
+~/dot_files/bin/termux-setup   # installs packages (including python3), Tailscale CLI, Cascadia Mono NF font, extra-keys, and links dotfiles
+tailscale-cli up               # authenticate Tailscale in Termux (starts tailscaled if needed)
 mkdir -p ~/Repos && git clone <your repo> ~/Repos/myproj   # same path under $HOME as on the Mac
-echo 'source ~/dot_files/.jobs.zsh' >> ~/.zshrc
+```
+
+> **Note on Android keyboard & extra-keys layout:**
+> - The preferred soft keyboard on Android is [Unexpected Keyboard](https://github.com/Julow/Unexpected-Keyboard) (available on F-Droid / Google Play), which provides fast gesture access to punctuation, symbols, and modifiers directly from the keyboard surface.
+> - Because Unexpected Keyboard provides convenient minus/hyphen input, `-` is omitted from the extra-keys toolbar in `termux.properties` (leaving an empty space under `/`).
+> - The toolbar places `ESC` and `TAB` in the first column, `CTRL` and `ALT` in the third, and spatially arranges native arrow keys (`UP`, `DOWN`, `LEFT`, `RIGHT`) together with paging and tmux macros.
+
+
+#### GitHub Authentication on Termux (First-Time Setup)
+
+When setting up Termux on a new phone, Git needs your identity and credentials:
+
+##### 1. Set your Git username and email
+Run these commands once on the phone:
+```sh
+git config --global user.name "Durant Schoon"
+git config --global user.email "durant.schoon@gmail.com"
+```
+
+##### 2. Which password does Git want over HTTPS?
+When Git prompts:
+```text
+Username for 'https://github.com': durantschoon
+Password for 'https://durantschoon@github.com':
+```
+* **Username:** Enter `durantschoon`.
+* **Password:** **Do NOT enter your GitHub web account login password.** GitHub removed account password authentication for Git operations in August 2021; it will fail with `remote: Support for password authentication was removed`.
+* **You must enter a Personal Access Token (PAT):**
+  1. Open GitHub in a browser: **Settings → Developer Settings → Personal Access Tokens → Tokens (classic)**.
+  2. Click **Generate new token (classic)**.
+  3. Note: Name it after this specific device (e.g. `phone-termux` or `pixel-termux`).
+  4. Scopes: Check **`repo`** (Full control of private repositories).
+  5. Click **Generate token**, copy the `ghp_...` string, and paste it into Termux's Password prompt (note: Termux will not echo characters while pasting).
+
+##### 3. Do I need a separate token per machine/phone?
+* **Yes, always generate a separate token (or SSH key) per device.**
+* **Why:** Device isolation. If you lose your phone, upgrade, or wipe it, you can revoke just the `phone-termux` token in GitHub Settings with one click, without locking out your Mac, desktop, or cloud instances.
+
+##### 4. Avoid retyping the token on every push
+Tell Git on Termux to cache or store your credentials:
+```sh
+# Cache in memory for 1 month (2592000 seconds)
+git config --global credential.helper 'cache --timeout=2592000'
+
+# Or store on disk in ~/.git-credentials:
+# git config --global credential.helper store
+```
+
+##### 5. Even better: SSH Key (avoid tokens entirely)
+SSH keys are usually much easier on a phone than dealing with long tokens:
+```sh
+# 1. Generate an Ed25519 key on the phone:
+ssh-keygen -t ed25519 -C "phone-termux"
+
+# 2. Print and copy the public key:
+cat ~/.ssh/id_ed25519.pub
+
+# 3. Add it to GitHub: Settings → SSH and GPG keys → New SSH key
+
+# 4. Switch dot_files remote to SSH:
+git remote set-url origin git@github.com:durantschoon/dot_files.git
+```
+
+##### 6. Alternative: GitHub CLI (`gh auth login`)
+You can authenticate via the phone browser using a short code:
+```sh
+pkg install gh
+gh auth login
+# Choose: GitHub.com → SSH or HTTPS → Login with a web browser
+# Copy the one-time code and confirm in your phone's browser
 ```
 
 `~/.ssh/config` on the phone:

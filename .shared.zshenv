@@ -3,6 +3,12 @@
 ###############################################################################
 # Colors and prompt
 
+# On Termux, Android defaults hostname to localhost; override to android_termux
+if [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux || "$PREFIX" == *com.termux* ]]; then
+    export HOST="android_termux"
+    export HOSTNAME="android_termux"
+fi
+
 autoload -U colors && colors
 # PS1="%{$fg[red]%}%n%{$reset_color%}@%{$fg[blue]%}%m %{$fg[yellow]%}%2~ %{$reset_color%}%% "
 # PS1="%{$fg[red]%}%n%{$reset_color%} %{$fg[yellow]%}%2~ %{$fg[blue]%}[%h] %{$reset_color%}%% "
@@ -86,6 +92,7 @@ get_context_name() {
 
 # VS Code related
 add_to_front_of_path "$HOME/.console-ninja/.bin"
+mkdir -p "$HOME/.local/bin" 2>/dev/null || true
 add_to_front_of_path "$HOME/.local/bin"
 add_to_front_of_path "$HOME/bin"
 
@@ -97,7 +104,32 @@ export PNPM_HOME="$HOME/Library/pnpm"
 add_to_front_of_path "$PNPM_HOME"
 
 # command-line fuzzy finder ... should get this on all systems
-[ -f /usr/local/bin/fzf ] && eval "$(/usr/local/bin/fzf --zsh)"
+if command -v fzf >/dev/null 2>&1; then
+    eval "$(fzf --zsh)"
+fi
 
 # Set PAGER for all platforms
 export PAGER='less -R'
+
+# for my obsidian-drift repo
+export DRIFT_HOME="$HOME/Repos/enveloped/eobsidian-drift/obsidian-drift"
+export DRIFT_CONFIG="$DRIFT_HOME/test.toml"
+
+# envelope vault
+export ENVELOPE_VAULT_DIR=~/.envelope_vault
+
+# Primary envelope tooling checkout (independent of the branch checked out).
+# Keep existing hosts working until each host has moved its checkout.
+if [[ -z "${ENVELOPE_MAIN_DIR:-}" ]]; then
+    if [[ -d "$HOME/Repos/enveloped/ENVELOPE_MAIN" ]]; then
+        export ENVELOPE_MAIN_DIR="$HOME/Repos/enveloped/ENVELOPE_MAIN"
+    else
+        export ENVELOPE_MAIN_DIR="$HOME/Repos/enveloped/main"
+    fi
+fi
+
+# Default 'home base' host across all tailscale machines
+export HOMEBASE="${HOMEBASE:-orb-guix}"
+
+# Default timezone across all environments (America/New_York follows EDT/EST)
+export TZ="${TZ:-America/New_York}"

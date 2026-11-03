@@ -63,6 +63,7 @@
                                        ;elogind-service-type, elogind-configuration
              (gnu services linux)      ;kernel-module-loader-service-type
              (gnu services shepherd)   ;shepherd-service, shepherd-root-service-type
+             (gnu services ssh)        ;openssh-service-type, openssh-configuration
              (gnu system accounts)     ;subid-range, for rootless Podman
              (gnu system nss)
              (guix build-system copy)  ;copy-build-system, for the tailscale tarball
@@ -277,8 +278,7 @@ leftcontrol = capslock
  (locale "en_US.utf8")
 
  (keyboard-layout
-  (keyboard-layout "us"
-                   #:options '("ctrl:swapcaps")))
+  (keyboard-layout "us"))
 
  ;; Linux kernel with proprietary firmware support (from nonguix).
  ;; At the pinned nonguix commit this is 7.1, well past the 6.10 that
@@ -526,6 +526,48 @@ leftcontrol = capslock
                    (subuids (list (subid-range (name "durant"))))
                    (subgids (list (subid-range (name "durant"))))))
 
+         ;; sshd, for reaching this machine from minius.
+         ;;
+         ;; This is a fresh (service ...) rather than a modify-services clause:
+         ;; %desktop-services does NOT carry openssh-service-type (unlike
+         ;; NetworkManager/elogind/gdm/udev, which it does -- see the note above
+         ;; the %desktop-services expression below), so declaring it here is the
+         ;; only instance and cannot collide.
+         ;;
+         ;; Both authentication routes a default sshd would accept are shut off,
+         ;; leaving exactly one way in -- durant, by key:
+         ;;
+         ;;   permit-root-login        defaults to #t in openssh-configuration.
+         ;;                            root has no business being an SSH identity
+         ;;                            here; `sudo' after a durant login is the
+         ;;                            path to root.
+         ;;   password-authentication? defaults to #t.  With it off, a stolen or
+         ;;                            guessed password is not a login, and the
+         ;;                            internet-facing brute-force traffic that
+         ;;                            every sshd sees has nothing to chew on.
+         ;;
+         ;; authorized-keys is an alist of (USER GEXP ...), and the service
+         ;; writes each entry to /etc/ssh/authorized_keys.d/USER.  That directory
+         ;; is fully declarative: a key pasted into ~/.ssh/authorized_keys by
+         ;; hand is NOT consulted, so minius.pub below is the whole allowlist.
+         ;;
+         ;; local-file resolves a relative path against the directory of the .scm
+         ;; file it appears in, not the caller's cwd -- so this is
+         ;; system/keys/minius.pub, and `guix system reconfigure' finds it the
+         ;; same way from the repo root or from anywhere else.
+         ;;
+         ;; CAUTION when changing any of this: with passwords off and root off,
+         ;; a wrong or stale minius.pub means no SSH login at all, and the only
+         ;; remaining way in is the physical console.  Keep a console session
+         ;; open across the reconfigure that first applies it, and verify the new
+         ;; key from a SECOND connection before closing the one you have.
+         (service openssh-service-type
+                  (openssh-configuration
+                   (permit-root-login #f)
+                   (password-authentication? #f)
+                   (authorized-keys
+                    `(("durant" ,(local-file "keys/minius.pub"))))))
+
          ;; keyd, as a SYSTEM service.
          ;;
          ;; It cannot be a guix home service: keyd reads /dev/input/event* and
@@ -576,10 +618,10 @@ leftcontrol = capslock
                  ;; Two things still catch a bad keyd, which is what makes #t
                  ;; affordable rather than merely convenient:
                  ;;
-                 ;;   - (keyboard-layout ... "ctrl:swapcaps") above is applied
-                 ;;     by the kernel keymap and by GDM/Xorg, entirely
-                 ;;     independently of keyd.  Caps still acts as Control at a
-                 ;;     console even with keyd dead or misbehaving.
+                 ;;   - (keyboard-layout "us") ensures standard evdev-to-keysym
+                 ;;     mapping at the console so keyd's hardware swap is
+                 ;;     effective (having ctrl:swapcaps active at both layers
+                 ;;     caused a double-swap).
                  ;;   - GRUB still lists every previous generation, and this
                  ;;     service is the only difference between them.
                  ;;
@@ -674,6 +716,14 @@ leftcontrol = capslock
          ;; after startup looked fine.  SSL_CERT_* likewise: a static Go binary
          ;; with no certificate path cannot TLS to the control plane, and Guix
          ;; puts the bundle somewhere Go does not guess.
+         ;;
+         ;; glibc's bin is on that PATH for `getent', which is how Tailscale
+         ;; SSH finds the user's login shell (as far as can be told from
+         ;; outside; confirm with ps after reconfiguring).  Without it tailscaled
+         ;; falls back to /bin/sh (seen in ps as `be-child ssh --login-shell=/bin/sh'),
+         ;; so a Tailscale SSH login got bash, never read .zshrc.starship, and
+         ;; had no GPG_TTY: gpg signing failed with "Inappropriate ioctl for
+         ;; device" (measured 2026-09-30).
          (simple-service 'tailscale-state activation-service-type
                          ;; Recreated on every boot and every reconfigure.
                          ;; 0700 on the state directory is not cosmetic: it
@@ -711,7 +761,8 @@ leftcontrol = capslock
                             ;; is "iproute2".  `guix build iproute' fails and
                             ;; (file-append iproute2 ...) is unbound -- the two
                             ;; spellings are not interchangeable.
-                            #$(file-append iproute "/sbin"))
+                            #$(file-append iproute "/sbin") ":"
+                            #$(file-append glibc "/bin"))
                            "SSL_CERT_DIR=/etc/ssl/certs"
                            "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")))
                  (stop
@@ -730,6 +781,49 @@ leftcontrol = capslock
                  ;; the tailnet.  It cannot cost you the console, and it cannot
                  ;; take out the WiFi this machine's only interface depends on
                  ;; -- tailscale0 is an additional interface, not a replacement.
+                 (auto-start? #t))))
+
+         ;; Tailscale SSH, declared rather than remembered.
+         ;;
+         ;; This machine is reachable over Tailscale SSH today, but ONLY because
+         ;; somebody once ran `tailscale up --ssh' by hand.  That is a node
+         ;; PREFERENCE, not a daemon flag -- tailscaled has no --ssh -- so it
+         ;; lives in /var/lib/tailscale/tailscaled.state and in nothing this repo
+         ;; tracks.  A rebuilt geeeks would therefore come up with no Tailscale
+         ;; SSH and no hint in the config as to why, which is exactly the kind of
+         ;; drift the openssh service above exists to avoid.
+         ;;
+         ;; One-shot, because setting a preference is not a daemon: shepherd runs
+         ;; it once per boot, it converges, and it stays stopped.  Re-running it
+         ;; is harmless; `set --ssh' on a node that already has it is a no-op,
+         ;; which is what makes this safe to apply on every reconfigure.
+         ;;
+         ;; The retry loop is for ordering, not flakiness.  `requirement
+         ;; (tailscaled)' guarantees the daemon was STARTED, not that it has
+         ;; finished creating its socket, and the CLI talks to that socket -- so
+         ;; a first attempt can lose the race on a cold boot.  Failure is
+         ;; deliberately not fatal: Tailscale SSH is the convenience path, the
+         ;; openssh service above is the one that must not silently depend on the
+         ;; control plane being reachable.
+         (simple-service
+          'tailscale-ssh shepherd-root-service-type
+          (list (shepherd-service
+                 (provision '(tailscale-ssh))
+                 (requirement '(tailscaled))
+                 (documentation "Enable Tailscale SSH on this node.")
+                 (one-shot? #t)
+                 (start
+                  #~(lambda _
+                      (let loop ((tries 10))
+                        (if (zero? (system* #$(file-append tailscale-bin "/bin/tailscale")
+                                            "--socket=/var/run/tailscale/tailscaled.sock"
+                                            "set" "--ssh"))
+                            #t
+                            (if (> tries 0)
+                                (begin (sleep 2) (loop (- tries 1)))
+                                ;; #t on purpose: see the note above about not
+                                ;; failing the boot over the convenience path.
+                                #t)))))
                  (auto-start? #t))))
 
          ;; The FHS dynamic loader, as one symlink.
@@ -800,6 +894,14 @@ leftcontrol = capslock
                  (inherit config)
                  (handle-lid-switch-external-power 'ignore)
                  (idle-action 'ignore)))
+     ;; Readable console font on high-DPI panel (Framework 13, 2880x1920).
+     ;; Use Terminus Powerline 32px font across all virtual terminals.
+     (console-font-service-type
+      config => (map (lambda (tty+font)
+                       (cons (car tty+font)
+                             (local-file "fonts/ter-powerline-v32n.psf.gz"
+                                         "ter-powerline-v32n.psf.gz")))
+                     config))
      (guix-service-type
       config => (guix-configuration
                  (inherit config)

@@ -1,5 +1,5 @@
 # Starship prompt config.  Deployed to ~/.config/starship.toml by
-# home/common.scm (home-files-service-type).
+# home/common.scm (home-files-service-type) on Linux, by `make set_up_links' on macOS.
 #
 # Why this file exists: Starship's default symbols for some modules are colour
 # emoji above U+FFFF (package 📦 U+1F4E6, python 🐍 U+1F40D).  ConEmu cannot
@@ -24,8 +24,194 @@ scan_timeout = 1000
 # (default: 500ms). Increased to prevent timeouts under WSL filesystem latency.
 command_timeout = 1000
 
+# Prompt layout.  First line, right edge: the Guix version on any host with a
+# pulled Guix (Guix System or a foreign distro) and inside a `guix shell' (a
+# shell follows the buffalo inside one; nothing is shown on hosts without
+# Guix).  Right-hand prompt on the second line: which machine, the history
+# event number to recall with !N, and the time and date (the old zsh RPROMPT's
+# "[%h]" and "[%* on %D]").  Modules named in format or right_format drop out
+# of $all, so the left prompt does not repeat them.
+# The left prompt leads with an ssh marker, as it did when hostname lived there.
+format = "${env_var.SSH_CONNECTION}$all$fill${custom.guix_shell}${custom.guix}$line_break$character"
+right_format = "${custom.host} ${env_var.STARSHIP_HISTNO}$time"
+
+# zsh's RPROMPT sits on the prompt's last line only, so right_format cannot
+# span two lines.  The Guix segment goes on the first line instead, pushed to
+# the right edge by $fill (blank, not the default dots).  Naming $fill,
+# $line_break and $character takes them out of $all, so they appear once.
+[fill]
+symbol = " "
+
 [package]
 symbol = " "   # nf-oct-package
 
 [python]
 symbol = " "   # nf-dev-python
+
+# Colours: the defaults for hostname ("bold dimmed green") and java ("red
+# dimmed") are unreadable on a dark background; "dimmed" is the culprit.
+
+[hostname]
+disabled = true
+
+# Which machine: on OrbStack the container hostname is a random ID, so lead
+# with the purple circle / orb emoji (U+1F7E3) and cut the ID to its first
+# seven characters, like a short git hash.  On Termux / Android, replace the
+# default "localhost" with "android_termux".  On other hosts (minius, geeeks,
+# barnowl), show the plain hostname without the orb.
+[custom.host]
+shell = ["sh"]
+when = 'true'
+command = '''
+v=""
+[ -f /proc/version ] && read -r v < /proc/version 2>/dev/null
+h="${HOSTNAME:-$(hostname)}"
+h="${h%%.*}"
+if [ "$h" = "localhost" ] || [ -z "$h" ]; then
+  h="android_termux"
+fi
+case "$v" in
+  *orbstack*|*OrbStack*) printf "\360\237\237\243 %.7s" "$h" ;;
+  *) printf "%s" "$h" ;;
+esac
+'''
+style = "bold underline bright-green"
+format = "[\\[$output\\]]($style)"
+
+# ssh marker for the left prompt: hostname's default ssh_symbol (U+1F310, like
+# the buffalo outside the BMP), shown whenever $SSH_CONNECTION is set, which is
+# also how hostname decides a session is remote.  An env_var module needs no
+# subprocess.
+[env_var.SSH_CONNECTION]
+format = "\U0001F310 "
+
+[java]
+style = "bold bright-red"
+
+# History event number (zsh's %h), exported by a precmd hook in .zshrc.starship;
+# starship runs as a child process and cannot read the shell's history itself.
+[env_var.STARSHIP_HISTNO]
+format = "[\\[$env_value\\]]($style) "
+style = "bold bright-blue"
+
+[time]
+disabled = false
+time_format = "%H:%M:%S on %y-%m-%d"
+format = "[\\[$time\\]]($style)"
+style = "bold yellow"
+
+# The built-in guix_shell module has no $version, so a custom module stands in
+# for it and guix_shell is disabled (it would otherwise reappear via $all).
+# Guix's version is the commit it was pulled at; shown as the 7-character short
+# hash, as in `guix describe'.  The pulled guix is called by its full path
+# because `guix shell --pure' drops it from PATH (`guix --version' takes ~30ms).
+[guix_shell]
+disabled = true
+
+# Two modules with the same command, since a custom module's symbol is fixed:
+# buffalo and spiral shell inside a guix shell, the buffalo alone outside one
+# on any host with a pulled Guix.
+# Inside brackets: [🐃 <guix-hash>, 🚫🐃 <nonguix-hash>]
+# The water buffalo (gnu) is U+1F403, the shell U+1F41A, and prohibited (non) U+1F6AB.
+# Both run under sh, not $STARSHIP_SHELL (zsh): a zsh spawn reads the .zshenv
+# chain first (~300-450ms each), so a fresh terminal's prompt ran past
+# command_timeout ("Executing custom command ... timed out").
+[custom.guix_shell]
+shell = ["sh"]
+when = 'test -n "$GUIX_ENVIRONMENT"'
+command = '''
+# A channel commit's numeric version, from `git describe' in Guix's own
+# checkout cache: show the release tag and hash, e.g. "1.5.0 df2d121".
+# ~70ms a call, so the answer is cached per commit (it never changes);
+# without git or the checkout, the bare hash.
+ver() {
+  c="$HOME/.cache/starship-guix/$1"
+  if [ ! -s "$c" ] && command -v git >/dev/null 2>&1; then
+    for d in "$HOME"/.cache/guix/checkouts/*/; do
+      v=$(git -C "$d" describe --tags --long --abbrev=7 "$1" 2>/dev/null) || continue
+      mkdir -p "${c%/*}"
+      printf '%s' "$v" | sed 's/^v//; s/-g\([0-9a-f]*\)$/ \1/' > "$c"
+      break
+    done
+  fi
+  if [ -s "$c" ]; then sed 's/-[^ ]* / /' "$c"; else printf '%s' "$1"; fi
+}
+show() {  # $1 guix commit, $2 nonguix commit (may be empty)
+  [ -n "$1" ] || return 0
+  ver "$1"
+  [ -n "$2" ] && printf ', \360\237\232\253\360\237\220\203 %s' "$(ver "$2")"
+  return 0
+}
+m="$HOME/.config/guix/current/manifest"
+[ -r "$m" ] || m=/run/current-system/profile/manifest
+if [ -r "$m" ]; then
+  show $(awk '
+    $0 ~ /"guix"/ && !g { f=1; next }
+    f { gsub(/[ "]/, ""); g = substr($0, 1, 7); f=0 }
+    $0 ~ /"nonguix"/ && !ng { nf=1; next }
+    nf { gsub(/[ "]/, ""); ng = substr($0, 1, 7); nf=0 }
+    END { print g, ng }
+  ' "$m")
+elif command -v guix >/dev/null 2>&1; then
+  show $(guix describe 2>/dev/null | awk '
+    $1 == "guix" && !g { g = substr($2, 1, 7) }
+    $1 == "nonguix" && !ng { ng = substr($2, 1, 7) }
+    END { print g, ng }
+  ')
+elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
+  show $("$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }')
+fi
+'''
+symbol = "\U0001F403\U0001F41A "
+style = "bold bright-green"
+format = " [\\[$symbol$output\\]]($style)"
+
+[custom.guix]
+shell = ["sh"]
+when = 'test -x "$HOME/.config/guix/current/bin/guix" && test -z "$GUIX_ENVIRONMENT"'
+command = '''
+# A channel commit's numeric version, from `git describe' in Guix's own
+# checkout cache: show the release tag and hash, e.g. "1.5.0 df2d121".
+# ~70ms a call, so the answer is cached per commit (it never changes);
+# without git or the checkout, the bare hash.
+ver() {
+  c="$HOME/.cache/starship-guix/$1"
+  if [ ! -s "$c" ] && command -v git >/dev/null 2>&1; then
+    for d in "$HOME"/.cache/guix/checkouts/*/; do
+      v=$(git -C "$d" describe --tags --long --abbrev=7 "$1" 2>/dev/null) || continue
+      mkdir -p "${c%/*}"
+      printf '%s' "$v" | sed 's/^v//; s/-g\([0-9a-f]*\)$/ \1/' > "$c"
+      break
+    done
+  fi
+  if [ -s "$c" ]; then sed 's/-[^ ]* / /' "$c"; else printf '%s' "$1"; fi
+}
+show() {  # $1 guix commit, $2 nonguix commit (may be empty)
+  [ -n "$1" ] || return 0
+  ver "$1"
+  [ -n "$2" ] && printf ', \360\237\232\253\360\237\220\203 %s' "$(ver "$2")"
+  return 0
+}
+m="$HOME/.config/guix/current/manifest"
+[ -r "$m" ] || m=/run/current-system/profile/manifest
+if [ -r "$m" ]; then
+  show $(awk '
+    $0 ~ /"guix"/ && !g { f=1; next }
+    f { gsub(/[ "]/, ""); g = substr($0, 1, 7); f=0 }
+    $0 ~ /"nonguix"/ && !ng { nf=1; next }
+    nf { gsub(/[ "]/, ""); ng = substr($0, 1, 7); nf=0 }
+    END { print g, ng }
+  ' "$m")
+elif command -v guix >/dev/null 2>&1; then
+  show $(guix describe 2>/dev/null | awk '
+    $1 == "guix" && !g { g = substr($2, 1, 7) }
+    $1 == "nonguix" && !ng { ng = substr($2, 1, 7) }
+    END { print g, ng }
+  ')
+elif [ -x "$HOME/.config/guix/current/bin/guix" ]; then
+  show $("$HOME/.config/guix/current/bin/guix" --version | awk 'NR == 1 { print substr($NF, 1, 7) }')
+fi
+'''
+symbol = "\U0001F403 "
+style = "bold bright-green"
+format = " [\\[$symbol$output\\]]($style)"

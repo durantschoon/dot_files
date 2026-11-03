@@ -79,8 +79,13 @@ if [[ $- == *i* ]]; then
     # Only do this for interactive shells
 
     WSL_VEW_PYTHON="$HOME/.pyenv/versions/3.12.7/bin/python3"
-    MAC_VENV="/usr/local/bin/virtualenv"
-    MAC_VEW_SCRIPT="/usr/local/bin/virtualenvwrapper.sh"
+    if [ -f /opt/homebrew/bin/virtualenv ]; then
+        MAC_VENV="/opt/homebrew/bin/virtualenv"
+        MAC_VEW_SCRIPT="/opt/homebrew/bin/virtualenvwrapper.sh"
+    else
+        MAC_VENV="/usr/local/bin/virtualenv"
+        MAC_VEW_SCRIPT="/usr/local/bin/virtualenvwrapper.sh"
+    fi
 
     # pyenv detection
     if command -v pyenv >/dev/null 2>&1; then
@@ -154,6 +159,22 @@ fi
 
 export SPACEMACSDIR=$HOME/.spacemacs.d
 
+#########
+# Radicle
+#########
+
+# rad:// remotes (the GIPS submodule) need a running radicle-node to push,
+# and git-remote-rad to fetch.  Nag once per new shell while either is
+# missing, so a machine without `rad auth' does not go unnoticed until a
+# fetch fails.  RADICLE_WARN=0 silences it; `make check-radicle' explains.
+if [[ ${RADICLE_WARN:-1} != 0 ]] && (( $+commands[rad] )); then
+    if ! (( $+commands[git-remote-rad] )); then
+        print -u2 "radicle: git-remote-rad missing -- make -C ~/dot_files check-radicle"
+    elif ! pgrep -x radicle-node >/dev/null 2>&1; then
+        print -u2 "radicle: node not running -- make -C ~/dot_files check-radicle"
+    fi
+fi
+
 ######
 # misc
 ######
@@ -168,6 +189,7 @@ chpwd
 # Homebrew's profile.d script (mac) and the Guix Home profile's zsh hook
 # (Guix System -- the .zsh variant, for the j function plus completion).
 [ -f /usr/local/etc/profile.d/autojump.sh ] && . /usr/local/etc/profile.d/autojump.sh
+[ -f /opt/homebrew/etc/profile.d/autojump.sh ] && . /opt/homebrew/etc/profile.d/autojump.sh
 [ -f ~/.guix-home/profile/share/autojump/autojump.zsh ] && . ~/.guix-home/profile/share/autojump/autojump.zsh
 
 # Angular tests
@@ -180,3 +202,54 @@ fi
 glowtmux() {
     glow -s dark -w $(( $(tmux display -p '#{pane_width}') - 4 )) "$1" | less -R
 }
+
+# env-* commands
+[[ -f "$ENVELOPE_MAIN_DIR/scripts/envelope-worktree.zsh" ]] && source "$ENVELOPE_MAIN_DIR/scripts/envelope-worktree.zsh"
+
+env-cd() {
+    if [[ -z "$1" ]]; then
+        cd "$HOME/Repos/enveloped"
+        return
+    fi
+    local target="$HOME/Repos/enveloped/$1"
+    [[ "$1" == main || "$1" == ENVELOPE_MAIN ]] && target="$ENVELOPE_MAIN_DIR"
+    if [[ -d "$target" ]]; then
+        cd "$target"
+    else
+        echo "Directory not found: $target" >&2
+        return 1
+    fi
+}
+
+_env-cd() {
+    local -a dirs
+    dirs=("${ENVELOPE_MAIN_DIR:h}"/*(N/:t))
+    _describe 'enveloped directories' dirs
+}
+compdef _env-cd env-cd
+
+# Termux configuration & font sync: ensure ~/.termux is configured on shell start
+if [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux || "$PREFIX" == *com.termux* ]]; then
+    _termux_reloaded=0
+    _termux_props_src="$HOME/dot_files/termux/termux.properties"
+    _termux_props_dst="$HOME/.termux/termux.properties"
+    if [[ -f "$_termux_props_src" ]] && { [[ ! -f "$_termux_props_dst" ]] || ! cmp -s "$_termux_props_src" "$_termux_props_dst" 2>/dev/null; }; then
+        mkdir -p "$HOME/.termux"
+        cp -f "$_termux_props_src" "$_termux_props_dst"
+        _termux_reloaded=1
+    fi
+    _termux_font_src="$HOME/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf"
+    _termux_font_dst="$HOME/.termux/font.ttf"
+    if [[ -f "$_termux_font_src" ]] && { [[ ! -f "$_termux_font_dst" ]] || ! cmp -s "$_termux_font_src" "$_termux_font_dst" 2>/dev/null; }; then
+        mkdir -p "$HOME/.termux"
+        cp -f "$_termux_font_src" "$_termux_font_dst"
+        _termux_reloaded=1
+    fi
+    if (( _termux_reloaded )) && (( $+commands[termux-reload-settings] )); then
+        termux-reload-settings
+    fi
+    if ! (( $+commands[python3] )); then
+        print -u2 "Termux: python3 not found. Run 'pkg install python' or '~/dot_files/bin/termux-setup' to enable make targets."
+    fi
+    unset _termux_props_src _termux_props_dst _termux_font_src _termux_font_dst _termux_reloaded
+fi

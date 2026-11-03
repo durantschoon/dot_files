@@ -173,3 +173,15 @@ first; these are the patterns it did not record:
   `nonzero`, per-suite `skip`). Four suites now carry near-duplicate helper sets.
   A shared `tests/jobs/lib.zsh` is a candidate for the stage after next; noted,
   not done here, because it touches every suite at once.
+
+## Planned module extraction (2026-09-27)
+
+The [module extraction plan](../MODULE_EXTRACTION_PLAN.md) is the planning input
+for the next branching-stage sequence. Its W01–W12 labels are work packages, not
+reserved stage numbers. Continue the existing global sequence when prompts are
+committed; no new stage or forecast is created by this link.
+
+Before generation, reconcile the historical Discovered gates section above with
+the current Makefile and the plan's verification contracts: the repository now has
+job-runner and submodule test suites. Preserve earlier reports as historical
+evidence and measure a fresh baseline for this work.

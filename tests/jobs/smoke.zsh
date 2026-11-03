@@ -87,6 +87,11 @@ typeset -g ED_ARGV=$BASE/editor-argv.txt  # the fake $EDITOR's recorded argv
 typeset -g PT=${0:A:h}/private-tmux
 [[ -x $PT ]] || { print -u2 "smoke: cannot execute $PT"; exit 1 }
 typeset -g PT_DEFAULT_DIR=${TMUX_TMPDIR:-/tmp}
+# The same goes for $PATH: the guard runs from the cleanup, after $BASE (and the
+# $SYSBIN symlinks with it) is gone, so on a host whose tmux lives only off the
+# suite's fixed PATH (Guix: ~/.guix-home/profile/bin) it would find no tmux and
+# read the live server as empty.
+typeset -g PT_DEFAULT_PATH=$PATH
 
 # The two servers, as thin wrappers. Defined here, above the cleanup function,
 # because the cleanup function calls them and an EXIT trap can fire at any
@@ -95,7 +100,7 @@ ltmux() { PRIVATE_TMUX_DIR=$TMUX_LOCAL  "$PT" "$@" }
 rtmux() { PRIVATE_TMUX_DIR=$TMUX_REMOTE "$PT" "$@" }
 # The one permitted question for the user's own server: which sessions are on
 # it. private-tmux has no way to spell any other subcommand against it.
-pt_default_sessions() { PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
+pt_default_sessions() { PATH=$PT_DEFAULT_PATH PRIVATE_TMUX_DEFAULT_DIR=$PT_DEFAULT_DIR "$PT" --default-ls }
 # Captured before anything else runs, and before any trap is installed, so the
 # guard in the cleanup always has something honest to compare against.
 typeset -g SMOKE_DEFAULT_BEFORE="$(pt_default_sessions)"
@@ -167,9 +172,40 @@ typeset -g REAL_HOME=$HOME
 
 export HOME=$HOME_LOCAL
 export TMUX_TMPDIR=$TMUX_LOCAL
-export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN:$ENGINEBIN
+# The fzf VERSION probe needs an answerable `fzf' on $PATH, and nothing else
+# does. The picker's branch test is `command -v fzf', which in zsh finds the
+# shell-function shadow defined below whatever $PATH says; but
+# _tmux_fzf_has_every runs `command fzf --version', and `command' bypasses a
+# function. fzf is deliberately excluded from $SYSBIN above so no assertion can
+# run the real picker, which left the every(N) gate reading "too old" and made
+# the poll assertions (9i) measure the fixture. That passed unnoticed on the
+# Mac, where /opt/homebrew/bin below carries a real fzf, and failed on Guix,
+# where fzf lives in the Guix profile and is on no path listed here.
+#
+# So: a stub that answers ONLY --version, in a bin of its own. It is on the
+# full PATH and NOT on $NOFZF_PATH, which must still have no fzf at all.
+typeset -g FZFBIN=$BASE/fzfbin
+mkdir -p -- "$FZFBIN" || exit 1
+print -r -- '#!/bin/sh
+[ "$1" = --version ] && { echo "0.74.3 (smoke stub)"; exit 0; }
+echo "smoke: the real fzf must never run -- use the fzf shell function" >&2
+exit 127' > "$FZFBIN/fzf"
+chmod +x -- "$FZFBIN/fzf" || exit 1
+
+export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN:$ENGINEBIN:$FZFBIN
 export SHELL=/bin/sh                      # deterministic pane shell
 typeset -g FULL_PATH=$PATH
+# That PATH includes /opt/homebrew/bin, so whatever the developer happens to
+# have installed there is in scope -- notably glow, which job-note-context
+# pipes its Markdown through when present.  The context block is asserted as
+# plain text, so ask for that the way the code itself documents: NO_COLOR.
+export NO_COLOR=1
+# Widths are asserted in characters, and a cut label ends in "…": one
+# character under a UTF-8 locale, three without one (a bare `env -i', an
+# agent's tool shell), which made a correctly cut 80-column label measure 82.
+# zsh re-reads the locale when LC_ALL is assigned, so this covers the
+# assertions below as well as every child.
+export LC_ALL=C.UTF-8
 typeset -g NOFZF_PATH=$WT/bin:$PATHBIN:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN
 
 # launchd is macOS's init. There is no launchctl on Linux, so the assertions
@@ -552,9 +588,16 @@ eq "pre: the remote private socket path is under the 100-byte limit" \
    "$(( ${#SOCK_REMOTE} < 100 ))" "1"
 eq "pre: \$TMUX_TMPDIR is the local private server, not the default one" \
    "$TMUX_TMPDIR" "$TMUX_LOCAL"
-out=$(PRIVATE_TMUX_DIR=/tmp/$(printf 'y%.0s' {1..88}) "$PT" --print-socket 2>&1); rc=$?
-eq  "pre: private-tmux refuses a 110-byte socket path with 78" "$rc" "78"
-has "pre: ... naming the length"                               "$out" "110 bytes"
+# The path private-tmux would bind is <dir>/tmux-<uid>/default, so its length
+# depends on how many DIGITS the uid has: 110 bytes for a 3-digit macOS uid,
+# 108 for uid 0 in a container. Hardcoding 110 made this assertion measure the
+# uid instead of the limit, and it failed on Linux for that reason alone.
+typeset -g  PT_LONG_DIR=/tmp/$(printf 'y%.0s' {1..88})
+typeset -g  PT_LONG_TAIL=/tmux-$(id -u)/default
+typeset -gi PT_LONG_LEN=$(( ${#PT_LONG_DIR} + ${#PT_LONG_TAIL} ))
+out=$(PRIVATE_TMUX_DIR=$PT_LONG_DIR "$PT" --print-socket 2>&1); rc=$?
+eq  "pre: private-tmux refuses a ${PT_LONG_LEN}-byte socket path with 78" "$rc" "78"
+has "pre: ... naming the length"                               "$out" "$PT_LONG_LEN bytes"
 
 # A pinned label can be left loaded by a run that was killed between its
 # bootstrap and its trap. Boot it out before starting, and SAY so -- a suite
@@ -768,6 +811,11 @@ eq "7a tmux-go attaches where the session lives" \
    "$(tmux-go claude 2>/dev/null)" "attach fakehost $SLUG-claude"
 eq "7a' tmux-take is the same verb" \
    "$(tmux-take claude 2>/dev/null)" "attach fakehost $SLUG-claude"
+eq "7a'' tmux-remote-launch passes an explicit --on through" \
+   "$(tmux-remote-launch claude --on fakehost 2>/dev/null)" "attach fakehost $SLUG-claude"
+out=$(tmux-remote-launch claude 2>&1); rc=$?
+eq "7a'' tmux-remote-launch without --on defaults to minius ..." "$rc" "1"
+has "7a'' ... and refuses, since the session lives on fakehost" "$out" "--on says minius"
 
 out=$(tmux-run claude -- sh -c 'echo remote; exit 0' 2>&1); rc=$?
 eq "7b tmux-run follows the session to fakehost" "$rc" "0"
@@ -1041,7 +1089,7 @@ eq "9o ... and the menu really was drawn twice" \
 # rather than three. The literal is updated rather than loosened: what the
 # prompt says is the only documentation this branch has.
 haslit "9o ... the prompt says what the keys are" \
-       "$(command cat "$MENU_ERR1")" "[number, n N=notes, e N=edit, r=refresh, q=quit; auto-refresh 120s]"
+       "$(command cat "$MENU_ERR1")" "[number, n N=notes, e N=edit, m N=rename, k N=kill, r=refresh, q=quit; auto-refresh 120s]"
 
 out=$( unfunction fzf; PATH=$NOFZF_PATH; print q | tmux-pick 2>/dev/null; print "rc=$?" )
 eq "9o q quits with status 0 and attaches nothing" "$out" "rc=0"
@@ -1215,9 +1263,9 @@ haslit "16b ... with the body under it" "$out" "the recap body"
 
 print -r -- '> waiting on review'      >  "$CTX/logs/stage-03.notes.md"
 print -r -- 'and the detail under it'  >> "$CTX/logs/stage-03.notes.md"
-haslit "16b the notes are printed verbatim after 'notes:'" \
+haslit "16b the notes are printed verbatim after the Notes heading" \
        "$(job-note-context stage-03 2>/dev/null)" \
-       "notes:"$'\n'"> waiting on review"$'\n'"and the detail under it"
+       "### Notes"$'\n'"> waiting on review"$'\n'"and the detail under it"
 
 # --- item 4: job-note, through the recorded $EDITOR -------------------------
 typeset -g CTX_NOTES=$CTX/logs/n1.notes.md
@@ -1228,9 +1276,8 @@ job-note n1; rc=$?
 eq "16c job-note exits with the editor's own status" "$rc" "0"
 eq "16c ... having created the notes file" "$([[ -f $CTX_NOTES ]] && print yes)" "yes"
 typeset -g CTX_NOTES_TXT="$(command cat "$CTX_NOTES")"
-haslit "16c ... whose hint says who owns it" \
-       "$CTX_NOTES_TXT" "nothing but your editor ever writes it"
-haslit "16c ... and carries the \"> \" status example" "$CTX_NOTES_TXT" "> waiting on review"
+# The template is a bare heading to fill in (c5df622 dropped the old hint text).
+starts "16c ... which starts from the template's heading" "$CTX_NOTES_TXT" "# "
 haslit "16c ... and the canned line the shim wrote"    "$CTX_NOTES_TXT" "> edited by the shim"
 eq "16c ... and the shim's argv ends in that path" \
    "$(command tail -n 1 "$ED_ARGV")" "$CTX_NOTES"
@@ -1301,8 +1348,9 @@ hasntlit "16e at 120 columns the preview starts shown"  "$(smoke_fzf_opt --previ
 command rm -f -- "$FZF_ARGV"
 COLUMNS=80
 tmux-pick >/dev/null 2>&1
-haslit "16e at 80 it starts hidden, because a phone screen has no room" \
-       "$(smoke_fzf_opt --preview-window)" "hidden"
+# fc18c02: narrow terminals show it BELOW the list rather than hiding it.
+haslit "16e at 80 it goes below the list, because a phone screen has no width" \
+       "$(smoke_fzf_opt --preview-window)" "bottom"
 COLUMNS=120
 
 command rm -f -- "$FZF_ARGV"
@@ -1341,7 +1389,7 @@ smoke_ctx_pair "$(smoke_fzf_subst "$PV_CMD" "local|$SLUG-t1" "$REPO")" "$REPO" t
   || fail "16e the clock ticked on all 20 tries" "$PV_CMD"
 eqlit "16e the preview prints exactly what job-note-context prints for that row" \
       "$CTX_RUN" "$CTX_WANT"
-haslit "16e ... and what it printed really is the context block" "$CTX_RUN" "notes:"
+haslit "16e ... and what it printed really is the context block" "$CTX_RUN" "### Notes"
 
 # The remote row: same preview command, answered on the other host.
 # Short on purpose: these two statuses are asserted in a REAL row further
@@ -1451,9 +1499,10 @@ eq "16f ... and that field is the row's session path" \
 typeset -g MENU_ERR3=$BASE/menu-err3.txt MENU_ERR4=$BASE/menu-err4.txt
 out=$( unfunction fzf; PATH=$NOFZF_PATH; print -l 'n 1' q | tmux-pick 2>"$MENU_ERR3" )
 typeset -g MENU3="$(command cat "$MENU_ERR3")"
-haslit "16g the menu prompt offers the two new verbs" \
-       "$MENU3" "[number, n N=notes, e N=edit, r=refresh, q=quit"
-haslit "16g \`n 1' prints row 1's context block" "$MENU3" "notes:"
+# The verbs, not the whole prompt: rename and kill joined it later.
+haslit "16g the menu prompt offers notes" "$MENU3" "n N=notes"
+haslit "16g ... and edit"                  "$MENU3" "e N=edit"
+haslit "16g \`n 1' prints row 1's context block" "$MENU3" "### Notes"
 eq "16g ... and none of it reaches stdout, which is the caller's" "$out" ""
 command rm -f -- "$ED_ARGV"
 out=$( unfunction fzf; PATH=$NOFZF_PATH; EDITOR=$SHADOWBIN/fake-editor
@@ -2298,6 +2347,98 @@ has "N12e ... and that handler cleans up, then re-raises" \
     "$SIG_SRC" "smoke_cleanup"$'\n'"  trap - INT TERM HUP PIPE EXIT"
 has "N12e and cleanup is guarded, so no path can run it twice" \
     "$SIG_SRC" "(( SMOKE_CLEANED )) && return"
+
+# --------------------------------------------------------------------------
+# 16. tmux-hibernate and tmux-revive
+# --------------------------------------------------------------------------
+
+cd -- "$REPO" || exit 1
+out=$(tmux-run hib1 -- sh -c 'echo hib1 running; sleep 10' 2>&1); rc=$?
+eq "16a tmux-run hib1 starts successfully" "$rc" "0"
+
+out=$(tmux-run hib2 -- sh -c 'echo hib2 running; sleep 10' 2>&1); rc=$?
+eq "16b tmux-run hib2 starts successfully" "$rc" "0"
+
+out=$(JOB_CONFIRM=no tmux-hibernate 2>&1); rc=$?
+eq "16c tmux-hibernate succeeds" "$rc" "0"
+has "16c ... says it saved and stopped jobs" "$out" "jobs saved to "
+has "16c ... saved hib1" "$out" "saved and stopped 'hib1'"
+has "16c ... saved hib2" "$out" "saved and stopped 'hib2'"
+
+out=$(tmux-status hib1 2>&1)
+hasnt "16d hib1 is no longer running" "$out" "running"
+out=$(tmux-status hib2 2>&1)
+hasnt "16d hib2 is no longer running" "$out" "running"
+
+hib_file=$HOME_LOCAL/.tmux-hibernated-jobs
+eq "16e hibernation file exists" "$([[ -f $hib_file ]] && print yes)" "yes"
+
+out=$(tmux-revive 2>&1); rc=$?
+eq "16f tmux-revive succeeds" "$rc" "0"
+has "16f ... says it revived jobs" "$out" "revived "
+
+_hib1_running() { tmux-status hib1 2>&1 | grep -q 'running' }
+waitfor _hib1_running || fail "16g hib1 never reported running after revive" "$(tmux-status hib1 2>&1)"
+ok "16g hib1 is running again"
+
+tmux-stop hib1 >/dev/null 2>&1
+tmux-stop hib2 >/dev/null 2>&1
+command rm -f -- "$hib_file"
+
+# --------------------------------------------------------------------------
+# N15. TASK completion and the doubled-prefix hint
+# --------------------------------------------------------------------------
+# Every verb takes a TASK, but `tmux ls' shows <repo>-<task>, and typing that
+# doubles the prefix.  _job_task_candidates must offer tasks WITHOUT the
+# prefix, from a live session and from a logs/<task>.job record alike; the
+# no-session paths must say what was probably meant; and _job_complete must
+# route values and the *-run command line correctly.  The completion system is
+# not loaded under -f, so its three entry points are stubbed in a subshell.
+
+cd -- "$REPO" || exit 1
+tmux-new comptask >/dev/null 2>&1
+waitfor ltmux has-session -t "=$SLUG-comptask" || fail "N15 setup: tmux-new comptask made no session"
+mkdir -p logs && print -r -- "at=now" > logs/comprec.job
+
+_job_task_candidates
+haslit "N15a a live session is offered as its bare task" "${_job_task_where[comptask]}" "tmux@local"
+eq  "N15a a logs/<task>.job record is offered too"    "${_job_task_where[comprec]}" "log"
+hasnt "N15a no candidate carries the repo prefix" "${(j: :)${(k)_job_task_where}}" "$SLUG-"
+
+out=$(tmux-status "$SLUG-comptask" 2>&1)
+has "N15b tmux-status with the prefix says which task was meant" "$out" "did you mean 'comptask'?"
+out=$(tmux-stop "$SLUG-nosuch" 2>&1)
+has "N15b tmux-stop with the prefix says it too" "$out" "did you mean 'nosuch'?"
+out=$(tmux-status nosuch 2>&1)
+hasnt "N15b a plain unknown task gets no prefix hint" "$out" "did you mean"
+out=$(tmux-status "$SLUG" 2>&1)
+has "N15b the bare repo name points at the default task" "$out" "leave TASK out, or say 'main'"
+
+out=$(
+  compadd()   { print -r -- "compadd: ${(j: :)@:#--}" }
+  _describe() { local -a d; d=("${(@P)4}"); print -r -- "describe: ${(j:; :)d}" }
+  _normal()   { print -r -- "normal: ${words[*]} @$CURRENT" }
+  try() { local PREFIX=$1; shift; local -a words=("$@"); local CURRENT=$# service=$1; _job_complete }
+  try '' tmux-stop ''
+  try '' tmux-go --on ''
+  try '' launchd-run t --restart ''
+  try - tmux-rm -
+  try - tmux-remote-launch -
+  try '' agent-rm ''
+  try '' tmux-run t make ''
+  try '' docker-run t --image i -- git ''
+)
+has "N15c TASK position offers bare tasks with where they were seen" "$out" "describe: "
+haslit "N15c ... including the live session"     "$out" "comptask:tmux@local"
+has "N15c --on offers hosts"                      "$out" "compadd: local"
+has "N15c --restart offers its policies"          "$out" "compadd: no on-failure always"
+has "N15c '-' on an rm verb offers --all"         "$out" "compadd: --all"
+has "N15c '-' on tmux-remote-launch offers --on"   "$out" "compadd: --on"
+has "N15c agent-* asks for the engine first"      "$out" "compadd: claude agy codex cursor"
+has "N15c *-run hands the words after TASK to _normal" "$out" "normal: make  @2"
+has "N15c ... and the words after --"             "$out" "normal: git  @2"
+
+tmux-rm comptask >/dev/null 2>&1; command rm -f -- logs/comprec.job
 
 # --------------------------------------------------------------------------
 # 13(b). Measurement for question 3 -- not a pass/fail assertion

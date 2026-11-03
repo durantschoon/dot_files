@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.durantschoon.radicle-node</string>
+
+  <!--
+    Template: `make setup-radicle' renders @RADICLE_NODE@, @PATH@ and @LOG@.
+
+    The Radicle node: gossips with the seeds, serves `git fetch' from
+    rad:// remotes out of ~/.radicle/storage and announces what
+    git-remote-rad pushes.  Without it a push lands in local storage only.
+    `rad node start' would spawn the same `radicle-node --force' (--force
+    clears a stale control socket), but nothing restarts it after a reboot.
+    It needs the secret key in ~/.radicle/keys/radicle to be UNENCRYPTED:
+    launchd has no terminal to ask for a passphrase (check-radicle says so).
+    PATH matters: the node shells out to git for fetches.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>@RADICLE_NODE@</string>
+    <string>--force</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@PATH@</string>
+  </dict>
+
+  <!-- the file `rad node logs' reads -->
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

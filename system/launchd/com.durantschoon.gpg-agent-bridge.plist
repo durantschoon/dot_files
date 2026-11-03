@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.durantschoon.gpg-agent-bridge</string>
+
+  <!--
+    Template: `make setup-gpg-bridge' renders @SOCAT@, @PORT@ and @SOCKET@.
+
+    OrbStack containers cannot connect to a macOS Unix socket through a bind
+    mount, but they reach the Mac's loopback as host.docker.internal.  This
+    exposes gpg-agent's *extra* socket (the restricted one meant for
+    forwarding: it signs and decrypts but cannot export or change keys) on
+    127.0.0.1 only; build-aux/guix-container-gpg-bridge.sh is the other end.
+    Anything on this Mac that can open the port can request signatures while
+    the passphrase is cached, same as anything running as this user already
+    can through the socket itself.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>@SOCAT@</string>
+    <string>TCP-LISTEN:@PORT@,bind=127.0.0.1,reuseaddr,fork</string>
+    <string>UNIX-CONNECT:@SOCKET@</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

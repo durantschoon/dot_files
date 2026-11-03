@@ -1,0 +1,5 @@
+@{guix_storedir} = /gnu/store
+@{guix_sysconfdir} = /etc
+@{guix_localstatedir} = /var
+
+include if exists <tunables/guix.d>

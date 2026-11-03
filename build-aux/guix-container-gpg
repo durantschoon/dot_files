@@ -1,0 +1,69 @@
+#!/bin/sh
+# git's gpg.program inside guix-dev (GIT_CONFIG_* in compose.guix.yaml): warn
+# before a signature that will need the passphrase, then run the real gpg.
+#
+# The container signs through the Mac agent's restricted extra socket
+# (build-aux/guix-container-gpg-bridge.sh), which has its own passphrase cache
+# and may not prompt here: the Mac agent asks on the Mac's own screen instead.
+# Without this note a cold cache looks like a hung `git commit' (the window is
+# waiting on a display you cannot see) or an unexplained "Inappropriate ioctl
+# for device" (the agent's startup tty was an ssh login that has since closed).
+#
+# KEYINFO is allowed on the extra socket; field 7 is "1" when the key's
+# passphrase is cached for restricted clients.  Anything unexpected stays quiet.
+
+signing=
+for arg in "$@"; do
+    case "$arg" in
+        --sign|--detach-sign|--clearsign|--clear-sign) signing=1 ;;
+        --*) ;;
+        -*[bs]*) signing=1 ;;
+    esac
+done
+
+if [ -n "$signing" ]; then
+    key=$(git config user.signingkey 2>/dev/null)
+    grip=$(gpg --with-colons --with-keygrip --list-keys ${key:+"$key"} 2>/dev/null |
+           awk -F: '/^grp/{print $10; exit}')
+    cached=$(gpg-connect-agent --no-autostart "KEYINFO $grip" /bye 2>/dev/null |
+             awk '$2 == "KEYINFO" {print $7}')
+    if [ -n "$grip" ] && [ "$cached" = - ]; then
+        # git captures gpg's stderr and shows it only on failure, so write to
+        # the terminal directly while the prompt is pending.
+        # (Probe in a subshell: a failed redirection on exec ends dash.)
+        if (exec 3>/dev/tty) 2>/dev/null; then exec 3>/dev/tty; else exec 3>&2; fi
+        cat >&3 <<'EOF'
+gpg: passphrase needed. Look for the pinentry window on the containing Mac.
+     If signing fails, run these from ~/dot_files in a LOCAL terminal on
+     the containing Mac (minius), outside orb-guix / guix-dev:
+       make check-gpg-bridge
+       make unlock-gpg
+     The first checks the bridge; if it passes but signing remains locked,
+     the second prompts for your signing-key passphrase on the Mac.
+     Then retry the original command inside the container and answer any
+     Mac pinentry window: the container has a separate passphrase cache.
+     See docs/GPG.md, "Signing inside the guix-dev container".
+EOF
+    fi
+fi
+
+if [ -n "$signing" ]; then
+    gpg "$@"
+    result=$?
+    if [ "$result" -ne 0 ]; then
+        cat >&2 <<'EOF'
+gpg: signing failed inside orb-guix / guix-dev.
+     On the containing Mac (minius), in a LOCAL terminal at ~/dot_files:
+       make check-gpg-bridge
+     If that check passes but signing is still locked, run there:
+       make unlock-gpg
+     Then retry inside the container; answer any pinentry window on the Mac.
+     A working bridge does not mean the signing passphrase is cached.
+     The container has a separate cache, so unlocking on the Mac alone may
+     not unlock it. If pinentry still fails, see docs/GPG.md,
+     "Signing inside the guix-dev container" (agent startup environment).
+EOF
+    fi
+    exit "$result"
+fi
+exec gpg "$@"

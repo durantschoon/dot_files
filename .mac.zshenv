@@ -21,13 +21,23 @@ add_to_front_of_path /opt/homebrew/bin
 # For GNU ls for emacs
 add_to_front_of_path /opt/homebrew/opt/coreutils/libexec/gnubin
 add_to_front_of_path /opt/homebrew/opt/gcc/bin
-export CC=gcc-15
-export CXX=g++-15
-export LIBRARY_PATH="/opt/homebrew/opt/gcc/lib/gcc/15"
+export CC=gcc-16
+export CXX=g++-16
+export LIBRARY_PATH="/opt/homebrew/opt/gcc/lib/gcc/current"
 export CPATH="/opt/homebrew/opt/gcc/include"
 
 # Suggested by Antigravity
 add_to_front_of_path /Users/durant/.antigravity/antigravity/bin
+
+# elan (Lean toolchain manager)
+add_to_end_of_path "$HOME/.elan/bin"
+
+# OrbStack: its bin dir and zsh completions.  The installer appends this to
+# ~/.zprofile; it lives here so ~/.zprofile can stay a link into this repo.
+[[ -f ~/.orbstack/shell/init.zsh ]] && source ~/.orbstack/shell/init.zsh
+
+# Local Ollama endpoint (aider: `aider --model ollama_chat/<model>')
+export OLLAMA_API_BASE=http://127.0.0.1:11434
 
 # pixi is for ros2 on macos.  This lived in .shared.zshenv, where it was both
 # macOS-only and miscalled as add_to_front_of_path "<dir>:$PATH" -- the function
@@ -109,15 +119,18 @@ add_to_end_of_path $NODE_PATH
 # gcloud components update
 # gcloud components install kubectl
 # gcloud components list
-if [ -f /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc ]; then
-    source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc
-    # source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc 2>/dev/null # fail silently
-fi
-
-if [ -f /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc ]; then
-    source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc
-    # source /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc 2>/dev/null # fail silently
-fi
+# First install found wins: sourcing two copies would leave the last one's bin
+# on PATH, whichever SDK that happens to be.
+for gcloud_dir in /opt/homebrew/Caskroom/google-cloud-sdk/latest/google-cloud-sdk /usr/local/Caskroom/google-cloud-sdk/latest/google-cloud-sdk ~/google-cloud-sdk; do
+    [ -d "$gcloud_dir" ] || continue
+    if [ -f "$gcloud_dir/completion.zsh.inc" ]; then
+        source "$gcloud_dir/completion.zsh.inc"
+    fi
+    if [ -f "$gcloud_dir/path.zsh.inc" ]; then
+        source "$gcloud_dir/path.zsh.inc"
+    fi
+    break
+done
 
 # openssl
 [ -d "/opt/homebrew/opt/openssl@3/bin" ] && path=(/opt/homebrew/opt/openssl@3/bin "$path[@]")

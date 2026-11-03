@@ -12,7 +12,7 @@ So the first question when something breaks is never "how do I roll back?" It is
 | Stream | What it holds | Deployed by | Rolled back by |
 |---|---|---|---|
 | **System** | `operating-system` — kernel, services, users, groups | `make reconfigure` | `sudo -i guix system roll-back` |
-| **Home** | user profile, dotfiles, user services | `make apply-wayland` | `guix home roll-back` |
+| **Home** | user profile, dotfiles, user services | `make apply-wayland` (or `make apply-ewm`) | `guix home roll-back` |
 | **Your guix** | your channel set (what *you* pulled) | `guix pull` | `guix pull --roll-back` |
 | **Root's guix** | root's channel set (what *root* pulled) | `sudo -i guix pull` | `sudo -i guix pull --roll-back` |
 
@@ -35,7 +35,7 @@ Map the file you edited to the stream you have to roll back:
 | You edited | Stream | Undo with |
 |---|---|---|
 | `system/geeeks.scm` | System | `sudo -i guix system roll-back` |
-| `home/base.scm`, `home/wayland.scm` | Home | `guix home roll-back` |
+| `home/common.scm` (and the `home/base.scm` / `wayland.scm` / `ewm.scm` entry points) | Home | `guix home roll-back` |
 | `.aliases`, `espanso/`, `claude/` | Home (they arrive via `local-file`) | `guix home roll-back` |
 | `channels.scm` | Your guix | `guix pull --roll-back` |
 | `system/channels-geeeks.scm` | Root's guix | `sudo -i guix pull --roll-back` |

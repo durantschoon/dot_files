@@ -176,10 +176,6 @@ prompt_context() {
 # alias ohmyzsh="mate ~/.oh-my-zsh"
 source $HOME/.aliases
 
-# Envelope: create an envelope branch worktree and enter it with
-# `envelope-worktree LOCAL_DIR=...` or `envelope-worktree REPO_URL=...`.
-[[ -f ~/Repos/enveloped/main/scripts/envelope-worktree.zsh ]] && source ~/Repos/enveloped/main/scripts/envelope-worktree.zsh
-
 setopt AUTO_PUSHD
 
 HISTFILE=~/.zsh_history
@@ -251,10 +247,10 @@ fi
 # Regarding "zsh compinit: insecure directories and files, run compaudit for list."
 # On OSX 10.11+
 # written based on something that worked:
-# linked_base=/usr/local/share/zsh/site-functions
+# linked_base=$(brew --prefix)/share/zsh/site-functions
 # linked_file=$linked_base/../../../Cellar/git/2.42.1/share/zsh/site-functions/_gitb
-# sudo chmod -R 755 /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
-# sudo chown -R root:staff /usr/local/share/zsh/site-functions /usr/local/share/zsh $linked_file
+# sudo chmod -R 755 $(brew --prefix)/share/zsh/site-functions $(brew --prefix)/share/zsh $linked_file
+# sudo chown -R root:staff $(brew --prefix)/share/zsh/site-functions $(brew --prefix)/share/zsh $linked_file
 
 # this keeps getting added automatically, so just put it here
 # Re-added defensively: guix home's .zprofile runs `emulate sh -c ". /etc/profile"',
@@ -288,6 +284,16 @@ export HISTCONTROL=ignorespace:ignoredups
 
 # GPG stuff, works on mac anyway
 export GPG_TTY=$(tty)
+# Over ssh, prompt in this terminal rather than a pinentry-mac window on the
+# Mac's screen; bin/pinentry-auto reads this.  Same block as .zshrc.starship.
+if [[ -n "$SSH_CONNECTION" || ( "$OSTYPE" == linux* && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" && ! -d /mnt/wslg ) ]]; then
+    export PINENTRY_USER_DATA=USE_TTY=1
+else
+    export PINENTRY_USER_DATA=USE_GUI=1
+fi
+if [[ -t 0 && "$SSH_AUTH_SOCK" == *gpg-agent* ]] && (( $+commands[gpg-connect-agent] )); then
+    gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1
+fi
 
 ################################################################################
 # Don't put anything below this line except for profiling

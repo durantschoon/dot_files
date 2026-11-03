@@ -5,7 +5,8 @@ disturbing the working GNOME session, plus an inventory of everything in this
 repo that depends on GNOME — which is what you would actually be signing up to
 replace.
 
-Everything marked **verified** was checked on this machine on 2026-08-08.
+Everything marked **verified** was checked on this machine on 2026-08-08,
+with Stage 1 build and Stage 2 hardware launch verified on 2026-10-03.
 Everything marked **unverified** is from EWM's docs or reasoning, and should be
 treated as a question to answer during the trial rather than a fact.
 
@@ -31,14 +32,22 @@ you have already decided you like it.
 
 ## Prerequisites — current state of this machine
 
-| Requirement | Status | Notes |
+| Requirement | Status | Summary |
 |---|---|---|
-| Emacs with **pgtk** | ❌ **verified missing** | `system-configuration-features` reports `CAIRO X11 GTK3` — an X11 build, so it renders through XWayland. `emacs-pgtk` reports `CAIRO PGTK GTK3`. EWM has a whole "PGTK Requirement" troubleshooting page. (Note: `ldd` cannot tell these apart — Guix ships `bin/emacs` as a wrapper script, and both builds pull Wayland in transitively via gtk+3.) |
-| `emacs-pgtk` in Guix | ✅ verified available | Version **30.2** — identical to what you run, so it is a drop-in. |
-| Mesa / `libEGL.so.1` | ✅ verified present | `/run/current-system/profile/lib/libEGL.so.1` |
-| `wl-clipboard` | ❌ verified missing | EWM uses `wl-copy`/`wl-paste` for clipboard integration. |
-| Rust / `cargo` | ❌ verified missing | Only needed at build time; use `guix shell`, do not install it into the profile. |
-| Seat management for TTY DRM | ⚠️ unverified | elogind is present via `%desktop-services`. Smithay's libseat should use the logind backend, but if it refuses, Guix has `seatd-service-type`. Expect this to be the first blocker if there is one. |
+| Emacs with **pgtk** | ✅ Present | `emacs-pgtk` 30.2 active in profile |
+| `emacs-pgtk` in Guix | ✅ Available | Drop-in v30.2 package |
+| Mesa / `libEGL.so.1` | ✅ Present | Found in system profile |
+| `wl-clipboard` | ✅ Present | `wl-copy`/`wl-paste` in home profile |
+| EWM core (`cargo`) | ✅ Built | Compiled in `~/src/ewm/compositor` |
+| Seat management | ✅ Solved | elogind works; runs on TTY2/TTY3 |
+| GPG Pinentry | ✅ Configured | `emacs-pinentry` in home profile |
+
+**Prerequisite Notes:**
+* **Emacs with pgtk:** `system-configuration-features` reports `CAIRO PGTK GTK3` (native Wayland). Deployed via `home/wayland.scm` and `home/ewm.scm`.
+* **wl-clipboard:** `wl-copy`/`wl-paste` installed in home profile for Wayland clipboard integration.
+* **EWM core module:** Built via `guix shell --pure rust rust:cargo ...` at `~/src/ewm/compositor/target/debug/libewm_core.so`.
+* **Seat management:** elogind is present via `%desktop-services`. In Guix, elogind does not grant unprivileged seat access on TTY1 (`ENXIO`), so EWM is run on user VTs (TTY2/TTY3).
+* **GPG Pinentry in Emacs:** `emacs-pinentry` installed via `%wayland-packages` and `allow-emacs-pinentry` enabled in `gpg-agent.conf`, allowing passphrases to prompt in Emacs minibuffer.
 
 ### Stage 0 — do this now, it is independent of EWM
 
@@ -187,6 +196,8 @@ Success gives you `target/debug/libewm_core.so` — an 82 MB unstripped ELF shar
 object. Note this is the *build-time* list; Stage 2 will exercise runtime
 dependencies (libseat/seatd, EGL, DRM) that a successful compile does not prove.
 
+**Status: done** (commit `dc5eb71` built clean; `target/debug/libewm_core.so` is 82 MB).
+
 ---
 
 ## Stage 2 — first launch, with the escape hatch pre-planned
@@ -196,18 +207,17 @@ dependencies (libseat/seatd, EGL, DRM) that a successful compile does not prove.
 recovery is `Ctrl+Alt+Delete` (or a hard power cycle) — GNOME is untouched and
 comes back on the next boot regardless.
 
-Log out of GNOME, switch to a free VT (`Ctrl+Alt+F3`), log in on the console,
-then:
+Log out of GNOME, switch to a free VT (`Ctrl+Alt+F2` or `F3`), log in on the console,
+then run the launch target (which encapsulates all hardware workarounds):
 
 ```sh
-cd ~/src/ewm/compositor
-EWM_MODULE_PATH=$(pwd)/target/debug/libewm_core.so \
-  emacs --fg-daemon -L ../lisp -l ewm -f ewm-start-module
+make ewm-launch
 ```
 
-`--fg-daemon` is required: EWM creates frames as outputs are discovered, so
-Emacs must start with no initial frame. Attach from another VT with
-`emacsclient --socket-name=…` if you need to debug it live.
+`--fg-daemon=vt2` is required: EWM creates frames as outputs are discovered, so
+Emacs must start with no initial frame, and a named socket isolates EWM from the
+user Shepherd daemon (`server`). Attach from another VT with
+`emacsclient -s vt2` if you need to debug it live.
 
 What to actually evaluate here, in rough order of how likely each is to be the
 dealbreaker:
@@ -219,6 +229,36 @@ dealbreaker:
 3. Does your Spacemacs config survive being the window manager — particularly
    keybinding collisions between Spacemacs and EWM's window commands.
 4. Screen sharing via PipeWire (you built with `--features=screencast`).
+
+### Stage 2 Verified: Launch Runbook & Framework 13 AMD Hardware Lessons (2026-10-03)
+
+EWM was successfully launched directly on physical display `eDP-1 2880x1920@120Hz` on `geeeks` (AMD Ryzen AI 9 HX 370 / Strix Point, `gfx1152`). Five critical environmental hurdles were solved:
+
+1. **DRM Master Conflict with GNOME:**
+   * Linux DRM grants primary KMS master exclusively to one display server. If GDM or `gnome-shell` is running, Smithay cannot become DRM master (`Permission denied (os error 13)`).
+   * **Fix:** `make ewm-launch` executes `sudo -i herd stop xorg-server` prior to launching, and user should log out of GNOME. Restart later with `sudo -i herd start xorg-server`.
+
+2. **VT Seat Management (TTY1 vs TTY2/3):**
+   * TTY1 is the Linux kernel system console; Guix's `elogind` does not grant seat controllers or input access to unprivileged sessions on TTY1 (`ENXIO` / `ENOSYS`).
+   * **Fix:** Run EWM from a user virtual terminal such as **TTY2** or **TTY3** with `LIBSEAT_BACKEND=logind`.
+
+3. **Mesa / LLVM 18 GPU Workaround for AMD Strix Point (`gfx1152`):**
+   * The Framework 13 APU is `gfx1152` (Radeon 890M). Guix System ships Mesa built against LLVM 18 (`llvm-for-mesa-18.1.8`), which lacks `gfx1152` shader compiler targets and aborts at runtime (`LLVM ERROR: Cannot select...`).
+   * **Fix:** Force software rasterization on DRM KMS:
+     `LIBGL_ALWAYS_SOFTWARE=1 MESA_LOADER_DRIVER_OVERRIDE=kms_swrast HSA_OVERRIDE_GFX_VERSION=11.0.0`
+     This bypasses LLVM 18 shader compilation until Guix upgrades Mesa to LLVM 19+.
+
+4. **Emacs Daemon Socket Collision:**
+   * `emacs --fg-daemon` without an explicit name attempts to bind socket `server`, colliding with the user Shepherd Emacs daemon (`PID 1588`) and causing Emacs to abort with exit code 1.
+   * **Fix:** Pass a named socket: `emacs --fg-daemon=vt2`. Connect client with `emacsclient -s vt2`.
+
+5. **TTY Console Keymaps & Double-Swap with `keyd`:**
+   * `keyd` remaps physical CapsLock to Control and LeftControl to CapsLock at the evdev level.
+   * When Guix System also configured `(keyboard-layout ... #:options '("ctrl:swapcaps"))`, the kernel console keymap swapped them *again*, cancelling the swap.
+   * **Fix:** Dropped `ctrl:swapcaps` from `system/geeeks.scm` to let `keyd`'s hardware mapping apply cleanly. Added `swap-caps` alias to `.aliases` for instant keymap reset.
+
+6. **HiDPI Console Legibility:**
+   * On the 2.8K display, default 8x16 console fonts are unreadable. 32px Terminus Powerline (`ter-powerline-v32n`) and Spleen (`spleen-16x32`) are installed in `~/.local/share/consolefonts/`, aliased to `guix-powerline` / `guix-spleen`, and auto-loaded via `.zprofile`.
 
 ---
 
@@ -302,25 +342,44 @@ What is actually tied to GNOME, and what happens to each if you commit to EWM.
 
 ### Declared in this repo
 
-| Where | What | Fate under EWM |
-|---|---|---|
-| `system/geeeks.scm:393` | `(service gnome-desktop-service-type)` | **This is the thing you remove.** Everything below follows from it. |
-| `system/geeeks.scm:360` | GDM, inherited from `%desktop-services` | EWM launches from a TTY, so GDM becomes pointless. Either drop it or keep it purely as a GNOME fallback during the trial. |
-| `home/base.scm:158`, `home/wayland.scm:203` | `gsettings set org.gnome.desktop.interface gtk-key-theme Emacs` | **Survives.** This is dconf plus `gsettings-desktop-schemas`, not gnome-shell; GTK apps still read it. Ironically less relevant, since your window manager would already be Emacs. |
-| `Makefile:826` | `gsettings set org.gnome.desktop.input-sources xkb-options` | GNOME-specific, becomes a no-op. EWM does its own keyboard config. **keyd is unaffected** — it is a system service operating below the compositor. |
-| `home/*.scm` | `xdg-utils` / `xdg-settings set default-web-browser librewolf.desktop` | ⚠️ `xdg-settings` takes GNOME-specific code paths when it detects GNOME. Likely needs a plain `~/.config/mimeapps.list` instead. |
-| `home/*.scm` | `espanso-wayland` | ⚠️ **unverified.** Espanso's Wayland support leans on specific protocols; whether a Smithay compositor exposes what it needs is an open question. Test during Stage 3. |
+_Locations re-pointed 2026-09-29: the 2026-08-08 line numbers had drifted, and
+`home/base.scm` / `wayland.scm` are now thin entry points onto `home/common.scm`._
+
+| Component / Location | Fate under EWM |
+|---|---|
+| `gnome-desktop` (`geeeks.scm`) | **Remove** (core GNOME session) |
+| GDM (`system/geeeks.scm`) | **Drop or keep as fallback** |
+| GTK Emacs key theme (`home/common.scm`) | **Survives** (dconf / GTK setting) |
+| GNOME xkb-options (`Makefile:setup-keyd`) | **No-op** (keyd handles evdev) |
+| Default web browser (`home/common.scm`) | ⚠️ **Needs `mimeapps.list`** |
+| `espanso-wayland` (`home/*.scm`) | ⚠️ **Unverified** (protocol support) |
+
+**Component Fate Details:**
+* **`gnome-desktop-service-type` (`system/geeeks.scm:510`):** Core component to remove. Everything below follows from it.
+* **GDM (`system/geeeks.scm:855`):** EWM launches from a TTY, making GDM pointless. Either drop it or keep it as a fallback during trial.
+* **GTK Emacs theme (`home/common.scm:952`):** Survives. Uses dconf / `gsettings-desktop-schemas`, not gnome-shell. GTK apps still read it.
+* **`setup-keyd` xkb hint (`Makefile`):** GNOME-specific hint becomes a no-op. EWM does its own keyboard config; `keyd` operates below the compositor at the evdev level and is unaffected.
+* **Default web browser (`home/common.scm`):** `xdg-settings` takes GNOME-specific code paths. Likely needs a plain `~/.config/mimeapps.list` instead.
+* **`espanso-wayland` (`home/*.scm`):** Unverified. Espanso relies on specific Wayland protocols; whether Smithay exposes what it needs is tested during Stage 3.
 
 ### Not declared, but relied on at runtime
 
-| Component | Verified state | Fate under EWM |
+| Runtime Component | Runtime State | Fate under EWM |
 |---|---|---|
-| **`org.gnome.keyring.SystemPrompter`** | owned by **gnome-shell** (PID 1266) | **Dies with GNOME.** This is what the `pinentry-gnome3` fix committed in `5b85c62` depends on. See below — this one bites. |
-| `gnome-keyring-daemon` (`org.freedesktop.secrets`) | PID 1125, parent is **shepherd** (PID 1), and Guix has a *separate* `gnome-keyring` service at `gnu/services/desktop.scm:2053` | **Separable — survives** if you keep that service. Only the graphical *unlock prompt* is lost, not the secret store. |
-| `gh` auth token | `gh auth status` reports `Logged in … (keyring)` | Depends on the keyring above, so it survives — provided something can unlock it. |
-| **XWayland / `DISPLAY=:0`** | spawned by **mutter**; `XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth.*` | **Dies with GNOME.** EWM must provide its own XWayland (the wiki has a page on it). Anything X11-only depends on this working. |
-| `xdg-desktop-portal-gnome` | installed | Replace with `xdg-desktop-portal-gtk` or `-wlr`. Governs file choosers, screen sharing, and Flatpak app integration. |
-| `%desktop-services` (NetworkManager, dbus, polkit, elogind, ntp) | — | **Not GNOME. All of it stays.** Only `gnome-desktop-service-type` is the GNOME part. Do not let a cleanup sweep take these out — `system/geeeks.scm:342` already documents why removing them breaks the build. |
+| **`SystemPrompter`** | `gnome-shell` | **Dies with GNOME** (pinentry bites) |
+| `gnome-keyring` | Shepherd service | **Survives** (secret store stays) |
+| `gh` auth token | In keyring | **Survives** (if unlocked) |
+| **XWayland (`:0`)** | Mutter | **Dies** (EWM manages XWayland) |
+| `desktop-portal-gnome` | Installed | **Replace** with `-gtk` / `-wlr` |
+| `%desktop-services` | System services | **Stays** (dbus, elogind, etc.) |
+
+**Runtime Dependency Details:**
+* **`org.gnome.keyring.SystemPrompter`:** Owned by `gnome-shell`. Dies when GNOME stops. This breaks `pinentry-gnome3` (use `pinentry-curses` or `allow-emacs-pinentry` instead).
+* **`gnome-keyring-daemon` (`org.freedesktop.secrets`):** Runs as a separate Shepherd service (`gnu/services/desktop.scm:2053`). The secret store survives; only the graphical unlock prompt is lost.
+* **`gh` auth token:** Stored in gnome-keyring; accessible as long as the daemon is running and unlocked.
+* **XWayland / `DISPLAY=:0`:** Spawned by Mutter. Dies with GNOME. EWM must provide its own XWayland for legacy X11 apps.
+* **`xdg-desktop-portal-gnome`:** Replace with `xdg-desktop-portal-gtk` or `-wlr` for file choosers, screen sharing, and Flatpak app integration.
+* **`%desktop-services`:** NetworkManager, dbus, polkit, elogind, ntp are NOT GNOME. All stay. Removing them breaks the system build (`system/geeeks.scm:453`).
 
 ### The pinentry problem, specifically
 
@@ -330,8 +389,8 @@ in the *worse* of the two possible ways. Measured:
 
 | Situation | Behavior |
 |---|---|
-| `DBUS_SESSION_BUS_ADDRESS` unset | `falling back to curses` — graceful |
-| Bus set, prompter unreachable | `Timeout: the Gcr system prompter was already in use.` → `ERR pinentry error` |
+| `DBUS_SESSION_BUS_ADDRESS` unset | `falling back to curses` (graceful) |
+| Bus set, prompter unreachable | Gcr prompter timeout → `pinentry error` |
 
 Under EWM you get the second row: the session bus keeps running, only gnome-shell
 disappears. So there is **no fallback**, and every `ssh-add` returns to the
@@ -340,11 +399,12 @@ useless `agent refused operation` that started this whole investigation.
 `pinentry-curses` is not the escape hatch either — it needs a tty, and the
 shepherd-launched gpg-agent has none.
 
-**The right answer is already in the config:** `allow-emacs-pinentry`, which is
-in both `home/base.scm` and `home/wayland.scm` today. With `M-x pinentry-start`,
+**The right answer is now in the config:** `allow-emacs-pinentry` is enabled
+in `%gpg-ssh-agent-layer` in `home/common.scm`, and `emacs-pinentry` is installed
+via `%wayland-packages`. With `(pinentry-start)` (or `M-x pinentry-start`),
 prompts render inside Emacs over its own channel, needing neither a display nor
 a tty. On a desktop where Emacs *is* the session, that is strictly better than
-what you have now. Flip `pinentry-program` when you commit to EWM, not before.
+what you have now.
 
 ---
 
@@ -377,12 +437,15 @@ in `common.scm` (note `wayland-display . "wayland-1"` — GNOME holds
 `wayland-0` during coexistence), `home/ewm.scm` deploys it with every layer
 except espanso (excluded by `#:layers`, since two concurrent compositors make
 espanso's evdev-detect/Wayland-inject split cross VTs), and `make apply-ewm`
-is the lean deploy — return with `guix home roll-back`. What remains is
-building EWM itself (Stages 1–2) and answering the two unverified questions
-from the EWM VT: what prompts when `ssh-add` needs a pinentry, and whether
-`wayland-info` (guix shell wayland-utils) lists
-`zwlr_data_control_manager_v1`. The system config
-changes only at adoption, exactly as this plan already argued.
+is the lean deploy — return with `guix home roll-back`.
+
+Building EWM itself (Stage 1) and first launch on physical hardware (Stage 2)
+are **done** (running on physical display via Mesa software rasterizer on
+TTY2). What remains is the evaluation period (Stage 3) and answering the two
+trial questions from the EWM VT: what prompts when `ssh-add` needs a pinentry,
+and whether `wayland-info` (guix shell wayland-utils) lists
+`zwlr_data_control_manager_v1`. The system config changes only at adoption,
+exactly as this plan already argued.
 
 ---
 

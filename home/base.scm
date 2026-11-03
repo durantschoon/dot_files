@@ -16,4 +16,11 @@
        (dirname (or (current-filename) "home/base.scm"))
        "/common.scm"))
 
-(dotfiles-home %foreign-session)
+;; Inside the guix-dev container (JOB_CONTAINER_SELF from compose, or
+;; /.dockerenv for a container created before compose set it, as the Makefile's
+;; IN_GUIX_DEV does) the session drops the local gpg-agent; see
+;; %guix-dev-session.
+(dotfiles-home (if (or (getenv "JOB_CONTAINER_SELF")
+                       (file-exists? "/.dockerenv"))
+                   %guix-dev-session
+                   %foreign-session))

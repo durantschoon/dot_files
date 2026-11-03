@@ -17,6 +17,7 @@ arch := $(ARCH_UNKNOWN)
 
 FLAVOR_WSL := ubuntu # not currently used, but maybe someday?
 FLAVOR_WSL := wsl
+FLAVOR_TERMUX := termux
 FLAVOR_UNKNOWN := unknown
 flavor := $(FLAVOR_UNKNOWN)
 
@@ -28,8 +29,8 @@ WHICH_CMD := which
 # starship/starship.toml).  On Linux Guix Home installs it (the
 # font-caskaydia-cove-nerd package in home/common.scm); only macOS installs it
 # here.  Under WSL it belongs to Windows, which draws the terminal.
-NERD_FONT := CaskaydiaCove Nerd Font Mono
-NERD_FONT_CASK := font-caskaydia-cove-nerd-font
+NERD_FONT := Cascadia Code NF
+NERD_FONT_CASK := font-cascadia-code-nf
 
 ifeq ($(OS),Windows_NT)
 	os := $(OS_WINDOWS)
@@ -44,13 +45,16 @@ else
 		os := $(OS_MAC)
     endif
     UNAME_P := $(shell uname -p)
+    ifeq ($(UNAME_P),unknown)
+		UNAME_P := $(shell uname -m)
+    endif
     ifeq ($(UNAME_P),x86_64)
 		arch := $(ARCH_AMD64)
     endif
     ifneq ($(filter %86,$(UNAME_P)),)
 		arch := $(ARCH_X86)
     endif
-    ifneq ($(filter arm%,$(UNAME_P)),)
+    ifneq ($(filter arm% aarch64,$(UNAME_P)),)
 		arch := $(ARCH_ARM)
     endif
 endif
@@ -69,6 +73,11 @@ endif
 ORBSTACK_CHECK := $(shell grep -i orbstack /proc/version 2>/dev/null)
 ifneq ($(ORBSTACK_CHECK),)
 	flavor := orbstack
+endif
+
+TERMUX_CHECK := $(if $(TERMUX_VERSION),$(TERMUX_VERSION),$(wildcard /data/data/com.termux))
+ifneq ($(TERMUX_CHECK),)
+	flavor := $(FLAVOR_TERMUX)
 endif
 
 # The OrbStack foreign container runs guix-daemon with --disable-chroot.  Guix
@@ -108,6 +117,11 @@ ifneq ($(shell which yum 2>/dev/null),)
 endif
 ifneq ($(shell which pacman 2>/dev/null),)
 	PACKAGE_MANAGER := pacman
+endif
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+ifneq ($(shell which pkg 2>/dev/null),)
+	PACKAGE_MANAGER := pkg
+endif
 endif
 
 # Detect the login shell from the account database rather than $$SHELL, which
@@ -205,7 +219,7 @@ help:
 	    } \
 	    { flush(); print } \
 	    END { flush() }' \
-	| if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
+	| if { [ -t 1 ] || [ -n "$$CLICOLOR_FORCE" ]; } && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
 	    c1="$$(printf '\033[36m')"; hd="$$(printf '\033[1m')"; c0="$$(printf '\033[0m')"; \
 	    sed -e "s/^\(  \)\(make [^ ]*\( [A-Z_]*=[^ ]*\)*\)/\1$$c1\2$$c0/" \
 	        -e "s/^\([A-Z][^ ].*:\)$$/$$hd\1$$c0/"; \
@@ -214,26 +228,39 @@ help:
 	  fi
 
 help-text:
-	@echo "Available targets:"
-	@echo ""
+	@echo "Bootstrap and Native Setup:"
 	@echo "  make setup-native  - Set up native dotfiles (symlinks ~/bin -> ~/dot_files/bin,"
-	@echo "                       then installs Claude Code if missing)"
+	@echo "                       then installs Claude Code, uv, agy and herdr if missing)"
 	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make update-codex   - Install or update Codex in ~/.local (works with Guix npm)"
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
+	@echo "  make install-agy    - Install agy, Google's Antigravity CLI (idempotent; loader wrapper on Guix System)"
+	@echo "  make install-herdr  - Install herdr, the AI agent multiplexer (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
+	@echo "  make install-ghostty - Install Ghostty terminal emulator (Homebrew cask on macOS)"
+	@echo "  make install-yazi   - Install Yazi and media-handling stack (Homebrew on macOS)"
+	@echo ""
+	@echo "Guix System and Home:"
 	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
-	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
-	@echo "                       roll back with 'guix home roll-back')"
 	@echo "  make reconfigure   - Apply the SYSTEM config for this machine (Guix System only;"
 	@echo "                       picks system/\$$(uname -n).scm, runs check-system first,"
 	@echo "                       then sudo -i guix system reconfigure)"
 	@echo "  make emacs-env     - Regenerate ~/.spacemacs.d/.spacemacs.env from a clean"
 	@echo "                       login shell and push it into a running Emacs."
 	@echo "                       Runs automatically after apply/apply-wayland/update."
-	@echo "  make submodule-update - Init and update submodules (espanso/private)"
+	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
+	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
+	@echo ""
+	@echo "EWM Trial (Emacs Wayland Manager):"
+	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
+	@echo "                       roll back with 'guix home roll-back')"
+	@echo "  make ewm-launch    - Launch EWM from a bare TTY (step 3 of trial)"
+	@echo "  make ewm-escape-notes - Print EWM recovery & escape hatch shortcuts"
+	@echo ""
+	@echo "Git and Submodules:"
+	@echo "  make submodule-update - Init and update submodules (espanso/private, private)"
 	@echo "  make submodule-pull  - Fast-forward each initialized submodule to the tip of its"
 	@echo "                       remote default branch, detached HEAD included (the state"
 	@echo "                       'make apply' leaves behind). Never forces, never merges a"
@@ -244,26 +271,92 @@ help-text:
 	@echo "                       branch really has the commit, then commit ONLY that gitlink"
 	@echo "                       (refuses rather than record a pointer no other clone can fetch)"
 	@echo "  make submodule-publish SUBMODULE=<path> - the same for any submodule path"
-	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
-	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
-	@echo "  make setup-tailscale - Install tailscaled as a system LaunchDaemon (mac only;"
+	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
+	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
+	@echo ""
+	@echo "Keys, SSH and Commit Signing (GPG):"
+	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
+	@echo "                       + add the [include] of .gitconfig to ~/.gitconfig (see docs/GPG.md)"
+	@echo "  make gpg-hub-create - Create/register a signing subkey on the hub (MACHINE=name)"
+	@echo "  make gpg-spoke-copy - Enroll this machine via the hub in machines.toml (HUB=name override)"
+	@echo "  make gpg-hub-teardown - Remove staged secret-subkey exports on the hub"
+	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
+	@echo "                       (not part of 'make check': may prompt for the passphrase)"
+	@echo "  make setup-sshd-for-ingress - Install/enable the incoming SSH server (automatic during apply/setup-native)"
+	@echo "  make check-sshd-for-ingress - Check the incoming SSH server (distinct from check-ssh-with-gpg-for-egress)"
+	@echo "                       (not part of 'make check': may prompt for sudo)"
+	@echo "  make check-sshd-for-ingress-tests - Run the ingress SSH unit tests without changing the host"
+	@echo "  make check-ssh-with-gpg-for-egress - Check gpg-agent is serving ssh keys to this shell"
+	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
+	@echo "  make setup-bitbucket-ssh - Migrate this user's Bitbucket SSH host trust and Host blocks"
+	@echo "  make check-bitbucket-ssh - Test the Bitbucket SSH migration without network access"
+	@echo "  make check-ssh-github - check-ssh-with-gpg-for-egress, then a live 'ssh -T git@github.com' with triage hints"
+	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
+	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
+	@echo "  make setup-guix-bitbucket-key - The same for Bitbucket"
+	@echo "  make guix-container-stop - Stop guix-dev in place (agent sessions get GUIX_CONTAINER_STOP_TIMEOUT s"
+	@echo "                       to exit; volumes untouched); orb-guix or guix-container-restart starts it again"
+	@echo "  make guix-container-restart - Stop and start guix-dev without recreating it (what a reboot does;"
+	@echo "                       the entrypoint relaunches the daemon, bridges and agent sessions)"
+	@echo "  make setup-gpg-bridge - Let the guix-dev container sign through the Mac's gpg-agent (mac only;"
+	@echo "                       loopback socat LaunchAgent + public key in the container, see docs/GPG.md)"
+	@echo "  make check-gpg-bridge - Verify the Mac LaunchAgent, the container socket and key visibility"
+	@echo "  make setup-container-tailscale - Put guix-dev on the tailnet as its own node (Tailscale SSH,"
+	@echo "                       ssh root@orb-guix); prints a login URL once"
+	@echo "  make check-container-tailscale - Verify the container's Tailscale binary, daemon and login"
+	@echo ""
+	@echo "Cloud Directories and Proton Drive:"
+	@echo "  make setup-cloud-dirs - Walk through the cloud-backed dirs: ~/Org/<location> and"
+	@echo "                       ~/MindMaps and ~/.freeplane (links into Proton Drive), plus"
+	@echo "                       ~/Obsidian (Obsidian Sync). Creates what is safe, prints the rest"
+	@echo "  make check-cloud-dirs - Report those dirs without changing anything (advisory; runs"
+	@echo "                       automatically at the end of apply/apply-wayland/setup-native)"
+	@echo "  make cloud-sync    - Linux only: two-way rclone bisync of those dirs with Proton"
+	@echo "                       Drive (RESYNC=1 for the first run, DRY_RUN=1 to preview)"
+	@echo "  make check-cloud-creds - Report what the rclone remote stores: password, stale 2FA"
+	@echo "                       code, cached session, and whether the config is encrypted"
+	@echo "  make cloud-creds-strip - Remove the Proton password from the rclone config once the"
+	@echo "                       remote has a session; verifies and restores on failure"
+	@echo "  make cloud-creds-login - Re-authenticate the rclone remote when the session expires,"
+	@echo "                       then remove the password again automatically"
+	@echo "  make check-cloud   - Run the bin/cloud-dirs.sh smoke test (hermetic: scratch HOME and"
+	@echo "                       a stand-in Proton root, so it needs no account; not part of 'make check')"
+	@echo ""
+	@echo "Daemons and System Services:"
+	@echo "  make setup-tailscale - Install Tailscale on Termux, or the macOS LaunchDaemon;"
 	@echo "                       runs at boot before login, unlike the menu-bar app)"
-	@echo "  make check-tailscale - Verify the daemon is deployed, loaded and on the tailnet"
+	@echo "  make check-tailscale - Start and verify Tailscale on Termux; verify the macOS daemon"
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
-	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .claude-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
+	@echo "  make setup-timezone - Point /etc/localtime at TIMEZONE (default America/New_York;"
+	@echo "                       foreign distros such as orb-guix; needs root)"
+	@echo "  make check-timezone - Verify /etc/localtime matches TIMEZONE"
+	@echo "  make setup-locale - Generate LOCALE (default en_US.UTF-8) for the distro glibc"
+	@echo "                       (foreign distros such as orb-guix and WSL; apt; needs root)"
+	@echo "  make check-locale - Verify LOCALE is installed (fixes setlocale warnings)"
+	@echo "  make install-radicle - brew install radicle (mac; part of setup-native; Guix: layer 'radicle')"
+	@echo "  make setup-radicle - Run radicle-node so it survives reboots: a LaunchAgent on mac,"
+	@echo "                       the Shepherd service elsewhere (stops a hand-started node first)"
+	@echo "  make check-radicle - Verify rad, git-remote-rad, the identity, the service and the node"
+	@echo "  make agent-permissions - Grant git branch -D / worktree remove / worktree prune"
+	@echo "                       to Claude Code, Codex, and the Cursor CLI (agy has no allowlist)"
+	@echo "  make check-agent-permissions - Smoke-test that grant and report gaps (part of make check)"
+	@echo "  make check-worktrees - Classify abandoned worktrees in scratch repos (part of make check)"
+	@echo ""
+	@echo "Emacs Remote Server:"
+	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
+	@echo "  make emacs-attach  - Attach to a remote daemon (default: EMACS_HOST=$$(HOMEBASE))"
+	@echo "  make emacs-unserve - Stop the Emacs daemon"
+	@echo ""
+	@echo "Verification and Smoke Tests:"
+	@echo "  make check         - Run all repo config, secrets, and coupling integrity checks"
+	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
 	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
 	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
-	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
-	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
-	@echo "  make check-ssh-agent - Check gpg-agent is serving ssh keys to this shell, with fix hints"
-	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
-	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
-	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
-	@echo "  make emacs-attach  - Attach to a remote daemon (make emacs-attach EMACS_HOST=minius)"
-	@echo "  make emacs-unserve - Stop the Emacs daemon"
+	@echo ""
+	@echo "Misc and Platform Notes:"
 	@echo "  make wsl           - Show WSL setup instructions"
 	@echo "  make help          - Show this help message"
 	@echo ""
@@ -293,7 +386,7 @@ ifeq ($(PACKAGE_MANAGER),guix)
 	@which curl && echo "curl: available" || echo "curl: not found"
 	@which file && echo "file: available" || echo "file: not found"
 	@echo "Attempting package installation..."
-	sudo guix install zsh fontconfig curl file gcc-toolchain || echo "Package installation failed - container may not support package installation"
+	sudo guix install zsh fontconfig curl file grep python gcc-toolchain || echo "Package installation failed - container may not support package installation"
 	@echo "If installation failed, packages may already be available or container may not support package installation"
 else
 	@echo "This target is only for Guix systems"
@@ -301,11 +394,13 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude install-uv
+setup-native: set_up_links install-claude install-uv install-agy install-herdr install-radicle setup-sshd-for-ingress
+	@$(MAKE) --no-print-directory check-cloud-dirs
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
-# when `claude` already runs) and handles the Guix System non-FHS case by
-# patchelf'ing the official binary; see bin/install-claude.sh for details.
+# when `claude` already runs, including the legacy ~/.claude/local install)
+# and handles the Guix System non-FHS case by running the unmodified binary
+# through the Guix glibc loader; see bin/install-claude.sh for details.
 # Native Windows has no bash, so just point at winget there.
 .PHONY: install-claude
 install-claude:
@@ -313,6 +408,11 @@ ifeq ($(os),$(OS_WINDOWS))
 	@echo "Native Windows: install Claude Code with:"
 	@echo "  winget install Anthropic.ClaudeCode"
 	@echo "(from WSL, run 'make install-claude' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@command -v claude >/dev/null 2>&1 && echo "  Claude Code found ($$(which claude))" || { \
+		echo "  Termux: install Claude via npm:"; \
+		echo "    pkg install nodejs-lts && npm install -g @anthropic-ai/claude-code"; \
+	}
 else
 	@bash bin/install-claude.sh
 endif
@@ -322,6 +422,7 @@ endif
 update-codex:
 	npm install --global --prefix "$$HOME/.local" @openai/codex@latest
 	"$$HOME/.local/bin/codex" --version
+	$(CURDIR)/bin/codex-defaults
 
 # uv on hosts Guix Home does not manage (on Guix it is in %base-packages in
 # home/common.scm).  Idempotent; see bin/install-uv.sh for the per-platform
@@ -332,8 +433,63 @@ ifeq ($(os),$(OS_WINDOWS))
 	@echo "Native Windows: install uv with:"
 	@echo "  winget install astral-sh.uv"
 	@echo "(from WSL, run 'make install-uv' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@echo "  Termux: uv has no native Android binary; use python3 -m pip instead"
 else
 	@bash bin/install-uv.sh
+endif
+
+# agy (Google's Antigravity CLI) everywhere: it is not packaged in Guix, so
+# this also runs from apply/apply-wayland/update, like install-claude.
+# Idempotent; bin/install-agy.sh skips the official installer's shell-profile
+# edits and wraps the binary with the glibc loader on Guix System.
+.PHONY: install-agy
+install-agy:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install agy from PowerShell with:"
+	@echo "  irm https://antigravity.google/cli/install.ps1 | iex"
+	@echo "(from WSL, run 'make install-agy' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@command -v agy >/dev/null 2>&1 && echo "  agy found ($$(which agy))" || \
+		echo "  Termux: agy has no native Android binary"
+else
+	@bash bin/install-agy.sh
+endif
+
+# herdr (AI agent multiplexer) everywhere: it is not packaged in Guix, so
+# this also runs from apply/apply-wayland/update, like install-claude and install-agy.
+# Idempotent; bin/install-herdr.sh installs via Homebrew on macOS or the official
+# installer into ~/.local/bin.
+.PHONY: install-herdr
+install-herdr:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install herdr from PowerShell with:"
+	@echo "  powershell -ExecutionPolicy Bypass -c \"irm https://herdr.dev/install.ps1 | iex\""
+	@echo "(from WSL, run 'make install-herdr' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@command -v herdr >/dev/null 2>&1 && echo "  herdr found ($$(which herdr))" || \
+		echo "  Termux: herdr has no native Android binary (work from your phone via SSH)"
+else
+	@bash bin/install-herdr.sh
+endif
+
+# Ghostty terminal emulator (Homebrew cask on macOS, distro package on Linux)
+.PHONY: install-ghostty
+install-ghostty:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: Ghostty is not currently supported natively on Windows"
+else
+	@bash bin/install-ghostty.sh
+endif
+
+# Yazi and its media-handling stack (Homebrew on macOS)
+.PHONY: install-yazi
+install-yazi:
+ifeq ($(os),$(OS_MAC))
+	# Install Yazi and its media-handling stack
+	brew install yazi ffmpeg sevenzip jq poppler fd ripgrep fzf zoxide imagemagick
+else
+	@echo "install-yazi: currently only supported via Homebrew on macOS"
 endif
 
 # We're going to insist we're in this directory so we can run commands from here
@@ -369,7 +525,7 @@ guard-native-over-guix:
 	  echo "  *** refusing to run set_up_links: Guix Home owns this account ***"; \
 	  echo "  $$HOME/.guix-home exists, so a home generation is active and already"; \
 	  echo "  owns .zshenv (and through ZDOTDIR, ~/.config/zsh), .aliases, .mg,"; \
-	  echo "  .wayland.zshenv and bin."; \
+	  echo "  .mrconfig, .wayland.zshenv and bin."; \
 	  echo "  Overwriting them with native symlinks would revert your shell to"; \
 	  echo "  whatever the store snapshot holds, silently."; \
 	  echo ""; \
@@ -415,10 +571,7 @@ ifeq ($(flavor), $(FLAVOR_WSL))
 
 # this will fix error
 # bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
-	echo "LC_ALL=en_US.UTF-8" >> /etc/environment
-	echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
-	echo "LANG=en_US.UTF-8" > /etc/locale.conf
-	locale-gen en_US.UTF-8
+	$(MAKE) --no-print-directory setup-locale
 	./install_fonts_wsl.sh
 
 endif
@@ -432,12 +585,19 @@ ifeq ($(PACKAGE_MANAGER),apt)
 	@# path at all because set_up_links installs ~/.mg on EVERY platform, and a
 	@# startup file for an editor that is not there is just a dangling symlink.
 	@# The guix side gets mg from manifests/base.scm and home/common.scm.
-	sudo apt-get install build-essential cmake curl file mg -y
+	@# myrepos (mr) rides along for the same reason: ~/.mrconfig is linked on
+	@# every platform (see docs/MYREPOS.md); guix gets it from home/common.scm.
+	sudo apt-get install build-essential cmake curl file mg myrepos -y
 	@# fastfetch is not packaged before Ubuntu 24.04, so ask for it but fall
 	@# back to neofetch; .aliases defines a fastfetch shim when only neofetch
 	@# is present, so the command name is the same on every machine.
 	sudo apt-get install fastfetch -y || sudo apt-get install neofetch -y
 	sudo apt install zsh -y && echo "Let's keep going!" || echo seems like you might have the latest version of zsh already
+else ifeq ($(PACKAGE_MANAGER),pkg)
+	@echo "Detected Termux pkg package manager - installing required packages"
+	pkg update -y
+	pkg install -y openssh zsh git tmux fzf curl file make mg python
+	pkg install -y cmake myrepos fastfetch starship gnupg coreutils || true
 else ifeq ($(PACKAGE_MANAGER),guix)
 	@echo "Detected Guix package manager - installing required packages"
 	@echo "Installing zsh, fontconfig, curl, file, gcc-toolchain..."
@@ -446,10 +606,10 @@ else ifeq ($(PACKAGE_MANAGER),guix)
 	@which curl && echo "✓ curl: available" || echo "✗ curl: not found"
 	@which file && echo "✓ file: available" || echo "✗ file: not found"
 	@echo "Attempting to install missing packages..."
-	@which zsh && which curl && which file && echo "All core packages available - skipping installation" || { \
+	@which zsh && which curl && which file && which grep && which python3 && echo "All core packages available - skipping installation" || { \
 		echo "Some packages missing - attempting installation..."; \
 		echo "If this fails, try: sudo make guix-root-install"; \
-		guix install zsh cmake fontconfig curl file gcc-toolchain || echo "Package installation failed - continuing anyway"; \
+		guix install zsh cmake fontconfig curl file grep python gcc-toolchain || echo "Package installation failed - continuing anyway"; \
 	}
 	@echo "Installing starship prompt..."
 	@echo "Using curl from Guix profile..."
@@ -473,6 +633,28 @@ ifeq ("$(os)","$(OS_MAC)")
 	@brew list --cask $(NERD_FONT_CASK) > /dev/null 2>&1 \
 		&& echo "Found $(NERD_FONT), not installing" \
 		|| brew install --cask $(NERD_FONT_CASK)
+	@# Ghostty terminal emulator (macOS cask)
+	@brew list --cask ghostty > /dev/null 2>&1 || [ -d /Applications/Ghostty.app ] \
+		&& echo "Found Ghostty, not installing" \
+		|| brew install --cask ghostty
+	@# myrepos: `mr status/update/push' across every repo in ~/.mrconfig.
+	@# Homebrew names the formula after the command.  Linux gets it from
+	@# home/common.scm (guix) or the apt line above.
+	@command -v mr > /dev/null 2>&1 || brew install mr
+	@# starship prompt: without it .zshrc.starship falls back to a plain
+	@# prompt and nags on every shell.  Linux gets it from Guix Home (or the
+	@# curl installer above); macOS only from here.
+	@command -v starship > /dev/null 2>&1 || brew install starship
+	@# herdr: AI agent multiplexer. Linux gets it from install-herdr (into ~/.local/bin).
+	@command -v herdr > /dev/null 2>&1 || brew install herdr
+	@# Install Yazi and its media-handling stack
+	@brew install yazi ffmpeg sevenzip jq poppler fd ripgrep fzf zoxide imagemagick
+	@# zsh completions: compinit refuses a group-writable dir in fpath or any
+	@# of its parents ("insecure directories, run compaudit") and stops to ask
+	@# on every new shell.  /opt/homebrew/share, the parent of Homebrew's
+	@# zsh-completions dir, ends up g+w whenever brew ran under a 002 umask.
+	@# This is Homebrew's documented fix; a no-op when already clean.
+	@chmod -R go-w "$$(brew --prefix)/share"
 endif
 	@echo "Skipping oh-my-zsh installation - using starship instead"
 # 2>/dev/null matters more than it looks: ifneq is evaluated at Makefile PARSE
@@ -491,13 +673,41 @@ ifneq (,$(wildcard "~/.zshrc"))
 endif
 	ln -si ~/dot_files/.zshrc.starship ~/.zshrc || echo
 	ln -si ~/dot_files/.aliases ~ || echo
+	ln -si ~/dot_files/.tmux.conf ~/.tmux.conf || echo
+	@# Starship prompt config (Guix Home deploys it on Linux via home/common.scm)
+	@mkdir -p ~/.config
+	ln -si ~/dot_files/starship/starship.toml ~/.config/starship.toml || echo
+	@mkdir -p ~/.config/herdr
+	ln -si ~/dot_files/herdr/config.toml ~/.config/herdr/config.toml || echo
+ifeq ($(UNAME_S),Darwin)
+	@# Herdr on macOS reads its config from Application Support, not ~/.config
+	@mkdir -p ~/Library/Application\ Support/herdr
+	ln -si ~/dot_files/herdr/config.toml ~/Library/Application\ Support/herdr/config.toml || echo
+endif
+	@# Codex writes its own config.toml, so merge the repo's keys in rather
+	@# than linking it (Guix Home does the same at activation)
+	$(CURDIR)/bin/codex-defaults
+	@# Worktree-cleanup grants.  Same merge the Guix activation runs.
+	$(CURDIR)/bin/agent-permissions
+	@# Yazi keymap config
+	@mkdir -p ~/.config/yazi
+	@if [ -f ~/dot_files/yazi/keymap.toml ]; then \
+		ln -si ~/dot_files/yazi/keymap.toml ~/.config/yazi/keymap.toml || echo; \
+	fi
 
-# DISABLED @echo ln -si ~/dot_files/.zprofile ~/.zprofile # reads .bash_profile if I have it
+	@# ~/.zprofile used to be a hand-maintained copy that also sourced
+	@# ~/.bash_profile and ~/.zshrc (so every rc ran twice on macOS) and held
+	@# API keys.  Secrets now live in ~/.secrets.env; the rest is in
+	@# .mac.zshenv.  A login shell's PATH repair lives in this file.
+	ln -si ~/dot_files/.zprofile ~/.zprofile || echo
 	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
 	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
 	@# mg's startup file. Sets backup-to-home-directory so mg's foo~ backups land
 	@# in ~/.mg.d instead of beside the file being edited.
 	ln -si ~/dot_files/.mg ~/.mg || echo
+	@# myrepos config: which repos `mr update' / `mr push' walk.  Host-only
+	@# repos go in ~/.mrconfig.local (see the include in .mrconfig).
+	ln -si ~/dot_files/.mrconfig ~/.mrconfig || echo
 	@# $(wildcard) is a make function: it does not expand ~ (a shell thing) and
 	@# the quotes were literal pattern characters, so the pattern never matched
 	@# and the guard collapsed to `[ -f  ]' -- one-argument test, which is TRUE
@@ -514,8 +724,25 @@ endif
 	fi
 ifeq ("$(os)","$(OS_LINUX)")
 	ln -si ~/dot_files/.wayland.zshenv ~/.wayland.zshenv || echo
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@mkdir -p ~/.termux
+	@if [ -f ~/dot_files/termux/termux.properties ]; then \
+		cmp -s ~/dot_files/termux/termux.properties ~/.termux/termux.properties 2>/dev/null || { \
+			cp -f ~/dot_files/termux/termux.properties ~/.termux/termux.properties; \
+			echo "installed ~/.termux/termux.properties"; \
+		}; \
+	fi
+	@if [ -f ~/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf ]; then \
+		cmp -s ~/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf ~/.termux/font.ttf 2>/dev/null || { \
+			cp -f ~/dot_files/system/fonts/CascadiaMonoNF-Regular-patched.ttf ~/.termux/font.ttf; \
+			echo "installed ~/.termux/font.ttf (Cascadia Mono NF + mode line glyphs)"; \
+		}; \
+	fi
+	@command -v termux-reload-settings >/dev/null 2>&1 && termux-reload-settings || true
+endif
 endif
 	@mkdir -p ~/dot_files/bin
+	@sh bin/setup-bitbucket-ssh
 	@if [ ! -e "$$HOME/bin" ]; then \
 		ln -si ~/dot_files/bin ~/bin || true; \
 	elif [ -d "$$HOME/bin" ] && [ ! -L "$$HOME/bin" ]; then \
@@ -528,11 +755,15 @@ endif
 		echo "NOTE: ~/.ipython is a directory, not a symlink. Move config to ~/dot_files/.ipython/, remove ~/.ipython, then run make set_up_links again."; \
 	fi
 
-	@if [ -t 0 ]; then \
+	@if [ -e ~/.HOME ]; then \
+		echo "Already set up for HOME (~/.HOME exists)"; \
+	elif [ -e ~/.WORK ]; then \
+		echo "Already set up for WORK (~/.WORK exists)"; \
+	elif [ -t 0 ]; then \
 		./unix_work_or_home.sh; \
 	else \
 		echo "Non-interactive mode: defaulting to HOME setup"; \
-		touch ~/.HOME && echo "See ~/.aliases for the use of this file" >> ~/.HOME && echo "You are now set up for HOME"; \
+		echo "See ~/.aliases for the use of this file" > ~/.HOME && echo "You are now set up for HOME"; \
 	fi
 
 else ifeq ($(os),$(OS_WINDOWS))
@@ -548,6 +779,8 @@ ifneq ("","$(unix_family)")
 # Unix again
 ifeq ("$flavor",$(FLAVOR_WSL))
 	$(eval emacs_flag := wsl) # eval ensures that emacs_flag is set properly within the recipe scope
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	$(eval emacs_flag := termux)
 else
 	$(eval emacs_flag := "$(os)")
 endif
@@ -555,7 +788,7 @@ endif
 	ZSH_DIR=""; \
 	EXTRA_PATHS=""; \
 	if command -v zsh >/dev/null 2>&1; then \
-		ZSH_CMD=zsh; \
+		ZSH_CMD=$$(command -v zsh); \
 	elif [ -f ~/.guix-profile/bin/zsh ]; then \
 		ZSH_CMD=~/.guix-profile/bin/zsh; \
 		ZSH_DIR=~/.guix-profile/bin; \
@@ -571,7 +804,7 @@ endif
 			fi; \
 		done; \
 	fi; \
-	if [ -n "$$ZSH_CMD" ] && [ -f "$$ZSH_CMD" ]; then \
+	if [ -n "$$ZSH_CMD" ] && [ -x "$$ZSH_CMD" ]; then \
 		echo "Installing Emacs with zsh (found at: $$ZSH_CMD)..."; \
 		GUIX_BIN=""; \
 		if command -v guix >/dev/null 2>&1; then \
@@ -617,7 +850,7 @@ endif
 		else \
 			FINAL_PATH="$$EXTRA_PATHS:$$PATH"; \
 		fi; \
-		PATH="$$FINAL_PATH" GIT_SSL_NO_VERIFY=1 $$ZSH_CMD ./install_emacs.zsh --$(emacs_flag); \
+		PATH="$$FINAL_PATH" GIT_SSL_NO_VERIFY=1 $$ZSH_CMD ./install_emacs.zsh --$(emacs_flag) $(if $(EMACS_FORCE),--force); \
 	else \
 		echo "⚠️  zsh not available - skipping Emacs installation"; \
 		echo "   The install_emacs.zsh script requires zsh."; \
@@ -866,12 +1099,235 @@ restart-gpg-agent:
 	@herd restart gpg-agent 2>/dev/null \
 	  || echo "    (skipped: no user shepherd -- the agent will pick this up at next login)"
 
+# Put the tracked gnupg config in place on this machine.  Three parts, each
+# idempotent, so it is safe to re-run after a pull:
+#   1. ~/.gnupg/gpg.conf and dirmngr.conf -> symlinks to gnupg/ here.  A
+#      pre-existing real file is moved to *.bak-<date>, never overwritten.
+#   2. gpg-agent.conf: on macOS rendered from gnupg/gpg-agent.mac.conf with
+#      `brew --prefix' filled in (pinentry-mac installed first if missing),
+#      then the running agent is killed so it re-reads the file -- which
+#      also drops any cached passphrase.  On Linux guix home owns this file
+#      (the gpg-ssh-agent layer), so it is left alone.
+#   3. ~/.gitconfig on macOS: prepend `[include] path = ~/dot_files/.gitconfig'
+#      so the tracked config (signing key, gpgsign) applies here too, with
+#      local settings later in the file still winning.  The old hard-coded
+#      signing keys (commit.gpgsign=false, gpg.program=/usr/local/bin/gpg,
+#      ...) are removed because they would otherwise override the include.
+#      On Linux ~/.gitconfig IS the tracked file (a store symlink), so skip.
+# The secret key itself is never touched: see docs/GPG.md for moving it.
+.PHONY: install-gnupg
+install-gnupg:
+	@echo "==> gnupg config"
+	@mkdir -p "$$HOME/.gnupg" && chmod 700 "$$HOME/.gnupg"
+	@for f in gpg.conf dirmngr.conf; do \
+	  dst="$$HOME/.gnupg/$$f"; src="$(CURDIR)/gnupg/$$f"; \
+	  if [ -L "$$dst" ] && [ "$$(readlink "$$dst")" = "$$src" ]; then \
+	    echo "    [ok] $$f already linked"; continue; \
+	  fi; \
+	  if [ -e "$$dst" ] && [ ! -L "$$dst" ]; then \
+	    mv "$$dst" "$$dst.bak-$$(date +%Y%m%d)"; \
+	    echo "    moved old $$f to $$f.bak-$$(date +%Y%m%d)"; \
+	  fi; \
+	  ln -sfn "$$src" "$$dst" && echo "    linked $$f"; \
+	done
+ifeq ($(os),$(OS_MAC))
+	@prefix=$$(brew --prefix 2>/dev/null); \
+	if [ -z "$$prefix" ]; then echo "    ERROR: brew not found; install Homebrew first"; exit 1; fi; \
+	command -v gpg >/dev/null 2>&1 || brew install gnupg; \
+	[ -x "$$prefix/bin/pinentry-mac" ] || brew install pinentry-mac; \
+	[ -x "$$prefix/bin/pinentry-curses" ] || brew install pinentry; \
+	dst="$$HOME/.gnupg/gpg-agent.conf"; \
+	rendered=$$(sed "s|@DOTFILES@|$(CURDIR)|g" "$(CURDIR)/gnupg/gpg-agent.mac.conf"); \
+	if [ -e "$$dst" ] && [ "$$(cat "$$dst")" = "$$rendered" ]; then \
+	  echo "    [ok] gpg-agent.conf already current"; \
+	else \
+	  [ -e "$$dst" ] && cp "$$dst" "$$dst.bak-$$(date +%Y%m%d)" && echo "    backed up gpg-agent.conf"; \
+	  printf '%s\n' "$$rendered" > "$$dst" && chmod 600 "$$dst"; \
+	  echo "    rendered gpg-agent.conf (pinentry $(CURDIR)/bin/pinentry-auto)"; \
+	  gpgconf --kill gpg-agent 2>/dev/null && echo "    restarted gpg-agent (passphrase cache cleared)"; \
+	fi
+	@gc="$$HOME/.gitconfig"; inc="$(CURDIR)/.gitconfig"; \
+	[ -e "$$gc" ] || touch "$$gc"; \
+	if [ -L "$$gc" ]; then \
+	  echo "    [ok] ~/.gitconfig is a symlink; not touching it"; \
+	elif grep -qF "path = $$inc" "$$gc" || grep -qF 'path = ~/dot_files/.gitconfig' "$$gc"; then \
+	  echo "    [ok] ~/.gitconfig already includes the tracked .gitconfig"; \
+	else \
+	  cp "$$gc" "$$gc.bak-$$(date +%Y%m%d)"; \
+	  for k in commit.gpgsign tag.gpgsign gpg.program user.signingkey; do \
+	    git config --global --unset-all "$$k" 2>/dev/null && echo "    removed local $$k (now comes from the include)"; \
+	  done; \
+	  { printf '[include]\n\tpath = ~/dot_files/.gitconfig\n'; cat "$$gc"; } > "$$gc.tmp" \
+	    && mv "$$gc.tmp" "$$gc"; \
+	  echo "    prepended [include] path = ~/dot_files/.gitconfig to ~/.gitconfig (backup: .bak-$$(date +%Y%m%d))"; \
+	fi
+else ifeq ($(PACKAGE_MANAGER),pkg)
+	@command -v gpg >/dev/null 2>&1 || pkg install -y gnupg pinentry
+	@dst="$$HOME/.gnupg/gpg-agent.conf"; \
+	pin=$$(command -v pinentry-curses 2>/dev/null || command -v pinentry 2>/dev/null); \
+	if [ -e "$$dst" ] && grep -qF "pinentry-program" "$$dst"; then \
+	  echo "    [ok] gpg-agent.conf already current"; \
+	else \
+	  [ -e "$$dst" ] && cp "$$dst" "$$dst.bak-$$(date +%Y%m%d)" && echo "    backed up gpg-agent.conf"; \
+	  printf '# ~/.gnupg/gpg-agent.conf for Termux\npinentry-program %s\n\ndefault-cache-ttl 28800\nmax-cache-ttl 86400\n\nenable-ssh-support\ndefault-cache-ttl-ssh 3600\nmax-cache-ttl-ssh 28800\n' "$$pin" > "$$dst" && chmod 600 "$$dst"; \
+	  echo "    rendered gpg-agent.conf (pinentry $$pin)"; \
+	  gpgconf --kill gpg-agent 2>/dev/null && echo "    restarted gpg-agent (passphrase cache cleared)"; \
+	fi
+	@gc="$$HOME/.gitconfig"; inc="$(CURDIR)/.gitconfig"; \
+	[ -e "$$gc" ] || touch "$$gc"; \
+	if [ -L "$$gc" ]; then \
+	  echo "    [ok] ~/.gitconfig is a symlink; not touching it"; \
+	elif grep -qF "path = $$inc" "$$gc" || grep -qF 'path = ~/dot_files/.gitconfig' "$$gc"; then \
+	  echo "    [ok] ~/.gitconfig already includes the tracked .gitconfig"; \
+	else \
+	  cp "$$gc" "$$gc.bak-$$(date +%Y%m%d)"; \
+	  for k in commit.gpgsign tag.gpgsign gpg.program user.signingkey; do \
+	    git config --global --unset-all "$$k" 2>/dev/null && echo "    removed local $$k (now comes from the include)"; \
+	  done; \
+	  { printf '[include]\n\tpath = ~/dot_files/.gitconfig\n'; cat "$$gc"; } > "$$gc.tmp" \
+	    && mv "$$gc.tmp" "$$gc"; \
+	  echo "    prepended [include] path = ~/dot_files/.gitconfig to ~/.gitconfig (backup: .bak-$$(date +%Y%m%d))"; \
+	fi
+else
+	@echo "    gpg-agent.conf and ~/.gitconfig are managed by guix home here: make apply"
+endif
+	@echo "==> gnupg config done; now: make check-gpg"
+
+# Inventory-backed hub/spoke enrollment; Python 3.11+ is required.
+.PHONY: gpg-hub-create gpg-spoke-copy gpg-hub-teardown check-gpg-enrollment
+gpg-hub-create:
+	@python3 "$(CURDIR)/bin/gpg-hub" hub-create $(if $(MACHINE),--machine "$(MACHINE)")
+gpg-spoke-copy:
+	@python3 "$(CURDIR)/bin/gpg-hub" spoke-copy $(if $(MACHINE),--machine "$(MACHINE)") $(if $(HUB),--hub "$(HUB)")
+gpg-hub-teardown:
+	@python3 "$(CURDIR)/bin/gpg-hub" hub-teardown
+check-gpg-enrollment:
+	@python3 "$(CURDIR)/tests/gpg/enrollment.py"
+
+# Can `git commit' sign on THIS machine?  Walks the chain in the order it
+# fails in practice and prints the fix at the first broken link:
+#   1. a gpg on PATH (git runs `gpg' unless gpg.program overrides it)
+#   2. git knows which key to sign with (user.signingkey)
+#   3. the SECRET half of that key is in this machine's keyring, and when it
+#      expires -- the usual silent failure a year after setting up a machine
+#   4. the pinentry gpg-agent.conf names exists (macOS: pinentry-mac; Linux:
+#      the store path, which guix gc can remove -- see restart-gpg-agent)
+#   5. commit.gpgsign is on, so this repo's commits actually get signed
+#   6. a real signature, through the agent (only from a terminal, since it
+#      may prompt; a background job skips this step)
+# Deliberately NOT a prerequisite of `check': step 6 can prompt, and the
+# answer depends on this machine's keyring rather than on the repo.
+.PHONY: check-gpg
+check-gpg:
+	@echo "==> gpg commit signing"
+	@rc=0; \
+	if ! command -v gpg >/dev/null 2>&1; then \
+	  echo "    [--] gpg      : not on PATH"; \
+	  echo "         fix: brew install gnupg   (mac)  /  make apply  (guix: gnupg is in the profile)"; \
+	  exit 1; \
+	fi; \
+	echo "    [ok] gpg      : $$(command -v gpg) ($$(gpg --version | head -1 | awk '{print $$3}'))"; \
+	prog=$$(git config --get gpg.program); \
+	if [ -n "$$prog" ] && ! command -v "$$prog" >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] gpg.program = $$prog does not exist"; \
+	  echo "         fix: git config --global --unset gpg.program   (git then uses gpg from PATH)"; \
+	fi; \
+	key=$$(git config --get user.signingkey); \
+	if [ -z "$$key" ]; then \
+	  echo "    [--] key      : user.signingkey is not set"; \
+	  echo "         fix: make install-gnupg   (mac: adds the include of .gitconfig)  /  make apply  (linux)"; \
+	  exit 1; \
+	fi; \
+	echo "    [ok] key      : user.signingkey = $$key"; \
+	sec=$$(gpg --batch --with-colons --list-secret-keys "$$key" 2>/dev/null | grep '^sec:' | head -1); \
+	if [ -z "$$sec" ]; then \
+	  echo "    [--] secret   : no secret key for $$key in $$HOME/.gnupg"; \
+	  echo "         fix: make gpg-spoke-copy -- docs/GPG.md, \"Hub and spoke enrollment\""; \
+	  exit 1; \
+	fi; \
+	exp=$$(echo "$$sec" | cut -d: -f7); now=$$(date +%s); \
+	if [ -z "$$exp" ]; then \
+	  echo "    [ok] secret   : present, never expires"; \
+	elif [ "$$exp" -lt "$$now" ]; then \
+	  rc=1; echo "    [--] secret   : present but EXPIRED on $$(date -r "$$exp" +%Y-%m-%d 2>/dev/null || date -d "@$$exp" +%Y-%m-%d)"; \
+	  echo "         fix: gpg --edit-key $$key expire   (then re-export the public key: docs/GPG.md)"; \
+	elif [ $$(( (exp - now) / 86400 )) -lt 30 ]; then \
+	  echo "    [!!] secret   : present, expires in $$(( (exp - now) / 86400 )) days -- extend it soon: gpg --edit-key $$key expire"; \
+	else \
+	  echo "    [ok] secret   : present, expires $$(date -r "$$exp" +%Y-%m-%d 2>/dev/null || date -d "@$$exp" +%Y-%m-%d)"; \
+	fi; \
+	pin=$$(sed -n 's/^pinentry-program[[:space:]]*//p' "$$HOME/.gnupg/gpg-agent.conf" 2>/dev/null); \
+	if [ -n "$$pin" ] && [ ! -x "$$pin" ]; then \
+	  rc=1; echo "    [--] pinentry : $$pin is missing"; \
+	  echo "         fix: make install-gnupg   (mac)  /  make apply  (linux, after a guix gc)"; \
+	elif [ -z "$$pin" ] && [ "$(os)" = "$(OS_MAC)" ]; then \
+	  rc=1; echo "    [--] pinentry : none configured; gpg falls back to curses, which Emacs and background jobs cannot drive"; \
+	  echo "         fix: make install-gnupg"; \
+	else \
+	  echo "    [ok] pinentry : $${pin:-gpg default}"; \
+	fi; \
+	sign=$$(git config --get commit.gpgsign); \
+	if [ "$$sign" = true ]; then \
+	  echo "    [ok] git      : commit.gpgsign = true"; \
+	else \
+	  rc=1; echo "    [--] git      : commit.gpgsign = $${sign:-<unset>}"; \
+	  echo "         fix: make install-gnupg   (mac)  /  make apply  (linux)"; \
+	fi; \
+	stale=$$(find "$$HOME/.gnupg" -maxdepth 1 -name '.#lk*' 2>/dev/null | wc -l | tr -d ' '); \
+	if [ "$$stale" -gt 0 ]; then \
+	  echo "    [..] locks    : $$stale stale .#lk* lock files in ~/.gnupg (harmless; from killed gpg processes)"; \
+	  echo "         tidy: find ~/.gnupg -maxdepth 1 -name '.#lk*' -delete   (with no gpg running)"; \
+	fi; \
+	if [ $$rc != 0 ]; then echo "==> gpg signing: fix the [--] lines above"; exit 1; fi; \
+	if [ -t 0 ]; then \
+	  if [ -n "$$SSH_CONNECTION" ]; then \
+	    case "$$PINENTRY_USER_DATA" in *USE_TTY=1*) \
+	      echo "    [ok] ssh      : PINENTRY_USER_DATA=USE_TTY=1, so the prompt comes to this terminal";; \
+	    *) echo "    [--] ssh      : PINENTRY_USER_DATA is not set; the pinentry would prompt on this machine's own screen (mac: hangs here; GNOME: \"pinentry error\")"; \
+	       echo "         fix: open a new shell (.zshrc.starship sets it), or: export PINENTRY_USER_DATA=USE_TTY=1"; \
+	       echo "              if a request is already stuck: gpgconf --kill gpg-agent"; exit 1;; \
+	    esac; \
+	  fi; \
+	  if [ -z "$$GPG_TTY" ]; then \
+	    echo "    [--] tty      : GPG_TTY is not set, so a terminal pinentry has nowhere to draw (\"Inappropriate ioctl for device\")"; \
+	    echo "         fix: export GPG_TTY=\$$(tty)   (zsh sets it; a bash login -- Tailscale SSH falling back to /bin/sh -- does not: exec zsh -l)"; \
+	    exit 1; \
+	  elif [ ! -r "$$GPG_TTY" ] || [ ! -w "$$GPG_TTY" ]; then \
+	    echo "    [--] tty      : $$GPG_TTY is owned by $$(ls -l "$$GPG_TTY" | awk '{print $$3}'), so the pinentry cannot open it (\"Permission denied\")"; \
+	    echo "         fix: sudo chown $$USER $$GPG_TTY   (Tailscale SSH leaves its ptys owned by root; openssh does not)"; \
+	    exit 1; \
+	  fi; \
+	  echo "    signing a test message through the agent (may prompt for the passphrase)..."; \
+	  tmpdir=$${TMPDIR:-/tmp}; \
+	  if [ "$(flavor)" = "$(FLAVOR_TERMUX)" ] && [ -z "$${TMPDIR:-}" ]; then \
+	    tmpdir=$${PREFIX:-/data/data/com.termux/files/usr}/tmp; \
+	  fi; \
+	  errfile=$$(mktemp "$$tmpdir/check-gpg.XXXXXXXX") || { \
+	    echo "    [--] sign     : cannot create a temporary file in $$tmpdir"; exit 1; \
+	  }; \
+	  if echo "make check-gpg" | gpg --sign --local-user "$$key" -o /dev/null 2>"$$errfile"; then \
+	    echo "    [ok] sign     : works"; \
+	  else \
+	    echo "    [--] sign     : $$(tail -1 "$$errfile")"; \
+	    echo "         fix: see docs/GPG.md, \"Troubleshooting\""; \
+	    command rm -f "$$errfile"; exit 1; \
+	  fi; command rm -f "$$errfile"; \
+	else \
+	  echo "    [..] sign     : skipped (no terminal to prompt on; run make check-gpg from a shell)"; \
+	fi; \
+	echo "==> gpg signing OK"
+
 # Is the gpg-ssh-agent layer actually usable from THIS shell?  Walks the chain
 # a `git push' depends on, in order, and prints the fix at the first broken
 # link:
 #   1. gpg-agent's ssh socket exists (the shepherd service is up)
 #   2. the pinentry named in gpg-agent.conf still exists -- see the GC trap
-#      described above restart-gpg-agent
+#      described above restart-gpg-agent -- and can reach a prompter.  The
+#      second half is a warning, not a failure: pinentry-gnome3 with no gcr
+#      prompter (WSL before the pinentry-auto chooser, a headless box) still
+#      works from the one registered terminal, which is exactly why every
+#      other line here read [ok] while pushes from anywhere else failed.
+#      The probe sends only BYE, so no prompt is ever shown.
 #   3. $SSH_AUTH_SOCK in the calling shell points at that socket, not at a
 #      dead /tmp/ssh-* left by an `eval $(ssh-agent -s)'
 #   4. keys have been imported (the one-time `ssh-add' per machine)
@@ -882,10 +1338,21 @@ restart-gpg-agent:
 # hour, so it would make `check' fail for reasons that are not config drift.
 # The socket test comes before any gpg-connect-agent call, because that
 # command autostarts an agent and this target must not have side effects.
-.PHONY: check-ssh-agent
-check-ssh-agent:
+.PHONY: setup-bitbucket-ssh check-bitbucket-ssh check-ssh-with-gpg-for-egress
+setup-bitbucket-ssh:
+	@sh bin/setup-bitbucket-ssh
+
+check-bitbucket-ssh:
+	@sh tests/bitbucket-ssh-smoke.sh
+
+check-ssh-with-gpg-for-egress:
 	@echo "==> gpg-agent as ssh agent"
-	@if ! command -v gpgconf >/dev/null 2>&1; then \
+	@if [ -n "$(IN_GUIX_DEV)" ]; then \
+	  echo "    skipped in guix-dev: ssh uses per-forge key files (make setup-guix-github-key);"; \
+	  echo "    gpg goes through the Mac bridge (make check-gpg-bridge, on the Mac)"; \
+	  exit 0; \
+	fi; \
+	if ! command -v gpgconf >/dev/null 2>&1; then \
 	  echo "    skipped: no gpgconf here (gpg-ssh-agent layer not deployed)"; \
 	  exit 0; \
 	fi; \
@@ -902,6 +1369,12 @@ check-ssh-agent:
 	  rc=1; \
 	  echo "    [--] pinentry : $$pin is gone (guix gc'd it)"; \
 	  echo "         fix: make apply   (or at least: make restart-gpg-agent)"; \
+	elif [ -n "$$pin" ] && echo BYE | "$$pin" 2>&1 | grep -q 'falling back to curses'; then \
+	  echo "    [!!] pinentry : $$pin has no graphical prompter here (no gcr system prompter on the bus)"; \
+	  echo "         it can only ask in the terminal last registered with updatestartuptty, so a push from"; \
+	  echo "         anywhere else (Emacs, a background job, a closed terminal) gets \"agent refused operation\""; \
+	  echo "         fix: make apply   (WSL: deploys a pinentry that opens a WSLg window)"; \
+	  echo "         now: make unlock-ssh-keys   (from a plain terminal; lasts one cache-TTL)"; \
 	else \
 	  echo "    [ok] pinentry : $${pin:-gpg default}"; \
 	fi; \
@@ -928,6 +1401,34 @@ check-ssh-agent:
 	  done; \
 	fi; \
 	[ $$rc = 0 ] && echo "==> ssh agent OK" || { echo "==> ssh agent: fix the [--] lines above"; exit 1; }
+
+# The live half of check-ssh-with-gpg-for-egress: can this shell actually authenticate to GitHub?
+# check-ssh-with-gpg-for-egress runs first, so a broken local chain (socket, pinentry,
+# SSH_AUTH_SOCK, keys) stops here with its own fix hint -- if the agent is
+# broken, debug the agent, not GitHub.  Only when every local link is [ok]
+# does the push-shaped `ssh -T' run, and a failure then means the GitHub side:
+# the key is not uploaded to the account, or ssh offered a different key
+# (an IdentityFile/IdentitiesOnly in ~/.ssh/config bypasses the agent).
+#
+# Separate from check-ssh-with-gpg-for-egress because it needs the network and may prompt for the
+# passphrase.  `ssh -T git@github.com' exits 1 even on success (no shell
+# access), so success is read from the greeting instead.
+SSH_TEST_HOST ?= git@github.com
+.PHONY: check-ssh-github
+check-ssh-github: check-ssh-with-gpg-for-egress
+	@echo "==> ssh to $(SSH_TEST_HOST)"
+	@out=$$(ssh -o ConnectTimeout=10 -T $(SSH_TEST_HOST) 2>&1); \
+	if echo "$$out" | grep -q 'successfully authenticated'; then \
+	  echo "    [ok] remote   : $$(echo "$$out" | grep 'successfully authenticated' | sed 's/!.*//')"; \
+	  echo "==> ssh to $(SSH_TEST_HOST) OK"; \
+	else \
+	  echo "    [--] remote   : $$(echo "$$out" | tail -1)"; \
+	  echo "         the local agent chain is fine, so look at what ssh offered:"; \
+	  echo "              ssh -vvvT $(SSH_TEST_HOST) 2>&1 | grep -E 'identity file|Offering|Server accepts|denied'"; \
+	  echo "         then compare 'ssh-add -l -E sha256' with GitHub -> Settings -> SSH and GPG keys"; \
+	  echo "         (agent refused operation: run gpg-here in this shell and retry)"; \
+	  exit 1; \
+	fi
 
 # Offer to unlock the ssh keys that the restart-gpg-agent step of an apply just
 # locked again.  Nothing needs RE-ADDING: an agent restart only empties the
@@ -985,6 +1486,71 @@ unlock-ssh-keys:
 	  fi; \
 	done
 
+# unlock-gpg -- prompt for GPG passphrase to cache it in gpg-agent (16h TTL)
+.PHONY: unlock-gpg
+unlock-gpg:
+	@command -v gpgconf >/dev/null 2>&1 || exit 0; \
+	key=$$(git config --get user.signingkey || echo "0x6A2DAE7008D4F938"); \
+	gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1; \
+	if [ -t 0 ]; then \
+	  echo "==> Prompting for GPG passphrase (cached for 16h)..."; \
+	  if echo "unlock" | gpg --sign --local-user "$$key" -o /dev/null; then \
+	    echo "    [ok] GPG signing key $$key unlocked"; \
+	  else \
+	    echo "    [--] GPG signing key not unlocked"; exit 1; \
+	  fi; \
+	else \
+	  echo "(not a terminal: cannot prompt for GPG passphrase)"; exit 1; \
+	fi
+
+# unlock-keys -- unlock both GPG signing key and SSH authentication keys
+.PHONY: unlock-keys
+unlock-keys: unlock-gpg unlock-ssh-keys
+
+# gpg-add-subkey -- add an Ed25519 signing subkey for a machine to primary key
+GPG_SUBKEY_ALGO   ?= ed25519
+GPG_SUBKEY_EXPIRE ?= 2027-02-08
+.PHONY: gpg-add-subkey
+gpg-add-subkey:
+	@key=$$(git config --get user.signingkey || echo "0x6A2DAE7008D4F938"); \
+	fpr=$$(gpg --with-colons --fingerprint "$$key" 2>/dev/null | awk -F: '/^fpr/{print $$10; exit}'); \
+	if [ -z "$$fpr" ]; then \
+	  echo "==> Error: Could not determine primary key fingerprint for $$key" >&2; exit 1; \
+	fi; \
+	sec=$$(gpg --batch --with-colons --list-secret-keys "$$fpr" 2>/dev/null | grep '^sec:' | head -1); \
+	if [ -z "$$sec" ]; then \
+	  echo "==> Error: Primary secret key for $$key is not in ~/.gnupg" >&2; \
+	  echo "    Subkeys must be generated on a machine holding the master certify key." >&2; exit 1; \
+	fi; \
+	export GPG_TTY=$$(tty 2>/dev/null || echo "$$TTY"); \
+	[ -n "$$SSH_CONNECTION" ] && export PINENTRY_USER_DATA="USE_TTY=1" || true; \
+	gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1; \
+	echo "==> Adding $(GPG_SUBKEY_ALGO) signing subkey to $$key..."; \
+	echo "    Fingerprint: $$fpr"; \
+	echo "    Expiration : $(GPG_SUBKEY_EXPIRE)"; \
+	echo ""; \
+	if gpg --quick-add-key "$$fpr" $(GPG_SUBKEY_ALGO) sign $(GPG_SUBKEY_EXPIRE); then \
+	  echo ""; \
+	  echo "==> SUCCESS: Signing subkey created!"; \
+	  echo ""; \
+	  gpg --list-secret-keys --keyid-format long "$$fpr"; \
+	  echo ""; \
+	  echo "Next steps:"; \
+	  echo "  1. Export public key bundle for GitHub: make gpg-export-github"; \
+	  echo "  2. Upload ~/durantschoon-pubkey.asc to GitHub -> Settings -> SSH and GPG keys"; \
+	else \
+	  echo "==> Subkey generation failed or was cancelled." >&2; exit 1; \
+	fi
+
+# gpg-export-github -- export updated public key bundle for GitHub
+.PHONY: gpg-export-github
+gpg-export-github:
+	@key=$$(python3 -c 'import tomllib; print(tomllib.load(open("machines.toml", "rb"))["gpg"]["primary_fingerprint"])') || exit 1; \
+	out="$$HOME/durantschoon-pubkey.asc"; \
+	gpg --armor --export "$$key" > "$$out" || exit 1; \
+	echo "==> Exported public key bundle to $$out"; \
+	echo "    Upload this file to GitHub: Settings -> SSH and GPG keys"
+
 # The guix to run AFTER a `guix pull': the one the pull just produced.
 #
 # `guix pull' installs into ~/.config/guix/current and does nothing else; it
@@ -1003,9 +1569,24 @@ unlock-ssh-keys:
 # not exist until the `guix pull' a few lines earlier has finished -- a make
 # variable expanded at parse time would miss it.  Falls back to PATH's guix
 # where there is no per-user pull at all (Guix System before the first pull).
+# Prefix for the guix commands in apply / apply-wayland: bin/expected-warnings
+# hides the warnings those are known to print (oniguruma, dconf -- the list
+# and why each is harmless live in the script) and counts them, and
+# EXPECTED_WARNINGS_SUMMARY prints the tally at the end.  Empty when perl is
+# missing (a first apply on a bare machine), so the command then runs
+# unfiltered rather than not at all.
+EXPECTED_WARNINGS = $$(command -v perl >/dev/null 2>&1 && echo "$(CURDIR)/bin/expected-warnings run --")
+EXPECTED_WARNINGS_RESET = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/expected-warnings reset || true
+EXPECTED_WARNINGS_SUMMARY = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/expected-warnings summary || true
+
 PULLED_GUIX = $$( g="$$HOME/.config/guix/current/bin/guix"; [ -x "$$g" ] && echo "$$g" || echo guix )
 
-apply: warn-dotfiles-home
+apply: warn-dotfiles-home setup-sshd-for-ingress
+	@if [ -d /run/current-system ]; then \
+	  echo "==> note: on Guix System Wayland, use 'make apply-wayland' (or 'make apply-ewm');"; \
+	  echo "    'make apply' deploys home/base.scm (foreign/headless profile)"; \
+	fi
+	$(EXPECTED_WARNINGS_RESET)
 	@echo "==> git submodule update --init claude"
 	@# home/base.scm reads ../claude/* via local-file, so an uninitialized
 	@# submodule fails the reconfigure with an opaque "no such file" from the
@@ -1020,17 +1601,21 @@ apply: warn-dotfiles-home
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || $(EXPECTED_WARNINGS) guix pull ; \
 	else \
-	  guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull ; \
 	fi
 	@echo "==> guix home reconfigure home/base.scm  (guix: $(PULLED_GUIX))"
-	@$(PULLED_GUIX) home reconfigure $(GUIX_HOME_GRAFT_FLAGS) --allow-downgrades home/base.scm
+	@$(EXPECTED_WARNINGS) $(PULLED_GUIX) home reconfigure $(GUIX_HOME_GRAFT_FLAGS) --allow-downgrades home/base.scm
 	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-claude
+	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
+	@echo "==> ensuring herdr is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
 	@echo "==> done (Guix Home applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -1047,28 +1632,41 @@ apply: warn-dotfiles-home
 		echo "------------------------------"; \
 	fi
 	@$(MAKE) --no-print-directory unlock-ssh-keys
+	$(EXPECTED_WARNINGS_SUMMARY)
+	@# Last on purpose: the cloud-dirs step is unfinished and can fail, and a
+	@# failure here must not skip anything above it.
+	@$(MAKE) --no-print-directory check-cloud-dirs
 
-apply-wayland: warn-dotfiles-home
+apply-wayland: warn-dotfiles-home setup-sshd-for-ingress
+	$(EXPECTED_WARNINGS_RESET)
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  guix pull --allow-downgrades --channels=channels.scm || guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || $(EXPECTED_WARNINGS) guix pull ; \
 	else \
-	  guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull ; \
 	fi
 	@echo "==> git submodule update --init (espanso/private)"
 	@git submodule update --init espanso/private 2>/dev/null || true
+	@# private/: the private half of ~/.mrconfig (see .mrconfig).  Optional like
+	@# espanso/private: without it mr simply knows only the public repos.
+	@echo "==> git submodule update --init (private)"
+	@git submodule update --init private 2>/dev/null || true
 	@echo "==> git submodule update --init claude"
 	@# Unlike espanso/private this is NOT optional: home/wayland.scm reads
 	@# ../claude/* unconditionally, so let git's error stop the build.
 	@git submodule update --init claude
 	@echo "==> guix home reconfigure home/wayland.scm  (guix: $(PULLED_GUIX))"
-	@$(PULLED_GUIX) home reconfigure --allow-downgrades home/wayland.scm
+	@$(EXPECTED_WARNINGS) $(PULLED_GUIX) home reconfigure --allow-downgrades home/wayland.scm
 	@$(MAKE) --no-print-directory restart-gpg-agent
 	@echo "==> refreshing .spacemacs.env against the new generation"
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-claude
+	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
+	@echo "==> ensuring herdr is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
 	@echo "==> done (Guix Home Wayland applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -1085,6 +1683,12 @@ apply-wayland: warn-dotfiles-home
 		echo "------------------------------"; \
 	fi
 	@$(MAKE) --no-print-directory unlock-ssh-keys
+	$(EXPECTED_WARNINGS_SUMMARY)
+	@# Last on purpose: the cloud-dirs step is unfinished and can fail, and a
+	@# failure here must not skip anything above it.
+	@$(MAKE) --no-print-directory check-cloud-dirs
+
+.PHONY: apply-ewm ewm-launch ewm-escape-notes
 
 # apply-ewm -- deploy the EWM TRIAL home generation (docs/EWM_TRIAL_PLAN.md,
 # home/ewm.scm).  Deliberately leaner than apply/apply-wayland: no guix pull,
@@ -1095,7 +1699,7 @@ apply-wayland: warn-dotfiles-home
 # The claude submodule IS still required: the claude-code layer reads
 # ../claude/* via local-file, and an uninitialized submodule fails the
 # reconfigure with an opaque "no such file" from the store builder.
-apply-ewm: warn-dotfiles-home
+apply-ewm: warn-dotfiles-home setup-sshd-for-ingress
 	@echo "==> git submodule update --init claude"
 	@git submodule update --init claude
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
@@ -1104,8 +1708,64 @@ apply-ewm: warn-dotfiles-home
 	@echo "==> done (EWM trial generation deployed)"
 	@echo ""
 	@echo "    GNOME keeps running on its VT; launch EWM from a fresh TTY"
-	@echo "    per docs/EWM_TRIAL_PLAN.md.  Return to the GNOME-tuned home"
-	@echo "    with:  guix home roll-back"
+	@echo "    per docs/EWM_TRIAL_PLAN.md with:  make ewm-launch"
+	@echo "    (Note on Framework Laptop: CapsLock is Ctrl, so use CapsLock-Fn-Alt-F<N> to pick a VT)"
+	@echo "    Return to the GNOME-tuned home with:  guix home roll-back"
+	@echo ""
+	@echo ""
+	@$(MAKE) --no-print-directory ewm-escape-notes
+	@# Last on purpose (see apply): an unfinished, failing step goes after everything else.
+	@$(MAKE) --no-print-directory check-cloud-dirs
+
+# ewm-escape-notes -- print recovery shortcuts and escape hatches for the EWM trial
+ewm-escape-notes:
+	@echo "EWM Recovery Lessons & Escape Hatches:"
+	@echo "  * Return to GNOME    - Restart display manager:  sudo -i herd start xorg-server"
+	@echo "  * Switch VT on FMWK  - Use 'sudo chvt <N>' (e.g. 'vt 8' or CapsLock+Fn+Alt+F<N>)."
+	@echo "  * C-x C-c (in Emacs) - Shut down EWM compositor cleanly; drop back to console."
+	@echo "  * Ctrl+Alt+Delete    - System reboot fallback if screen hangs (GNOME untouched)."
+	@echo "  * guix home roll-back- Restore GNOME-tuned home generation after trial."
+
+# ewm-launch -- launch EWM from a bare TTY (step 3 of trial)
+ewm-launch:
+	@echo ""
+	@echo "========================================================================"
+	@echo "Stopping GDM (xorg-server) to release DRM Master GPU lock for EWM..."
+	@echo ">>> When you exit EWM, restart GNOME with:"
+	@echo ">>>   sudo -i herd start xorg-server"
+	@echo "========================================================================"
+	@echo ""
+	-sudo -i herd stop xorg-server
+	@echo ""
+	@echo "========================================================================"
+	@echo "Setting HSA_OVERRIDE_GFX_VERSION=11.0.0"
+	@echo "(Temporary workaround: tells Mesa/LLVM to treat AMD Strix Point gfx1152"
+	@echo "as gfx1100 until Guix packages Mesa with LLVM 19+)"
+	@echo "========================================================================"
+	@echo ""
+	@cd $(HOME)/src/ewm/compositor && \
+	  LIBSEAT_BACKEND=logind \
+	  LIBGL_ALWAYS_SOFTWARE=1 \
+	  MESA_LOADER_DRIVER_OVERRIDE=kms_swrast \
+	  HSA_OVERRIDE_GFX_VERSION=11.0.0 \
+	  EWM_MODULE_PATH=$(HOME)/src/ewm/compositor/target/debug/libewm_core.so \
+	  emacs --fg-daemon=vt2 --debug-init -L ../lisp \
+	    --eval '(with-eval-after-load "ewm-input" (setopt ewm-input-config (quote ((touchpad :natural-scroll t :tap t)))))' \
+	    -l ewm -f ewm-start-module; \
+	  status=$$?; \
+	  echo ""; \
+	  echo "========================================================================"; \
+	  echo "EWM session ended (exit code $$status)."; \
+	  echo ">>> To restart GNOME, run:"; \
+	  echo ">>>   make restart-gnome  (or: restart-gnome / sudo -i herd start xorg-server)"; \
+	  echo "========================================================================"; \
+	  exit $$status
+
+# restart-gnome -- restart or start GDM / GNOME display manager under Guix System
+.PHONY: restart-gnome
+restart-gnome:
+	@echo "==> restarting GNOME display manager (xorg-server/GDM)..."
+	@sudo -i herd restart xorg-server 2>/dev/null || sudo -i herd start xorg-server
 
 submodule-update:
 	@echo "==> git submodule update --init --recursive"
@@ -1321,7 +1981,92 @@ else
 	@echo "Configure keybindings on the macOS host instead; no container setup is needed."
 endif
 
-.PHONY: setup-tailscale check-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container setup-guix-github-key setup-protondrive check-protondrive
+.PHONY: setup-timezone check-timezone
+# System timezone for foreign-distro hosts (orb-guix and other Debian/Ubuntu
+# boxes running Guix Home).  Guix Home is per-user and cannot touch /etc, so
+# the zone lives in the distro's /etc/localtime symlink, which these targets
+# manage.  A named zone rather than a fixed offset: America/New_York follows
+# EDT (GMT-4) / EST (GMT-5) automatically.  On Guix System the zone is
+# declarative instead -- the (timezone ...) field in system/geeeks.scm.
+TIMEZONE ?= America/New_York
+
+setup-timezone:
+ifneq ($(GUIX_SYSTEM),)
+	@echo "Guix System: set (timezone \"$(TIMEZONE)\") in system/geeeks.scm, then 'make reconfigure'."
+	@exit 1
+else
+	@test -f /usr/share/zoneinfo/$(TIMEZONE) || { \
+	  echo "  *** unknown zone $(TIMEZONE): no /usr/share/zoneinfo/$(TIMEZONE) ***"; exit 1; }
+	ln -sfn /usr/share/zoneinfo/$(TIMEZONE) /etc/localtime
+	@# Debian's tzdata reads /etc/timezone on upgrade; keep it in agreement.
+	echo $(TIMEZONE) > /etc/timezone
+	@$(MAKE) --no-print-directory check-timezone
+endif
+
+check-timezone:
+	@zone=$$(readlink /etc/localtime | sed 's|.*/zoneinfo/||'); \
+	if [ "$$zone" = "$(TIMEZONE)" ]; then \
+	  echo "  ok: /etc/localtime -> $$zone ($$(date +'%Z, UTC%:z'))"; \
+	else \
+	  echo "  *** /etc/localtime -> $${zone:-?}, expected $(TIMEZONE); run: sudo make setup-timezone ***"; \
+	  exit 1; \
+	fi
+
+.PHONY: setup-locale check-locale
+# System locale for foreign-distro hosts (orb-guix, WSL and other Debian/Ubuntu
+# boxes running Guix Home).  .shared.zshrc exports LC_ALL/LANG=$(LOCALE), but
+# the distro's own binaries (/bin/bash, apt, ...) link the distro glibc, which
+# ignores GUIX_LOCPATH and only sees locales generated under /usr/lib/locale.
+# A bare Debian image has just C, C.utf8 and POSIX, so every such process warns
+#   bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)
+# These targets generate the locale on the distro side.  On Guix System the
+# locale is declarative instead -- the (locale ...) field of the system config.
+LOCALE ?= en_US.UTF-8
+# The charset half of LOCALE, e.g. UTF-8: the second column of /etc/locale.gen.
+LOCALE_CHARSET = $(lastword $(subst ., ,$(LOCALE)))
+# Runs a distro tool with none of Guix Home's environment.  locale-gen calls
+# localedef by name, and Guix's localedef (first on PATH) writes the archive to
+# /run/current-system/locale, which exists only on Guix System -- so the locale
+# is silently never built.  PERL5LIB likewise points debconf at Guix's perl
+# modules.  LC_ALL=C because the locale being generated does not exist yet.
+DISTRO_ENV = env -u PERL5LIB PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive
+
+setup-locale:
+ifneq ($(GUIX_SYSTEM),)
+	@echo "Guix System: set (locale \"$(LOCALE)\") in the system config, then 'make reconfigure'."
+	@exit 1
+else ifeq ($(PACKAGE_MANAGER),apt)
+	@# Container images ship with /var/lib/apt/lists emptied, so refresh first.
+	$(DISTRO_ENV) apt-get update
+	$(DISTRO_ENV) apt-get install -y locales
+	@# Uncomment the entry Debian ships commented out; append it if absent.
+	sed -i 's/^# *\($(LOCALE) \)/\1/' /etc/locale.gen
+	grep -qx '$(LOCALE) $(LOCALE_CHARSET)' /etc/locale.gen || \
+	  echo '$(LOCALE) $(LOCALE_CHARSET)' >> /etc/locale.gen
+	$(DISTRO_ENV) locale-gen
+	$(DISTRO_ENV) update-locale LANG=$(LOCALE)
+	@$(MAKE) --no-print-directory check-locale
+else
+	@echo "setup-locale knows apt only (package manager here: $(PACKAGE_MANAGER));"
+	@echo "generate $(LOCALE) with the distro's own tools."
+	@exit 1
+endif
+
+# Asks /usr/bin/locale, the distro's, by full path: Guix Home puts its own
+# locale first on PATH, and that one lists only C and POSIX however many
+# locales the distro glibc has.  Compares names case- and dash-insensitively:
+# glibc's locale -a prints en_US.utf8, macOS prints en_US.UTF-8.
+check-locale:
+	@lister=/usr/bin/locale; [ -x $$lister ] || lister=locale; \
+	want=$$(echo '$(LOCALE)' | tr 'A-Z' 'a-z' | tr -d -); \
+	if $$lister -a 2>/dev/null | tr 'A-Z' 'a-z' | tr -d - | grep -qxF "$$want"; then \
+	  echo "  ok: locale $(LOCALE) is installed"; \
+	else \
+	  echo "  *** locale $(LOCALE) is not installed; run: sudo make setup-locale ***"; \
+	  exit 1; \
+	fi
+
+.PHONY: setup-tailscale check-tailscale setup-container-tailscale check-container-tailscale setup-orbstack check-orbstack setup-guix-container check-guix-container guix-container-stop guix-container-restart setup-guix-github-key setup-guix-bitbucket-key setup-gpg-bridge check-gpg-bridge install-radicle setup-radicle check-radicle agent-permissions check-agent-permissions setup-protondrive check-protondrive
 
 
 # Proton Drive, the sync layer that replaced Dropbox.
@@ -1393,12 +2138,68 @@ else
 	@echo "check-protondrive: WSL only ($(os)/$(flavor) here)."
 endif
 
+.PHONY: setup-cloud-dirs check-cloud-dirs cloud-sync
+
+# The cloud-backed home directories: ~/Org/<location>, ~/MindMaps and
+# ~/.freeplane (links into Proton Drive), plus ~/Obsidian (a real directory,
+# filled by Obsidian Sync rather than Proton).  bin/cloud-dirs.sh holds the
+# layout, the per-platform discovery, and the reasoning; these are thin wrappers
+# so that `make' stays the one interface.
+#
+# check- is advisory on purpose: it prints what is missing and exits 0, which is
+# why apply/apply-wayland/apply-ewm/setup-native can all call it without a fresh
+# machine losing its reconfigure over an unmounted cloud folder.  --strict is
+# for the test suite.
+setup-cloud-dirs:
+	@bash bin/cloud-dirs.sh setup
+
+check-cloud-dirs:
+	@bash bin/cloud-dirs.sh check
+
+# Linux only -- macOS and WSL have a native Proton client that owns the folder.
+# RESYNC=1 establishes the bisync baseline, which a first run needs.
+cloud-sync:
+	@bash bin/cloud-sync.sh $(if $(RESYNC),--resync,) $(if $(DRY_RUN),--dry-run,)
+
+# The credential half of the same story.  rclone's protondrive backend has no
+# OAuth, so `rclone config' takes the real Proton ACCOUNT password -- which in
+# one-password mode also derives the mailbox keys -- and stores it "obscured",
+# which `rclone reveal' undoes.  Once a login has cached a session in the
+# remote, the password is no longer needed; cloud-creds-strip removes it and
+# proves the sync still works, restoring the config if it does not.
+# bin/cloud-creds.sh holds the reasoning.
+#
+# check- is advisory here too, for the same reason check-cloud-dirs is.
+.PHONY: check-cloud-creds cloud-creds-strip cloud-creds-login
+check-cloud-creds:
+	@bash bin/cloud-creds.sh check
+
+# The recovery path, as one command.  A session expires months after setup and
+# surfaces as a failing `make cloud-sync', so bin/cloud-sync.sh diagnoses that
+# case and names this target rather than leaving the steps to memory.
+cloud-creds-login:
+	@bash bin/cloud-creds.sh login
+
+cloud-creds-strip:
+	@bash bin/cloud-creds.sh strip $(if $(DRY_RUN),--dry-run,)
+
+# The cloud test suites.  Both hermetic -- dirs-smoke uses a scratch HOME and a
+# scratch stand-in for the Proton root; creds-smoke puts a stub rclone in front
+# of the real one on PATH -- so neither needs an account, a network or rclone
+# itself.  Kept out of `make check' for the same reason check-jobs is: `check'
+# reports on THIS machine's state, while these prove the scripts' behaviour.
+.PHONY: check-cloud
+check-cloud:
+	@./tests/cloud/dirs-smoke.zsh
+	@./tests/cloud/creds-smoke.zsh
+
 # The external store/database volumes must be restored together when moving
 # machines. Compose deliberately refuses to silently replace a missing store.
 setup-guix-container:
 	 $(GUIX_DOCKER) volume create guix-dev-home
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml up -d
-	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl openssh guile nss-certs --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix package --install make git zsh less curl grep python openssh socat guile nss-certs procps --install-from-expression="(@ (gnu packages base) glibc-utf8-locales)"'
+	 $(GUIX_DOCKER) exec guix-dev make setup-timezone
 	 $(MAKE) check-guix-container
 
 # Create a key that belongs only to the persistent Guix container volume.  The
@@ -1406,8 +2207,292 @@ setup-guix-container:
 setup-guix-github-key: setup-guix-container
 	 $(GUIX_DOCKER) exec -it guix-dev /root/dot_files/build-aux/setup-guix-github-key.sh
 
+setup-guix-bitbucket-key: setup-guix-container
+	 $(GUIX_DOCKER) exec -it guix-dev /root/dot_files/build-aux/setup-guix-github-key.sh bitbucket
+
+# Stop and restart the container IN PLACE.  Neither goes through compose:
+# `compose down' removes the container and `compose up' recreates it, a
+# four-step dance (create under <id>_guix-dev, stop, remove, rename) that
+# strands the container under its temporary name if cut short -- see
+# guix-container-heal in .aliases.  Recreating is only needed when
+# compose.guix.yaml changes, and setup-guix-container does that.
+#
+# The stop timeout is longer than docker's 10 s default so the agent
+# sessions inside (tmux, claude, agy, codex) can exit on their own before
+# SIGKILL.  On start the entrypoint brings back guix-daemon, the gpg bridge,
+# tailscaled and the registered agent sessions (build-aux/guix-container-*).
+GUIX_CONTAINER_STOP_TIMEOUT ?= 30
+
+# docker stop/restart print nothing until the container is down, so say up
+# front that the silence is the grace period and not a hang.
+guix-container-stop:
+	 @echo "==> stopping guix-dev: up to $(GUIX_CONTAINER_STOP_TIMEOUT) s of silence while its sessions exit (then SIGKILL)"
+	 $(GUIX_DOCKER) stop -t $(GUIX_CONTAINER_STOP_TIMEOUT) guix-dev
+	 @echo "guix-dev stopped; 'orb-guix' or 'make guix-container-restart' starts it again"
+
+guix-container-restart:
+	 @echo "==> restarting guix-dev: up to $(GUIX_CONTAINER_STOP_TIMEOUT) s of silence while its sessions exit (then SIGKILL)"
+	 $(GUIX_DOCKER) restart -t $(GUIX_CONTAINER_STOP_TIMEOUT) guix-dev
+	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
+
+# Commit signing inside guix-dev through the Mac's gpg-agent.
+#
+# OrbStack refuses connections to a macOS Unix socket bind-mounted into a
+# container, so the socket travels as TCP instead: a LaunchAgent runs socat on
+# 127.0.0.1:$(GPG_BRIDGE_PORT) in front of the agent's restricted extra socket,
+# and build-aux/guix-container-gpg-bridge.sh turns host.docker.internal:PORT
+# back into /root/.gnupg/S.gpg-agent.  The container gets the public key and
+# ownertrust only; the secret key stays on the Mac.  Unlike the OrbStack plist,
+# this one is a template (socat's brew prefix, the socket path), so the drift
+# check compares against a fresh render.  GPG_BRIDGE_PORT must match
+# GPG_AGENT_BRIDGE in compose.guix.yaml.
+GPG_BRIDGE_LABEL     := com.durantschoon.gpg-agent-bridge
+GPG_BRIDGE_PLIST_SRC := system/launchd/$(GPG_BRIDGE_LABEL).plist
+GPG_BRIDGE_PLIST_DST := $(HOME)/Library/LaunchAgents/$(GPG_BRIDGE_LABEL).plist
+GPG_BRIDGE_PORT      := 45123
+GPG_BRIDGE_SOCAT     := $(firstword $(wildcard /opt/homebrew/bin/socat /usr/local/bin/socat))
+GPG_SIGNING_KEY      := $(shell git config -f .gitconfig user.signingkey 2>/dev/null)
+render-gpg-bridge-plist = sed -e 's|@SOCAT@|$(GPG_BRIDGE_SOCAT)|' -e 's|@PORT@|$(GPG_BRIDGE_PORT)|' \
+	  -e "s|@SOCKET@|$$(gpgconf --list-dirs agent-extra-socket)|" $(GPG_BRIDGE_PLIST_SRC)
+
+setup-gpg-bridge:
+ifneq ("$(os)","$(OS_MAC)")
+	@echo "  *** setup-gpg-bridge is mac-only (detected $(os)) ***"
+	@exit 1
+else
+	@test -n "$(GPG_BRIDGE_SOCAT)" || { echo "  *** socat not found: brew install socat ***"; exit 1; }
+	@echo "==> installing the gpg-agent bridge LaunchAgent (127.0.0.1:$(GPG_BRIDGE_PORT))"
+	@gpgconf --launch gpg-agent
+	@mkdir -p "$(HOME)/Library/LaunchAgents"
+	@$(render-gpg-bridge-plist) > $(GPG_BRIDGE_PLIST_DST)
+	@launchctl bootout gui/$$(id -u)/$(GPG_BRIDGE_LABEL) 2>/dev/null || true
+	@launchctl bootstrap gui/$$(id -u) $(GPG_BRIDGE_PLIST_DST)
+	@# First, so its no-autostart is in place before the import below runs gpg.
+	@echo "==> (re)starting the container end (the entrypoint also starts it on every container start)"
+	@# Detached, so wait for the NEW listener: the old socat answers until the
+	@# restart kills it, hence the socket must also be newer than the marker.
+	@$(GUIX_DOCKER) exec guix-dev touch /tmp/gpg-bridge.restart
+	@$(GUIX_DOCKER) exec -d guix-dev /root/dot_files/build-aux/guix-container-gpg-bridge.sh --restart
+	@echo "==> waiting up to 15 s for the container end to answer"
+	@for i in $$(seq 15); do \
+	  $(GUIX_DOCKER) exec guix-dev sh -lc 'test /root/.gnupg/S.gpg-agent -nt /tmp/gpg-bridge.restart \
+	    && gpg-connect-agent "GETINFO version" /bye 2>/dev/null | grep -q "^D "' && exit 0; \
+	  sleep 1; \
+	done; echo "    (container end not answering after 15 s; the check below says why)"
+	@echo "==> importing the public key $(GPG_SIGNING_KEY) and its ownertrust into guix-dev"
+	@gpg --export $(GPG_SIGNING_KEY) | $(GUIX_DOCKER) exec -i guix-dev sh -lc 'gpg --batch --quiet --import'
+	@gpg --export-ownertrust | grep "^$$(gpg --with-colons --fingerprint $(GPG_SIGNING_KEY) | awk -F: '/^fpr/{print $$10; exit}'):" \
+	  | $(GUIX_DOCKER) exec -i guix-dev sh -lc 'gpg --batch --quiet --import-ownertrust'
+	@$(MAKE) --no-print-directory check-gpg-bridge
+endif
+
+check-gpg-bridge:
+	@echo "==> gpg-agent bridge into guix-dev"
+ifneq ("$(os)","$(OS_MAC)")
+	@echo "    skipped: mac-only (detected $(os))"
+else
+	@rc=0; \
+	if [ ! -f $(GPG_BRIDGE_PLIST_DST) ]; then \
+	  rc=1; echo "    [--] LaunchAgent : not deployed; fix: make setup-gpg-bridge"; \
+	elif ! $(render-gpg-bridge-plist) | diff -u - $(GPG_BRIDGE_PLIST_DST) > /dev/null; then \
+	  rc=1; echo "    [--] LaunchAgent : deployed plist differs from a fresh render; fix: make setup-gpg-bridge"; \
+	elif ! launchctl print gui/$$(id -u)/$(GPG_BRIDGE_LABEL) 2>/dev/null | grep -q 'state = running'; then \
+	  rc=1; echo "    [--] LaunchAgent : loaded but not running; see: launchctl print gui/$$(id -u)/$(GPG_BRIDGE_LABEL)"; \
+	else \
+	  echo "    [ok] LaunchAgent : socat on 127.0.0.1:$(GPG_BRIDGE_PORT)"; \
+	fi; \
+	if ! $(GUIX_DOCKER) exec guix-dev sh -lc 'gpg-connect-agent "GETINFO version" /bye' 2>/dev/null | grep -q '^D '; then \
+	  rc=1; echo "    [--] container   : gpg in guix-dev cannot reach the Mac agent"; \
+	  echo "         fix: make setup-gpg-bridge  (or gpgconf --launch gpg-agent here, if the Mac agent is down)"; \
+	else \
+	  echo "    [ok] container   : /root/.gnupg/S.gpg-agent answers from the Mac agent"; \
+	fi; \
+	grip=$$(gpg --with-colons --with-keygrip --list-keys $(GPG_SIGNING_KEY) | awk -F: '/^grp/{print $$10; exit}'); \
+	if ! $(GUIX_DOCKER) exec guix-dev sh -lc "gpg --list-keys $(GPG_SIGNING_KEY) >/dev/null 2>&1 && gpg-connect-agent 'HAVEKEY $$grip' /bye" 2>/dev/null | grep -qx OK; then \
+	  rc=1; echo "    [--] signing key : $(GPG_SIGNING_KEY) not usable in guix-dev; fix: make setup-gpg-bridge"; \
+	else \
+	  echo "    [ok] signing key : $(GPG_SIGNING_KEY) held by the Mac agent (secret part stays on the Mac)"; \
+	fi; \
+	echo "    next: if signing inside orb-guix / guix-dev fails or needs unlocking,"; \
+	echo "          run make unlock-gpg from ~/dot_files in a LOCAL terminal on the"; \
+	echo "          enclosing Mac (minius), outside the container. Complete the prompt,"; \
+	echo "          then retry signing inside the container and answer any Mac pinentry window."; \
+	echo "    note: this check verifies the bridge and key presence, not unlocked signing."; \
+	echo "    note: the container has its own passphrase cache and cannot choose where it is"; \
+	echo "          asked; see docs/GPG.md, \"Signing inside the guix-dev container\""; \
+	exit $$rc
+endif
+
+# guix-dev as its own tailnet node, so other machines reach it with
+# `ssh root@$(CONTAINER_TS_HOSTNAME)' (Tailscale SSH; the container has no sshd).
+# build-aux/guix-container-tailscale.sh installs the static binary and runs
+# tailscaled in userspace mode; the entrypoint starts it on every container
+# start.  Runs from the Mac (through docker exec) or from inside the container,
+# recognised by JOB_CONTAINER_SELF or, for a container created before compose
+# set that, by /.dockerenv.  `tailscale up' prints a URL to open once; the
+# node's identity then lives on the guix-dev-home volume.
+CONTAINER_TS_HOSTNAME ?= orb-guix
+CONTAINER_TS_SCRIPT   := /root/dot_files/build-aux/guix-container-tailscale.sh
+CONTAINER_TS          := /root/.local/bin/tailscale
+IN_GUIX_DEV := $(or $(JOB_CONTAINER_SELF),$(wildcard /.dockerenv))
+ctr-exec    = $(if $(IN_GUIX_DEV),,$(GUIX_DOCKER) exec $(1) guix-dev)
+ctr-exec-bg = $(if $(IN_GUIX_DEV),setsid,$(GUIX_DOCKER) exec -d guix-dev)
+
+setup-container-tailscale:
+	@echo "==> installing Tailscale in guix-dev"
+	@$(call ctr-exec,) /bin/sh $(CONTAINER_TS_SCRIPT) --install
+	@echo "==> (re)starting tailscaled (userspace networking)"
+	@$(ctr-exec-bg) /bin/sh $(CONTAINER_TS_SCRIPT) --restart >/dev/null 2>&1 &
+	@sleep 3
+	@echo "==> logging in: open the URL it prints"
+	@$(call ctr-exec,-it) $(CONTAINER_TS) up --ssh --hostname=$(CONTAINER_TS_HOSTNAME)
+	@$(MAKE) --no-print-directory check-container-tailscale
+
+check-container-tailscale:
+	@echo "==> Tailscale in guix-dev"
+	@rc=0; \
+	if ! $(call ctr-exec,) test -x $(CONTAINER_TS); then \
+	  echo "    [--] binary  : not installed; fix: make setup-container-tailscale"; exit 1; \
+	fi; \
+	echo "    [ok] binary  : $$($(call ctr-exec,) $(CONTAINER_TS) version | head -1)"; \
+	if st=$$($(call ctr-exec,) $(CONTAINER_TS) status --json 2>/dev/null); then \
+	  state=$$(printf '%s' "$$st" | sed -n 's/.*"BackendState": *"\([^"]*\)".*/\1/p' | head -1); \
+	  if [ "$$state" = Running ]; then \
+	    echo "    [ok] node    : running; ssh root@$(CONTAINER_TS_HOSTNAME) from the tailnet"; \
+	  else \
+	    rc=1; echo "    [--] node    : $${state:-unknown}; fix: make setup-container-tailscale (log in)"; \
+	  fi; \
+	else \
+	  rc=1; echo "    [--] daemon  : tailscaled not answering; check ~/.local/state/tailscale/tailscaled.log"; \
+	fi; \
+	exit $$rc
+
+# The Radicle node (rad://... remotes, e.g. the GIPS submodule of
+# Repos/enveloped/eGIPS) as a LaunchAgent, so it is up after a reboot instead
+# of only when someone remembered `rad node start'.  On the Guix hosts the
+# 'radicle' layer in home/common.scm installs rad/radicle-node/git-remote-rad
+# and declares a `radicle-node' Shepherd service instead; setup-radicle there
+# (re)starts that service.  A template like the gpg bridge
+# (radicle-node's brew prefix, the log path), so the drift check compares
+# against a fresh render.  setup stops a node that is already running --
+# typically one from `rad node start' -- because two nodes cannot share
+# ~/.radicle/node/control.sock.  The identity itself (`rad auth') is NOT
+# created here: it is a key pair, made once per person, interactively.  Until
+# it exists the zsh login warning in .shared.zshrc says so in every new shell.
+RADICLE_LABEL     := com.durantschoon.radicle-node
+RADICLE_PLIST_SRC := system/launchd/$(RADICLE_LABEL).plist
+RADICLE_PLIST_DST := $(HOME)/Library/LaunchAgents/$(RADICLE_LABEL).plist
+RADICLE_NODE_BIN  := $(firstword $(wildcard /opt/homebrew/bin/radicle-node /usr/local/bin/radicle-node))
+RADICLE_HOME      := $(or $(RAD_HOME),$(HOME)/.radicle)
+RADICLE_LOG       := $(RADICLE_HOME)/node/node.log
+render-radicle-plist = sed -e 's|@RADICLE_NODE@|$(RADICLE_NODE_BIN)|' \
+	  -e 's|@PATH@|$(patsubst %/,%,$(dir $(RADICLE_NODE_BIN))):/usr/bin:/bin:/usr/sbin:/sbin|' \
+	  -e 's|@LOG@|$(RADICLE_LOG)|' $(RADICLE_PLIST_SRC)
+
+install-radicle:
+ifeq ($(os),$(OS_MAC))
+	@command -v rad >/dev/null 2>&1 || brew install radicle
+else
+	@command -v rad >/dev/null 2>&1 \
+	  || echo "  *** rad not found: on Guix hosts run 'make apply' (layer 'radicle'); elsewhere see https://radicle.xyz/install ***"
+endif
+
+setup-radicle:
+ifneq ("$(os)","$(OS_MAC)")
+	@command -v herd >/dev/null 2>&1 && herd status radicle-node >/dev/null 2>&1 || { \
+	  echo "  *** no radicle-node Shepherd service here: run 'make apply' (Guix Home layer 'radicle') ***"; exit 1; }
+	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
+	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
+	  echo "  *** $(RADICLE_HOME)/keys/radicle has a passphrase; Shepherd cannot type it. ***"; \
+	  echo "      keep using 'rad node start' in a terminal, or remove it: ssh-keygen -p -f $(RADICLE_HOME)/keys/radicle"; \
+	  exit 1; }
+	@if ! herd status radicle-node 2>/dev/null | grep -q 'It is running\|running since' && pgrep -x radicle-node >/dev/null; then \
+	  echo "==> stopping the hand-started node (pid $$(pgrep -x radicle-node | tr '\n' ' '))"; \
+	  rad node stop >/dev/null 2>&1 || pkill -x radicle-node || true; \
+	  i=0; while pgrep -x radicle-node >/dev/null && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	fi
+	@herd restart radicle-node
+	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
+	@$(MAKE) --no-print-directory check-radicle
+else
+	@test -n "$(RADICLE_NODE_BIN)" || { echo "  *** radicle-node not found: brew install radicle ***"; exit 1; }
+	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
+	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
+	  echo "  *** $(RADICLE_HOME)/keys/radicle has a passphrase; launchd cannot type it. ***"; \
+	  echo "      keep using 'rad node start' in a terminal, or remove it: ssh-keygen -p -f $(RADICLE_HOME)/keys/radicle"; \
+	  exit 1; }
+	@echo "==> installing the radicle-node LaunchAgent ($(RADICLE_NODE_BIN))"
+	@mkdir -p "$(HOME)/Library/LaunchAgents" "$(RADICLE_HOME)/node"
+	@$(render-radicle-plist) > $(RADICLE_PLIST_DST)
+	@launchctl bootout gui/$$(id -u)/$(RADICLE_LABEL) 2>/dev/null || true
+	@if pgrep -qx radicle-node; then \
+	  echo "==> stopping the node that is already running (pid $$(pgrep -x radicle-node | tr '\n' ' '))"; \
+	  rad node stop >/dev/null 2>&1 || pkill -x radicle-node || true; \
+	  i=0; while pgrep -qx radicle-node && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	fi
+	@launchctl bootstrap gui/$$(id -u) $(RADICLE_PLIST_DST)
+	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
+	@$(MAKE) --no-print-directory check-radicle
+endif
+
+check-radicle:
+	@echo "==> Radicle"
+	@rc=0; \
+	if ! command -v rad >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] rad         : not installed; fix: brew install radicle (Guix: radicle)"; \
+	else \
+	  echo "    [ok] rad         : $$(rad --version)"; \
+	fi; \
+	if ! command -v git-remote-rad >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] git-remote-rad: missing, so 'git fetch' from rad:// fails; fix: make install-radicle"; \
+	else \
+	  echo "    [ok] git-remote-rad: $$(command -v git-remote-rad)"; \
+	fi; \
+	if ! rad self --did >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] identity    : none; fix: rad auth"; \
+	else \
+	  echo "    [ok] identity    : $$(rad self --alias 2>/dev/null) $$(rad self --did)"; \
+	fi; \
+	if [ "$(os)" = "$(OS_MAC)" ]; then \
+	  if [ ! -f $(RADICLE_PLIST_DST) ]; then \
+	    rc=1; echo "    [--] LaunchAgent : not deployed (the node will not survive a reboot); fix: make setup-radicle"; \
+	  elif ! $(render-radicle-plist) | diff -u - $(RADICLE_PLIST_DST) > /dev/null; then \
+	    rc=1; echo "    [--] LaunchAgent : deployed plist differs from a fresh render; fix: make setup-radicle"; \
+	  elif ! launchctl print gui/$$(id -u)/$(RADICLE_LABEL) 2>/dev/null | grep -q 'state = running'; then \
+	    rc=1; echo "    [--] LaunchAgent : loaded but not running; see: launchctl print gui/$$(id -u)/$(RADICLE_LABEL)"; \
+	    echo "         and: tail $(RADICLE_LOG)"; \
+	  else \
+	    echo "    [ok] LaunchAgent : $(RADICLE_LABEL) running"; \
+	  fi; \
+	elif command -v herd >/dev/null 2>&1; then \
+	  if ! herd status radicle-node >/dev/null 2>&1; then \
+	    rc=1; echo "    [--] Shepherd    : no radicle-node service; fix: make apply (layer 'radicle')"; \
+	  else \
+	    echo "    [ok] Shepherd    : radicle-node service declared"; \
+	  fi; \
+	fi; \
+	if ! rad node status >/dev/null 2>&1; then \
+	  rc=1; echo "    [--] node        : not running; fix: make setup-radicle"; \
+	else \
+	  peers=$$(rad node status 2>/dev/null | grep -c 'z6Mk.*✓' || true); \
+	  echo "    [ok] node        : running, $$peers connected peer(s)"; \
+	fi; \
+	exit $$rc
+
+agent-permissions:
+	$(CURDIR)/bin/agent-permissions
+
+check-agent-permissions:
+	@sh tests/agent-permissions-smoke.sh
+	@$(CURDIR)/bin/agent-permissions --check
+
+.PHONY: check-worktrees
+check-worktrees:
+	@python3 tests/hygiene/worktrees.py
+
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
+	 $(GUIX_DOCKER) exec guix-dev make check-timezone
 	 $(GUIX_DOCKER) exec guix-dev sh -lc 'guix build --no-offload -f build-aux/guix-container-check.scm'
 	 $(GUIX_DOCKER) exec guix-dev sh -lc 'export GUIX_PROFILE=/root/.guix-profile; . "$$GUIX_PROFILE/etc/profile"; make --version; git --version; less --version | head -1; ssh -V; guile --version | head -1; zsh --version'
 	 $(GUIX_DOCKER) exec guix-dev sh -lc 'set -eu; diagnostics=$$(mktemp); trap '\''rm -f "$$diagnostics"'\'' EXIT; make help >/dev/null 2>"$$diagnostics"; if [ -s "$$diagnostics" ]; then cat "$$diagnostics" >&2; exit 1; fi'
@@ -1606,6 +2691,9 @@ TAILSCALED_BIN       := /opt/homebrew/bin/tailscaled
 TAILSCALE_BIN        := /opt/homebrew/bin/tailscale
 
 setup-tailscale:
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@sh bin/termux-tailscale setup
+else
 ifneq ("$(os)","$(OS_MAC)")
 	@echo ""
 	@echo "  *** setup-tailscale is mac-only (detected $(os)) ***"
@@ -1694,6 +2782,7 @@ else
 	@echo "  Verify with: make check-tailscale"
 	@echo ""
 endif
+endif
 
 # Answers "is this machine actually on the tailnet, and will it still be after
 # a reboot?" -- which are different questions.  A running daemon that was
@@ -1701,8 +2790,8 @@ endif
 # is checked as carefully as the process.
 #
 # It also asserts the NAME, because the name is load-bearing here: EMACS_HOST
-# defaults to `minius' and the `eam' alias hardcodes it, so both reach this
-# machine by its MagicDNS name.  When a node re-registers while its name is
+# defaults to $(HOMEBASE) (orb-guix; previously minius) and the `eam' alias
+# uses it, so both reach this machine by its MagicDNS name.  When a node re-registers while its name is
 # still held by another node -- which is exactly what happened moving off the
 # App Store app, since the daemon generates a fresh node key rather than
 # inheriting the app's -- the control plane silently appends -1.  Nothing
@@ -1716,6 +2805,10 @@ endif
 # Tailscale would lowercase it.  (LocalHostName, not `uname -n': the latter is
 # MiniUs.local here, and the .local would never match.)
 check-tailscale:
+ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@if ! command -v tailscale >/dev/null 2>&1; then $(MAKE) setup-tailscale || exit 1; fi
+	@sh bin/termux-tailscale check
+else
 	@echo "==> tailscaled system daemon"
 ifneq ("$(os)","$(OS_MAC)")
 	@echo "    skipped: mac-only (detected $(os))"
@@ -1799,6 +2892,12 @@ else
 	fi; \
 	exit $$rc
 endif
+endif
+
+# The aggregate check only reads state, including on Termux.
+.PHONY: check-tailscale-status
+check-tailscale-status:
+	@sh bin/termux-tailscale status
 
 update: warn-dotfiles-home
 	@echo "==> guix pull"
@@ -1813,6 +2912,10 @@ update: warn-dotfiles-home
 	@$(MAKE) --no-print-directory emacs-env
 	@echo "==> ensuring Claude Code is installed (idempotent; re-patches if broken)"
 	@$(MAKE) --no-print-directory install-claude
+	@echo "==> ensuring agy (Antigravity CLI) is installed (idempotent; re-wraps if broken)"
+	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
+	@echo "==> ensuring herdr is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
 
 install-manifest:
 	@echo "==> guix package -m manifests/base.scm"
@@ -1980,6 +3083,38 @@ else
 	@echo "check-espanso-windows: WSL only ($(os)/$(flavor) here)."
 endif
 
+.PHONY: setup-conemu-windows check-conemu-windows
+
+# ConEmu, the Windows terminal the WSL shells run in, keeps its settings in
+# %APPDATA%\ConEmu.xml.  The one setting managed here is TabConsole, the tab
+# title template, pinned to "%m■m %s".  Setup rewrites that value in place (or
+# adds it under the first configuration key), writing UTF-8 without a BOM so
+# the ■ survives; nothing else in the file is touched.  ConEmu only rereads its
+# settings on restart, so setup says so when it is running.
+#
+# Same plumbing as the espanso targets above, for the same reasons: cd /mnt/c
+# so Windows does not inherit a UNC cwd, and the PowerShell is fed on stdin
+# from build-aux/*.ps1.  Not part of `make check': a machine without ConEmu
+# would fail it.
+setup-conemu-windows:
+ifeq ($(flavor),wsl)
+	@echo "==> ConEmu tab title on the Windows side"
+	@cd /mnt/c && $(WIN_POWERSHELL) -NoProfile -Command - \
+	  < "$(CURDIR)/build-aux/conemu-windows-setup.ps1"
+	@$(MAKE) --no-print-directory check-conemu-windows
+else
+	@echo "setup-conemu-windows: WSL only ($(os)/$(flavor) here)."
+endif
+
+check-conemu-windows:
+ifeq ($(flavor),wsl)
+	@echo "==> ConEmu on the Windows side"
+	@cd /mnt/c && $(WIN_POWERSHELL) -NoProfile -Command - \
+	  < "$(CURDIR)/build-aux/conemu-windows-check.ps1"
+else
+	@echo "check-conemu-windows: WSL only ($(os)/$(flavor) here)."
+endif
+
 .PHONY: check-home-ownership
 
 # Who actually owns each dotfile in $$HOME: Guix Home, the native symlinks, or
@@ -2050,6 +3185,8 @@ endif
 # long path overruns its 28 characters and the padding disappears.  Only on a
 # terminal, and never with NO_COLOR set or TERM=dumb: piped into a file, a
 # pager or `grep', the output stays plain text with no escape codes in it.
+# An absent path is printed dim instead, the whole row: nothing is there to
+# look at, so it should not compete with the rows that are.
 #
 # Exit status.  Normally: non-zero only when a generation is active and
 # something is wrong, so `make check' stays green on a native-only machine
@@ -2070,9 +3207,9 @@ check-home-ownership:
 	dfroot="$$(cd "$(DOTFILES_HOME)" 2>/dev/null && pwd -P)"; \
 	[ -n "$$dfroot" ] || dfroot="/nonexistent"; \
 	conflicts=0; hazards=0; inactive=0; espanso_off=0; \
-	c1=""; c0=""; \
+	c1=""; c0=""; cd=""; \
 	if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
-	  c1="$$(printf '\033[36m')"; c0="$$(printf '\033[0m')"; \
+	  c1="$$(printf '\033[36m')"; c0="$$(printf '\033[0m')"; cd="$$(printf '\033[2m')"; \
 	fi; \
 	for p in $$claimed; do \
 	  t="$$HOME/$$p"; \
@@ -2082,7 +3219,7 @@ check-home-ownership:
 	    if [ -L "$$HOME/$$anc" ]; then via="$$anc"; break; fi; \
 	  done; \
 	  if [ -n "$$via" ]; then \
-	    printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
+	    printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
 	    hazards=1; continue; \
 	  fi; \
 	  if [ ! -e "$$t" ] && [ ! -L "$$t" ]; then \
@@ -2105,16 +3242,17 @@ check-home-ownership:
 	  fi; \
 	  case "$$owner" in \
 	    "real directory") \
-	      printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: real directory where guix wants a symlink"; \
+	      printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: real directory where guix wants a symlink"; \
 	      hazards=1 ;; \
 	    native|"real file") \
 	      if [ $$guix_home -eq 1 ]; then \
-	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "CONFLICT: $$owner, but Guix Home is active"; \
+	        printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "CONFLICT: $$owner, but Guix Home is active"; \
 	        conflicts=1; \
 	      else \
-	        printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
+	        printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
 	      fi ;; \
-	    *) printf '    %s%-28s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
+	    absent*) printf '    %s%-47s %s%s\n' "$$cd" "$$p" "$$owner" "$$c0" ;; \
+	    *) printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
 	  esac; \
 	done; \
 	leftovers=0; \
@@ -2125,7 +3263,7 @@ check-home-ownership:
 	    n="$${t#$$HOME/}"; \
 	    case "$$(readlink -f "$$t" 2>/dev/null)" in "$$dfroot"/*) ;; *) continue ;; esac; \
 	    case "$$claimed_words" in *" $$n "*|*" $$n/"*) continue ;; esac; \
-	    printf '    %s%-28s%s %s\n' "$$c1" "$$n" "$$c0" "LEFTOVER: native link -> $$(readlink "$$t")"; \
+	    printf '    %s%-47s%s %s\n' "$$c1" "$$n" "$$c0" "LEFTOVER: native link -> $$(readlink "$$t")"; \
 	    leftovers=1; \
 	  done; \
 	fi; \
@@ -2179,12 +3317,35 @@ check-home-ownership:
 # change none of it, so the no-side-effects contract below still holds, and off
 # WSL the target degrades to a single printed line.  (check-guix-container is
 # absent by contrast because it needs a running container, not because reaching
-# across to Windows is itself disqualifying.)
-check: check-system check-session-coupling check-tailscale check-orbstack check-protondrive check-espanso-windows check-home-ownership
+# across to Windows is itself disqualifying.)  check-radicle probes too (rad
+# self, rad node status, herd/launchctl status) and is here so a machine whose
+# rad:// remotes cannot fetch fails `make check' instead of a morning review.
+# check-agent-permissions reads the grant files and runs a scratch-HOME smoke
+# test; it writes nothing.  check-worktrees classifies scratch git repos.
+check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
 	@echo "==> system/: all checks passed"
+
+# Incoming remote access belongs to the host OS, not Guix Home.
+# Not a prerequisite of `check': on macOS, reading Remote Login state goes
+# through sudo, and `check' must stay runnable without a prompt.
+.PHONY: setup-sshd-for-ingress check-sshd-for-ingress check-sshd-for-ingress-tests
+setup-sshd-for-ingress:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "SSH server bootstrap runs in WSL; native Windows setup is not supported."
+else
+	@python3 "$(CURDIR)/bin/sshd-setup" setup
+endif
+check-sshd-for-ingress:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "SSH server check runs in WSL; native Windows is skipped."
+else
+	@python3 "$(CURDIR)/bin/sshd-setup" check
+endif
+check-sshd-for-ingress-tests:
+	@python3 "$(CURDIR)/tests/ssh/bootstrap.py"
 
 # The end-to-end gate for .jobs.zsh and bin/job-tee.  Deliberately NOT a
 # prerequisite of `check': every other check above only reads files, while this
@@ -2198,6 +3359,7 @@ check-system: check-system-hosts check-keyd-sync check-channels-sync check-syste
 # failures in the others rather than being explained by them.
 .PHONY: check-jobs
 check-jobs:
+	@python3 tests/jobs/mr-agents.py
 	@./tests/jobs/tee-smoke.zsh
 	@./tests/jobs/smoke.zsh
 	@./tests/jobs/claude-smoke.zsh
@@ -2522,8 +3684,11 @@ reconfigure: check-system
 # ---------------------------------------------------------------------------
 .PHONY: emacs-serve emacs-receive-ssh emacs-unserve emacs-attach emacs-connect-ssh
 
+# Default home base machine on the tailnet (override: HOMEBASE=...)
+HOMEBASE ?= orb-guix
+
 # Host running `make emacs-serve`. Override: make emacs-attach EMACS_HOST=geeeks
-EMACS_HOST ?= minius
+EMACS_HOST ?= $(HOMEBASE)
 # Use a full path here if ssh's non-interactive shell can't find emacsclient,
 # e.g. make emacs-attach REMOTE_EMACSCLIENT=/opt/homebrew/bin/emacsclient
 REMOTE_EMACSCLIENT ?= emacsclient
@@ -2605,7 +3770,14 @@ emacs-serve:
 	fi; \
 	echo ""; \
 	echo "  # Or, from a checkout of this repo on the other machine:"; \
-	echo "  make emacs-attach EMACS_HOST=$${TS_HOST:-$$SHORT_HOST.local}"; \
+	TARGET_HOST="$${TS_HOST:-$$SHORT_HOST.local}"; \
+	if [ "$$TARGET_HOST" = "$(HOMEBASE)" ]; then \
+	  echo "  make emacs-attach EMACS_HOST=$$TARGET_HOST"; \
+	  echo "  # (EMACS_HOST=$$TARGET_HOST is the default because HOMEBASE is set to $(HOMEBASE) on all tailscale machines: bare 'make emacs-attach' works directly)"; \
+	else \
+	  echo "  make emacs-attach EMACS_HOST=$$TARGET_HOST"; \
+	  echo "  # (EMACS_HOST defaults to $(HOMEBASE) on all tailscale machines; override with EMACS_HOST=$$TARGET_HOST)"; \
+	fi; \
 	echo ""; \
 	echo "=== Read-only peek (no attaching, no stray keystrokes) ==="; \
 	if [ -n "$$TS_HOST" ]; then TRAMP_HOST="$$TS_HOST"; else TRAMP_HOST="$$SHORT_HOST.local"; fi; \
@@ -2630,6 +3802,9 @@ emacs-serve:
 emacs-attach:
 	@echo ""
 	@echo "=== Attaching to the Emacs daemon on $(EMACS_HOST) ==="
+	@if [ "$(EMACS_HOST)" = "$(HOMEBASE)" ]; then \
+	  echo "  (using default HOMEBASE=$(HOMEBASE); override with EMACS_HOST=<host>)"; \
+	fi
 	@echo ""
 	@echo "  ssh -t $(EMACS_HOST) $(REMOTE_EMACSCLIENT) -t"
 	@echo ""
@@ -2698,3 +3873,9 @@ voice-server-restart: voice-server-kill voice-server
 driving-server-restart: driving-server-kill driving-server
 
 voice-ngrok-restart: voice-ngrok-kill voice-ngrok
+
+# Rootless tests of the foreign-distro installer policy transaction.
+.PHONY: check-guix-installer
+check-guix-installer:
+	bash -n guix-install.sh bin/seed-linux
+	python3 tests/guix/apparmor.py

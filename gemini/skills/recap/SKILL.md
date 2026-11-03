@@ -48,8 +48,9 @@ When this skill is invoked (e.g., via `/recap` or when the user asks for a recap
    the task's own file, so write it there as well as showing it.
 
    - **The task name is `$JOB_TASK`.** Every tmux session created by the
-     user's `.jobs.zsh` — `tmux-new`, `tmux-go`, `tmux-run`, `claude-run` —
-     carries `JOB_TASK` (and `JOB_REPO`) in its environment, so you do not
+     user's `.jobs.zsh` / `.agent-jobs.zsh` — `tmux-new`, `tmux-go`,
+     `tmux-run`, `claude-run`, `agy-run`, `codex-run` — carries `JOB_TASK`
+     (and `JOB_REPO`) in its environment (tmux 3.2 or newer), so you do not
      have to be told which task this session is. If `$JOB_TASK` is unset, the
      task is `main`.
    - **Preferred:** pipe the recap body into `job-recap`, which writes the

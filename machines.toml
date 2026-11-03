@@ -1,0 +1,41 @@
+# Authoritative machine inventory. Hub enrollment fills full fingerprints.
+# Add other machines here before enrolling; names are Tailscale/SSH hostnames.
+[gpg]
+hub = "minius"
+
+primary_fingerprint = "7CE816967443FCECCE0BF1B76A2DAE7008D4F938"
+#       fingerprint = "7CE816967443FCECCE0BF1B76A2D-AE70-08D4-F938"
+# Long key id                                  6A2D AE70 08D4 F938
+subkey_expiry = "2027-02-08"
+
+[machines.minius]
+signing_subkey = "F64750966E672AB3552EF14EC4E66F1E89EE3EB8"
+#       subkey = "F64750966E672AB3552EF14EC4E6-6F1E-89EE-3EB8"
+# Long key id                             C4E6 6F1E 89EE 3EB8
+
+[machines.geeeks]
+signing_subkey = ""
+# Adopt the already-created subkey rather than generating another.
+existing_subkey_id = "23570C8AFDE416D9"
+#        subkey_id = "2357-0C8A-FDE4-16D9"
+# Long key id         2357 0C8A FDE4 16D9
+
+[machines.barnowl]
+signing_subkey = "DD103590321AD89AB34594F04590F1E74850B09D"
+#       subkey = "DD103590321AD89AB34594F04590-F1E7-4850-B09D"
+# Long key id                             4590 F1E7 4850 B09D
+
+[machines.popowl]
+signing_subkey = "64AAF1BB5EC0BF9B436148807F7DCDEA5B9E20C1"
+#       subkey = "64AAF1BB5EC0BF9B436148807F7D-CDEA-5B9E-20C1"
+# Long key id                             7F7D CDEA 5B9E 20C1
+
+[machines.razrfold]
+signing_subkey = "0AF4326CAEE372A0C2D5C875E15E9B401A45E25D"
+#       subkey = "0AF4326CAEE372A0C2D5C875E15E-9B40-1A45-E25D"
+# Long key id                             E15E 9B40 1A45 E25D
+
+# orb-guix signs through minius's GPG agent
+# see make check-gpg-bridge and make setup-gpg-bridge run from minius
+# [machines.orb-guix]
+# signing_subkey = ""

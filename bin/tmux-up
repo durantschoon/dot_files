@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# tmux-up: Detect if NOT in a tmux session, and upgrade with minimum friction.
+#
+# Usage:
+#   tmux-up               # Upgrade current terminal to a tmux session for this repo/dir
+#   tmux-up TASK          # Upgrade into session <repo>-<task> or <task>
+#   tmux-up CMD [ARGS...] # Upgrade into tmux and immediately run CMD
+#
+# If already inside tmux, reports the session and runs any requested command in-place.
+
+# 0. Help flag
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    printf "Usage: tmux-up [TASK] [COMMAND...]\n\n"
+    printf "Detects if current terminal is outside tmux, and upgrades into a session with zero friction.\n"
+    printf "  tmux-up              # Upgrade into session for current repo/directory\n"
+    printf "  tmux-up <task>       # Upgrade into <repo>-<task> session\n"
+    printf "  tmux-up <cmd> [args] # Upgrade into tmux and immediately run <cmd>\n"
+    exit 0
+fi
+
+# 1. Already inside tmux?
+if [ -n "$TMUX" ]; then
+    current_session=$(tmux display-message -p '#{session_name}' 2>/dev/null)
+    current_window=$(tmux display-message -p '#{window_name}' 2>/dev/null)
+
+    if [ $# -gt 0 ]; then
+        # If user passed a command, run it in-place since we're already in tmux
+        exec "$@"
+    else
+        printf "\033[32m✓ Already inside tmux session:\033[0m \033[1m%s\033[0m (window: %s)\n" \
+            "${current_session:-unknown}" "${current_window:-unknown}"
+        exit 0
+    fi
+fi
+
+# 2. Determine target session name based on Git repo root or directory basename
+target_dir="$PWD"
+repo_root=""
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+fi
+
+base_name=""
+if [ -n "$repo_root" ]; then
+    base_name=$(basename "$repo_root")
+else
+    base_name=$(basename "$target_dir")
+fi
+
+# Slugify base name (lowercase, alphanumeric + hyphen)
+slug=$(echo "$base_name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g')
+[ -z "$slug" ] && slug="main"
+
+session_name="$slug"
+explicit_task=0
+
+# If first argument looks like a task name or session name override (not an executable on PATH)
+if [ $# -gt 0 ] && ! command -v "$1" >/dev/null 2>&1; then
+    task_slug=$(echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g')
+    session_name="${slug}-${task_slug}"
+    explicit_task=1
+    shift
+fi
+
+# If command is an agent engine and no explicit task was given, specialize session name (<repo>-<engine>)
+if [ $# -gt 0 ] && [ $explicit_task -eq 0 ]; then
+    bin_base=$(basename "$1")
+    case "$bin_base" in
+        agy|claude|codex|antigravity-cli)
+            eng_slug="$bin_base"
+            [ "$eng_slug" = "antigravity-cli" ] && eng_slug="agy"
+            if [[ "$session_name" != *"-${eng_slug}" ]]; then
+                session_name="${session_name}-${eng_slug}"
+            fi
+            ;;
+    esac
+fi
+
+printf "\033[33m⚡ Upgrading terminal to tmux session:\033[0m \033[1;36m%s\033[0m\n" "$session_name"
+
+# 3. Check if session already exists
+if tmux has-session -t "=$session_name" 2>/dev/null; then
+    if [ $# -gt 0 ]; then
+        # New window with command, then attach
+        tmux new-window -t "=$session_name" -c "$target_dir" "$@"
+        exec tmux attach-session -d -t "=$session_name"
+    else
+        # Attach to existing session
+        exec tmux attach-session -d -t "=$session_name"
+    fi
+else
+    # Create new session and attach
+    if [ $# -gt 0 ]; then
+        exec tmux new-session -s "$session_name" -c "$target_dir" "$@"
+    else
+        exec tmux new-session -s "$session_name" -c "$target_dir"
+    fi
+fi

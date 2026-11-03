@@ -17,6 +17,8 @@
 alias a='alias'
 alias ag='alias | grep'
 alias agy-auto='agy --dangerously-skip-permissions'
+alias codex-auto='codex --sandbox danger-full-access --ask-for-approval never'
+alias codex-auto-workspace='codex --sandbox workspace-write --ask-for-approval never'
 alias c2n='tr ":" "\012"'
 alias cs='claude-sessions' # a link to ~/.claude/bin/claude-sessions
 alias cs_size='claude-sessions --sort=size --desc'
@@ -32,10 +34,125 @@ alias eg=egrep
 alias espanso_edit="espanso stop; sleep 0.5s; open ~/.espanso_config_link/match/base.yml"
 alias espanso_start='espanso start'
 alias g=grep
+alias glow='glow -p'
 alias gv='grep -v'
 alias git_email='echo Your git email is `git config user.email`'
 alias git_id_help='git_email; echo Check your git_id aliases for more info which are set in .private_aliases.'
 alias git_personal_ignore='$EDITOR .git/info/exclude'
+# myrepos (mr): the committed ~/.mrconfig lists the repos EVERY machine has.
+# A repo that exists only on this host goes in ~/.mrconfig.local, which
+# .mrconfig includes.  Plain `mr register' appends to ~/.mrconfig itself --
+# a read-only store symlink under Guix Home, and the repo file on native
+# hosts -- so registration is routed to the local file.  Run it inside the
+# repo, or pass the repo's path.  See docs/MYREPOS.md.
+mr-register() {
+    mr -c "$HOME/.mrconfig.local" register "$@"
+}
+# mr only acts on repos at or below the current directory, AFTER resolving
+# symlinks, so a repo reached through a symlink onto another volume is out
+# of scope from ~.  Rooting the walk at / takes every listed repo wherever
+# it really lives:  mr-all status, mr-all -j4 update, mr-all push.
+mr-all() {
+    mr -d / "$@"
+}
+# One line per repo with something to report (see `brief' in .mrconfig);
+# -m drops clean repos.  The awk drops mr's per-repo header line and the
+# blank line it prints after every repo, then colours the columns when
+# stdout is a terminal (mr itself strips ANSI codes once it is piped, so the
+# colour cannot come from the action).  Column positions are the fixed
+# layout the brief action prints; see its comment in .mrconfig.
+# mr-help: the cheat sheet for all of the above, colours matching mr-brief
+# when stdout is a terminal.  Long form: docs/MYREPOS.md in dot_files.
+mr-help() {
+    local B= D= R= CY= GR= RD= YL= MG= BL=
+    if [ -t 1 ]; then
+        B=$'\033[1m'; D=$'\033[2m'; R=$'\033[0m'; CY=$'\033[36m'
+        GR=$'\033[32m'; RD=$'\033[31m'; YL=$'\033[33m'; MG=$'\033[35m'; BL=$'\033[34m'
+    fi
+    cat <<EOF
+${B}myrepos (mr) -- one git command over every working repo${R}
+config: ~/.mrconfig (dot_files, PUBLIC repos)  +  dot_files/private/mrconfig (private)
+        +  ~/.mrconfig.local (this host only)
+
+${B}COMMANDS${R}
+  mr-brief             one line per repo with something to report; clean ones hidden
+  mr-brief | grep si/  plain text when piped, so grep/sort work
+  mr-agents            agents grouped by repo, with session state and task headlines
+  mr-push-ahead        git push only where ^ is > 0   (--dry-run to preview)
+  mr-hygiene           scan all repos for stashes/hygiene, update SQLite & reports
+  homebase [on|off]    which machine runs mr-hygiene + autosave on a timer
+  mr-all <action>      every repo wherever it resolves (mr alone = at or below cwd,
+                       after following symlinks, so a symlink onto another volume is out)
+  mr-all -j4 update    git pull everywhere, four at a time
+  mr-all status        full git status per repo (the long form of mr-brief)
+  mr-clone NAME [DIR]  clone a configured repo by name into ./NAME or DIR, no URL
+                       hunting (--list names, --canonical its mr path, -n dry run)
+  mr-register          add the repo you are in to ~/.mrconfig.local (never bare
+                       \`mr register': it would edit the shared file / fail on Guix)
+  mr --force checkout  new host: clone every listed repo that is missing
+  mr -d <path> <act>   one repo, by path
+
+${B}READING mr-brief${R}
+  ${B}Repos/ds/embodied-tamp                     ${R}${CY}main                ${R} ^${D} 0${R} v${D} 0${R}  M${YL}10${R} ?${MG} 2${R} S${D} 0${R}
+  ${B}repo${R}    path under ~; cut from the LEFT (~...) when long, keeping the name
+  ${CY}branch${R}  cut to 19 chars + ~ when long
+  ^${GR}N${R}      commits ahead of upstream  -> mr-push-ahead sends these
+  v${RD}N${R}      commits behind upstream    -> mr-all update
+  ^${YL}-${R} v${YL}-${R}   no upstream: cannot push/pull until \`git push -u origin <branch>'
+  M${YL}N${R}      modified tracked files (uncommitted)
+  ?${MG}N${R}      untracked files
+  S${BL}N${R}      stashes
+  sub p^${GR}N${R}  submodule p has N commits on no remote (push inside it)
+  ${D}dimmed${R}  zero, nothing to see
+
+${B}WHICH REPOS${R}
+  listed + cloned here      acted on
+  listed, not cloned here   skipped silently (skip = lazy); mr --force checkout clones
+  no remote                 status/diff/log only; update/push skipped (local_only)
+  on an external drive      skipped unless mounted AND readable here (offline_volume)
+  worktree checkouts        one section per worktree; the one holding .git has order = 5
+
+more: ~/dot_files/docs/MYREPOS.md   man mr
+EOF
+}
+# Push only the repos that are ahead of upstream (the ^N column of
+# mr-brief); everything else stays silent.  Arguments go to git push, so
+# `mr-push-ahead --dry-run' previews.  See `pushahead' in .mrconfig.
+mr-push-ahead() {
+    mr -d / -m pushahead "$@"
+}
+mr-brief() {
+    # decided here, not inside $(...), where fd 1 is the capture pipe
+    local color=0; [ -t 1 ] && color=1
+    mr -d / -m brief "$@" 2>&1 | awk -v color="$color" '
+    BEGIN {
+        if (color) {
+            B = "\033[1m"; D = "\033[2m"; R = "\033[0m"; CY = "\033[36m"
+            GR = "\033[32m"; RD = "\033[31m"; YL = "\033[33m"; MG = "\033[35m"; BL = "\033[34m"
+        }
+    }
+    # a count: dim when zero, yellow when "-" (no upstream), else its own colour
+    function num(v, on) { return (v ~ /-/) ? YL v R : (v + 0 == 0) ? D v R : on v R }
+    /^mr brief: \// || /^$/ { next }
+    !/ \^[ 0-9-]+ v[ 0-9-]+  M/ { print; next }
+    {
+        repo = substr($0, 1, 42); br = substr($0, 44, 20); rest = substr($0, 65)
+        ah = substr(rest, 2, 2); be = substr(rest, 6, 2); mo = substr(rest, 11, 2)
+        un = substr(rest, 15, 2); st = substr(rest, 19, 2); note = substr(rest, 21)
+        # "  sub path^N ..." (unpushed submodule commits): the counts go green
+        # like ^N; the jobs note, if any, follows after two more spaces
+        if (note ~ /^  sub /) {
+            s = note; n = ""
+            if (match(s, /[^ ]  [^ ]/)) { n = substr(s, RSTART + 1); s = substr(s, 1, RSTART) }
+            gsub(/\^[0-9]+/, GR "&" R, s); note = s n
+        }
+        printf "%s%s%s %s%s%s ^%s v%s  M%s ?%s S%s%s\n", B, repo, R, CY, br, R,
+            num(ah, GR), num(be, RD), num(mo, YL), num(un, MG), num(st, BL), note
+    }'
+}
+# Retired: agent headlines belong to mr-agents, independent of Git status.
+# Clear an old definition when this file is re-sourced in an existing shell.
+(( $+functions[mr-brief-deluxe] )) && unfunction mr-brief-deluxe
 # `history' in zsh is `fc -l', which defaults to the LAST 16 EVENTS -- unlike
 # bash, where it prints everything. The "1" means "from event 1", i.e. all of
 # it. Without it `hg' greps only the last 16 lines and quietly reports nothing
@@ -126,12 +243,55 @@ watchf() {
 #   /home/admin/.guix-profile/bin/$@; unset -f f; }; f'
 # alias guix-shell="ssh -X -i $HOME/.guix/ssh-cert/msg_rsa admin@127.0.0.1 -p 9001"
 
+# Give guix-dev its name back after an interrupted `docker compose up`.
+#
+# Compose recreates a container in four steps: create the new one under the
+# temporary name <old-id>_guix-dev, stop the old one, remove it, then rename
+# the new one.  If the run is cut short between the last two steps (the
+# removal can sit for minutes while OrbStack unmounts the bind mounts), the
+# new container survives, fully wired to the persistent volumes, but under
+# the temporary name -- so `docker exec guix-dev` and this shell find nothing.
+# Renaming it is the whole fix; recreating it again is not needed.
+#
+# Takes the docker context arguments.  Silent no-op when guix-dev exists.
+# Refuses, with a listing, when more than one candidate is stranded, since
+# only a human can tell which one to keep.
+guix-container-heal() {
+    local -a docker_context=("$@")
+    docker "${docker_context[@]}" container inspect guix-dev >/dev/null 2>&1 && return 0
+
+    local -a stranded=()
+    local candidate
+    while IFS= read -r candidate; do
+        [[ "$candidate" =~ ^[0-9a-f]{12}_guix-dev$ ]] && stranded+=("$candidate")
+    done < <(docker "${docker_context[@]}" container ls -a \
+                 --filter label=com.docker.compose.project=dotfiles-guix \
+                 --filter label=com.docker.compose.service=guix \
+                 --format '{{.Names}}' 2>/dev/null)
+
+    case ${#stranded[@]} in
+        0) return 1 ;;
+        1)
+            echo "guix-dev is missing but ${stranded[1]} exists: an interrupted compose recreate. Renaming it back." >&2
+            docker "${docker_context[@]}" rename "${stranded[1]}" guix-dev
+            ;;
+        *)
+            echo "guix-dev is missing and several stranded containers exist; rename the one to keep by hand:" >&2
+            for candidate in "${stranded[@]}"; do
+                echo "  docker ${docker_context[*]} rename $candidate guix-dev" >&2
+            done
+            return 1
+            ;;
+    esac
+}
+
 # Enter the persistent Guix container hosted by OrbStack using profile paths.
 guix-container-shell() {
     local requested_shell="${1:-zsh}"
     local -a docker_context=()
     [[ "$(uname -s)" == Darwin ]] && docker_context=(--context orbstack)
 
+    guix-container-heal "${docker_context[@]}"
     if ! docker "${docker_context[@]}" container inspect guix-dev >/dev/null; then
         echo "Cannot inspect guix-dev; see Docker's error above. If missing, run make setup-guix-container in ~/dot_files." >&2
         return 1
@@ -148,6 +308,7 @@ guix-container-shell() {
         export GUIX_PROFILE
         [ ! -f "$GUIX_PROFILE/etc/profile" ] || . "$GUIX_PROFILE/etc/profile"
         [ ! -f /root/.guix-home/setup-environment ] || . /root/.guix-home/setup-environment
+        export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
         cd /root/dot_files || exit
         if [ "$GUIX_ENTRY_SHELL" = zsh ]; then
             shell_path=$(command -v zsh)
@@ -163,25 +324,88 @@ guix-container-shell() {
 
 alias guix-shell-zsh='guix-container-shell zsh'
 alias guix-shell-bash='guix-container-shell bash'
+alias guix-big-font='setfont solar24x32'
+alias guix-powerline='setfont ~/.local/share/consolefonts/ter-powerline-v32n.psf.gz'
+alias guix-powerline-bold='setfont ~/.local/share/consolefonts/ter-powerline-v32b.psf.gz'
+alias guix-spleen='setfont ~/.local/share/consolefonts/spleen-16x32.psfu'
+
+# Console keymap helper to align kernel VT keymap with keyd evdev emission
+swap-caps() {
+    sudo loadkeys << 'EOF'
+keymaps 0-15
+keycode 29 = Control
+keycode 58 = Caps_Lock
+EOF
+}
+alias swap-ctrl-caps='swap-caps'
+
+# Virtual Terminal (VT) switching helpers (alternative to Ctrl+Alt+F<N>)
+vt() {
+    if [ -z "$1" ]; then
+        echo "Usage: vt <N> (e.g. 'vt 8' for GNOME, 'vt 1' for TTY1)" >&2
+        return 1
+    fi
+    sudo chvt "$1"
+}
+alias vt-gnome='sudo chvt 8'
+alias vt-ewm='sudo chvt 1'
+alias vt1='sudo chvt 1'
+alias vt2='sudo chvt 2'
+alias vt3='sudo chvt 3'
+alias vt4='sudo chvt 4'
+alias vt5='sudo chvt 5'
+alias vt6='sudo chvt 6'
+alias vt7='sudo chvt 7'
+alias vt8='sudo chvt 8'
+
+# Restart GNOME display manager under Guix System Shepherd (starts or restarts xorg-server/GDM)
+alias restart-gnome='sudo -i herd restart xorg-server 2>/dev/null || sudo -i herd start xorg-server'
+
+# -----------------------------------------------------------------------------
+# ssh to home machines
+# -----------------------------------------------------------------------------
+
+alias minius='ssh durant@minius'
+alias geeeks='ssh durant@geeeks'
 
 # -----------------------------------------------------------------------------
 # Emacs daemon over ssh  (see `make emacs-serve` on the host machine)
 # -----------------------------------------------------------------------------
 
-# eam = Emacs Attach Minius. Attaches a terminal frame to the Emacs daemon
-# running on minius. The make target echoes the ssh command it runs, so you
-# don't have to remember the two -t flags.
+# eam = Emacs Attach Make. Attaches a terminal frame to the Emacs daemon
+# running on the home base (EMACS_HOST defaults to HOMEBASE, orb-guix). The make
+# target echoes the ssh command it runs, so you don't have to remember the two -t flags.
 # Extra args pass straight through to make, e.g.
-#   eam EMACS_HOST=geeeks
+#   eam EMACS_HOST=minius
 #   eam REMOTE_EMACSCLIENT=/opt/homebrew/bin/emacsclient
 eam() {
     # NOTE: 'status' is read-only in zsh, hence 'rc'
     local rc
     pushd "$HOME/dot_files" > /dev/null || return 1
-    make emacs-attach EMACS_HOST=minius "$@"
+    make emacs-attach "$@"
     rc=$?
     popd > /dev/null
     return $rc
+}
+
+# -----------------------------------------------------------------------------
+# gpg-agent / ssh debugging  (see docs/GPG.md, "Troubleshooting")
+# -----------------------------------------------------------------------------
+
+# gpg-here: point gpg-agent's pinentry at THIS terminal.  A function, not a
+# make target, because GPG_TTY must change in the calling shell.  Fixes
+# "agent refused operation" on git push and unlock prompts that land in a
+# different window (.zshrc.starship registers whichever shell opened last).
+# Triage order: make check-ssh-with-gpg-for-egress, then gpg-here, then make check-ssh-github.
+gpg-here() {
+    export GPG_TTY=$(tty)
+    if [[ -n "$SSH_CONNECTION" || ( "$OSTYPE" == linux* && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" && ! -d /mnt/wslg ) ]]; then
+        export PINENTRY_USER_DATA="USE_TTY=1"
+    else
+        export PINENTRY_USER_DATA="USE_GUI=1"
+    fi
+    gpg-connect-agent updatestartuptty /bye >/dev/null \
+        && echo "gpg-agent now prompts on $GPG_TTY (PINENTRY_USER_DATA=${PINENTRY_USER_DATA:-none})"
 }
 
 # -----------------------------------------------------------------------------
@@ -191,12 +415,15 @@ eam() {
 if [[ "$(uname)" == "Darwin" ]]; then
 
     alias claude="~/.claude/local/claude"
-    alias oemacs='open -a /Applications/Emacs.app'
-    alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
     alias fix_spotlight='sudo mdutil -E /' # re-index to find apps again
     alias gitk=git-gui # brew install git-gui
     # get gtime with `brew install gnu-time`
     alias ip_addr='ipconfig getifaddr en0 || ipconfig getifaddr en1'
+    alias mcs='pushd ~/Repos/ds/media-announce; make calendar-status; popd'
+    alias mca='pushd ~/Repos/ds/media-announce; make calendar-agenda; popd'
+    alias mcd='pushd ~/Repos/ds/media-announce; make calendar-drain; popd'
+    alias oemacs='open -a /Applications/Emacs.app'
+    alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
 
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
@@ -256,6 +483,10 @@ alias orb-guix='guix-container-shell zsh'
 if [ -e ~/.private_aliases ]; then
     alias s.a='source ~/.aliases; source ~/.private_aliases'
     source ~/.private_aliases
+fi
+if [ -e ~/.aliases.private ]; then
+    alias s.a='source ~/.aliases; source ~/.aliases.private'
+    source ~/.aliases.private
 fi
 
 # -----------------------------------------------------------------------------
@@ -472,9 +703,14 @@ if [ -n "$ZSH_VERSION" ]; then
 
     alias ctags='=ctags -eR'
 
-    alias funcs='print -l ${(ok)functions}' # list all functions
+    # Clear the old alias when reloading this file in an existing shell.
+    unalias funcs 2>/dev/null
+    function funcs() {
+        print -l ${(Mok)functions:#*$1*}
+    }
+    alias fng='funcs' # funcs grep
 
-    if [[ -f /usr/local/bin/pup ]] && command -v pup >/dev/null && alias pup >/dev/null 2>&1; then
+    if command -v pup >/dev/null && alias pup >/dev/null 2>&1; then
         unalias pup
     fi
 
@@ -534,14 +770,16 @@ if [ -n "$ZSH_VERSION" ]; then
     alias s.zws='_source_if ~/dot_files/.shared.work.zshrc'
 
     # Everything, in the order zsh itself reads it, skipping what is absent.
-    alias s.zall='for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; unset _f'
+    alias s.zall='for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done; unset _f'
 
     # Guix Home: reconfigure dotfiles from ~/dot_files and return here
     dot-apply() {
         pushd ~/dot_files >/dev/null || return 1
         make apply || { popd >/dev/null; return 1; }
         popd >/dev/null
-        source ~/.aliases 2>/dev/null
+        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done
+        for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done
+        unset _f
     }
     alias da=dot-apply
 
@@ -549,10 +787,20 @@ if [ -n "$ZSH_VERSION" ]; then
         pushd ~/dot_files >/dev/null || return 1
         make apply-wayland || { popd >/dev/null; return 1; }
         popd >/dev/null
-        source ~/.zshenv 2>/dev/null
-        source ~/.aliases 2>/dev/null
+        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done
+        for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done
+        unset _f
     }
     alias daw=dot-apply-wayland
+
+    # The EWM trial generation (home/ewm.scm); back out with: guix home roll-back
+    dot-apply-ewm() {
+        pushd ~/dot_files >/dev/null || return 1
+        make apply-ewm || { popd >/dev/null; return 1; }
+        popd >/dev/null
+        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; unset _f
+    }
+    alias dae=dot-apply-ewm
 
     alias lth='ls -lt | head; latest=`ls *(.om[1])`'		# . regular file, o sorted, m mod time, 1 first
     alias lthd='ls -lt | head; latest=`ls -d *(/om[1])`'	# / directory, o sorted, m mod time, 1 first
@@ -576,7 +824,7 @@ if [ -n "$ZSH_VERSION" ]; then
         popd
     }
 
-    if [ -f /usr/local/bin/clojars-lookup ]; then
+    if command -v clojars-lookup >/dev/null 2>&1; then
         function clojars-lookup-lein() {
             clojars-lookup "$@" -lein
         }
@@ -1021,6 +1269,7 @@ alias grbi='git rebase -i'
 alias grhh='git reset --hard'
 alias grs='git restore'
 alias grst='git restore --staged'
+alias gs='git switch'
 alias gsta='git stash push'
 alias gstp='git stash pop'
 alias gstl='git stash list'
@@ -1030,6 +1279,7 @@ alias gst='git status'
 alias gss='git status -s'
 alias gsb='git status --short -b'
 alias glum='git pull upstream $(git_main_branch)'
+alias gupaom='git pull --rebase --autostash origin $(git_main_branch)'
 alias gpristine='git reset --hard && git clean -dffx'
 alias ggpull='git pull origin $(git_current_branch)'
 alias ggpush='git push origin $(git_current_branch)'
@@ -1076,4 +1326,7 @@ alias ebn-lab='ebn-lab-start'
 # job-*, tmux-*, launchd-*, docker-* -- see .jobs.zsh and README "Long-running local jobs".
 [[ -n "$ZSH_VERSION" && -f ~/dot_files/.jobs.zsh ]] && source ~/dot_files/.jobs.zsh
 # claude-run / claude-status / claude-rm -- a Claude Code session as a job (tmux + launchd relaunch).
-[[ -n "$ZSH_VERSION" && -f ~/dot_files/.claude-jobs.zsh ]] && source ~/dot_files/.claude-jobs.zsh
+[[ -n "$ZSH_VERSION" && -f ~/dot_files/.agent-jobs.zsh ]] && source ~/dot_files/.agent-jobs.zsh
+alias tu='tmux-up'
+
+#  LocalWords:  popd

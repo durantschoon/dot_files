@@ -1,0 +1,92 @@
+#!/usr/bin/env sh
+# Install, start, and verify the Termux Tailscale CLI service.
+set -eu
+
+action=${1:-}
+case "$action" in setup|check|status) ;; *) echo "usage: $0 {setup|check|status}" >&2; exit 2 ;; esac
+
+if [ -z "${TERMUX_VERSION:-}" ] && [ "${PREFIX:-}" != /data/data/com.termux/files/usr ] && [ ! -d /data/data/com.termux ]; then
+    echo "Termux Tailscale check requires Termux." >&2
+    exit 1
+fi
+
+install_cli() {
+    if command -v tailscale >/dev/null 2>&1; then return; fi
+    command -v curl >/dev/null 2>&1 || { echo "Tailscale installation needs curl." >&2; return 1; }
+    command -v bash >/dev/null 2>&1 || { echo "Tailscale installation needs bash." >&2; return 1; }
+    echo "==> Installing Tailscale for Termux"
+    installer=$(mktemp)
+    if ! curl -fsSL -o "$installer" https://raw.githubusercontent.com/bropines/tailscale-termux-cli/main/remote-install.sh; then
+        rm -f "$installer"
+        echo "Tailscale installer download failed." >&2
+        return 1
+    fi
+    if ! bash "$installer"; then
+        rm -f "$installer"
+        echo "Tailscale installer failed." >&2
+        return 1
+    fi
+    rm -f "$installer"
+    command -v tailscale >/dev/null 2>&1 || { echo "Tailscale is still unavailable after installation." >&2; return 1; }
+}
+
+backend_state() {
+    tailscale status --json 2>/dev/null | sed -n 's/.*"BackendState"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+}
+
+if [ "$action" = setup ]; then
+    install_cli
+    echo "    Tailscale CLI installed: $(command -v tailscale)"
+    exit 0
+fi
+
+if ! command -v tailscale >/dev/null 2>&1; then
+    echo "    Tailscale is not installed; run make setup-tailscale" >&2
+    exit 1
+fi
+
+state=$(backend_state)
+if [ "$action" = status ]; then
+    if [ "$state" = Running ]; then
+        echo "    Tailscale is running on Termux."
+        exit 0
+    fi
+    echo "    Tailscale is not running on Termux (state: ${state:-no daemon response})." >&2
+    exit 1
+fi
+
+if [ "$state" != Running ]; then
+    if [ -z "$state" ]; then
+        if ! command -v tailscaled-start >/dev/null 2>&1; then
+            echo "    tailscaled-start is missing; run make setup-tailscale" >&2
+            exit 1
+        fi
+        echo "==> Starting the Termux Tailscale service"
+        if ! tailscaled-start --service=on; then
+            echo "    Tailscale service failed to start." >&2
+            exit 1
+        fi
+        count=0
+        while [ "$count" -lt 10 ]; do
+            state=$(backend_state)
+            [ -n "$state" ] && break
+            count=$((count + 1))
+            sleep 1
+        done
+    fi
+    if [ "$state" != Running ]; then
+        echo "==> Connecting Tailscale (state: ${state:-no daemon response})"
+        if ! tailscale up; then
+            echo "    Tailscale could not connect; inspect tailscaled-log." >&2
+            exit 1
+        fi
+    fi
+fi
+
+state=$(backend_state)
+if [ "$state" = Running ]; then
+    echo "    Tailscale is running on Termux."
+else
+    echo "    Tailscale is not running on Termux (state: ${state:-no daemon response})." >&2
+    exit 1
+fi

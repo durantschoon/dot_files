@@ -65,6 +65,7 @@
              (gnu home services shells)
              (gnu home services shepherd)
              (gnu packages)
+             (gnu packages bash)        ;bash -- for the homebase-tick timer
              (gnu packages glib)
              (gnu services)            ;service-kind, service-type-name -- for
                                        ;the layer ownership check
@@ -189,6 +190,36 @@
     (synopsis "GitHub command-line tool")
     (description "The GitHub CLI, @command{gh}, brings pull requests, issues,
 releases and other GitHub features to the terminal.")
+    (license #f)))
+
+;; Glow: Guix proper and Nonguix have no package at the pinned channels.scm
+;; commits, so install Charmbracelet's static Go release binary.  Keep this
+;; expression in sync with manifests/base.scm.
+(define glow
+  (package
+    (name "glow")
+    (version "3.0.0")
+    (source (origin
+              (method url-fetch)
+              (uri (string-append
+                    "https://github.com/charmbracelet/glow/releases/download/v"
+                    version "/glow_" version "_Linux_x86_64.tar.gz"))
+              (sha256
+               (base32 "0y1zqcxqw3kqz861lqqv6bn7gc15cgzax4a2wjpd466c595mxq0k"))))
+    (build-system copy-build-system)
+    (arguments
+     '(#:install-plan '(("glow" "bin/glow")
+                        ("completions/glow.bash"
+                         "share/bash-completion/completions/glow")
+                        ("completions/glow.zsh" "share/zsh/site-functions/_glow")
+                        ("completions/glow.fish"
+                         "share/fish/vendor_completions.d/glow.fish")
+                        ("manpages/glow.1.gz" "share/man/man1/glow.1.gz"))
+       #:phases (modify-phases %standard-phases
+                  (delete 'install-license-files))))
+    (home-page "https://github.com/charmbracelet/glow")
+    (synopsis "Render Markdown in the terminal")
+    (description "Glow is a terminal-based Markdown reader with a TUI.")
     (license #f)))
 
 ;; Freeplane: mind mapping.  Guix packages neither this nor FreeMind, which it
@@ -322,7 +353,13 @@ field below follows this file's convention of not importing
 ;;   pinentry-*           Which pinentry, as package name AND binary name --
 ;;                        Guix does not keep those in sync across flavours
 ;;                        (pinentry-gtk2 ships bin/pinentry-gtk-2).
-;;   has-gsettings?       gsettings reaches a schema daemon here.  The
+;;   wslg-pinentry        #f, or a (PACKAGE . BINARY) pair naming the pinentry
+;;                        to run when the host turns out to be WSL with WSLg.
+;;                        Only a session that CAN land on WSL names one: the
+;;                        foreign record is shared by Pop!_OS, Docker and WSL,
+;;                        and which of those it is cannot be known until the
+;;                        agent asks for a prompt.  See session-pinentry.
+;;   has-gsettings?     gsettings reaches a schema daemon here.  The
 ;;                        foreign session keeps #t deliberately: base.scm ran
 ;;                        unGated on Pop!_OS-with-GNOME for years, and the
 ;;                        call is best-effort -- on a truly headless host it
@@ -353,25 +390,59 @@ field below follows this file's convention of not importing
     (nonguix-substitutes? . #t)
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
+    (wslg-pinentry        . #f)                                     ;[session]
     (has-gsettings?       . #t)                                     ;[session]
     (never-suspend-on-ac? . #t)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
+    (local-gpg-agent?     . #t)
     (wayland-display      . "wayland-0")))
 
 ;; The foreign-distro session: guix home as a package manager on someone
 ;; else's OS (Pop!_OS, Docker, WSL).  No espanso (needs a compositor this
 ;; config does not manage), no firefox (see nonguix-substitutes? above),
 ;; plain emacs.
+;;
+;;   wslg-pinentry      pinentry-gtk2, measured on barnowl (WSL 2) 2026-09-30:
+;;                      WSLg offers a display but no gcr system prompter, so
+;;                      the pinentry above announces "No Gcr System Prompter
+;;                      available, falling back to curses" and can then only
+;;                      prompt in the terminal last registered with
+;;                      updatestartuptty -- a push from anywhere else dies
+;;                      with "agent refused operation".  pinentry-gtk-2 and
+;;                      pinentry-qt both opened a window on :0; gtk2 is the
+;;                      one kept, for a closure a fraction the size of Qt's.
 (define %foreign-session
   '((name                 . foreign)
     (wayland?             . #f)
     (nonguix-substitutes? . #f)
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
+    (wslg-pinentry        . ("pinentry-gtk2" . "pinentry-gtk-2"))   ;[session]
     (has-gsettings?       . #t)                                     ;[session]
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
+    (local-gpg-agent?     . #t)
     (wayland-display      . "wayland-0")))
+
+;; The guix-dev container (OrbStack on the Mac, Docker on WSL): the foreign
+;; session minus a local gpg-agent.
+;;
+;;   local-gpg-agent?   #f here.  The container signs through the Mac's agent
+;;                      (build-aux/guix-container-gpg-bridge.sh), which writes
+;;                      no-autostart to ~/.gnupg/common.conf so no local agent
+;;                      takes over its socket.  A shepherd gpg-agent reads the
+;;                      same file and exits on every start ("not starting in
+;;                      supervised mode due to no-autostart", 2026-10-09), so
+;;                      the gpg-ssh-agent layer is left out.  ssh in the
+;;                      container uses per-forge key files instead
+;;                      (build-aux/setup-guix-github-key.sh).
+(define %guix-dev-session
+  (map (lambda (entry)
+         (case (car entry)
+           ((name) '(name . guix-dev))
+           ((local-gpg-agent?) '(local-gpg-agent? . #f))
+           (else entry)))
+       %foreign-session))
 
 ;; The EWM trial session (docs/EWM_TRIAL_PLAN.md), deployed by home/ewm.scm.
 ;;
@@ -418,9 +489,11 @@ field below follows this file's convention of not importing
     (nonguix-substitutes? . #t)
     (pinentry-package     . "pinentry-gnome3")                      ;[session]
     (pinentry-binary      . "pinentry-gnome3")                      ;[session]
+    (wslg-pinentry        . #f)                                     ;[session]
     (has-gsettings?       . #f)                                     ;[session]
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
+    (local-gpg-agent?     . #t)
     (wayland-display      . "wayland-1")))
 
 ;; assq rather than assq-ref, so a mistyped key errors instead of returning
@@ -470,6 +543,60 @@ do not get to pick the browser at the point of use.  LibreWolf stays
 installed either way."
   (if (session-ref session 'nonguix-substitutes?) "firefox" "librewolf"))
 
+(define (session-pinentry session)
+  "The file gpg-agent.conf names as pinentry-program: pinentry-auto, a chooser
+that decides per request (the Linux sibling of bin/pinentry-auto, which makes
+the same kind of choice for macOS):
+
+  PINENTRY_USER_DATA=USE_TTY=1  pinentry-curses from the session's pinentry
+                               package (every flavour ships it), on the
+                               requesting terminal.  .zshrc.starship sets the
+                               variable for ssh logins.
+  WSLg present                 the wslg-pinentry window, with DISPLAY
+                               defaulted to WSLg's :0 -- shepherd starts the
+                               agent with no DISPLAY, and an ssh request
+                               carries none.  Only for a session that names a
+                               wslg-pinentry pair: the foreign record cannot
+                               know at build time whether it landed on WSL.
+  anything else                the session's own pinentry.
+
+The USE_TTY=1 branch is for EVERY session, measured on geeeks 2026-09-30:
+over ssh, the gcr-based pinentry still finds the desktop's gcr prompter on the
+default D-Bus socket, and with that desktop locked or idle it gets `Timeout:
+the Gcr system prompter was already in use' and fails with `pinentry error'
+-- it only falls back to curses when there is no prompter at all.
+
+WSLg is recognized by /mnt/wslg plus the X socket it serves, not by the X
+socket alone, which any Linux X session has."
+  (let* ((pinentry-package (specification->package
+                            (session-ref session 'pinentry-package)))
+         (session-program
+          (file-append pinentry-package
+                       (string-append "/bin/"
+                                      (session-ref session 'pinentry-binary))))
+         (tty-program (file-append pinentry-package "/bin/pinentry-curses"))
+         (wslg-pinentry (session-ref session 'wslg-pinentry))
+         (wslg-program
+          (and wslg-pinentry
+               (file-append (specification->package (car wslg-pinentry))
+                            (string-append "/bin/" (cdr wslg-pinentry))))))
+    (program-file
+     "pinentry-auto"
+     #~(let* ((wslg-display ":0")
+              (tty-requested?
+               (string-contains (or (getenv "PINENTRY_USER_DATA") "")
+                                "USE_TTY=1"))
+              (window? (and #$(and wslg-pinentry #t)
+                            (not tty-requested?)
+                            (file-exists? "/mnt/wslg")
+                            (file-exists? "/tmp/.X11-unix/X0")))
+              (program (cond (tty-requested? #$tty-program)
+                             (window? #$wslg-program)
+                             (else #$session-program))))
+         (when (and window? (not (getenv "DISPLAY")))
+           (setenv "DISPLAY" wslg-display))
+         (apply execl program program (cdr (command-line)))))))
+
 ;; Packages every session gets.  `make add-pkg PKG=<spec>' edits this list
 ;; (the define's name and quoted-list shape are its anchor -- see the header
 ;; before "improving" either).  Grouped by purpose IN COMMENTS rather than
@@ -482,11 +609,15 @@ installed either way."
   '("git"
     "zsh"
     "starship"
+    "grep"
+    "python" ; Python 3, including the python3 executable.
     "ripgrep"
     "fd"
     "fzf"
     "eza"
     "jq"
+    "rclone"
+    "rsync"
     ;; Guix has a real fastfetch, so no shim is needed here.  .aliases only
     ;; defines its neofetch fallback when fastfetch is absent from PATH.
     "fastfetch"
@@ -521,6 +652,9 @@ installed either way."
     ;; .aliases call.  Packaged in Guix proper (rust-apps) with substitutes,
     ;; so no Rust build.  Non-Guix hosts get it from `make install-uv'.
     "uv"
+    ;; node: `make update-codex' installs Codex with npm, and npm's codex
+    ;; launcher is a node script that execs the bundled native binary.
+    "node"
     ;; For bin/install-claude.sh: curl fetches the Claude Code binary, and
     ;; glibc provides the ld-linux loader its wrapper uses to run the
     ;; unmodified binary (no FHS /lib64 on Guix)
@@ -541,7 +675,6 @@ installed either way."
     "xdg-utils"
     ;; gpg CLI, matching the gpg-agent the gpg-ssh-agent layer runs
     "gnupg"
-    "glow"
     "perl"
     "tree"
     "zig"))
@@ -567,7 +700,11 @@ installed either way."
     ;; own guix so the two stay in ABI lockstep (the failure mode of Guix
     ;; bug #59864).  The elisp side (guarded require) lives in
     ;; .spacemacs.d/init.el.
-    "emacs-guix"))
+    "emacs-guix"
+    ;; emacs-pinentry: minibuffer pinentry for GnuPG inside Emacs.
+    ;; Resolves the TTY / headless pinentry failure under EWM and Wayland
+    ;; when GNOME's Gcr System Prompter is absent.
+    "emacs-pinentry"))
 
 ;; ===========================================================================
 ;; The layer system
@@ -703,6 +840,74 @@ call, so extensions never collide; only genuine double ownership does."
                               (error "failed to clear GNOME AC suspend timeout")) ;[session]
                             (format #t "power: automatic suspend on AC disabled; battery policy unchanged~%"))))))))
 
+;; GNOME-based desktops, including Pop!_OS 22.04: apply the preference
+;; for both mice and touchpads, and read it back to detect dconf failures.
+(define %natural-scrolling-layer
+  (layer
+   #:name 'natural-scrolling
+   #:synopsis "enable natural scrolling for mouse and touchpad"
+   #:requires '(has-gsettings?)                                      ;[session]
+   #:services
+   (lambda (session)
+     (list
+      (simple-service
+       'natural-scrolling-activation home-activation-service-type
+       #~(begin
+           (use-modules (ice-9 format) (ice-9 popen) (ice-9 rdelim))
+           (let ((gsettings (string-append #$glib:bin "/bin/gsettings"))) ;[session]
+             (for-each
+              (lambda (schema)
+                (system* gsettings "set" schema "natural-scroll" "true") ;[session]
+                (let* ((port (open-input-pipe
+                              (string-append gsettings " get " schema ;[session]
+                                             " natural-scroll")))
+                       (got (read-line port)))
+                  (close-pipe port)
+                  (if (equal? got "true")
+                      (format #t "natural-scrolling: enabled for ~a~%" schema)
+                      (format #t "natural-scrolling: could not enable for ~a; run in your desktop session:~%  gsettings set ~a natural-scroll true~%" schema schema))))
+              '("org.gnome.desktop.peripherals.mouse"                 ;[session]
+                "org.gnome.desktop.peripherals.touchpad")))))))))    ;[session]
+
+;; console-font: GNOME Console (kgx) has no per-profile font setting; it
+;; renders in the system monospace font, so that key is what puts
+;; CaskaydiaCove (the ligature-keeping cut -- CaskaydiaMono is the same face
+;; with ligatures removed) in the terminal.  The font files come from
+;; font-caskaydia-cove-nerd in %dotfiles-layer; this layer only selects them.
+;; dconf state lives in the user session, not in any file guix home can
+;; write, hence gsettings at activation, as in %power-layer.
+;;
+;; Verified by reading the key back, not by exit status: `gsettings set'
+;; exits 0 even when it cannot reach dconf -- measured 2026-09-28, it prints
+;; a dconf-WARNING to stderr and returns success -- so the exit code proves
+;; nothing.  And unlike %power-layer this never errors: a font is not worth
+;; aborting a reconfigure over, so the failure announces itself and moves on.
+(define %console-font-layer
+  (layer
+   #:name 'console-font
+   #:synopsis "select CaskaydiaCove Nerd Font as the system monospace font"
+   #:requires '(has-gsettings?)                                      ;[session]
+   #:services
+   (lambda (session)
+     (list
+      (simple-service
+       'console-font-activation home-activation-service-type
+       #~(begin
+           (use-modules (ice-9 format) (ice-9 popen) (ice-9 rdelim))
+           (let ((gsettings (string-append #$glib:bin "/bin/gsettings")) ;[session]
+                 (want "'CaskaydiaCove Nerd Font 12'"))
+             (system* gsettings "set" "org.gnome.desktop.interface" ;[session]
+                      "monospace-font-name" "CaskaydiaCove Nerd Font 12")
+             (let* ((port (open-input-pipe
+                           (string-append
+                            gsettings                               ;[session]
+                            " get org.gnome.desktop.interface monospace-font-name"))) ;[session]
+                    (got (read-line port)))
+               (close-pipe port)
+               (if (and (string? got) (string=? got want))
+                   (format #t "console-font: monospace-font-name is ~a~%" want)
+                   (format #t "console-font: could not set monospace-font-name (no session bus?); run by hand:~%  gsettings set org.gnome.desktop.interface monospace-font-name ~s~%" "CaskaydiaCove Nerd Font 12"))))))))))
+
 ;; dotfiles: baseline packages and the core dotfile symlinks.  Owns the
 ;; home-files instance; other layers extend it via simple-service.
 (define %dotfiles-layer
@@ -715,12 +920,68 @@ call, so extensions never collide; only genuine double ownership does."
              (if (session-ref session 'wayland?) %wayland-packages '())
              ;; Package OBJECTS (defined above), not specs -- the fold
              ;; resolves both.
-             (list github-cli freeplane babashka font-caskaydia-cove-nerd)))
+             (list github-cli glow freeplane babashka
+                   font-caskaydia-cove-nerd)))
    #:services
    (lambda (session)
      (list
+      (simple-service 'dotfiles-environment-variables
+                      home-environment-variables-service-type
+                      '(("PATH" . "$HOME/.local/bin:$HOME/bin:$PATH")
+                        ("HOMEBASE" . "orb-guix")
+                        ("TZ" . "America/New_York")))
+      (simple-service 'local-bin-activation home-activation-service-type
+                      #~(begin
+                          (let* ((home (getenv "HOME"))
+                                 (local (string-append home "/.local"))
+                                 (local-bin (string-append local "/bin")))
+                            (unless (file-exists? local) (mkdir local))
+                            (unless (file-exists? local-bin) (mkdir local-bin)))))
+      (simple-service 'bitbucket-ssh-activation home-activation-service-type
+                      #~(unless
+                         (zero?
+                          (system* #$(file-append (specification->package "coreutils") "/bin/env")
+                                   (string-append
+                                    "PATH=" #$(file-append (specification->package "coreutils") "/bin")
+                                    ":" #$(file-append (specification->package "grep") "/bin")
+                                    ":" #$(file-append (specification->package "diffutils") "/bin")
+                                    ":" #$(file-append (specification->package "gawk") "/bin"))
+                                   #$(file-append (specification->package "bash") "/bin/sh")
+                                   #$(local-file "../bin/setup-bitbucket-ssh")))
+                         (error "Bitbucket SSH activation failed")))
+      ;; Codex rewrites ~/.codex/config.toml itself, so the repo merges in
+      ;; only the keys it owns (daemon_auto_start = false; see the header of
+      ;; bin/codex-defaults).  PATH is passed through env so the script's
+      ;; awk/cmp/mktemp come from the store, without leaking into the
+      ;; activations that run after this one.
+      (simple-service 'codex-defaults-activation home-activation-service-type
+                      #~(system* #$(file-append (specification->package "coreutils")
+                                                "/bin/env")
+                                 (string-append
+                                  "PATH="
+                                  #$(file-append (specification->package "coreutils") "/bin")
+                                  ":" #$(file-append (specification->package "diffutils") "/bin")
+                                  ":" #$(file-append (specification->package "gawk") "/bin"))
+                                 #$(file-append bash "/bin/bash")
+                                 #$(local-file "../bin/codex-defaults")))
+      ;; Worktree-cleanup grants (git branch -D, git worktree remove/prune).
+      ;; Claude Code and the Cursor CLI rewrite their JSON configs, and Codex
+      ;; owns the rest of rules/, so this merges rather than linking.  See
+      ;; bin/agent-permissions.
+      (simple-service 'agent-permissions-activation home-activation-service-type
+                      #~(unless
+                         (zero?
+                          (system* #$(file-append (specification->package "python")
+                                                  "/bin/python3")
+                                   #$(local-file "../bin/agent-permissions")))
+                         (error "agent-permissions activation failed")))
       (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
+                     `(".tmux.conf" ,(local-file "../.tmux.conf" "tmux.conf"))
+                     `(".config/herdr/config.toml"
+                       ,(local-file "../herdr/config.toml" "herdr-config.toml"))
+                     `(".config/yazi/keymap.toml"
+                       ,(local-file "../yazi/keymap.toml" "yazi-keymap.toml"))
                      ;; mg's startup file: backup-to-home-directory, so mg's
                      ;; foo~ backups land in ~/.mg.d rather than beside the
                      ;; file.  Emacs needs no counterpart -- .spacemacs.d sets
@@ -736,6 +997,12 @@ call, so extensions never collide; only genuine double ownership does."
                      ;; symlink with a detached regular file -- edit
                      ;; dot_files/.gitconfig and re-apply instead.
                      `(".gitconfig" ,(local-file "../.gitconfig" "gitconfig"))
+                     ;; myrepos: `mr status/update/push' over every repo
+                     ;; listed in ~/.mrconfig.  Same read-only caveat as
+                     ;; .gitconfig: `mr register' cannot append to a store
+                     ;; symlink, so host-only repos go to ~/.mrconfig.local
+                     ;; through `mr-register' in .aliases (docs/MYREPOS.md).
+                     `(".mrconfig" ,(local-file "../.mrconfig" "mrconfig"))
                      `(".wayland.zshenv" ,(local-file "../.wayland.zshenv" "wayland.zshenv"))
                      `("bin" ,(local-file "../bin" "dotfiles-bin" #:recursive? #t))
                      `(".ipython/profile_default/startup/money_value.py"
@@ -798,6 +1065,7 @@ call, so extensions never collide; only genuine double ownership does."
   (layer
    #:name 'gpg-ssh-agent
    #:synopsis "gpg-agent as the one agent for gpg AND ssh"
+   #:requires '(local-gpg-agent?)
    #:services
    (lambda (session)
      (list
@@ -814,17 +1082,15 @@ call, so extensions never collide; only genuine double ownership does."
          ;; reaches the desktop over D-Bus (DBUS_SESSION_BUS_ADDRESS *is* in
          ;; the agent's environment) and falls back to curses on a bare TTY.
          ;; WHICH pinentry is a session fact; both name entries exist because
-         ;; Guix's package and binary names do not always agree.
-         (pinentry-program
-          (file-append (specification->package
-                        (session-ref session 'pinentry-package))
-                       (string-append "/bin/"
-                                      (session-ref session 'pinentry-binary))))
+         ;; Guix's package and binary names do not always agree.  WSL is the
+         ;; exception to all of the above -- no gcr prompter, but one fixed
+         ;; display -- and session-pinentry is where that is handled.
+         (pinentry-program (session-pinentry session))
          (ssh-support? #t)
-         (default-cache-ttl 28800)
+         (default-cache-ttl 57600)
          (max-cache-ttl 86400)
-         (default-cache-ttl-ssh 3600)
-         (max-cache-ttl-ssh 28800)
+         (default-cache-ttl-ssh 57600)
+         (max-cache-ttl-ssh 86400)
          ;; Let unlock prompts land in Emacs (M-x pinentry-start) instead of a
          ;; GTK popup when a request originates from an Emacs subprocess.
          (extra-content "allow-emacs-pinentry\nallow-loopback-pinentry\n")))))))
@@ -876,7 +1142,7 @@ call, so extensions never collide; only genuine double ownership does."
                           ;; keyd controls a host's input devices. A foreign
                           ;; OrbStack container cannot do that, so do not emit
                           ;; a sudo/setup prompt there.
-                          (unless (or (eq? '#$(session-ref session 'name) 'foreign)
+                          (unless (or (memq '#$(session-ref session 'name) '(foreign guix-dev))
                                       (file-exists? "/etc/keyd/default.conf"))
                             (format #t "--- KEYD SETUP REQUIRED ---~%")
                             (format #t "To enable system-wide Emacs keys, run:~%")
@@ -1244,10 +1510,75 @@ call, so extensions never collide; only genuine double ownership does."
                                                                 #:recursive? #t)))
                        %gemini-skill-entries))))))
 
+;; homebase: the scheduled hygiene jobs (bin/homebase -- mr-hygiene hourly,
+;; media-announce autosave).  The timer is declared on every machine, but each
+;; tick is a no-op unless `homebase on' was said HERE, so the homebase moves
+;; with `homebase off' / `homebase on' (agent-stash-all / agent-stash-pop do
+;; both) instead of a reconfigure.  python: mr-hygiene, tmux-hygiene and the
+;; media-announce queue applier are standard-library Python 3.
+(define %homebase-layer
+  (layer
+   #:name 'homebase
+   #:synopsis "hygiene timer, gated by `homebase on' (bin/homebase)"
+   #:packages '("python")
+   #:services
+   (list
+    (simple-service 'homebase-tick home-shepherd-service-type
+                    (list
+                     (shepherd-timer
+                      '(homebase-tick)
+                      "*/10 * * * *"
+                      ;; bash -c for $HOME: the command list is not a shell.
+                      ;; ~/bin is this repo's bin/, deployed by the dotfiles
+                      ;; layer.
+                      #~(#$(file-append bash "/bin/bash") "-c"
+                         "exec \"$HOME/bin/homebase\" tick")
+                      #:documentation
+                      "Run `homebase tick' every 10 minutes; a no-op unless this machine is the homebase."))))))
+
+;; radicle: rad, radicle-node and git-remote-rad, for rad://... remotes (the
+;; GIPS submodule of Repos/enveloped/eGIPS; without git-remote-rad, `git
+;; fetch' there dies with "remote helper 'rad' aborted session").  The node
+;; runs as a Shepherd service -- the counterpart of the mac LaunchAgent that
+;; `make setup-radicle' installs.  The identity (`rad auth') is made once per
+;; person, interactively, so the start is gated on the key existing: without
+;; it the service stays stopped, and `make check-radicle' plus the login
+;; warning in .shared.zshrc say what to run.  A passphrase-protected key makes
+;; the node exit at once; respawn then gives up, and check-radicle reports it.
+(define %radicle-layer
+  (layer
+   #:name 'radicle
+   #:synopsis "Radicle CLI + git-remote-rad, and radicle-node under Shepherd"
+   #:packages '("radicle")
+   #:services
+   (list
+    (simple-service 'radicle-node home-shepherd-service-type
+                    (list
+                     (shepherd-service
+                      (provision '(radicle-node))
+                      (documentation "Radicle node for rad:// remotes; needs `rad auth' first.")
+                      (start #~(lambda args
+                                 (let* ((home (or (getenv "RAD_HOME")
+                                                  (string-append (getenv "HOME") "/.radicle")))
+                                        (key (string-append home "/keys/radicle")))
+                                   (if (file-exists? key)
+                                       (apply (make-forkexec-constructor
+                                               (list #$(file-append (specification->package "radicle")
+                                                                    "/bin/radicle-node")))
+                                              args)
+                                       (begin
+                                         (format #t "radicle-node: no identity at ~a; run `rad auth', then `make setup-radicle'~%" key)
+                                         #f)))))
+                      (stop #~(make-kill-destructor))
+                      (respawn? #t)
+                      (auto-start? #t)))))))
+
 ;; Enabled layers, in service order.  A machine wanting a subset passes its
 ;; own list: (dotfiles-home %foreign-session #:layers (list %dotfiles-layer ...)).
 (define %default-layers
   (list %power-layer
+        %natural-scrolling-layer
+        %console-font-layer
         %dotfiles-layer
         %zsh-layer
         %gpg-ssh-agent-layer
@@ -1255,7 +1586,9 @@ call, so extensions never collide; only genuine double ownership does."
         %browser-layer
         %espanso-layer
         %claude-code-layer
-        %gemini-layer))
+        %gemini-layer
+        %homebase-layer
+        %radicle-layer))
 
 (define* (dotfiles-home session #:key (layers %default-layers)
                         (extra-services '()))
