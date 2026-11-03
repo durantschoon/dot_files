@@ -112,9 +112,8 @@ cleanup denial should not be combined into a blanket `/tmp/** rwux` grant.
 
 ## Deploy and verify on Pop!_OS
 
-The change is on the `guix-apparmor-compat` branch in its worktree.
-Copy the reviewed `guix-install.sh` and `bin/seed-linux` from that worktree to
-the test checkout. Do not expect `git pull main` to fetch this change yet.
+Pull `main` on the Pop!_OS checkout, then run the checks below before any
+Guix build.
 
 Read-only checks (kernel logs and loaded-profile listings may require sudo):
 
