@@ -282,14 +282,15 @@ help-text:
 	@echo "  make gpg-hub-teardown - Remove staged secret-subkey exports on the hub"
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
-	@echo "  make setup-sshd    - Install/enable incoming SSH (automatic during apply/setup-native)"
-	@echo "  make check-sshd    - Check the incoming SSH server (distinct from check-ssh)"
+	@echo "  make setup-sshd-for-ingress - Install/enable the incoming SSH server (automatic during apply/setup-native)"
+	@echo "  make check-sshd-for-ingress - Check the incoming SSH server (distinct from check-ssh-with-gpg-for-egress)"
 	@echo "                       (not part of 'make check': may prompt for sudo)"
-	@echo "  make check-ssh     - Check gpg-agent is serving ssh keys to this shell, with fix hints (was check-ssh-agent)"
+	@echo "  make check-sshd-for-ingress-tests - Run the ingress SSH unit tests without changing the host"
+	@echo "  make check-ssh-with-gpg-for-egress - Check gpg-agent is serving ssh keys to this shell"
 	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
 	@echo "  make setup-bitbucket-ssh - Migrate this user's Bitbucket SSH host trust and Host blocks"
 	@echo "  make check-bitbucket-ssh - Test the Bitbucket SSH migration without network access"
-	@echo "  make check-ssh-github - check-ssh, then a live 'ssh -T git@github.com' with triage hints"
+	@echo "  make check-ssh-github - check-ssh-with-gpg-for-egress, then a live 'ssh -T git@github.com' with triage hints"
 	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make setup-guix-bitbucket-key - The same for Bitbucket"
@@ -393,7 +394,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude install-uv install-agy install-herdr install-radicle setup-sshd
+setup-native: set_up_links install-claude install-uv install-agy install-herdr install-radicle setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
@@ -1337,14 +1338,14 @@ check-gpg:
 # hour, so it would make `check' fail for reasons that are not config drift.
 # The socket test comes before any gpg-connect-agent call, because that
 # command autostarts an agent and this target must not have side effects.
-.PHONY: setup-bitbucket-ssh check-bitbucket-ssh check-ssh check-ssh-agent
+.PHONY: setup-bitbucket-ssh check-bitbucket-ssh check-ssh-with-gpg-for-egress
 setup-bitbucket-ssh:
 	@sh bin/setup-bitbucket-ssh
 
 check-bitbucket-ssh:
 	@sh tests/bitbucket-ssh-smoke.sh
 
-check-ssh:
+check-ssh-with-gpg-for-egress:
 	@echo "==> gpg-agent as ssh agent"
 	@if [ -n "$(IN_GUIX_DEV)" ]; then \
 	  echo "    skipped in guix-dev: ssh uses per-forge key files (make setup-guix-github-key);"; \
@@ -1401,24 +1402,20 @@ check-ssh:
 	fi; \
 	[ $$rc = 0 ] && echo "==> ssh agent OK" || { echo "==> ssh agent: fix the [--] lines above"; exit 1; }
 
-# The old name, kept so muscle memory and any notes still work.  `check-ssh'
-# pairs with `check-gpg'.
-check-ssh-agent: check-ssh
-
-# The live half of check-ssh: can this shell actually authenticate to GitHub?
-# check-ssh runs first, so a broken local chain (socket, pinentry,
+# The live half of check-ssh-with-gpg-for-egress: can this shell actually authenticate to GitHub?
+# check-ssh-with-gpg-for-egress runs first, so a broken local chain (socket, pinentry,
 # SSH_AUTH_SOCK, keys) stops here with its own fix hint -- if the agent is
 # broken, debug the agent, not GitHub.  Only when every local link is [ok]
 # does the push-shaped `ssh -T' run, and a failure then means the GitHub side:
 # the key is not uploaded to the account, or ssh offered a different key
 # (an IdentityFile/IdentitiesOnly in ~/.ssh/config bypasses the agent).
 #
-# Separate from check-ssh because it needs the network and may prompt for the
+# Separate from check-ssh-with-gpg-for-egress because it needs the network and may prompt for the
 # passphrase.  `ssh -T git@github.com' exits 1 even on success (no shell
 # access), so success is read from the greeting instead.
 SSH_TEST_HOST ?= git@github.com
 .PHONY: check-ssh-github
-check-ssh-github: check-ssh
+check-ssh-github: check-ssh-with-gpg-for-egress
 	@echo "==> ssh to $(SSH_TEST_HOST)"
 	@out=$$(ssh -o ConnectTimeout=10 -T $(SSH_TEST_HOST) 2>&1); \
 	if echo "$$out" | grep -q 'successfully authenticated'; then \
@@ -1584,7 +1581,7 @@ EXPECTED_WARNINGS_SUMMARY = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/ex
 
 PULLED_GUIX = $$( g="$$HOME/.config/guix/current/bin/guix"; [ -x "$$g" ] && echo "$$g" || echo guix )
 
-apply: warn-dotfiles-home setup-sshd
+apply: warn-dotfiles-home setup-sshd-for-ingress
 	@if [ -d /run/current-system ]; then \
 	  echo "==> note: on Guix System Wayland, use 'make apply-wayland' (or 'make apply-ewm');"; \
 	  echo "    'make apply' deploys home/base.scm (foreign/headless profile)"; \
@@ -1640,7 +1637,7 @@ apply: warn-dotfiles-home setup-sshd
 	@# failure here must not skip anything above it.
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
-apply-wayland: warn-dotfiles-home setup-sshd
+apply-wayland: warn-dotfiles-home setup-sshd-for-ingress
 	$(EXPECTED_WARNINGS_RESET)
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
@@ -1702,7 +1699,7 @@ apply-wayland: warn-dotfiles-home setup-sshd
 # The claude submodule IS still required: the claude-code layer reads
 # ../claude/* via local-file, and an uninitialized submodule fails the
 # reconfigure with an opaque "no such file" from the store builder.
-apply-ewm: warn-dotfiles-home setup-sshd
+apply-ewm: warn-dotfiles-home setup-sshd-for-ingress
 	@echo "==> git submodule update --init claude"
 	@git submodule update --init claude
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
@@ -3334,20 +3331,20 @@ check-system: check-system-hosts check-keyd-sync check-channels-sync check-syste
 # Incoming remote access belongs to the host OS, not Guix Home.
 # Not a prerequisite of `check': on macOS, reading Remote Login state goes
 # through sudo, and `check' must stay runnable without a prompt.
-.PHONY: setup-sshd check-sshd check-sshd-bootstrap
-setup-sshd:
+.PHONY: setup-sshd-for-ingress check-sshd-for-ingress check-sshd-for-ingress-tests
+setup-sshd-for-ingress:
 ifeq ($(os),$(OS_WINDOWS))
 	@echo "SSH server bootstrap runs in WSL; native Windows setup is not supported."
 else
 	@python3 "$(CURDIR)/bin/sshd-setup" setup
 endif
-check-sshd:
+check-sshd-for-ingress:
 ifeq ($(os),$(OS_WINDOWS))
 	@echo "SSH server check runs in WSL; native Windows is skipped."
 else
 	@python3 "$(CURDIR)/bin/sshd-setup" check
 endif
-check-sshd-bootstrap:
+check-sshd-for-ingress-tests:
 	@python3 "$(CURDIR)/tests/ssh/bootstrap.py"
 
 # The end-to-end gate for .jobs.zsh and bin/job-tee.  Deliberately NOT a

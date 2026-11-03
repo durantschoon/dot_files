@@ -84,6 +84,22 @@ class Bootstrap(unittest.TestCase):
             self.assertEqual(auth.read_text(), original + 'ssh-ed25519 AAAATEST minius\n')
             self.assertEqual(auth.stat().st_mode & 0o777, 0o600)
 
+    def test_comment_header_is_not_treated_as_the_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            root = home / 'repo'
+            (root / 'system/keys').mkdir(parents=True)
+            (root / 'system/keys/minius.pub').write_text(
+                '# minius allowlist\n\nssh-ed25519 AAAATEST minius\n')
+            (home / '.ssh').mkdir()
+            auth = home / '.ssh/authorized_keys'
+            account = SimpleNamespace(pw_dir=str(home), pw_uid=os.getuid(), pw_gid=os.getgid(), pw_name='tester')
+            def local_run(*args, root=False, **kwargs):
+                return subprocess.run(args, check=True, **kwargs)
+            with patch.object(server, 'ROOT', root), patch.object(server, 'run', side_effect=local_run):
+                server.authorize_hub(account)
+            self.assertEqual(auth.read_text(), 'ssh-ed25519 AAAATEST minius\n')
+
     def test_existing_key_restrictions_are_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

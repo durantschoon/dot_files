@@ -115,7 +115,7 @@ fi
 # is no graphical prompter (a headless box, where pinentry-gnome3 finds no gcr
 # prompter and falls back to the terminal), an unregistered or closed terminal
 # means "agent refused operation" and the push fails.  WSL was that case until
-# the pinentry-auto chooser gave it a WSLg window; `make check-ssh' says which
+# the pinentry-auto chooser gave it a WSLg window; `make check-ssh-with-gpg-for-egress' says which
 # one a machine is in.
 #
 # Trade-off: this points the agent at the most recently opened shell, so an

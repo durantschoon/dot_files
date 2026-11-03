@@ -249,7 +249,7 @@ messages behind the usual failures:
   checks for this before signing.
 - **`sign_and_send_pubkey: signing failed ... agent refused operation`** on
   `git push` or `ssh`, while `ssh-add -l` lists the key. The key is locked
-  and the agent could not ask for its passphrase. `make check-ssh` says why:
+  and the agent could not ask for its passphrase. `make check-ssh-with-gpg-for-egress` says why:
   a `[!!] pinentry` line means pinentry-gnome3 found no gcr prompter and can
   only ask in the last registered terminal. That was WSL before the
   `pinentry-auto` chooser (measured on barnowl, 2026-09-30); `make apply`
@@ -267,7 +267,7 @@ messages behind the usual failures:
   processes that were killed. Harmless; tidy with
   `find ~/.gnupg -maxdepth 1 -name '.#lk*' -delete` while no gpg is running.
 - **`Permission denied (publickey)`** or **`agent refused operation`** on
-  `git push`. Walk it in order: `make check-ssh` (is the local agent chain
+  `git push`. Walk it in order: `make check-ssh-with-gpg-for-egress` (is the local agent chain
   intact? if `SSH_AUTH_SOCK` is gpg-agent's socket, debug the agent and
   pinentry, not GitHub), then `gpg-here` (from `.aliases`: sets `GPG_TTY` and
   runs `updatestartuptty` so the prompt comes to this terminal), then

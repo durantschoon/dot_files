@@ -48,12 +48,23 @@ def login_account():
     return account
 
 
+def hub_public_key():
+    # system/keys/minius.pub leads with '#' comments. sshd ignores those;
+    # the key is the first OpenSSH line.
+    for line in (ROOT / 'system/keys/minius.pub').read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        pieces = stripped.split()
+        if len(pieces) >= 2 and pieces[0].startswith(('ssh-', 'ecdsa-')):
+            return stripped
+    raise ValueError('Invalid public key in system/keys/minius.pub')
+
+
 def authorize_hub(account):
     # The existing Guix System allowlist is also the bootstrap key for foreign hosts.
-    key = (ROOT / 'system/keys/minius.pub').read_text().strip()
+    key = hub_public_key()
     pieces = key.split()
-    if len(pieces) < 2 or not pieces[0].startswith(('ssh-', 'ecdsa-')):
-        raise ValueError('Invalid public key in system/keys/minius.pub')
     home = Path(account.pw_dir)
     privileged = os.geteuid() != account.pw_uid
     directory = home / '.ssh'
@@ -195,14 +206,14 @@ def check():
     elif kind == 'container':
         tailscale_running()
         if not json.loads(output('tailscale', 'debug', 'prefs')).get('RunSSH'):
-            raise ValueError('Tailscale SSH is disabled; run make setup-sshd')
+            raise ValueError('Tailscale SSH is disabled; run make setup-sshd-for-ingress')
     elif kind == 'linux':
         unit = linux_service()
         run('systemctl', 'is-enabled', '--quiet', unit)
         run('systemctl', 'is-active', '--quiet', unit)
     elif kind == 'mac':
         if 'Remote Login: On' not in output('/usr/sbin/systemsetup', '-getremotelogin', root=True):
-            raise ValueError('macOS Remote Login is off; run make setup-sshd')
+            raise ValueError('macOS Remote Login is off; run make setup-sshd-for-ingress')
     elif kind == 'termux':
         with socket.create_connection(('127.0.0.1', 8022), timeout=3) as connection:
             if not connection.recv(255).startswith(b'SSH-'):

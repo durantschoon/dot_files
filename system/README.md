@@ -21,8 +21,9 @@ does not care.
 ## Incoming SSH on every install
 
 `make apply`, `make apply-wayland`, `make apply-ewm` and `make setup-native`
-run `make setup-sshd` automatically. `make check-sshd` checks the server;
-`make check-ssh` continues to check the client-side GPG/SSH agent.
+run `make setup-sshd-for-ingress` automatically.
+`make check-sshd-for-ingress` checks the server.
+`make check-ssh-with-gpg-for-egress` checks the client-side GPG/SSH agent.
 
 - On Guix System, the system declaration owns sshd and its key allowlist;
   setup starts the declared `ssh-daemon` service without rewriting its config.

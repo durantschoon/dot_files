@@ -396,7 +396,7 @@ eam() {
 # make target, because GPG_TTY must change in the calling shell.  Fixes
 # "agent refused operation" on git push and unlock prompts that land in a
 # different window (.zshrc.starship registers whichever shell opened last).
-# Triage order: make check-ssh, then gpg-here, then make check-ssh-github.
+# Triage order: make check-ssh-with-gpg-for-egress, then gpg-here, then make check-ssh-github.
 gpg-here() {
     export GPG_TTY=$(tty)
     if [[ -n "$SSH_CONNECTION" || ( "$OSTYPE" == linux* && -z "$DISPLAY" && -z "$WAYLAND_DISPLAY" && ! -d /mnt/wslg ) ]]; then
