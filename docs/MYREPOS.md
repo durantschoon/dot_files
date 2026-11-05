@@ -42,6 +42,31 @@ mr-all status              # .aliases: mr -d /  -- every repo, wherever it resol
 
 `mr-all` is the one to reach for when the point is "all of them".
 
+The shared shell wrapper accepts several space-separated directories after a
+**leading** `-d` (or `--directory`):
+
+```sh
+mr -d ~/dot_files ~/Repos/ds/media-announce status
+mr -d ~/dot_files ~/Repos/ds/media-announce -j4 update
+```
+
+It runs the action once per directory, continues if one fails, and returns
+failure if any run fails. Each directory includes registered repositories
+below it; avoid overlapping directories if you want each repo visited once.
+Quote paths containing spaces. Additional directories must either exist or
+contain a slash (use `./new-repo` for a repo not yet checked out).
+
+The first non-directory word or option ends the directory list. If the action
+is also the name of a local directory, separate it explicitly:
+
+```sh
+mr -d ~/dot_files ~/Repos/ds/media-announce -- status
+```
+
+Options for mr go after the directory list; action arguments remain untouched.
+Other invocation forms pass through unchanged. This extension is loaded from
+`.aliases` on native and Guix shells; `command mr` invokes the original tool.
+
 ### `mr-brief`: the whole estate on one screen
 
 `mr status` prints full `git status` per repo, which is a lot across fifty

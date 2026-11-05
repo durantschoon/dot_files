@@ -45,6 +45,45 @@ alias git_personal_ignore='$EDITOR .git/info/exclude'
 # a read-only store symlink under Guix Home, and the repo file on native
 # hosts -- so registration is routed to the local file.  Run it inside the
 # repo, or pass the repo's path.  See docs/MYREPOS.md.
+# Extend a leading -d/--directory with additional directory arguments.
+# Leave other invocation forms to mr, including action arguments and options.
+# Use -- after the directory list if an action is also a directory name.
+mr() {
+    if [[ "${1-}" != -d && "${1-}" != --directory ]] || (( $# < 3 )); then
+        command mr "$@"
+        return $?
+    fi
+    local -a mr_dirs
+    local mr_dir mr_result=0
+    shift
+    mr_dirs=("$1")
+    shift
+    while (( $# > 1 )); do
+        case "$1" in
+            -*) break ;;
+        esac
+        # Explicit paths also allow selecting repos not yet checked out.
+        if [[ -d "$1" || "$1" == */* ]]; then
+            mr_dirs+=("$1")
+            shift
+        else
+            break
+        fi
+    done
+    if (( ${#mr_dirs[@]} == 1 )); then
+        command mr -d "${mr_dirs[1]}" "$@"
+        return $?
+    fi
+    # -- belongs to mr too, so keep it in the forwarded argument list.
+    for mr_dir in "${mr_dirs[@]}"; do
+        if command mr -d "$mr_dir" "$@"; then
+            :
+        else
+            mr_result=1
+        fi
+    done
+    return "$mr_result"
+}
 mr-register() {
     mr -c "$HOME/.mrconfig.local" register "$@"
 }
@@ -90,7 +129,7 @@ ${B}COMMANDS${R}
   mr-register          add the repo you are in to ~/.mrconfig.local (never bare
                        \`mr register': it would edit the shared file / fail on Guix)
   mr --force checkout  new host: clone every listed repo that is missing
-  mr -d <path> <act>   one repo, by path
+  mr -d PATH... ACT   one or several directories, followed by the action
 
 ${B}READING mr-brief${R}
   ${B}Repos/ds/embodied-tamp                     ${R}${CY}main                ${R} ^${D} 0${R} v${D} 0${R}  M${YL}10${R} ?${MG} 2${R} S${D} 0${R}
