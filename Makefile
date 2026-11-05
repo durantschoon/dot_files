@@ -233,6 +233,7 @@ help-text:
 	@echo "                       then installs Claude Code, uv, agy and herdr if missing)"
 	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
+	@echo "  make install-starship - Install Starship prompt (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make update-codex   - Install or update Codex in ~/.local (works with Guix npm)"
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
@@ -394,8 +395,15 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-claude install-uv install-agy install-herdr install-radicle setup-sshd-for-ingress
+setup-native: set_up_links install-starship install-claude install-uv install-agy install-herdr install-radicle setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-cloud-dirs
+
+# Install Starship prompt as part of bootstrap. The script is idempotent (skips
+# when `starship` already runs) and installs via Homebrew on macOS, pkg on Termux,
+# or the official installer to ~/.local/bin on Linux.
+.PHONY: install-starship
+install-starship:
+	@bash bin/install-starship.sh
 
 # Install Claude Code as part of bootstrap. The script is idempotent (skips
 # when `claude` already runs, including the legacy ~/.claude/local install)
@@ -668,21 +676,18 @@ ifneq (,$(shell $(WHICH_CMD) zsh 2>/dev/null))
 	@chsh -s $(shell $(WHICH_CMD) zsh) || echo tried to change shell to $(shell $(WHICH_CMD) zsh), but it failed;
 endif
 
-ifneq (,$(wildcard "~/.zshrc"))
-	mv ~/.zshrc ~/.zshrc.bak # maybe created by oh-my-zsh and we don't care about clobbering it on rewrite
-endif
-	ln -si ~/dot_files/.zshrc.starship ~/.zshrc || echo
-	ln -si ~/dot_files/.aliases ~ || echo
-	ln -si ~/dot_files/.tmux.conf ~/.tmux.conf || echo
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.zshrc.starship ~/.zshrc
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.aliases ~/.aliases
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.tmux.conf ~/.tmux.conf
 	@# Starship prompt config (Guix Home deploys it on Linux via home/common.scm)
 	@mkdir -p ~/.config
-	ln -si ~/dot_files/starship/starship.toml ~/.config/starship.toml || echo
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/starship/starship.toml ~/.config/starship.toml
 	@mkdir -p ~/.config/herdr
-	ln -si ~/dot_files/herdr/config.toml ~/.config/herdr/config.toml || echo
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/herdr/config.toml ~/.config/herdr/config.toml
 ifeq ($(UNAME_S),Darwin)
 	@# Herdr on macOS reads its config from Application Support, not ~/.config
 	@mkdir -p ~/Library/Application\ Support/herdr
-	ln -si ~/dot_files/herdr/config.toml ~/Library/Application\ Support/herdr/config.toml || echo
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/herdr/config.toml ~/Library/Application\ Support/herdr/config.toml
 endif
 	@# Codex writes its own config.toml, so merge the repo's keys in rather
 	@# than linking it (Guix Home does the same at activation)
@@ -692,38 +697,31 @@ endif
 	@# Yazi keymap config
 	@mkdir -p ~/.config/yazi
 	@if [ -f ~/dot_files/yazi/keymap.toml ]; then \
-		ln -si ~/dot_files/yazi/keymap.toml ~/.config/yazi/keymap.toml || echo; \
+		$(CURDIR)/bin/link-dotfile ~/dot_files/yazi/keymap.toml ~/.config/yazi/keymap.toml; \
 	fi
 
 	@# ~/.zprofile used to be a hand-maintained copy that also sourced
 	@# ~/.bash_profile and ~/.zshrc (so every rc ran twice on macOS) and held
 	@# API keys.  Secrets now live in ~/.secrets.env; the rest is in
 	@# .mac.zshenv.  A login shell's PATH repair lives in this file.
-	ln -si ~/dot_files/.zprofile ~/.zprofile || echo
-	ln -si ~/dot_files/.shared.zshenv ~/.shared.zshenv || echo # read by .zshenv
-	ln -si ~/dot_files/.shared.zshrc ~/.shared.zshrc || echo  # read by .zshrc
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.zprofile ~/.zprofile
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.shared.zshenv ~/.shared.zshenv
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.shared.zshrc ~/.shared.zshrc
 	@# mg's startup file. Sets backup-to-home-directory so mg's foo~ backups land
 	@# in ~/.mg.d instead of beside the file being edited.
-	ln -si ~/dot_files/.mg ~/.mg || echo
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.mg ~/.mg
 	@# myrepos config: which repos `mr update' / `mr push' walk.  Host-only
 	@# repos go in ~/.mrconfig.local (see the include in .mrconfig).
-	ln -si ~/dot_files/.mrconfig ~/.mrconfig || echo
-	@# $(wildcard) is a make function: it does not expand ~ (a shell thing) and
-	@# the quotes were literal pattern characters, so the pattern never matched
-	@# and the guard collapsed to `[ -f  ]' -- one-argument test, which is TRUE
-	@# for the non-empty string "-f".  The link was therefore made unconditionally
-	@# and only worked because .linux.zshenv happens to exist.  Test the real path
-	@# in the shell instead, and do not abort the recipe when it is absent.
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.mrconfig ~/.mrconfig
 	@if [ ! -f "$(CURDIR)/.$(os).zshenv" ]; then \
 	  echo "NOTE: no .$(os).zshenv in this repo; leaving ~/.zshenv alone"; \
 	elif [ -e ~/.zshenv ] && [ ! -L ~/.zshenv ]; then \
 	  echo "NOTE: ~/.zshenv is a real file, not a symlink. Move it aside, then run make set_up_links again."; \
 	else \
-	  ln -sfn "$(CURDIR)/.$(os).zshenv" ~/.zshenv; \
-	  echo "linked ~/.zshenv -> .$(os).zshenv"; \
+	  $(CURDIR)/bin/link-dotfile "$(CURDIR)/.$(os).zshenv" ~/.zshenv; \
 	fi
 ifeq ("$(os)","$(OS_LINUX)")
-	ln -si ~/dot_files/.wayland.zshenv ~/.wayland.zshenv || echo
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/.wayland.zshenv ~/.wayland.zshenv
 ifeq ($(flavor),$(FLAVOR_TERMUX))
 	@mkdir -p ~/.termux
 	@if [ -f ~/dot_files/termux/termux.properties ]; then \
@@ -743,16 +741,16 @@ endif
 endif
 	@mkdir -p ~/dot_files/bin
 	@sh bin/setup-bitbucket-ssh
-	@if [ ! -e "$$HOME/bin" ]; then \
-		ln -si ~/dot_files/bin ~/bin || true; \
-	elif [ -d "$$HOME/bin" ] && [ ! -L "$$HOME/bin" ]; then \
+	@if [ -d "$$HOME/bin" ] && [ ! -L "$$HOME/bin" ]; then \
 		echo "NOTE: ~/bin is a directory, not a symlink. Move or merge scripts into ~/dot_files/bin/, remove ~/bin, then run make set_up_links again."; \
+	else \
+		$(CURDIR)/bin/link-dotfile ~/dot_files/bin ~/bin || true; \
 	fi
 
-	@if [ ! -e "$$HOME/.ipython" ]; then \
-		ln -si ~/dot_files/.ipython ~/.ipython || true; \
-	elif [ -d "$$HOME/.ipython" ] && [ ! -L "$$HOME/.ipython" ]; then \
+	@if [ -d "$$HOME/.ipython" ] && [ ! -L "$$HOME/.ipython" ]; then \
 		echo "NOTE: ~/.ipython is a directory, not a symlink. Move config to ~/dot_files/.ipython/, remove ~/.ipython, then run make set_up_links again."; \
+	else \
+		$(CURDIR)/bin/link-dotfile ~/dot_files/.ipython ~/.ipython || true; \
 	fi
 
 	@if [ -e ~/.HOME ]; then \
@@ -2486,6 +2484,10 @@ check-agent-permissions:
 	@sh tests/agent-permissions-smoke.sh
 	@$(CURDIR)/bin/agent-permissions --check
 
+.PHONY: check-link-dotfile
+check-link-dotfile:
+	@sh tests/link-dotfile-smoke.sh
+
 .PHONY: check-worktrees
 check-worktrees:
 	@python3 tests/hygiene/worktrees.py
@@ -3322,7 +3324,7 @@ check-home-ownership:
 # rad:// remotes cannot fetch fails `make check' instead of a morning review.
 # check-agent-permissions reads the grant files and runs a scratch-HOME smoke
 # test; it writes nothing.  check-worktrees classifies scratch git repos.
-check: check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
+check: check-link-dotfile check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets

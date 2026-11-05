@@ -87,9 +87,11 @@ if command -v starship >/dev/null 2>&1; then
     add-zsh-hook precmd _starship_export_histno
 else
     if [[ "$OSTYPE" == darwin* ]]; then
-        echo "Starship not found. Install with: brew install starship  (make set_up_links does this)"
-    else
+        echo "Starship not found. Install with: brew install starship  (make install-starship does this)"
+    elif command -v guix >/dev/null 2>&1 && [ -d "$HOME/.guix-home" ]; then
         echo "Starship not found. Install with: guix install starship"
+    else
+        echo "Starship not found. Install with: make install-starship"
     fi
     # Fallback prompt
     PROMPT='%n@%m %2~ %# '

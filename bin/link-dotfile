@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# link-dotfile -- idempotently link a dotfile from the repo into $HOME or another destination.
+#
+# Usage:
+#   link-dotfile <src> <dst>
+#
+# Behavior:
+#   - Expands leading ~ in paths if passed unexpanded.
+#   - If <dst> is already a symlink pointing to <src>, does nothing and exits 0.
+#   - If <dst> is a broken symlink, replaces it with a link to <src>.
+#   - If <dst> does not exist, creates the parent directory and links <src> to <dst>.
+#   - If <dst> is a real file for ~/.zshrc, backs it up to ~/.zshrc.bak before linking.
+#   - If <dst> exists and is a conflict (points to something else or is a real file):
+#       * Interactive: prompts the user (ln -si)
+#       * Non-interactive: warns on stderr and exits 1 without overwriting.
+
+set -euo pipefail
+
+log() { printf '==> %s\n' "$*" >&2; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <src> <dst>" >&2
+    exit 2
+fi
+
+# Expand leading ~ if present
+src="${1/#\~/$HOME}"
+dst="${2/#\~/$HOME}"
+
+# Ensure destination parent directory exists
+mkdir -p "$(dirname "$dst")"
+
+# 1. Already a symlink
+if [ -L "$dst" ]; then
+    target="$(readlink "$dst" 2>/dev/null || true)"
+    
+    # Exact match on link target or same target file
+    if [ "$target" = "$src" ] || [ "$dst" -ef "$src" ]; then
+        exit 0
+    fi
+
+    # Broken symlink (target does not exist) pointing somewhere other than src
+    if [ ! -e "$dst" ]; then
+        log "replacing broken symlink at $dst (was -> $target)"
+        ln -snf "$src" "$dst"
+        exit 0
+    fi
+fi
+
+# 2. Destination does not exist at all
+if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+    ln -s "$src" "$dst"
+    exit 0
+fi
+
+# 3. Special case: if .zshrc is a real file, back it up to .zshrc.bak
+if [ "$(basename "$dst")" = ".zshrc" ] && [ ! -L "$dst" ]; then
+    log "backing up existing real file $dst to ${dst}.bak"
+    mv "$dst" "${dst}.bak"
+    ln -s "$src" "$dst"
+    exit 0
+fi
+
+# 4. Destination exists and conflicts
+if [ -t 0 ]; then
+    # Interactive: ask user
+    ln -si "$src" "$dst"
+else
+    die "destination $dst already exists and does not point to $src (run interactively or move it aside)"
+fi
