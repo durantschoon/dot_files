@@ -944,17 +944,41 @@ _job_remote_root_ok() {
 _job_tmux_attach() {
   local host=$1 name=$2 mode=${3:-take} flag=-d
   [[ $mode == ro ]] && flag=-r
+  local engine=""
+  engine=$(_job_tmux "$host" show-options -qv -t "=$name" @agent-job-engine 2>/dev/null)
+  if [[ -n $HERDR_ENV && -n $HERDR_PANE_ID && -n $engine ]] && (( $+commands[herdr] )); then
+    herdr pane report-agent "$HERDR_PANE_ID" --source "agent-jobs:$engine" --agent "$engine" --state idle >/dev/null 2>&1
+  fi
   if [[ $host == local ]]; then
-    if [[ -n $TMUX ]]; then tmux switch-client -t "=$name"; else tmux attach-session $flag -t "=$name"; fi
+    if [[ -n $TMUX ]]; then
+      tmux switch-client -t "=$name"
+    elif [[ -n $engine ]]; then
+      (exec -a "$engine" tmux attach-session $flag -t "=$name")
+    else
+      tmux attach-session $flag -t "=$name"
+    fi
   elif _job_host_is_ctr "$host"; then
     [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the container's one)"
     _job_ctr_ready || return 1
     # -it, because this one IS the interactive attach.
-    _job_ctr exec -it "$(_job_ctr_name "$host")" tmux attach-session $flag -t "=$name"
+    if [[ -z $TMUX && -n $engine ]]; then
+      (exec -a "$engine" "$(_job_ctr_bin "$host")" exec -it "$(_job_ctr_name "$host")" tmux attach-session $flag -t "=$name")
+    else
+      _job_ctr exec -it "$(_job_ctr_name "$host")" tmux attach-session $flag -t "=$name"
+    fi
   else
     [[ -n $TMUX ]] && print -u2 "(nested tmux: press the prefix twice to reach the remote one)"
-    ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session $flag -t ${(qq):-=$name}"
+    if [[ -z $TMUX && -n $engine ]]; then
+      (exec -a "$engine" ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session $flag -t ${(qq):-=$name}")
+    else
+      ssh -t "${_JOB_SSH_CONTROL_OPTS[@]}" -o LogLevel=ERROR "$host" "tmux attach-session $flag -t ${(qq):-=$name}"
+    fi
   fi
+  local rc=$?
+  if [[ -n $HERDR_ENV && -n $HERDR_PANE_ID && -n $engine ]] && (( $+commands[herdr] )); then
+    herdr pane release-agent "$HERDR_PANE_ID" --source "agent-jobs:$engine" --agent "$engine" >/dev/null 2>&1
+  fi
+  return $rc
 }
 # The polite attach: read-only if another client already holds the session
 # (it keeps it, and says how to take over), a normal take-over if it is

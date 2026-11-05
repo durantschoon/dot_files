@@ -823,8 +823,9 @@ agent-herdr() {
     task=${task#JOB_TASK=}; [[ -n $task && $task != -JOB_TASK ]] || task=$name
     _agent_herdr_tab "$wd" "$task" || { print -u2 "agent-herdr: $REPLY (is the Herdr server up?)"; continue }
     pane=$reply[2]
-    herdr pane run "$pane" "tmux attach-session -t ${(qq):-=$name}" >/dev/null \
+    herdr pane run "$pane" "(exec -a ${(qq)owner} tmux attach-session -t ${(qq):-=$name})" >/dev/null \
       || { print -u2 "agent-herdr: could not run tmux attach in $pane for $name"; continue }
+    herdr pane report-agent "$pane" --source "agent-jobs:$owner" --agent "$owner" --state idle >/dev/null 2>&1
     print -u2 "agent-herdr: $name -> Herdr ${wd:t} / $task ($pane)"
     (( opened++ ))
   done
