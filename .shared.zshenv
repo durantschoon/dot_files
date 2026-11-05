@@ -99,6 +99,9 @@ add_to_front_of_path "$HOME/bin"
 # codeium windsurf
 add_to_front_of_path "$HOME/.codeium/windsurf/bin"
 
+# opencode
+add_to_front_of_path "$HOME/.opencode/bin"
+
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 add_to_front_of_path "$PNPM_HOME"
