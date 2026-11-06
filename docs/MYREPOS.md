@@ -201,15 +201,15 @@ Arguments pass straight to `git push`.
   support dry runs.
 
 The push is a plain `git push`; it needs `radicle-node` running to announce
-it to the seeds. Every machine gets the tools: `brew install radicle` via
-`make setup-native` on the Mac, the `radicle` Guix Home layer elsewhere. On
-the Mac `make setup-radicle` installs the node as a LaunchAgent
-(`com.durantschoon.radicle-node`); on Guix hosts the layer declares a
-`radicle-node` Shepherd service and `make setup-radicle` (re)starts it. Both
-come back after a reboot once `rad auth` has made the identity (once per
-machine, interactively). `make check-radicle` (also part of `make check`)
-checks rad, `git-remote-rad`, the identity, the service and the node, and
-every new zsh prints a one-line warning while the node is down
+it to the seeds. Every machine gets the tools: `make install-radicle` (Homebrew
+on macOS, the official installer into `~/.local/bin` on native Linux, and the
+`radicle` Guix Home layer on Guix). `make setup-radicle` configures and starts
+the node: as a LaunchAgent on macOS (`com.durantschoon.radicle-node`), a
+systemd user service on native Linux (`radicle-node.service`), and a Shepherd
+service on Guix hosts. All three survive reboots once `rad auth` has created
+the identity (once per machine, interactively). `make check-radicle` (also part
+of `make check`) checks rad, `git-remote-rad`, the identity, the service and
+the node, and every new zsh prints a one-line warning while the node is down
 (`RADICLE_WARN=0` silences it).
 
 ### `mr-hygiene`: zero-token repository hygiene tracking

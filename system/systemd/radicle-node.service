@@ -1,0 +1,17 @@
+[Unit]
+Description=Radicle Node
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@RADICLE_NODE@ --force
+Restart=always
+RestartSec=3
+KillMode=process
+Environment="PATH=@PATH@"
+StandardOutput=append:@LOG@
+StandardError=append:@LOG@
+
+[Install]
+WantedBy=default.target

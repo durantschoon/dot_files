@@ -2377,42 +2377,26 @@ check-container-tailscale:
 # ~/.radicle/node/control.sock.  The identity itself (`rad auth') is NOT
 # created here: it is a key pair, made once per person, interactively.  Until
 # it exists the zsh login warning in .shared.zshrc says so in every new shell.
-RADICLE_LABEL     := com.durantschoon.radicle-node
-RADICLE_PLIST_SRC := system/launchd/$(RADICLE_LABEL).plist
-RADICLE_PLIST_DST := $(HOME)/Library/LaunchAgents/$(RADICLE_LABEL).plist
-RADICLE_NODE_BIN  := $(firstword $(wildcard /opt/homebrew/bin/radicle-node /usr/local/bin/radicle-node))
-RADICLE_HOME      := $(or $(RAD_HOME),$(HOME)/.radicle)
-RADICLE_LOG       := $(RADICLE_HOME)/node/node.log
-render-radicle-plist = sed -e 's|@RADICLE_NODE@|$(RADICLE_NODE_BIN)|' \
+RADICLE_LABEL       := com.durantschoon.radicle-node
+RADICLE_PLIST_SRC   := system/launchd/$(RADICLE_LABEL).plist
+RADICLE_PLIST_DST   := $(HOME)/Library/LaunchAgents/$(RADICLE_LABEL).plist
+RADICLE_SYSTEMD_SRC := system/systemd/radicle-node.service
+RADICLE_SYSTEMD_DST := $(HOME)/.config/systemd/user/radicle-node.service
+RADICLE_NODE_BIN    := $(firstword $(wildcard /opt/homebrew/bin/radicle-node /usr/local/bin/radicle-node $(HOME)/.local/bin/radicle-node $(HOME)/.radicle/bin/radicle-node) $(shell command -v radicle-node 2>/dev/null))
+RADICLE_HOME        := $(or $(RAD_HOME),$(HOME)/.radicle)
+RADICLE_LOG         := $(RADICLE_HOME)/node/node.log
+render-radicle-plist   = sed -e 's|@RADICLE_NODE@|$(RADICLE_NODE_BIN)|' \
 	  -e 's|@PATH@|$(patsubst %/,%,$(dir $(RADICLE_NODE_BIN))):/usr/bin:/bin:/usr/sbin:/sbin|' \
 	  -e 's|@LOG@|$(RADICLE_LOG)|' $(RADICLE_PLIST_SRC)
+render-radicle-systemd = sed -e 's|@RADICLE_NODE@|$(RADICLE_NODE_BIN)|' \
+	  -e 's|@PATH@|$(patsubst %/,%,$(dir $(RADICLE_NODE_BIN))):/usr/local/bin:/usr/bin:/bin|' \
+	  -e 's|@LOG@|$(RADICLE_LOG)|' $(RADICLE_SYSTEMD_SRC)
 
 install-radicle:
-ifeq ($(os),$(OS_MAC))
-	@command -v rad >/dev/null 2>&1 || brew install radicle
-else
-	@command -v rad >/dev/null 2>&1 \
-	  || echo "  *** rad not found: on Guix hosts run 'make apply' (layer 'radicle'); elsewhere see https://radicle.xyz/install ***"
-endif
+	@bash bin/install-radicle.sh
 
 setup-radicle:
-ifneq ("$(os)","$(OS_MAC)")
-	@command -v herd >/dev/null 2>&1 && herd status radicle-node >/dev/null 2>&1 || { \
-	  echo "  *** no radicle-node Shepherd service here: run 'make apply' (Guix Home layer 'radicle') ***"; exit 1; }
-	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
-	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
-	  echo "  *** $(RADICLE_HOME)/keys/radicle has a passphrase; Shepherd cannot type it. ***"; \
-	  echo "      keep using 'rad node start' in a terminal, or remove it: ssh-keygen -p -f $(RADICLE_HOME)/keys/radicle"; \
-	  exit 1; }
-	@if ! herd status radicle-node 2>/dev/null | grep -q 'It is running\|running since' && pgrep -x radicle-node >/dev/null; then \
-	  echo "==> stopping the hand-started node (pid $$(pgrep -x radicle-node | tr '\n' ' '))"; \
-	  rad node stop >/dev/null 2>&1 || pkill -x radicle-node || true; \
-	  i=0; while pgrep -x radicle-node >/dev/null && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
-	fi
-	@herd restart radicle-node
-	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
-	@$(MAKE) --no-print-directory check-radicle
-else
+ifeq ($(os),$(OS_MAC))
 	@test -n "$(RADICLE_NODE_BIN)" || { echo "  *** radicle-node not found: brew install radicle ***"; exit 1; }
 	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
 	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
@@ -2431,13 +2415,52 @@ else
 	@launchctl bootstrap gui/$$(id -u) $(RADICLE_PLIST_DST)
 	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
 	@$(MAKE) --no-print-directory check-radicle
+else ifneq (,$(shell command -v herd 2>/dev/null))
+	@herd status radicle-node >/dev/null 2>&1 || { \
+	  echo "  *** no radicle-node Shepherd service here: run 'make apply' (Guix Home layer 'radicle') ***"; exit 1; }
+	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
+	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
+	  echo "  *** $(RADICLE_HOME)/keys/radicle has a passphrase; Shepherd cannot type it. ***"; \
+	  echo "      keep using 'rad node start' in a terminal, or remove it: ssh-keygen -p -f $(RADICLE_HOME)/keys/radicle"; \
+	  exit 1; }
+	@if ! herd status radicle-node 2>/dev/null | grep -q 'It is running\|running since' && pgrep -x radicle-node >/dev/null; then \
+	  echo "==> stopping the hand-started node (pid $$(pgrep -x radicle-node | tr '\n' ' '))"; \
+	  rad node stop >/dev/null 2>&1 || pkill -x radicle-node || true; \
+	  i=0; while pgrep -x radicle-node >/dev/null && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	fi
+	@herd restart radicle-node
+	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
+	@$(MAKE) --no-print-directory check-radicle
+else
+	@test -n "$(RADICLE_NODE_BIN)" || { echo "  *** radicle-node not found: run 'make install-radicle' ***"; exit 1; }
+	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
+	@ssh-keygen -y -P '' -f "$(RADICLE_HOME)/keys/radicle" >/dev/null 2>&1 || { \
+	  echo "  *** $(RADICLE_HOME)/keys/radicle has a passphrase; systemd cannot type it. ***"; \
+	  echo "      keep using 'rad node start' in a terminal, or remove it: ssh-keygen -p -f $(RADICLE_HOME)/keys/radicle"; \
+	  exit 1; }
+	@echo "==> installing the radicle-node systemd user service ($(RADICLE_NODE_BIN))"
+	@mkdir -p "$(HOME)/.config/systemd/user" "$(RADICLE_HOME)/node"
+	@$(render-radicle-systemd) > $(RADICLE_SYSTEMD_DST)
+	@if command -v systemctl >/dev/null 2>&1; then \
+	  systemctl --user daemon-reload; \
+	  if pgrep -qx radicle-node; then \
+	    echo "==> stopping the node that is already running (pid $$(pgrep -x radicle-node | tr '\n' ' '))"; \
+	    rad node stop >/dev/null 2>&1 || pkill -x radicle-node || true; \
+	    i=0; while pgrep -qx radicle-node && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	  fi; \
+	  systemctl --user enable --now radicle-node; \
+	  i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	else \
+	  echo "  *** systemctl not found; please start with 'rad node start' ***"; \
+	fi
+	@$(MAKE) --no-print-directory check-radicle
 endif
 
 check-radicle:
 	@echo "==> Radicle"
 	@rc=0; \
 	if ! command -v rad >/dev/null 2>&1; then \
-	  rc=1; echo "    [--] rad         : not installed; fix: brew install radicle (Guix: radicle)"; \
+	  rc=1; echo "    [--] rad         : not installed; fix: make install-radicle"; \
 	else \
 	  echo "    [ok] rad         : $$(rad --version)"; \
 	fi; \
@@ -2468,6 +2491,17 @@ check-radicle:
 	  else \
 	    echo "    [ok] Shepherd    : radicle-node service declared"; \
 	  fi; \
+	elif command -v systemctl >/dev/null 2>&1; then \
+	  if [ ! -f $(RADICLE_SYSTEMD_DST) ]; then \
+	    rc=1; echo "    [--] systemd     : unit not deployed (the node will not survive a reboot); fix: make setup-radicle"; \
+	  elif ! $(render-radicle-systemd) | diff -u - $(RADICLE_SYSTEMD_DST) > /dev/null; then \
+	    rc=1; echo "    [--] systemd     : deployed unit differs from fresh render; fix: make setup-radicle"; \
+	  elif ! systemctl --user is-active --quiet radicle-node 2>/dev/null; then \
+	    rc=1; echo "    [--] systemd     : unit loaded but not active; see: systemctl --user status radicle-node"; \
+	    echo "         and: tail $(RADICLE_LOG)"; \
+	  else \
+	    echo "    [ok] systemd     : radicle-node service running"; \
+	  fi; \
 	fi; \
 	if ! rad node status >/dev/null 2>&1; then \
 	  rc=1; echo "    [--] node        : not running; fix: make setup-radicle"; \
@@ -2487,6 +2521,10 @@ check-agent-permissions:
 .PHONY: check-link-dotfile
 check-link-dotfile:
 	@sh tests/link-dotfile-smoke.sh
+
+.PHONY: check-radicle-smoke
+check-radicle-smoke:
+	@sh tests/radicle-smoke.sh
 
 .PHONY: check-worktrees
 check-worktrees:
@@ -3324,7 +3362,7 @@ check-home-ownership:
 # rad:// remotes cannot fetch fails `make check' instead of a morning review.
 # check-agent-permissions reads the grant files and runs a scratch-HOME smoke
 # test; it writes nothing.  check-worktrees classifies scratch git repos.
-check: check-link-dotfile check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
+check: check-link-dotfile check-radicle-smoke check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
