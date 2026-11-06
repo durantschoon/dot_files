@@ -21,7 +21,9 @@ existing_subkey_id = "23570C8AFDE416D9"
 # Long key id         2357 0C8A FDE4 16D9
 
 [machines.framepop]
-signing_subkey = ""
+signing_subkey = "890BED88533C374E09394E951FE5BBBC0A765369"
+#       subkey = "890BED88533C374E09394E951FE5-BBBC-0A76-5369"
+# Long key id                             1FE5 BBBC 0A76 5369
 existing_subkey_id = ""
 
 [machines.barnowl]
