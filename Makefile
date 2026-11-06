@@ -673,7 +673,12 @@ endif
 # Every other parse-time which in this file already redirects; this one is load-
 # bearing for first-run UX, not just consistency.
 ifneq (,$(shell $(WHICH_CMD) zsh 2>/dev/null))
-	@chsh -s $(shell $(WHICH_CMD) zsh) || echo tried to change shell to $(shell $(WHICH_CMD) zsh), but it failed;
+	@zsh_bin="$(shell $(WHICH_CMD) zsh 2>/dev/null)"; \
+	cur_shell="$$(getent passwd "$$USER" 2>/dev/null | cut -d: -f7 || true)"; \
+	[ -n "$$cur_shell" ] || cur_shell="$$(dscl . -read "/Users/$$USER" UserShell 2>/dev/null | awk '{print $$2}' || echo "$$SHELL")"; \
+	if [ "$$cur_shell" != "$$zsh_bin" ]; then \
+		chsh -s "$$zsh_bin" || echo "tried to change shell to $$zsh_bin, but it failed"; \
+	fi
 endif
 
 	@$(CURDIR)/bin/link-dotfile ~/dot_files/.zshrc.starship ~/.zshrc
