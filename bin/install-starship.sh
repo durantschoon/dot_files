@@ -13,11 +13,24 @@
 
 set -euo pipefail
 
+BIN_DIR="$HOME/.local/bin"
+export PATH="$BIN_DIR:/usr/local/bin:$PATH"
+
 log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
-if command -v starship >/dev/null 2>&1 && starship --version >/dev/null 2>&1; then
-    log "starship already installed: $(starship --version)"
+starship_already_works() {
+    local candidate
+    for candidate in "$(command -v starship 2>/dev/null || true)" "$BIN_DIR/starship" /usr/local/bin/starship; do
+        [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+        "$candidate" --version >/dev/null 2>&1 && return 0
+    done
+    return 1
+}
+
+if starship_already_works; then
+    local_version="$(starship --version 2>&1 || true)"
+    log "starship already installed: $local_version"
     exit 0
 fi
 

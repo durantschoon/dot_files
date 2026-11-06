@@ -10,10 +10,22 @@
 
 set -euo pipefail
 
+BIN_DIR="$HOME/.local/bin"
+export PATH="$BIN_DIR:/usr/local/bin:$PATH"
+
 log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
-if command -v rad >/dev/null 2>&1 && command -v radicle-node >/dev/null 2>&1; then
+radicle_already_works() {
+    local candidate
+    for candidate in "$(command -v rad 2>/dev/null || true)" "$BIN_DIR/rad" /usr/local/bin/rad; do
+        [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+        "$candidate" --version >/dev/null 2>&1 && return 0
+    done
+    return 1
+}
+
+if radicle_already_works; then
     log "radicle already installed: $(rad --version 2>&1 || true)"
     exit 0
 fi
