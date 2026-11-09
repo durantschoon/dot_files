@@ -231,6 +231,7 @@ help-text:
 	@echo "Bootstrap and Native Setup:"
 	@echo "  make setup-native  - Set up native dotfiles (symlinks ~/bin -> ~/dot_files/bin,"
 	@echo "                       then installs Claude Code, uv, agy and herdr if missing)"
+	@echo "  make register-machine - Print the new-host checklist (role, disk, ssh, gpg, repos)"
 	@echo "  make all           - Compatibility alias for setup-native"
 	@echo "  make set_up_links  - Create symlinks for dotfiles"
 	@echo "  make install-starship - Install Starship prompt (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
@@ -397,6 +398,12 @@ all: setup-native
 
 setup-native: set_up_links install-starship install-claude install-uv install-agy install-herdr install-radicle setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-cloud-dirs
+
+.PHONY: register-machine check-register-machine
+register-machine:
+	@bash "$(CURDIR)/bin/register-machine"
+check-register-machine:
+	zsh tests/register/machine.zsh
 
 # Install Starship prompt as part of bootstrap. The script is idempotent (skips
 # when `starship` already runs) and installs via Homebrew on macOS, pkg on Termux,

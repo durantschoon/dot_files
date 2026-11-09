@@ -7,13 +7,33 @@ if [[ $(uname -s) == Darwin ]]; then
 fi
 if [[ ${1:-} == --help ]]; then
     echo 'Usage: bash seed-linux [--help]'
-    echo 'Installs prerequisites and Guix, creates an SSH key, clones ~/dot_files, then runs make apply.'
+    echo 'Asks for a role, then installs prerequisites.'
+    echo 'native: clone ~/dot_files and stop before Guix. Run make setup-native.'
+    echo 'foreign: install Guix, clone ~/dot_files, then run make apply.'
+    echo 'guix-system: refuse. Guix System is a separate installer; then make apply-wayland.'
     exit 0
 fi
 [[ $# == 0 ]] || { echo 'Unknown argument; use --help.' >&2; exit 1; }
 [[ $(uname -s) == Linux && $EUID != 0 ]] || {
     echo 'Run on Linux as your regular login user, with sudo access.' >&2; exit 1;
 }
+seed_role=${SEED_ROLE:-}
+if [[ -z $seed_role ]]; then
+    echo 'Choose a role before Guix is installed.'
+    echo '  native       no Guix store; after clone run make setup-native'
+    echo '  foreign      install Guix on this distro, then make apply'
+    echo '  guix-system  this script does not install Guix System'
+    read -r -p 'Role [native/foreign/guix-system]: ' seed_role
+fi
+case $seed_role in
+    native|foreign|guix-system) ;;
+    *) echo 'Choose native, foreign, or guix-system.' >&2; exit 1 ;;
+esac
+if [[ $seed_role == guix-system ]]; then
+    echo 'Guix System is installed from the Guix system installer, not seed-linux.' >&2
+    echo 'On that boot, clone ~/dot_files and run make apply-wayland.' >&2
+    exit 1
+fi
 confirm() {
     local answer
     while true; do
@@ -58,6 +78,7 @@ ensure_seed_installer() {
         seed_installer="$seed_tmp/guix-install.sh"
     fi
 }
+if [[ $seed_role == foreign ]]; then
 if ! command -v guix >/dev/null; then
     ensure_seed_installer
     echo 'Starting the repository Guix installer; enable substitutes when asked.'
@@ -82,6 +103,7 @@ if command -v systemctl >/dev/null && [[ -d /run/systemd/system ]]; then
 fi
 # Confirm that the daemon accepts a store operation before starting a long pull.
 guix gc --list-roots >/dev/null
+fi
 # Test existing SSH config/agent first, including hardware-backed keys.
 seed_private_url=git@github.com:durantschoon/claude-config.git
 seed_use_access=no
@@ -169,6 +191,13 @@ fi
     echo "$seed_repo has an unexpected origin; check it before applying." >&2; exit 1;
 }
 cd "$seed_repo"
+if [[ $seed_role == native ]]; then
+    echo 'Checkout is ready. Run: make setup-native'
+    echo 'Do not run make apply here. A small partition cannot hold a Guix home.'
+    echo 'Once bin/check-disk-floor is on this checkout, apply refuses below 20 GiB free.'
+    echo 'See docs/REGISTER_MACHINE.md.'
+    exit 0
+fi
 seed_apply=yes
 if [[ -e "$HOME/.guix-home/profile" ]]; then
     read -r -p 'Guix Home already exists. Run make apply again? [y/N] ' seed_answer
