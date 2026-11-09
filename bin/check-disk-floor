@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Refuse a Guix home apply when / is too small for the store, the profile,
+# and ~/.cache/guix. A foreign pull plus home/base.scm needs room to spare;
+# 20 GiB is the floor that would have stopped the framepop partition.
+set -euo pipefail
+
+floor_gib=${DISK_FLOOR_GIB:-20}
+mount=${DISK_FLOOR_MOUNT:-/}
+goal=${1:-apply}
+case $goal in
+    check-disk-floor|'') goal=apply ;;
+esac
+
+if [[ ${FORCE_APPLY:-} == 1 ]]; then
+    echo "disk floor: FORCE_APPLY=1, not checking free space on $mount"
+    exit 0
+fi
+
+df_cmd=(df -kP)
+if [[ -n ${DISK_FLOOR_DF:-} ]]; then
+    df_cmd=($DISK_FLOOR_DF -kP)
+fi
+avail_k=$("${df_cmd[@]}" "$mount" | awk 'NR==2 {print $4}')
+[[ $avail_k =~ ^[0-9]+$ ]] || {
+    echo "disk floor: could not read free space on $mount" >&2
+    exit 1
+}
+need_k=$((floor_gib * 1024 * 1024))
+free_gib=$(awk -v k="$avail_k" 'BEGIN { printf "%.1f", k/1024/1024 }')
+if (( avail_k < need_k )); then
+    echo "Refusing make $goal: ${free_gib} GiB free on $mount, need ${floor_gib} GiB for a Guix home." >&2
+    echo "On a small partition run: make setup-native" >&2
+    echo "Override: make $goal FORCE_APPLY=1" >&2
+    exit 1
+fi
+echo "disk floor: ${free_gib} GiB free on $mount (need ${floor_gib} GiB)"

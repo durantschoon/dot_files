@@ -244,7 +244,8 @@ help-text:
 	@echo "  make install-yazi   - Install Yazi and media-handling stack (Homebrew on macOS)"
 	@echo ""
 	@echo "Guix System and Home:"
-	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this)"
+	@echo "  make apply         - Apply Guix Home configuration (default; bare make runs this;"
+	@echo "                       refuses when / has under 20 GiB free; FORCE_APPLY=1 overrides)"
 	@echo "  make apply-wayland - Apply Guix Home Wayland config (espanso-wayland, etc.)"
 	@echo "  make reconfigure   - Apply the SYSTEM config for this machine (Guix System only;"
 	@echo "                       picks system/\$$(uname -n).scm, runs check-system first,"
@@ -1591,7 +1592,7 @@ EXPECTED_WARNINGS_SUMMARY = @command -v perl >/dev/null 2>&1 && $(CURDIR)/bin/ex
 
 PULLED_GUIX = $$( g="$$HOME/.config/guix/current/bin/guix"; [ -x "$$g" ] && echo "$$g" || echo guix )
 
-apply: warn-dotfiles-home setup-sshd-for-ingress
+apply: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@if [ -d /run/current-system ]; then \
 	  echo "==> note: on Guix System Wayland, use 'make apply-wayland' (or 'make apply-ewm');"; \
 	  echo "    'make apply' deploys home/base.scm (foreign/headless profile)"; \
@@ -1647,7 +1648,7 @@ apply: warn-dotfiles-home setup-sshd-for-ingress
 	@# failure here must not skip anything above it.
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
-apply-wayland: warn-dotfiles-home setup-sshd-for-ingress
+apply-wayland: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	$(EXPECTED_WARNINGS_RESET)
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
@@ -1709,7 +1710,7 @@ apply-wayland: warn-dotfiles-home setup-sshd-for-ingress
 # The claude submodule IS still required: the claude-code layer reads
 # ../claude/* via local-file, and an uninitialized submodule fails the
 # reconfigure with an opaque "no such file" from the store builder.
-apply-ewm: warn-dotfiles-home setup-sshd-for-ingress
+apply-ewm: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@echo "==> git submodule update --init claude"
 	@git submodule update --init claude
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
@@ -3875,6 +3876,13 @@ emacs-unserve:
 	else \
 	  echo "No Emacs daemon was running."; \
 	fi
+
+# Refuse Guix home applies when / cannot hold the store and the download cache.
+.PHONY: check-disk-floor check-disk-floor-tests
+check-disk-floor:
+	@bash "$(CURDIR)/bin/check-disk-floor" "$(firstword $(MAKECMDGOALS))"
+check-disk-floor-tests:
+	zsh tests/disk/floor.zsh
 
 # Rootless tests of the foreign-distro installer policy transaction.
 .PHONY: check-guix-installer
