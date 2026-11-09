@@ -61,5 +61,6 @@ https://guix.gnu.org/manual/en/html_node/Binary-Installation.html
 
 Reusable agent workflow: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`.
 
-For the ZFS/configure AppArmor failure and policy validation/rollback behavior,
-see [Guix AppArmor compatibility](GUIX_APPARMOR.md).
+For the ZFS/configure AppArmor failure, see the 2026-11-09 entry in
+[Learnings](LEARNINGS.md). Re-apply the builder rule with
+`sudo bash ./guix-install.sh --setup-apparmor`.

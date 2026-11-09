@@ -32,7 +32,7 @@ When you are stuck, blocked (a merge conflict, a question only the user can answ
 
 * **First-machine seed:** `bin/seed-linux`, `docs/LINUX_SEED.md` cover prerequisites, Guix installation, SSH/GitHub access, cloning and `make apply`. Reusable agent instructions: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`.
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
-*   **Foreign-distro installer / AppArmor:** `guix-install.sh`, `bin/seed-linux`, `docs/GUIX_APPARMOR.md`, `tests/guix/apparmor.py` and its fixtures (`make check-guix-installer`).
+*   **Foreign-distro installer / AppArmor:** `guix-install.sh`, `bin/seed-linux`, `tests/guix/apparmor.py` and its fixtures (`make check-guix-installer`). The decision is the 2026-11-09 entry in `docs/LEARNINGS.md`.
 *   **Entry points:** `Makefile` (Look at targets like `apply`, `reconfigure`, `guix-config`)
 *   **Home Layer (User prefs):** `home/base.scm`, `home/common.scm`, `home/wayland.scm`, `home/ewm.scm` (EWM trial, `make apply-ewm`)
 *   **System Layer (Host configs):** `system/`, `system/README.md`
@@ -42,7 +42,7 @@ The user is migrating to a declarative Guix setup with distinct "home" and "syst
 *   **Incoming SSH:** `bin/sshd-setup`, `setup-sshd-for-ingress` / `check-sshd-for-ingress` in `Makefile` (automatic on apply/setup-native), `system/keys/minius.pub`; Guix System declares sshd in `system/geeeks.scm`. Tests: `tests/ssh/bootstrap.py` (`make check-sshd-for-ingress-tests`).
 *   **System locale (foreign distros, e.g. orb-guix, WSL):** `setup-locale` / `check-locale` in `Makefile` (generates `LOCALE` for the distro glibc; fixes the `setlocale: LC_ALL` warning)
 *   **Known-warning filter:** `bin/expected-warnings` (hides and counts the warnings `apply`/`apply-wayland` are known to print; add new ones to its `%EXPECTED` table)
-*   **Documentation:** `docs/GUIX_MIGRATION_PLAN.md`, `docs/GENERATIONS_AND_ROLLBACK.md`, `docs/EWM_TRIAL_PLAN.md`
+*   **Documentation:** `docs/GENERATIONS_AND_ROLLBACK.md`, `docs/EWM_TRIAL_PLAN.md`, `docs/archive/README.md` (how to recover removed notes)
 
 **Agent Instruction:** If asked to modify Guix package manifests, home configurations, or system configurations, stick to these files.
 

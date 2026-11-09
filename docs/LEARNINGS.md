@@ -4,6 +4,14 @@ Measured facts that changed a decision, kept so the decision does not get
 re-litigated from memory. Newest first. Each entry records the question, the
 measurement (command and result), and what was decided because of it.
 
+## 2026-11-09 — Pop!_OS Guix builds were denied by the builder profile, not by `noexec`
+
+**Question.** `guix home reconfigure` on Pop!_OS died with `In execvp of ./configure: Permission denied` while building ZFS. Was the build directory `noexec`, or was AppArmor refusing the generated script?
+
+**Measurement.** The kernel log was `apparmor="DENIED" operation="exec" requested_mask="x" denied_mask="x"` for `guix-daemon//guix-builder`. The installed builder profile granted only `owner /tmp/** rw,`. Unix execute bits and a Bash shebang do not satisfy that. Upstream fixed the bundled policy in commit `8ead7a983706` (2026-03-08, issue 6501) with `owner /tmp/** rwklmux,`, which is `ux`: the new executable leaves confinement. `guix pull` does not replace `/etc/apparmor.d/guix-daemon`, and a Guix 1.5.0 version string does not say which profile was copied onto the host. No audit record was collected for the separate `--keep-failed` cleanup denials, so those were not attributed to this rule.
+
+**Decision.** `guix-install.sh` vendors the installer and, only inside a recognized old `guix-builder` child profile, adds `owner /tmp/guix-build-*/** klmix,`. That is `ix`: the script runs, and it stays in the builder profile. `ux` was rejected because it drops confinement and keeps the environment. The original `owner /tmp/** rw,` line stays. `--keep-failed` is a different failure (a root daemon moving a tree owned by the build user) and this rule does not claim to fix it. Re-apply on an existing install with `sudo bash ./guix-install.sh --setup-apparmor`. `make check-guix-installer` is the rootless check. The long deploy note and the one-shot Pop!_OS script were removed after that script had been run; both are listed in `docs/archive/README.md`.
+
 ## 2026-09-21 — an over-long `TMUX_TMPDIR` does not fail; tmux silently uses the default server
 
 **Question.** Stage 14's D1 records that a throwaway measurement harness set
