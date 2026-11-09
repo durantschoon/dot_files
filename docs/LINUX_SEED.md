@@ -6,12 +6,16 @@ Guix package manager on an existing Linux distro, then applies Guix Home.
 1. Get sudo access and an internet connection.
 2. Install basic distro tools: Git, Make, SSH, curl, CA certificates, wget,
    GnuPG, xz, and user namespace helpers.
-3. Install Guix with the repository’s upstream-based interactive installer; enable substitutes.
-4. Verify Guix and its daemon work.
+3. Choose a role. `native` skips Guix and leaves you to run `make setup-native`.
+   `foreign` installs Guix with the repository’s upstream-based interactive
+   installer; enable substitutes. `guix-system` stops; that OS has its own
+   installer, then `make apply-wayland`.
+4. For a foreign role, verify Guix and its daemon work.
 5. Create an Ed25519 SSH key with a passphrase, or reuse an existing key.
 6. Add the public key to your GitHub account; confirm access to both dot_files
    and the required private claude-config submodule.
-7. Clone into `~/dot_files` and run `make apply` as your regular user.
+7. Clone into `~/dot_files`. A foreign role runs `make apply`. A native role
+   stops and tells you to run `make setup-native`.
 8. Log out and back in to activate the environment and user services.
 
 ## Run the seed script before cloning
@@ -41,8 +45,10 @@ without replacing either. A reused checkout is not pulled or reset. If Guix Home
 already exists, the script asks whether to reapply and defaults to skipping it.
 
 `make apply` pulls Guix and applies `home/base.scm`; it does not replace your
-Linux operating system. Guix System Wayland machines use `make apply-wayland`
-and a separate system reconfigure workflow.
+Linux operating system. Once `bin/check-disk-floor` is on this checkout, apply
+refuses when `/` has under 20 GiB free. Guix System Wayland machines use
+`make apply-wayland` and a separate system reconfigure workflow. The checklist
+for either role is [Register a machine](REGISTER_MACHINE.md).
 
 Optional foreign-distro setup from `~/dot_files`:
 

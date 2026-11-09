@@ -30,7 +30,7 @@ When you are stuck, blocked (a merge conflict, a question only the user can answ
 
 ## 2. Guix Configuration (`guix home`, `guix system`)
 
-* **First-machine seed:** `bin/seed-linux`, `docs/LINUX_SEED.md` cover prerequisites, Guix installation, SSH/GitHub access, cloning and `make apply`. Reusable agent instructions: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`.
+* **First-machine seed:** `bin/seed-linux`, `docs/LINUX_SEED.md` cover prerequisites, Guix installation, SSH/GitHub access, cloning and `make apply`. Reusable agent instructions: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`. `make register-machine` (`bin/register-machine`, `docs/REGISTER_MACHINE.md`) is the checklist that chooses native, foreign Guix, or Guix System before those commands.
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
 *   **Foreign-distro installer / AppArmor:** `guix-install.sh`, `bin/seed-linux`, `tests/guix/apparmor.py` and its fixtures (`make check-guix-installer`). The decision is the 2026-11-09 entry in `docs/LEARNINGS.md`.
 *   **Entry points:** `Makefile` (Look at targets like `apply`, `reconfigure`, `guix-config`)

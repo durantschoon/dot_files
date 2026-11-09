@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# One-time checklist for a new host. Prints what is done and the next command.
+# It does not install Guix, clone repos, or enroll a signing key.
+set -euo pipefail
+
+floor_gib=20
+repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+host=${REGISTER_HOST:-$(hostname -s | tr '[:upper:]' '[:lower:]')}
+role=${REGISTER_ROLE:-}
+
+usage() {
+    echo 'Usage: bash bin/register-machine [--role native|foreign|guix-system]'
+    echo 'native: make setup-native, no Guix store.'
+    echo 'foreign: Guix on this distro, then make apply.'
+    echo 'guix-system: make apply-wayland on the Guix System boot.'
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --role) role=${2:-}; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+if [[ -z $role ]]; then
+    if [[ -t 0 ]]; then
+        echo 'Choose a role before any Guix or native setup command.'
+        echo '  native       make setup-native (no Guix store)'
+        echo '  foreign      Guix package manager, then make apply'
+        echo '  guix-system  make apply-wayland on the Guix System boot'
+        read -r -p 'Role [native/foreign/guix-system]: ' role
+    else
+        echo 'Set REGISTER_ROLE or pass --role.' >&2
+        usage >&2
+        exit 2
+    fi
+fi
+case $role in
+    native|foreign|guix-system) ;;
+    *) echo "Unknown role: $role" >&2; exit 2 ;;
+esac
+
+note() { printf '%-14s %s\n' "$1" "$2"; }
+
+echo "Host: $host"
+echo "Role: $role"
+echo
+
+if [[ -n ${REGISTER_DF_AVAIL_K:-} ]]; then
+    avail_k=$REGISTER_DF_AVAIL_K
+else
+    avail_k=$(df -kP / | awk 'NR==2 {print $4}')
+fi
+free_gib=$(awk -v k="$avail_k" 'BEGIN { printf "%.1f", k/1024/1024 }')
+need_k=$((floor_gib * 1024 * 1024))
+if (( avail_k < need_k )); then
+    note disk "MISSING ${free_gib} GiB free on /, need ${floor_gib} GiB before make apply"
+    note ' ' 'On this partition run make setup-native'
+else
+    note disk "ok ${free_gib} GiB free on /"
+fi
+
+if [[ ${REGISTER_SKIP_NET:-} == 1 ]]; then
+    note tailscale 'skipped'
+    note sshd 'skipped'
+    note 'github ssh' 'skipped'
+else
+    if command -v tailscale >/dev/null 2>&1; then
+        ts_name=$(tailscale status 2>/dev/null | awk 'NR==1 {print $2}')
+        if [[ $ts_name == "$host" ]]; then
+            note tailscale "ok $ts_name"
+        else
+            note tailscale "MISSING node ${ts_name:-unreachable}, hostname is $host"
+            note ' ' "sudo tailscale up --hostname=$host --operator=\$USER"
+        fi
+    else
+        note tailscale 'MISSING tailscale is not installed'
+    fi
+    if ss -ltn 2>/dev/null | grep -q ':22 '; then
+        note sshd 'ok port 22 is open'
+    else
+        note sshd 'MISSING make setup-sshd-for-ingress'
+    fi
+    if git ls-remote git@github.com:durantschoon/dot_files.git HEAD >/dev/null 2>&1; then
+        note 'github ssh' 'ok'
+    else
+        note 'github ssh' 'MISSING git@github.com:durantschoon/dot_files.git'
+        note ' ' 'The dot_files remote uses Host github.com-ds in ~/.ssh/config'
+    fi
+fi
+
+toml=$repo/machines.toml
+if [[ ${REGISTER_SKIP_GPG:-} == 1 ]]; then
+    note gpg 'skipped'
+elif grep -q "^\[machines.${host}\]" "$toml"; then
+    subkey=$(awk -v section="[machines.${host}]" '
+        $0 == section { found=1; next }
+        found && /^\[/ { exit }
+        found && /^signing_subkey/ {
+            gsub(/"/, "", $3); print $3; exit
+        }
+    ' "$toml")
+    if [[ -n $subkey ]]; then
+        if command -v gpg >/dev/null 2>&1 && gpg --list-secret-keys --with-colons 2>/dev/null | grep -qi "${subkey#0x}"; then
+            note gpg 'ok signing subkey is on this machine'
+        else
+            note gpg 'MISSING make gpg-spoke-copy'
+        fi
+    else
+        note gpg "MISSING ${host} is in machines.toml without a signing_subkey; on the hub run make gpg-hub-create MACHINE=${host}, then make gpg-spoke-copy here"
+    fi
+else
+    note gpg "MISSING add [machines.${host}] on the hub, then make gpg-spoke-copy here"
+fi
+
+if grep -q "^[[:space:]]*${host})" "$repo/.zshrc.starship"; then
+    note hint "ok .zshrc.starship names ${host}"
+else
+    note hint "MISSING add a ${host} case to dotfiles_apply_hint in .zshrc.starship"
+fi
+
+shell=$(getent passwd "$USER" 2>/dev/null | cut -d: -f7 || true)
+if [[ -e $HOME/.guix-home && $role == native ]]; then
+    note 'guix home' 'present. Do not delete ~/.guix-home until the login shell is not under it.'
+fi
+if [[ $shell == *'.guix-home'* ]]; then
+    note shell "MISSING login shell is $shell; run chsh -s /bin/bash, log in again, then remove ~/.guix-home"
+else
+    note shell "ok ${shell:-unknown}"
+fi
+
+note repos 'clone named repos with mr-clone NAME. Do not clone every live repo onto a small disk.'
+echo
+case $role in
+    native) echo 'Next: make setup-native' ;;
+    foreign) echo 'Next: make apply' ;;
+    guix-system) echo 'Next: make apply-wayland' ;;
+esac
