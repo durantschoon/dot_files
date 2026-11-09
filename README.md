@@ -1,5 +1,11 @@
 # dot_files
 
+> **New machine? Run one command: `make register-machine`.** It works on any
+> system type (mac, foreign-distro Guix, Guix System, WSL) — it checks what the
+> host needs and prints the next command to run (`make setup-native`,
+> `make apply`, or `make apply-wayland`). See
+> [Register a machine](docs/REGISTER_MACHINE.md).
+
 My dotfiles repository, currently migrating to a declarative [Guix Home](https://guix.gnu.org/manual/devel/en/html_node/Home-Configuration.html) setup. The Makefile automatically detects your system and installs the appropriate packages and configuration.
 
 I use [Zsh](http://www.zsh.org/) with [starship prompt](https://starship.rs/) for a fast, customizable shell experience. The [Makefile](./Makefile) automatically detects your system and installs the appropriate packages and configuration.
