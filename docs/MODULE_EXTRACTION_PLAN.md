@@ -240,3 +240,34 @@ from this plan when requested. Implementation and forecast sealing have not begu
   `> ` line. W03 still owns R3's regression tests (both forms, precedence) and
   R4/R6. No other R-finding has changed; `.jobs.zsh` has had only the editor
   default change (`60ee8aa`) since the review commit (`cc93b8e`).
+- **2026-11-09.** The EWM + job-runner stage pipeline paused at stage 16 (close-out
+  retro in [stages/README](stages/README.md)). The still-open robustness questions
+  from reports 14–16 are folded into this plan's M1 backlog here, rather than left
+  only in the stage reports, because several share a surface with R1–R6:
+  - **Task-identity / row-parsing fragility → W01/W02 (R1/R2).** Session paths
+    containing `|` break `_tmux_row_repo` / `_tmux_row_statuses` (16 Q6,
+    pre-existing), and display vs stable identity is unsettled (stages 15–16). Fold
+    this evidence in when the R1/R2 repair stages are authored.
+  - **Remote-host correctness → W06.** A remote preview answered with an empty
+    `JOB_HOSTS_EXPORT` describes the wrong host (16 Q3); `tmux-logs` and status reads
+    use the local host even for a remote session (14 Q3, 16 Q4).
+  - **Silent-failure guards → W06.** `_JOB_ZSH_BIN` reload can fail silently when
+    zsh moves under a long-lived shell (14 Q2); a `tailscale`-less host pays the ssh
+    connect timeout quietly on every poll (14 Q3).
+  - **Cost, not yet over budget → measure at the W05/W06 relocation baseline.**
+    `docker-status` costs 98 ms per preview render (16 Q2); `_tmux_pick_lines` adds
+    one `_job_sh` per host per rebuild (16 Q4).
+  - **Dead carry → resolve when W01 fixes task identity.** `JOB_CONTAINER_CLI` is
+    exported but no picker path reads it (14 Q7); `tmux-ls` shows no status by design
+    (16 Q5) — keep or drop deliberately.
+  - **Unproven in the field → clean-consumer matrix (W08).** The `fzf < 0.73`
+    auto-poll branch is exercised only by the version probe; no installed fzf is that
+    old (14 Q5).
+  - **Product decision, not implementation → owner question at the W02 review.**
+    Whether a live Claude session in a checkout should suppress relaunching its
+    neighbours (15 Q1).
+
+  Not folded here, because they are not extraction work: the `tests/jobs/lib.zsh`
+  helper consolidation (its own executor stage — stage 17 if the pipeline resumes),
+  the Claude-side `/recap` skill (lives in the `claude` submodule), and the stale
+  macOS Login Items cleanup (admin: `sfltool resetbtm` or the Settings pane).

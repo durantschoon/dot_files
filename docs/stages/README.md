@@ -8,6 +8,26 @@ coordinator review. One global number sequence; each stage is a pair of files he
   commit.
 - `stage-NN-REPORT.md` — written by the executor in its worktree, merged after review.
 
+## Status (2026-11-09): paused at stage 16
+
+The EWM + job-runner sequence (stages 01–16) is complete: every stage is a merged
+PROMPT+REPORT pair, the gates were green at each merge (stage 16: smoke 402,
+`make check`, `make check-jobs` all exit 0), and no stage branch or worktree
+remains. The close-out retro below (reports 15–16) finishes the retro cadence —
+the stage 15 retro covered 10–14, so 15–16 were the only un-retro'd tail, and
+there is no owed stage 20 retro because the sequence stops here.
+
+This is a pause, not a teardown. The [module extraction plan](../MODULE_EXTRACTION_PLAN.md)
+is the next sequence and **continues this global numbering from stage 17**. The
+job-runner robustness questions left open by reports 14–16 were migrated into that
+plan's M1 backlog (its 2026-11-09 amendment) rather than kept as a separate list,
+because several overlap the R1–R6 findings M1 already owns. Three remaining items
+are follow-ups that are not stages: the `tests/jobs/lib.zsh` consolidation (an
+executor stage — stage 17 if the pipeline resumes), the Claude-side `/recap` skill
+(it lives in the `claude` submodule, out of a stage's reach), and the stale macOS
+Login Items (`stage15probe-t1` plus ten old `job-tee` rows; needs admin —
+`sfltool resetbtm` or the Settings pane).
+
 ## Discovered gates
 
 This is a dotfiles repo: there is no test suite and no CI. What exists:
@@ -173,6 +193,56 @@ first; these are the patterns it did not record:
   `nonzero`, per-suite `skip`). Four suites now carry near-duplicate helper sets.
   A shared `tests/jobs/lib.zsh` is a candidate for the stage after next; noted,
   not done here, because it touches every suite at once.
+
+### Added at the close-out retro (reports 15–16)
+
+The final retro of the EWM + job-runner pipeline. It covers the two reports the
+stage 15 retro did not; see the Status note at the top for why there is no stage 20.
+
+- **A grep gate whose natural failure is "matches nothing" is inverted — make
+  emptiness the failure.** Stage 15 Q5: the prompt's own containment gate,
+  `git grep -nE '\btmux\b'`, matched nothing (ERE has no `\b`) and so *passed* by
+  finding zero direct tmux calls — the opposite of what it meant to check. Grep and
+  absence gates spell the pattern with `rg` or `git grep -nP`, and assert a
+  non-empty expected hit so an empty result fails rather than passes. This extends
+  the stage 10 "measurement procedures, not expected numbers" rule to gate polarity.
+- **A change-item that contradicts its own verification list is a prompt bug, not
+  an "at least" gap — reconcile it before the prompt lands.** Stage 16 D3: change
+  item 6 said the row status strips `> `, verification item 6 said it keeps the
+  marker; the two halves prescribed different literal output for the same byte. The
+  executor correctly followed the higher-ranked change item and the coordinator
+  settled it in a follow-up commit — but that is post-merge cleanup the pre-launch
+  verify step should remove. The stage 10 "enumerations are 'at least', the goal
+  wins" rule resolves a *gap*; a direct contradiction between two prompt halves is
+  different, and the author reconciles the two before launch.
+- **Containment is a property of every shared user daemon, not only tmux.** Stage
+  16 D2: an `emacsclient -a ''` probe started a stray Emacs daemon — the Claude
+  shell's `TMPDIR` is `/tmp` while the user's socket is under `/var/folders/…/T`,
+  so "auto-start if absent" fired against the wrong server. The stage 15
+  private-tmux guard closed the tmux vector; this is the same shape through a
+  different tool. Rule: a probe that can start or mutate a shared daemon (tmux,
+  emacs, launchd, docker) names its target explicitly and never carries an
+  auto-start flag (`emacsclient -a ''`, a bare `tmux` against the default socket, …).
+- **The zsh/BSD trap catalogue is now worth writing down.** Reports 15–16 re-hit, at
+  new sites, traps that each cost real debugging: `${(j: :)${(qq)arr}}` *inside*
+  double quotes joins before `(qq)` runs (16 D10a — a spinning `shift 2` loop at
+  three sites, the trap `tmux-run` already documents); `local path=…` / `local
+  status=…` clobber zsh's tied `$PATH` array and the read-only `$status` (16
+  D10b/c); `sed -- FILE` reads `--` as a filename on BSD sed (16 D11); and an awk
+  `{ … }` inside `${(f)"$( … )"}` reports "closing brace expected" at EOF (15 D14).
+  Prompts touching `.jobs.zsh` point at this list; the reserved names (`path`,
+  `status`, `PATH`) and the `(qq)`-outside-quotes join have each bitten twice.
+- **`tests/jobs/lib.zsh` is now scheduled debt, not a someday.** Flagged "stage
+  after next" at the stage 15 retro, it grew a fifth near-duplicate helper the very
+  next stage (16 D9/Q7: `ends`, plus the suite-local `smoke_fzf_*`). Rule: a
+  retro-flagged cross-cutting consolidation is the next stage that would otherwise
+  add a sixth duplicate — or it is authored as its own stage first. If this pipeline
+  resumes as the module extraction, the consolidation is stage 17.
+- **The shared-checkout guard earned its keep.** Stage 16 D1: a `dot-files` session
+  from another Claude session appeared on the default server mid-stage; the stage 15
+  private-tmux guard caught it, it showed in both snapshots, and the gate passed
+  without the executor touching it. No new action — recorded as the confirmation
+  that the "one writer to main" plus private-tmux pair holds under real concurrency.
 
 ## Planned module extraction (2026-09-27)
 
