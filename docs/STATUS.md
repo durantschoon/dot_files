@@ -18,7 +18,6 @@ one-liner here too.
 
 | Project | State | Next action | Source of truth |
 | --- | --- | --- | --- |
-| **Job-runner stage pipeline** | **Paused, complete at stage 16.** All 16 stages merged and green; close-out retro done. | Optional follow-ups below; resume as the module extraction (stage 17+) if desired. | [`docs/stages/README.md`](stages/README.md) |
 | **Reusable job modules (`shell-jobs`, `agent-jobs`)** | **Planned, not started.** Milestone M1 repairs R1–R6; only R3's parsing half has landed (`4ecacd6`). | Settle owner decisions (repo names/visibility, license, platform floor), then author stage 17 for the R1 repair. | [`docs/MODULE_EXTRACTION_PLAN.md`](MODULE_EXTRACTION_PLAN.md) · [review](TMUX_REVIEW_AND_MODULE_PLAN.md) |
 | **EWM (Emacs Wayland Manager) trial** | **Built and launched.** Stages 0–2 done (runs on `geeeks`, TTY2, software rasteriser). Stage 1.5 (Guix session integration) unsolved. | Run the Stage 3 daily trial and answer its two questions (pinentry prompt; `wlr_data_control`). Stage 4 (Guix packaging) is deliberately last. | [`docs/EWM_TRIAL_PLAN.md`](EWM_TRIAL_PLAN.md) · [pre-switch checklist](EWM_PRE_SWITCH_EVALUATION.md) · [user guide](EWM_USER_GUIDE.md) |
 | **Voice control for the job runner (`gemini-voice`)** | **In-flight on branch `gemini-voice`** (worktree `/Users/durant/dot_files_voice`); not yet on `main`. A phone/voice bridge to `tmux-dash`: `voice_server.py` (port 8642) + `gemini_agent.py` read live jobs and relay answers via each job's `extranotes`/`inbox`. | Test against a real job that writes a question to `extranotes`, then polish the CLI loop into a Gradio UI or the Gemini Live API (voice-to-voice). | `docs/voice-handoff.md` *(lives on the `gemini-voice` branch, not `main`)* |
@@ -40,5 +39,6 @@ plan's **M1 backlog** (its 2026-11-09 amendment), mapped to their work packages.
 
 | Project | Landed |
 | --- | --- |
+| Job-runner stage pipeline (stages 01–16) | `main` — all stages merged and green; close-out retro done. Follow-on work continues as the module extraction (stage 17+) above; non-blocking follow-ups below. |
 | Register-a-machine checklist (`make register-machine`, role-aware `seed-linux`) | `main` (`7c58236`) |
 | Disk floor — refuse `make apply` under 20 GiB on `/` | `main` (`e76c821`) |
