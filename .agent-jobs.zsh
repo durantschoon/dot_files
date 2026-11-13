@@ -44,7 +44,7 @@
 # agent-help [ENGINE]              show help, including startup/resume syntax.
 #
 # Wrappers: claude-*, agy-*, codex-* supply ENGINE for every verb.
-# Engines: claude, agy, codex, cursor (cursor uses the generic verbs).
+# Engines: claude, agy, codex, grok (grok uses the generic verbs).
 # TASK is skill-agnostic: each repository can use its own vocabulary.
 #
 # Recovery resumes the MOST RECENT conversation for that engine at the repo
@@ -152,8 +152,8 @@ _agent_job_guard() {
 
 _agent_engine_check() {
   case $1 in
-    claude|agy|cursor|codex) return 0 ;;
-    *) print -u2 "agent-*: expected ENGINE claude, agy, codex or cursor; got '$1'"; return 64 ;;
+    claude|agy|grok|codex) return 0 ;;
+    *) print -u2 "agent-*: expected ENGINE claude, agy, codex or grok; got '$1'"; return 64 ;;
   esac
 }
 
@@ -365,7 +365,7 @@ _agent_agent_engine() {
   words=(${(z)cmd}); rest=${(Q)words[-1]}
   resume=(${(z)rest}); engine=${${(Q)resume[1]}:t}
   case $engine in
-    claude|agy|codex|cursor) print -r -- "$engine" ;;
+    claude|agy|codex|grok) print -r -- "$engine" ;;
     *)
       if [[ $rest == *' --permission-mode '*' --continue' ]]; then
         print -r -- claude
@@ -467,7 +467,7 @@ agent-status() {
     (( $# == 1 )) || { print -u2 "usage: agent-status all   (takes no TASK)"; return 64 }
     local e
     local -i _agent_status_found=0
-    for e in claude agy codex cursor; do
+    for e in claude agy codex grok; do
       _agent_status_heading=$e agent-status "$e" || return
     done
     (( _agent_status_found )) || print -u2 "agent-status: no agents are registered for any engine"
@@ -867,7 +867,7 @@ agent-herdr() {
 herdr-revive() {
   _agent_job_guard || return
   local -a engines; engines=("$@")
-  (( $#engines )) || engines=(claude agy codex cursor)
+  (( $#engines )) || engines=(claude agy codex grok)
   local e; for e in "${engines[@]}"; do _agent_engine_check "$e" || return; done
   (( $+commands[herdr] )) || rehash
   (( $+commands[herdr] )) || { print -u2 "herdr-revive: no herdr on PATH"; return 1 }
@@ -927,7 +927,7 @@ _agent_adopt_args() {
     claude) reply=(--permission-mode ${AGENT_JOB_MODE:-${CLAUDE_JOB_MODE:-auto}} --resume "$conv") ;;
     agy)    reply=(--conversation "$conv") ;;
     codex)  reply=(resume "$conv") ;;
-    cursor) reply=(--resume "$conv") ;;
+    grok)   reply=(--resume "$conv") ;;
     *) print -u2 "agent-adopt: no resume-by-id form for '$engine'"; return 1 ;;
   esac
 }
@@ -1100,7 +1100,7 @@ _agent_homebase() {
 _agent_stash_key() { print -r -- "${1//[^a-zA-Z0-9]/-}" }
 
 # _agent_stash_newest ENGINE ROOT: the id of ENGINE's newest conversation whose
-# working directory is ROOT; failure when there is none (or for cursor, which
+# working directory is ROOT; failure when there is none (or for grok, which
 # keeps no transcript this can read).
 _agent_stash_newest() {
   local engine=$1 root=$2 f id
@@ -1325,7 +1325,7 @@ agent-stash-pop() {
   # The Herdr half, when a Herdr server answers here; otherwise herdr-revive
   # later finds the sessions up and only opens them.
   if (( $+commands[herdr] )) && herdr api snapshot >/dev/null 2>&1; then
-    local e; for e in claude agy codex cursor; do agent-herdr "$e" --all 2>/dev/null; done
+    local e; for e in claude agy codex grok; do agent-herdr "$e" --all 2>/dev/null; done
   else
     print -u2 "agent-stash-pop: no Herdr server here; start \`herdr', then herdr-revive to open the tabs"
   fi
@@ -1351,7 +1351,7 @@ _agent_bin() {
       bin=${AGENT_JOB_BIN:-${CLAUDE_JOB_BIN:-}}
       [[ -z $bin && -x $HOME/.claude/local/claude ]] && bin=$HOME/.claude/local/claude ;;
     agy)    bin=${AGY_JOB_BIN:-} ;;
-    cursor) bin=${CURSOR_JOB_BIN:-} ;;
+    grok)   bin=${GROK_JOB_BIN:-} ;;
     codex)  bin=${CODEX_JOB_BIN:-} ;;
     *) _agent_engine_check "$1"; return ;;
   esac
@@ -1371,7 +1371,7 @@ _agent_resume_args() {
   case $1 in
     claude) print -r -- "--permission-mode ${AGENT_JOB_MODE:-${CLAUDE_JOB_MODE:-auto}} --continue" ;;
     agy)    print -r -- "continue" ;;
-    cursor) print -r -- "--continue" ;;
+    grok)   print -r -- "--continue" ;;
     codex)  print -r -- "resume --last" ;;
   esac
 }
@@ -1386,7 +1386,7 @@ _agent_start_args() {
         print -r -- ""
       fi
       ;;
-    cursor) print -r -- "" ;;
+    grok)   print -r -- "" ;;
     codex)
       if [[ -n $CODEX_START_ARGS ]]; then
         print -r -- "$CODEX_START_ARGS"
@@ -1479,7 +1479,7 @@ agent-help() {
   ' "$engine" "$script_path"
   local e start knob
   local -a engines; engines=("$engine")
-  [[ $engine == agent ]] && engines=(claude agy codex cursor)
+  [[ $engine == agent ]] && engines=(claude agy codex grok)
   for e in "${engines[@]}"; do
     start=$(_agent_start_args "$e")
     knob=${(U)e}_JOB_BIN

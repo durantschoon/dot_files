@@ -26,7 +26,7 @@ mkdir -p "${log%/*}"
     AGENT_JOB_CONFIRM=no zsh -l -c '
         source /root/dot_files/.jobs.zsh || exit 1
         source /root/dot_files/.agent-jobs.zsh || exit 1
-        for engine in claude agy codex cursor; do
+        for engine in claude agy codex grok; do
             print "== $engine"
             agent-relaunch "$engine" --all
         done

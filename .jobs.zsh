@@ -1824,7 +1824,7 @@ Commands:
   tmux-rm [TASK|--all]  Kill the task's session(s)
   tmux-hibernate        Save local jobs to ~/.tmux-hibernated-jobs and stop them
   tmux-revive           Restart all jobs previously saved by tmux-hibernate
-  herdr-revive [ENGINE] Recover agent sessions (claude/agy/codex/cursor) and
+  herdr-revive [ENGINE] Recover agent sessions (claude/agy/codex/grok) and
                         open each in its own Herdr workspace (.agent-jobs.zsh)
 
   Which revive?  They cover different sessions; after a reboot or a container
@@ -2656,7 +2656,7 @@ _job_complete() {
   local verb=$service want_task_at=0
   if [[ $verb == agent-* ]]; then
     # agent-VERB ENGINE TASK
-    (( npos == 0 )) && [[ $PREFIX != -* ]] && { compadd -- claude agy codex cursor; return }
+    (( npos == 0 )) && [[ $PREFIX != -* ]] && { compadd -- claude agy codex grok; return }
     want_task_at=1
   fi
   if [[ $PREFIX == -* ]]; then
