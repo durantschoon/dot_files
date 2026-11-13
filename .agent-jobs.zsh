@@ -11,6 +11,9 @@
 # agent-status ENGINE [TASK]       list this engine's active agents, or inspect
 #                                 one task's tmux and agent registry/launchd status.
 # agent-status all                 the same list for every engine, one heading each.
+# agent-status any NAME            inspect one session from anywhere: NAME is a task
+#                                 (agy3), a session (dot-files-agy3) or a label.
+#                                 Several matches: pick one (fzf, else a numbered list).
 # agent-relaunch ENGINE [--all|TASK]
 #                                 recover missing sessions for this engine;
 #                                 at most one per checkout, with live sessions
@@ -30,6 +33,14 @@
 #                                 for each engine (default: all of them).
 # agent-rm ENGINE TASK             remove the session and registered agent; keep
 #                                 the transcript, including unloaded plists.
+# agent-rm any NAME                the same, found by task, session or label from
+#                                 anywhere; always asks first (AGENT_JOB_CONFIRM=no
+#                                 lets a script through, one match only).
+# agent-prune [--apply] [--days N] sort registered agents into orphaned (checkout
+#                                 gone), stale (missing, untouched N days) and idle
+#                                 (up, quiet); --apply removes the first two after
+#                                 backing them up. Refuses right after a restart.
+# agent-prune --restore [STAMP]    list prune backups, or put one back.
 # agent-stash-all [--keep-homebase] [FILE]
 #                                 pack every registered agent -- registry
 #                                 entry, exact conversation id, its transcripts,
@@ -454,6 +465,72 @@ _agent_agent_mtime() {
   print -r -- "$s[1]"
 }
 
+# _agent_find_any NAME: every registered agent NAME refers to, one row each,
+# tab-separated: LABEL ENGINE TASK SESSION DIR. NAME matches a row when it is
+# the row's task (the label's last segment: _job_task forbids dots, so that
+# split is exact), its tmux session name, or its full label. Task names are
+# only unique per checkout -- agy1 can exist in three repos -- which is why a
+# match can be several rows and why callers go through _agent_pick_any.
+_agent_find_any() {
+  local want=$1 label engine task name wd
+  local -a labels; labels=(${(f)"$(_agent_job_labels)"})
+  for label in "${labels[@]}"; do
+    [[ -n $label ]] || continue
+    task=${label##*.}
+    name=$(_agent_agent_session "$label") || continue
+    [[ $want == "$task" || $want == "$name" || $want == "$label" ]] || continue
+    engine=$(_agent_agent_engine "$label") || continue
+    wd=$(_agent_agent_wd "$label") || continue
+    print -r -- "$label"$'\t'"$engine"$'\t'"$task"$'\t'"$name"$'\t'"$wd"
+  done
+}
+
+# _agent_pick_any CALLER NAME: resolve NAME to exactly one row of
+# _agent_find_any, set reply=(LABEL ENGINE TASK SESSION DIR), return 0.
+# One match is taken as is. Several are offered as a choice when a person is
+# at the terminal -- fzf when installed, else a numbered list -- and are
+# listed with a non-zero return otherwise, since a prompt nobody can answer
+# would hang an agent or a script.
+_agent_pick_any() {
+  local caller=$1 want=$2 row
+  local -a rows; rows=(${(f)"$(_agent_find_any "$want")"})
+  reply=()
+  if (( ! $#rows )); then
+    print -u2 "$caller: no agent session is named '$want' (try: agent-status all)"
+    return 1
+  fi
+  if (( $#rows == 1 )); then
+    row=$rows[1]
+  elif [[ -t 0 && -t 2 ]]; then
+    local -a shown; local r
+    for r in "${rows[@]}"; do
+      shown+=("$(printf '%-7s %-34s %s' "${${(ps:\t:)r}[2]}" "${${(ps:\t:)r}[4]}" "${${(ps:\t:)r}[5]}")")
+    done
+    local choice="" i
+    if (( $+commands[fzf] )); then
+      choice=$(print -rl -- "${shown[@]}" | fzf --height=~40% --reverse \
+        --prompt="$caller $want> " --header="several sessions match '$want'") || return 1
+    else
+      print -u2 "$caller: several sessions match '$want':"
+      for (( i = 1; i <= $#shown; i++ )); do print -u2 -- "  $i) $shown[i]"; done
+      local n; read "n?Which one? [1-$#shown, Enter to cancel] " || return 1
+      [[ $n == <1-> ]] && (( n <= $#shown )) || return 1
+      choice=$shown[n]
+    fi
+    for (( i = 1; i <= $#shown; i++ )); do
+      [[ $shown[i] == "$choice" ]] && { row=$rows[i]; break }
+    done
+    [[ -n $row ]] || return 1
+  else
+    print -u2 "$caller: several sessions match '$want'; name one by its session:"
+    for row in "${rows[@]}"; do
+      print -u2 -- "  $(printf '%-7s %-34s %s' "${${(ps:\t:)row}[2]}" "${${(ps:\t:)row}[4]}" "${${(ps:\t:)row}[5]}")"
+    done
+    return 1
+  fi
+  reply=("${(@ps:\t:)row}")
+}
+
 # agent-status ENGINE [TASK]: with a task, tmux-status + launchd-status for it;
 # with none, every loaded agent for this engine, whether it is up, and where.
 #
@@ -463,6 +540,14 @@ _agent_agent_mtime() {
 agent-status() {
   _agent_job_guard || return
   local engine=$1
+  if [[ $engine == any ]]; then
+    (( $# == 2 )) || { print -u2 "usage: agent-status any TASK|SESSION|LABEL"; return 64 }
+    _agent_pick_any agent-status "$2" || return
+    # The TASK form reads the checkout from the cwd, so run it from the
+    # session's own directory, in a subshell to leave the caller's cwd alone.
+    ( cd -- "$reply[5]" && agent-status "$reply[2]" "$reply[3]" )
+    return
+  fi
   if [[ $engine == all ]]; then
     (( $# == 1 )) || { print -u2 "usage: agent-status all   (takes no TASK)"; return 64 }
     local e
@@ -883,6 +968,23 @@ herdr-revive() {
 agent-rm() {
   _agent_job_guard || return
   local engine=$1
+  if [[ $engine == any ]]; then
+    (( $# == 2 )) || { print -u2 "usage: agent-rm any TASK|SESSION|LABEL"; return 64 }
+    _agent_pick_any agent-rm "$2" || return
+    local -a hit; hit=("${reply[@]}")
+    # Always confirmed: the name was looked up, not typed in full. Without a
+    # terminal only AGENT_JOB_CONFIRM=no lets it through.
+    if [[ -t 0 ]]; then
+      local ans
+      read -q "ans?Remove $hit[2] session $hit[4] in $hit[5]? [y/N] " || { print; return 1 }
+      print
+    elif [[ $AGENT_JOB_CONFIRM != no ]]; then
+      print -u2 "agent-rm: no terminal to confirm removing $hit[4]; set AGENT_JOB_CONFIRM=no to allow it"
+      return 1
+    fi
+    ( cd -- "$hit[5]" && agent-rm "$hit[2]" "$hit[3]" )
+    return
+  fi
   _agent_engine_check "$engine" || return
   (( $# == 2 )) || { print -u2 "usage: agent-rm ENGINE TASK"; return 64 }
   shift
@@ -942,6 +1044,239 @@ _agent_conv_dir() {
     codex)  print -r -- "$HOME/.codex/sessions" ;;
     *) return 1 ;;
   esac
+}
+
+# agent-prune [--apply] [--days N] / agent-prune --restore [STAMP]
+#
+# Clears out registered agents nobody is coming back to. MISSING alone is not
+# that test: right after a reboot, a container restart or a dead tmux server
+# EVERY agent is MISSING until agent-relaunch brings it back, and agents
+# PAUSED in the mr-agents Org table are missing on purpose. So each row is
+# sorted into one of three groups, and only the first two are ever removed:
+#
+#   orphaned  no tmux session, and its checkout directory is gone (a removed
+#             worktree, a deleted clone). Nothing could resume it there.
+#   stale     no tmux session, not PAUSED, and nothing has touched it for
+#             --days (default AGENT_PRUNE_DAYS, 14): not the last start in
+#             logs/<task>.job, not its registry conf, not its plist.
+#   idle      the session is up but tmux has seen no activity in it for
+#             --days, or it is up in a checkout that is gone. Listed so you
+#             can look; never removed here, since a live agent may hold work.
+#
+# Without --apply it only prints the groups. With --apply it removes the
+# orphaned and stale rows after one confirmation (no terminal: only
+# AGENT_JOB_CONFIRM=no lets it through), never killing a session.
+#
+# It refuses outright while recovery may still be running: when no tmux
+# server is up, or the server started under AGENT_PRUNE_MIN_UPTIME seconds
+# ago (default 600). Then everything looks MISSING and nothing should be
+# judged.
+#
+# Every removed row is first copied -- registry conf, launchd plist and its
+# per-agent support directory -- into pruned/<STAMP>/ under the registry, with
+# a manifest. `agent-prune --restore' lists those backups; `--restore STAMP'
+# puts the rows back (skipping any that exist again) and reloads the launchd
+# agents; agent-relaunch ENGINE --all then starts the sessions. Transcripts
+# are never touched, so the conversations themselves survive either way.
+#
+# The registry is per machine: run it on the Mac and inside guix-dev
+# separately. It judges only the rows agent-status lists.
+typeset -g AGENT_PRUNE_DAYS=${AGENT_PRUNE_DAYS:-14}
+typeset -g AGENT_PRUNE_MIN_UPTIME=${AGENT_PRUNE_MIN_UPTIME:-600}
+
+# _agent_prune_last_seen LABEL DIR TASK: epoch seconds of the newest sign of
+# use -- the task's last recorded start, the conf's mtime, the plist's mtime.
+_agent_prune_last_seen() {
+  local label=$1 wd=$2 task=$3 at f
+  local -i best=0 t
+  zmodload zsh/datetime 2>/dev/null
+  zmodload -F zsh/stat b:zstat 2>/dev/null
+  if at=$(_agent_agent_at "$wd" "$task" 2>/dev/null) && t=$(strftime -r '%Y-%m-%dT%H:%M:%S%z' "$at" 2>/dev/null); then
+    (( t > best )) && best=t
+  fi
+  local -a s
+  for f in "$(_agent_conf_file "$label")" "$(_launchd_plist "$label")"; do
+    [[ -f $f ]] && zstat -A s +mtime -- "$f" 2>/dev/null && (( s[1] > best )) && best=$s[1]
+  done
+  print -r -- $best
+}
+
+# _agent_prune_backup LABEL DIR: copy what restoring LABEL needs into DIR.
+_agent_prune_backup() {
+  local label=$1 dir=$2 conf plist support
+  conf=$(_agent_conf_file "$label"); plist=$(_launchd_plist "$label")
+  support=$(_launchd_support_dir "$label")
+  mkdir -p -- "$dir" || return
+  [[ -f $conf ]]  && { command cp -p -- "$conf" "$dir/" || return }
+  [[ -f $plist ]] && { command cp -p -- "$plist" "$dir/" || return }
+  [[ -d $support ]] && { mkdir -p -- "$dir/support" && command cp -R -- "$support" "$dir/support/" || return }
+  return 0
+}
+
+# _agent_prune_remove LABEL: unregister LABEL without needing its checkout --
+# an orphan's directory is gone, so agent-rm's cwd-based lookup cannot run.
+# Never touches a tmux session: only rows without one are removed.
+_agent_prune_remove() {
+  local label=$1 conf plist support
+  conf=$(_agent_conf_file "$label"); plist=$(_launchd_plist "$label")
+  support=$(_launchd_support_dir "$label")
+  if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+    _launchd_bootout "$label" || return
+    [[ -f $plist ]] && command rm -f -- "$plist"
+    # Same guard as launchd-rm: this is an rm -rf.
+    [[ -n $label && $support == "$HOME/Library/Application Support/local.job/"?* && -d $support ]] \
+      && command rm -rf -- "$support"
+  fi
+  [[ -f $conf ]] && command rm -f -- "$conf"
+  return 0
+}
+
+_agent_prune_restore() {
+  local root; root="$(_agent_registry_dir)/pruned"
+  if (( ! $# )); then
+    local -a stamps; stamps=("$root"/*(N/:t))
+    if (( ! $#stamps )); then print -u2 "agent-prune: no pruned backups in $root"; return 0; fi
+    print "Backups in $root (restore one with: agent-prune --restore STAMP):"
+    local st; for st in "${stamps[@]}"; do
+      print "  $st  $(( $(grep -vc '^#' "$root/$st/manifest.tsv" 2>/dev/null) )) agents"
+    done
+    return 0
+  fi
+  local dir=$root/$1 man=$root/$1/manifest.tsv
+  [[ -r $man ]] || { print -u2 "agent-prune: no backup '$1' in $root"; return 1 }
+  local group label engine task name wd conf plist src
+  local -a engines
+  while IFS=$'\t' read -r group label engine task name wd; do
+    [[ $group == \#* || -z $label ]] && continue
+    conf=$(_agent_conf_file "$label"); plist=$(_launchd_plist "$label")
+    if [[ -e $conf || -e $plist ]]; then
+      print -u2 "agent-prune: $name is registered again; leaving it as it is"
+      continue
+    fi
+    src=$dir/$label
+    [[ -f $src/$label.conf ]] && command cp -p -- "$src/$label.conf" "$conf"
+    if [[ -f $src/$label.plist ]]; then
+      mkdir -p -- "${plist:h}" && command cp -p -- "$src/$label.plist" "$plist"
+      [[ -d $src/support/$label ]] && mkdir -p -- "${$(_launchd_support_dir "$label"):h}" \
+        && command cp -R -- "$src/support/$label" "$(_launchd_support_dir "$label")"
+      if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+        launchctl bootstrap "$(_launchd_domain)" "$plist" 2>/dev/null \
+          || print -u2 "agent-prune: restored $plist but launchctl would not load it"
+      fi
+    fi
+    print -u2 "agent-prune: restored $name ($engine, $wd)"
+    (( ${engines[(Ie)$engine]} )) || engines+=("$engine")
+  done < "$man"
+  local e; for e in "${engines[@]}"; do
+    print -u2 "agent-prune: start the restored $e sessions with: agent-relaunch $e --all"
+  done
+}
+
+agent-prune() {
+  _agent_job_guard || return
+  local -i apply=0 days=$AGENT_PRUNE_DAYS
+  while (( $# )); do
+    case $1 in
+      --apply) apply=1 ;;
+      --days)  [[ ${2-} == <-> ]] || { print -u2 "usage: agent-prune [--apply] [--days N]"; return 64 }
+               days=$2; shift ;;
+      --restore) shift; _agent_prune_restore "$@"; return ;;
+      *) print -u2 "usage: agent-prune [--apply] [--days N] | --restore [STAMP]"; return 64 ;;
+    esac
+    shift
+  done
+
+  # Recovery guard: judge nothing while sessions may still be coming back.
+  zmodload zsh/datetime 2>/dev/null
+  local started; started=$(tmux list-sessions -F '#{start_time}' 2>/dev/null | head -n 1)
+  if [[ -z $started ]]; then
+    print -u2 "agent-prune: no tmux server is running, so every agent looks MISSING; run agent-relaunch first"
+    return 1
+  fi
+  if (( EPOCHSECONDS - started < AGENT_PRUNE_MIN_UPTIME )); then
+    print -u2 "agent-prune: the tmux server started $(( (EPOCHSECONDS - started) / 60 )) min ago; wait until relaunch has settled (AGENT_PRUNE_MIN_UPTIME=$AGENT_PRUNE_MIN_UPTIME s)"
+    return 1
+  fi
+
+  local -i cutoff=$(( EPOCHSECONDS - days * 86400 ))
+  # Last activity of every live session, read once: NAME -> epoch seconds.
+  local -A activity; local sname sact
+  while read -r sname sact; do activity[$sname]=$sact; done \
+    < <(tmux list-sessions -F '#{session_name} #{session_activity}' 2>/dev/null)
+  local -a labels rows; labels=(${(f)"$(_agent_job_labels)"})
+  local label engine name wd task group why
+  local -i seen kept=0 pause_rc
+  for label in "${labels[@]}"; do
+    [[ -n $label ]] || continue
+    name=$(_agent_agent_session "$label") || continue
+    engine=$(_agent_agent_engine "$label") || continue
+    wd=$(_agent_agent_wd "$label") || continue
+    task=${label##*.}
+    group="" why=""
+    if [[ -n ${activity[$name]-} ]]; then
+      seen=$activity[$name]
+      if [[ ! -d $wd ]]; then group=idle why="up, but its checkout is gone"
+      elif (( seen <= cutoff )); then group=idle why="up, no activity"
+      fi
+    else
+      seen=$(_agent_prune_last_seen "$label" "$wd" "$task")
+      if [[ ! -d $wd ]]; then group=orphaned why="checkout is gone"
+      elif (( seen <= cutoff )); then group=stale why="missing, untouched"
+      fi
+      if [[ -n $group ]]; then
+        _agent_pause_check "$name" 2>/dev/null; pause_rc=$?
+        (( pause_rc == 0 )) && { group="" ; (( kept++ )) ; continue }
+        (( pause_rc != 1 )) && { group="" ; (( kept++ )) ; continue }   # unreadable: protect
+      fi
+    fi
+    [[ -n $group ]] || { (( kept++ )); continue }
+    rows+=("$group"$'\t'"$label"$'\t'"$engine"$'\t'"$task"$'\t'"$name"$'\t'"$wd"$'\t'"$(( seen ? (EPOCHSECONDS - seen) / 86400 : -1 ))"$'\t'"$why")
+  done
+
+  local -a removable; local r
+  local -A order; order=(orphaned 1 stale 2 idle 3)
+  rows=(${(f)"$(for r in "${rows[@]}"; do print -r -- "$order[${r%%$'\t'*}]"$'\t'"$r"; done | sort -t $'\t' -k1,1n -k8,8nr | cut -f2-)"})
+  if (( ! $#rows )); then
+    print "agent-prune: nothing to prune ($kept agents active within $days days, PAUSED or protected)"
+    return 0
+  fi
+  local -a f
+  printf '%-9s %-6s %-34s %6s  %s\n' GROUP ENGINE SESSION AGE "WHY / DIR"
+  for r in "${rows[@]}"; do
+    f=("${(@ps:\t:)r}")
+    printf '%-9s %-6s %-34s %5sd  %s  %s\n' "$f[1]" "$f[3]" "$f[5]" "${f[7]/-1/?}" "$f[8]" "$f[6]"
+    [[ $f[1] == idle ]] || removable+=("$r")
+  done
+  print "kept: $kept (active within $days days, PAUSED, or the pause table was unreadable)"
+  if (( ! apply )); then
+    (( $#removable )) && print "dry run: agent-prune --apply removes the ${#removable} orphaned and stale rows; idle ones are never removed here"
+    return 0
+  fi
+  (( $#removable )) || { print "agent-prune: only idle sessions; nothing to remove"; return 0 }
+  if [[ -t 0 ]]; then
+    local ans
+    read -q "ans?Remove ${#removable} agents (backed up first)? [y/N] " || { print; return 1 }
+    print
+  elif [[ $AGENT_JOB_CONFIRM != no ]]; then
+    print -u2 "agent-prune: no terminal to confirm; set AGENT_JOB_CONFIRM=no to allow it"
+    return 1
+  fi
+  local stamp bk; stamp=$(command date +%Y%m%d-%H%M%S)
+  bk="$(_agent_registry_dir)/pruned/$stamp"
+  mkdir -p -- "$bk" || return
+  print -r -- "# group	label	engine	task	session	dir" > "$bk/manifest.tsv"
+  local -i removed=0
+  for r in "${removable[@]}"; do
+    f=("${(@ps:\t:)r}")
+    _agent_prune_backup "$f[2]" "$bk/$f[2]" || { print -u2 "agent-prune: could not back up $f[5]; left it registered"; continue }
+    if _agent_prune_remove "$f[2]"; then
+      print -r -- "${(pj:\t:)f[1,6]}" >> "$bk/manifest.tsv"
+      (( removed++ ))
+    else
+      print -u2 "agent-prune: could not remove $f[5]"
+    fi
+  done
+  print "agent-prune: removed $removed agents; undo with: agent-prune --restore $stamp"
 }
 
 # agent-conversations ENGINE: this checkout's conversation ids, newest first,
@@ -1463,8 +1798,12 @@ agent-help() {
       last if !/^#/;
       next if /^# -\*-/;
       s/^# ?//;
+      # The all/any forms span engines, so a per-engine help (claude-help)
+      # has no $e- spelling of them: drop each, with its indented lines.
       if ($e ne "agent") {
-        next if /^agent-status all\b/;   # spans engines; no $e- form
+        if (/^agent-(status|rm) (all|any)\b|^agent-prune\b/) { $skip = 1; next }
+        if ($skip && /^\s/) { next }
+        $skip = 0;
         s/agent-(run|status|relaunch|herdr|adopt|conversations|rm|help)/$e-$1/g;
         s/ ENGINE\b//g;
         s/ \[ENGINE\]//g;
