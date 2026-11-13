@@ -240,6 +240,7 @@ help-text:
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
 	@echo "  make install-agy    - Install agy, Google's Antigravity CLI (idempotent; loader wrapper on Guix System)"
 	@echo "  make install-herdr  - Install herdr, the AI agent multiplexer (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
+	@echo "  make install-bazel  - Install bazel as bazelisk (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
 	@echo "  make install-ghostty - Install Ghostty terminal emulator (Homebrew cask on macOS)"
 	@echo "  make install-yazi   - Install Yazi and media-handling stack (Homebrew on macOS)"
 	@echo ""
@@ -397,7 +398,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-starship install-claude install-uv install-agy install-herdr install-radicle setup-sshd-for-ingress
+setup-native: set_up_links install-starship install-claude install-uv install-agy install-herdr install-bazel install-radicle setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
 .PHONY: register-machine check-register-machine
@@ -487,6 +488,21 @@ else ifeq ($(flavor),$(FLAVOR_TERMUX))
 		echo "  Termux: herdr has no native Android binary (work from your phone via SSH)"
 else
 	@bash bin/install-herdr.sh
+endif
+
+# bazel everywhere, as bazelisk: Guix does not package Bazel, so this also
+# runs from apply/apply-wayland/update, like install-herdr.  Idempotent;
+# bin/install-bazel.sh uses Homebrew on macOS and the checksummed release
+# binary in ~/.local/bin on Linux.
+.PHONY: install-bazel
+install-bazel:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install bazel with 'winget install Bazel.Bazelisk'"
+	@echo "(from WSL, run 'make install-bazel' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@echo "  Termux: bazel has no Android host build (build on another machine over SSH)"
+else
+	@bash bin/install-bazel.sh
 endif
 
 # Ghostty terminal emulator (Homebrew cask on macOS, distro package on Linux)
@@ -1627,6 +1643,8 @@ apply: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> ensuring herdr is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
+	@echo "==> ensuring bazel (bazelisk) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-bazel || echo "warning: install-bazel failed; re-run 'make install-bazel' later"
 	@echo "==> done (Guix Home applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -1678,6 +1696,8 @@ apply-wayland: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> ensuring herdr is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
+	@echo "==> ensuring bazel (bazelisk) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-bazel || echo "warning: install-bazel failed; re-run 'make install-bazel' later"
 	@echo "==> done (Guix Home Wayland applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -2969,6 +2989,8 @@ update: warn-dotfiles-home
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> ensuring herdr is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
+	@echo "==> ensuring bazel (bazelisk) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-bazel || echo "warning: install-bazel failed; re-run 'make install-bazel' later"
 
 install-manifest:
 	@echo "==> guix package -m manifests/base.scm"
