@@ -718,6 +718,7 @@ assert "… lists p2 as stale"                     grep -q -- "^stale .* $PRUNE_
 refute "… keeps p3, missing but recent"          grep -q -- " $PRUNE_SLUG_OF[p3] " <<<"$PR_OUT"
 refute "… does not list the live p4"             grep -q -- " $PRUNE_SLUG_OF[p4] " <<<"$PR_OUT"
 assert "… and removes nothing"                   test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p2.conf"
+refute "… with no progress line in captured output" grep -q -- "checking [0-9]*/" <<<"$PR_OUT"
 assert "--days 0 lists the live p4 as idle"      grep -q -- "^idle .* $PRUNE_SLUG_OF[p4] " <<<"$(agent-prune --days 0 2>&1)"
 
 agent-prune --apply </dev/null >/dev/null 2>"$BASE/prune-refused.err"; RC=$?

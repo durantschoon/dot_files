@@ -271,6 +271,8 @@ def main():
     parser.add_argument("--file", type=Path, default=control_file(), help="editable Org control file")
     parser.add_argument("--refresh", action="store_true", help="refresh the Org file, preserving PAUSED and notes")
     parser.add_argument("--is-paused", metavar="SESSION", help="recovery guard: exit 0 if paused, 1 if active, 2 on error")
+    parser.add_argument("--paused", action="store_true",
+                        help="print this host's PAUSED sessions, one per line (exit 2 on error)")
     args = parser.parse_args()
     if args.stale_hours < 0:
         parser.error("--stale-hours must be nonnegative")
@@ -280,6 +282,16 @@ def main():
             parser.error("--is-paused cannot be combined with output, refresh or filtering")
         row = saved.get((host_name(), args.is_paused), {})
         return 0 if row.get("desired_state") == "PAUSED" else 1
+    if args.paused:
+        # The batch form of --is-paused, for callers that judge many sessions
+        # at once (agent-prune): one Python start instead of one per session.
+        if args.refresh or args.org or args.csv or args.repo:
+            parser.error("--paused cannot be combined with output, refresh or filtering")
+        host = host_name()
+        for (row_host, session), row in sorted(saved.items()):
+            if row_host == host and row.get("desired_state") == "PAUSED":
+                print(session)
+        return 0
     records = apply_controls(census(), saved)
     if args.refresh:
         if args.repo:

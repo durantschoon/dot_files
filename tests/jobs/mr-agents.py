@@ -139,6 +139,20 @@ agent-relaunch codex --all
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 1)
             self.assertIn(r"a \vert{} b", file.read_text())
 
+    def test_paused_lists_this_hosts_paused_sessions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            file = Path(temp) / "agents.org"
+            module.refresh(file, [record(desired_state="PAUSED")], "")
+            command = [str(ROOT / "bin/mr-agents"), "--file", str(file), "--paused"]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout.split(), ["repo-sol"])
+            file.write_text(file.read_text().replace("| PAUSED |", "| ACTIVE |"))
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual((result.returncode, result.stdout), (0, ""))
+            file.write_text(file.read_text().replace("| ACTIVE |", "| BROKEN |"))
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 2)
+
     def test_homebase_tick_refreshes_org_without_restarts(self):
         with tempfile.TemporaryDirectory(prefix="mat-") as temp:
             base = Path(temp)

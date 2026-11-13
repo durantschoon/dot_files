@@ -1172,6 +1172,26 @@ _agent_prune_restore() {
   done
 }
 
+# _agent_prune_progress I N TEXT: one self-overwriting status line on stderr,
+# with a spinner, while agent-prune walks the registry. Only on a terminal, so
+# captured or logged output stays clean; `_agent_prune_progress' alone clears it.
+_agent_prune_progress() {
+  [[ -t 2 ]] || return 0
+  if (( ! $# )); then print -nu2 $'\r\e[K'; return 0; fi
+  local -a frames; frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  print -nu2 -- $'\r\e[K'"$frames[$(( $1 % $#frames + 1 ))] agent-prune: $3 $1/$2"
+}
+
+# _agent_prune_paused: this host's PAUSED session names, one per line, read in
+# one mr-agents call (one Python start per session cost ~0.3 s each inside
+# guix-dev). Returns non-zero when the Org control file cannot be read.
+_agent_prune_paused() {
+  local helper="${_AGENT_JOBS_FILE:h}/bin/mr-agents"
+  [[ -f $helper ]] || helper="$HOME/dot_files/bin/mr-agents"
+  [[ -f $helper ]] || return 2
+  python3 "$helper" --paused
+}
+
 agent-prune() {
   _agent_job_guard || return
   local -i apply=0 days=$AGENT_PRUNE_DAYS
@@ -1205,9 +1225,17 @@ agent-prune() {
     < <(tmux list-sessions -F '#{session_name} #{session_activity}' 2>/dev/null)
   local -a labels rows; labels=(${(f)"$(_agent_job_labels)"})
   local label engine name wd task group why
-  local -i seen kept=0 pause_rc
+  local -i seen kept=0 i=0
+  # PAUSED rows are kept. An unreadable control file protects every row,
+  # as agent-relaunch blocks recovery on it rather than guess.
+  local -A paused; local -i pause_ok=1 ; local pname
+  _agent_prune_progress 0 $#labels "reading the mr-agents pause table"
+  local pause_out; pause_out=$(_agent_prune_paused 2>/dev/null) || pause_ok=0
+  for pname in ${(f)pause_out}; do paused[$pname]=1; done
   for label in "${labels[@]}"; do
+    (( i++ ))
     [[ -n $label ]] || continue
+    _agent_prune_progress $i $#labels "checking"
     name=$(_agent_agent_session "$label") || continue
     engine=$(_agent_agent_engine "$label") || continue
     wd=$(_agent_agent_wd "$label") || continue
@@ -1223,16 +1251,16 @@ agent-prune() {
       if [[ ! -d $wd ]]; then group=orphaned why="checkout is gone"
       elif (( seen <= cutoff )); then group=stale why="missing, untouched"
       fi
-      if [[ -n $group ]]; then
-        _agent_pause_check "$name" 2>/dev/null; pause_rc=$?
-        (( pause_rc == 0 )) && { group="" ; (( kept++ )) ; continue }
-        (( pause_rc != 1 )) && { group="" ; (( kept++ )) ; continue }   # unreadable: protect
+      if [[ -n $group ]] && { (( ! pause_ok )) || [[ -n ${paused[$name]-} ]] }; then
+        (( kept++ )); continue
       fi
     fi
     [[ -n $group ]] || { (( kept++ )); continue }
     rows+=("$group"$'\t'"$label"$'\t'"$engine"$'\t'"$task"$'\t'"$name"$'\t'"$wd"$'\t'"$(( seen ? (EPOCHSECONDS - seen) / 86400 : -1 ))"$'\t'"$why")
   done
 
+  _agent_prune_progress
+  (( pause_ok )) || print -u2 "agent-prune: cannot read the mr-agents pause table; every missing agent is kept"
   local -a removable; local r
   local -A order; order=(orphaned 1 stale 2 idle 3)
   rows=(${(f)"$(for r in "${rows[@]}"; do print -r -- "$order[${r%%$'\t'*}]"$'\t'"$r"; done | sort -t $'\t' -k1,1n -k8,8nr | cut -f2-)"})
@@ -1266,16 +1294,19 @@ agent-prune() {
   mkdir -p -- "$bk" || return
   print -r -- "# group	label	engine	task	session	dir" > "$bk/manifest.tsv"
   local -i removed=0
+  i=0
   for r in "${removable[@]}"; do
     f=("${(@ps:\t:)r}")
-    _agent_prune_backup "$f[2]" "$bk/$f[2]" || { print -u2 "agent-prune: could not back up $f[5]; left it registered"; continue }
+    _agent_prune_progress $(( ++i )) $#removable "backing up and removing $f[5]"
+    _agent_prune_backup "$f[2]" "$bk/$f[2]" || { _agent_prune_progress; print -u2 "agent-prune: could not back up $f[5]; left it registered"; continue }
     if _agent_prune_remove "$f[2]"; then
       print -r -- "${(pj:\t:)f[1,6]}" >> "$bk/manifest.tsv"
       (( removed++ ))
     else
-      print -u2 "agent-prune: could not remove $f[5]"
+      _agent_prune_progress; print -u2 "agent-prune: could not remove $f[5]"
     fi
   done
+  _agent_prune_progress
   print "agent-prune: removed $removed agents; undo with: agent-prune --restore $stamp"
 }
 
