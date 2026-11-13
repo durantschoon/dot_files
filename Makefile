@@ -2429,6 +2429,8 @@ ifeq ($(os),$(OS_MAC))
 	@i=0; until rad node status --only nid >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
 	@$(MAKE) --no-print-directory check-radicle
 else ifneq (,$(shell command -v herd 2>/dev/null))
+	@herd status >/dev/null 2>&1 || { \
+	  echo "  *** user Shepherd is not running; the Radicle service cannot start here ***"; exit 1; }
 	@herd status radicle-node >/dev/null 2>&1 || { \
 	  echo "  *** no radicle-node Shepherd service here: run 'make apply' (Guix Home layer 'radicle') ***"; exit 1; }
 	@test -f "$(RADICLE_HOME)/keys/radicle" || { echo "  *** no Radicle identity: run 'rad auth' first ***"; exit 1; }
@@ -2499,7 +2501,9 @@ check-radicle:
 	    echo "    [ok] LaunchAgent : $(RADICLE_LABEL) running"; \
 	  fi; \
 	elif command -v herd >/dev/null 2>&1; then \
-	  if ! herd status radicle-node >/dev/null 2>&1; then \
+	  if ! herd status >/dev/null 2>&1; then \
+	    rc=1; echo "    [--] Shepherd    : user Shepherd not running"; \
+	  elif ! herd status radicle-node >/dev/null 2>&1; then \
 	    rc=1; echo "    [--] Shepherd    : no radicle-node service; fix: make apply (layer 'radicle')"; \
 	  else \
 	    echo "    [ok] Shepherd    : radicle-node service declared"; \
