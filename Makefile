@@ -2426,7 +2426,7 @@ ifeq ($(os),$(OS_MAC))
 	  i=0; while pgrep -qx radicle-node && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
 	fi
 	@launchctl bootstrap gui/$$(id -u) $(RADICLE_PLIST_DST)
-	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
+	@i=0; until rad node status --only nid >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
 	@$(MAKE) --no-print-directory check-radicle
 else ifneq (,$(shell command -v herd 2>/dev/null))
 	@herd status radicle-node >/dev/null 2>&1 || { \
@@ -2442,7 +2442,7 @@ else ifneq (,$(shell command -v herd 2>/dev/null))
 	  i=0; while pgrep -x radicle-node >/dev/null && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
 	fi
 	@herd restart radicle-node
-	@i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
+	@i=0; until rad node status --only nid >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done
 	@$(MAKE) --no-print-directory check-radicle
 else
 	@test -n "$(RADICLE_NODE_BIN)" || { echo "  *** radicle-node not found: run 'make install-radicle' ***"; exit 1; }
@@ -2462,7 +2462,7 @@ else
 	    i=0; while pgrep -qx radicle-node && [ $$i -lt 20 ]; do sleep 0.5; i=$$((i+1)); done; \
 	  fi; \
 	  systemctl --user enable --now radicle-node; \
-	  i=0; until rad node status >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done; \
+	  i=0; until rad node status --only nid >/dev/null 2>&1 || [ $$i -ge 20 ]; do sleep 0.5; i=$$((i+1)); done; \
 	else \
 	  echo "  *** systemctl not found; please start with 'rad node start' ***"; \
 	fi
@@ -2516,7 +2516,7 @@ check-radicle:
 	    echo "    [ok] systemd     : radicle-node service running"; \
 	  fi; \
 	fi; \
-	if ! rad node status >/dev/null 2>&1; then \
+	if ! rad node status --only nid >/dev/null 2>&1; then \
 	  rc=1; echo "    [--] node        : not running; fix: make setup-radicle"; \
 	else \
 	  peers=$$(rad node status 2>/dev/null | grep -c 'z6Mk.*✓' || true); \
