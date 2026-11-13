@@ -10,6 +10,7 @@
 #
 # agent-status ENGINE [TASK]       list this engine's active agents, or inspect
 #                                 one task's tmux and agent registry/launchd status.
+# agent-status all                 the same list for every engine, one heading each.
 # agent-relaunch ENGINE [--all|TASK]
 #                                 recover missing sessions for this engine;
 #                                 at most one per checkout, with live sessions
@@ -455,9 +456,23 @@ _agent_agent_mtime() {
 
 # agent-status ENGINE [TASK]: with a task, tmux-status + launchd-status for it;
 # with none, every loaded agent for this engine, whether it is up, and where.
+#
+# agent-status all: that list for every engine. Each engine gets a `== ENGINE'
+# heading, printed only once it has a row, so engines with no sessions stay
+# out of the way; a single line says so when no engine has any.
 agent-status() {
   _agent_job_guard || return
   local engine=$1
+  if [[ $engine == all ]]; then
+    (( $# == 1 )) || { print -u2 "usage: agent-status all   (takes no TASK)"; return 64 }
+    local e
+    local -i _agent_status_found=0
+    for e in claude agy codex cursor; do
+      _agent_status_heading=$e agent-status "$e" || return
+    done
+    (( _agent_status_found )) || print -u2 "agent-status: no agents are registered for any engine"
+    return 0
+  fi
   _agent_engine_check "$engine" || return
   (( $# <= 2 )) || { print -u2 "usage: agent-status ENGINE [TASK]"; return 64 }
   shift
@@ -476,7 +491,13 @@ agent-status() {
       [[ -n $label ]] || continue
       name=$(_agent_agent_session "$label") || continue
       [[ $(_agent_agent_engine "$label") == "$engine" ]] || continue
-      wd=$(_agent_agent_wd "$label"); any=1
+      wd=$(_agent_agent_wd "$label")
+      # Under `agent-status all': this engine's heading, before its first row.
+      if (( ! any )) && [[ -n ${_agent_status_heading-} ]]; then
+        print "== $engine"
+        (( ${+_agent_status_found} )) && _agent_status_found=1
+      fi
+      any=1
       if tmux has-session -t "=$name" 2>/dev/null; then
         state="${c_up}up      ${c_reset}"
       else
@@ -484,7 +505,7 @@ agent-status() {
       fi
       printf "${c_label}%-38s${c_reset} ${c_name}%-28s${c_reset} %s ${c_wd}%s${c_reset}\n" "$label" "$name" "$state" "$wd"
     done
-    if (( ! any )); then
+    if (( ! any )) && [[ -z ${_agent_status_heading-} ]]; then
       if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
         print -u2 "agent-status: no $engine agents are loaded (agent-run $engine TASK loads one)"
       else
@@ -1443,6 +1464,7 @@ agent-help() {
       next if /^# -\*-/;
       s/^# ?//;
       if ($e ne "agent") {
+        next if /^agent-status all\b/;   # spans engines; no $e- form
         s/agent-(run|status|relaunch|herdr|adopt|conversations|rm|help)/$e-$1/g;
         s/ ENGINE\b//g;
         s/ \[ENGINE\]//g;

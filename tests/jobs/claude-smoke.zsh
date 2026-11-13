@@ -373,6 +373,17 @@ assert "… and t2"                                grep -q -- "$SLUG-t2" <<<"$CS
 assert "… saying both sessions are up"           test "$(grep -c -- ' up ' <<<"$CS_ST")" -eq 2
 assert "… and naming the checkout"               grep -q -- "$REPO" <<<"$CS_ST"
 
+# agent-status all walks every engine: a heading for claude, which has rows,
+# none for the engines without sessions, and the same rows as claude-status.
+typeset -g AS_ALL="$(agent-status all 2>&1)"; RC=$?
+assert "agent-status all exits 0"                 test $RC -eq 0
+assert "… heads the claude rows with == claude"   grep -qx -- "== claude" <<<"$AS_ALL"
+assert "… lists t1 and t2 under it"               test "$(grep -c -- "$SLUG-t[12]" <<<"$AS_ALL")" -eq 2
+assert "… prints no heading for an empty engine"  test "$(grep -c -- '^== ' <<<"$AS_ALL")" -eq 1
+assert "… and no per-engine 'no agents' noise"    test "$(grep -c -- 'no .* agents are' <<<"$AS_ALL")" -eq 0
+agent-status all t1 >/dev/null 2>&1; RC=$?
+assert "agent-status all TASK is a usage error"   test $RC -eq 64
+
 # The ranking rule under test is "whose task was started most recently, per
 # that checkout's own record". _job_now writes whole seconds, and two
 # claude-runs can easily land in the same one, which would leave the rule
