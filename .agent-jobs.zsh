@@ -11,6 +11,9 @@
 # agent-status ENGINE [TASK]       list this engine's active agents, or inspect
 #                                 one task's tmux and agent registry/launchd status.
 # agent-status all                 the same list for every engine, one heading each.
+# agent-status any NAME            inspect one session from anywhere: NAME is a task
+#                                 (agy3), a session (dot-files-agy3) or a label.
+#                                 Several matches: pick one (fzf, else a numbered list).
 # agent-relaunch ENGINE [--all|TASK]
 #                                 recover missing sessions for this engine;
 #                                 at most one per checkout, with live sessions
@@ -30,6 +33,9 @@
 #                                 for each engine (default: all of them).
 # agent-rm ENGINE TASK             remove the session and registered agent; keep
 #                                 the transcript, including unloaded plists.
+# agent-rm any NAME                the same, found by task, session or label from
+#                                 anywhere; always asks first (AGENT_JOB_CONFIRM=no
+#                                 lets a script through, one match only).
 # agent-stash-all [--keep-homebase] [FILE]
 #                                 pack every registered agent -- registry
 #                                 entry, exact conversation id, its transcripts,
@@ -454,6 +460,72 @@ _agent_agent_mtime() {
   print -r -- "$s[1]"
 }
 
+# _agent_find_any NAME: every registered agent NAME refers to, one row each,
+# tab-separated: LABEL ENGINE TASK SESSION DIR. NAME matches a row when it is
+# the row's task (the label's last segment: _job_task forbids dots, so that
+# split is exact), its tmux session name, or its full label. Task names are
+# only unique per checkout -- agy1 can exist in three repos -- which is why a
+# match can be several rows and why callers go through _agent_pick_any.
+_agent_find_any() {
+  local want=$1 label engine task name wd
+  local -a labels; labels=(${(f)"$(_agent_job_labels)"})
+  for label in "${labels[@]}"; do
+    [[ -n $label ]] || continue
+    task=${label##*.}
+    name=$(_agent_agent_session "$label") || continue
+    [[ $want == "$task" || $want == "$name" || $want == "$label" ]] || continue
+    engine=$(_agent_agent_engine "$label") || continue
+    wd=$(_agent_agent_wd "$label") || continue
+    print -r -- "$label"$'\t'"$engine"$'\t'"$task"$'\t'"$name"$'\t'"$wd"
+  done
+}
+
+# _agent_pick_any CALLER NAME: resolve NAME to exactly one row of
+# _agent_find_any, set reply=(LABEL ENGINE TASK SESSION DIR), return 0.
+# One match is taken as is. Several are offered as a choice when a person is
+# at the terminal -- fzf when installed, else a numbered list -- and are
+# listed with a non-zero return otherwise, since a prompt nobody can answer
+# would hang an agent or a script.
+_agent_pick_any() {
+  local caller=$1 want=$2 row
+  local -a rows; rows=(${(f)"$(_agent_find_any "$want")"})
+  reply=()
+  if (( ! $#rows )); then
+    print -u2 "$caller: no agent session is named '$want' (try: agent-status all)"
+    return 1
+  fi
+  if (( $#rows == 1 )); then
+    row=$rows[1]
+  elif [[ -t 0 && -t 2 ]]; then
+    local -a shown; local r
+    for r in "${rows[@]}"; do
+      shown+=("$(printf '%-7s %-34s %s' "${${(ps:\t:)r}[2]}" "${${(ps:\t:)r}[4]}" "${${(ps:\t:)r}[5]}")")
+    done
+    local choice="" i
+    if (( $+commands[fzf] )); then
+      choice=$(print -rl -- "${shown[@]}" | fzf --height=~40% --reverse \
+        --prompt="$caller $want> " --header="several sessions match '$want'") || return 1
+    else
+      print -u2 "$caller: several sessions match '$want':"
+      for (( i = 1; i <= $#shown; i++ )); do print -u2 -- "  $i) $shown[i]"; done
+      local n; read "n?Which one? [1-$#shown, Enter to cancel] " || return 1
+      [[ $n == <1-> ]] && (( n <= $#shown )) || return 1
+      choice=$shown[n]
+    fi
+    for (( i = 1; i <= $#shown; i++ )); do
+      [[ $shown[i] == "$choice" ]] && { row=$rows[i]; break }
+    done
+    [[ -n $row ]] || return 1
+  else
+    print -u2 "$caller: several sessions match '$want'; name one by its session:"
+    for row in "${rows[@]}"; do
+      print -u2 -- "  $(printf '%-7s %-34s %s' "${${(ps:\t:)row}[2]}" "${${(ps:\t:)row}[4]}" "${${(ps:\t:)row}[5]}")"
+    done
+    return 1
+  fi
+  reply=("${(@ps:\t:)row}")
+}
+
 # agent-status ENGINE [TASK]: with a task, tmux-status + launchd-status for it;
 # with none, every loaded agent for this engine, whether it is up, and where.
 #
@@ -463,6 +535,14 @@ _agent_agent_mtime() {
 agent-status() {
   _agent_job_guard || return
   local engine=$1
+  if [[ $engine == any ]]; then
+    (( $# == 2 )) || { print -u2 "usage: agent-status any TASK|SESSION|LABEL"; return 64 }
+    _agent_pick_any agent-status "$2" || return
+    # The TASK form reads the checkout from the cwd, so run it from the
+    # session's own directory, in a subshell to leave the caller's cwd alone.
+    ( cd -- "$reply[5]" && agent-status "$reply[2]" "$reply[3]" )
+    return
+  fi
   if [[ $engine == all ]]; then
     (( $# == 1 )) || { print -u2 "usage: agent-status all   (takes no TASK)"; return 64 }
     local e
@@ -883,6 +963,23 @@ herdr-revive() {
 agent-rm() {
   _agent_job_guard || return
   local engine=$1
+  if [[ $engine == any ]]; then
+    (( $# == 2 )) || { print -u2 "usage: agent-rm any TASK|SESSION|LABEL"; return 64 }
+    _agent_pick_any agent-rm "$2" || return
+    local -a hit; hit=("${reply[@]}")
+    # Always confirmed: the name was looked up, not typed in full. Without a
+    # terminal only AGENT_JOB_CONFIRM=no lets it through.
+    if [[ -t 0 ]]; then
+      local ans
+      read -q "ans?Remove $hit[2] session $hit[4] in $hit[5]? [y/N] " || { print; return 1 }
+      print
+    elif [[ $AGENT_JOB_CONFIRM != no ]]; then
+      print -u2 "agent-rm: no terminal to confirm removing $hit[4]; set AGENT_JOB_CONFIRM=no to allow it"
+      return 1
+    fi
+    ( cd -- "$hit[5]" && agent-rm "$hit[2]" "$hit[3]" )
+    return
+  fi
   _agent_engine_check "$engine" || return
   (( $# == 2 )) || { print -u2 "usage: agent-rm ENGINE TASK"; return 64 }
   shift
@@ -1463,8 +1560,12 @@ agent-help() {
       last if !/^#/;
       next if /^# -\*-/;
       s/^# ?//;
+      # The all/any forms span engines, so a per-engine help (claude-help)
+      # has no $e- spelling of them: drop each, with its indented lines.
       if ($e ne "agent") {
-        next if /^agent-status all\b/;   # spans engines; no $e- form
+        if (/^agent-(status|rm) (all|any)\b/) { $skip = 1; next }
+        if ($skip && /^\s/) { next }
+        $skip = 0;
         s/agent-(run|status|relaunch|herdr|adopt|conversations|rm|help)/$e-$1/g;
         s/ ENGINE\b//g;
         s/ \[ENGINE\]//g;

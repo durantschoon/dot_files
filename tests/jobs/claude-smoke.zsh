@@ -248,6 +248,7 @@ cleanup() {
   cd "$REPO" 2>/dev/null && claude-rm t1 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && claude-rm t2 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && claude-rm t3 >/dev/null 2>&1
+  [[ -n ${REPO2-} ]] && cd "$REPO2" 2>/dev/null && claude-rm t4 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && codex-rm cx >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && codex-rm sx >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && agy-rm ax >/dev/null 2>&1
@@ -375,7 +376,7 @@ assert "… and naming the checkout"               grep -q -- "$REPO" <<<"$CS_ST
 
 # agent-status all walks every engine: a heading for claude, which has rows,
 # none for the engines without sessions, and the same rows as claude-status.
-typeset -g AS_ALL="$(agent-status all 2>&1)"; RC=$?
+typeset -g AS_ALL; AS_ALL="$(agent-status all 2>&1)"; RC=$?
 assert "agent-status all exits 0"                 test $RC -eq 0
 assert "… heads the claude rows with == claude"   grep -qx -- "== claude" <<<"$AS_ALL"
 assert "… lists t1 and t2 under it"               test "$(grep -c -- "$SLUG-t[12]" <<<"$AS_ALL")" -eq 2
@@ -383,6 +384,40 @@ assert "… prints no heading for an empty engine"  test "$(grep -c -- '^== ' <<
 assert "… and no per-engine 'no agents' noise"    test "$(grep -c -- 'no .* agents are' <<<"$AS_ALL")" -eq 0
 agent-status all t1 >/dev/null 2>&1; RC=$?
 assert "agent-status all TASK is a usage error"   test $RC -eq 64
+
+# agent-status any finds a session by task, session name or label, from any
+# directory, and leaves the caller's cwd where it was.
+cd "$BASE" || exit 1
+typeset -g AS_ANY; AS_ANY="$(agent-status any t1 2>&1)"; RC=$?
+assert "agent-status any TASK works from outside the repo" test $RC -eq 0
+assert "… and reports that session"               grep -q -- "$SLUG-t1" <<<"$AS_ANY"
+assert "… without moving the caller"              test "$PWD" = "$BASE"
+assert "agent-status any SESSION works"           grep -q -- "$SLUG-t2" <<<"$(agent-status any "$SLUG-t2" 2>&1)"
+agent-status any "local.job.$JOB_LAUNCHD_SLUG.t1" >/dev/null 2>&1; RC=$?
+assert "agent-status any LABEL works"             test $RC -eq 0
+typeset -g AS_NONE; AS_NONE="$(agent-status any no-such-task 2>&1)"; RC=$?
+assert "agent-status any with no match fails"     test $RC -eq 1
+assert "… and says nothing is named that"         grep -q -- "no agent session is named 'no-such-task'" <<<"$AS_NONE"
+
+# Several matches without a terminal: listed, nothing chosen. Task names are
+# unique per checkout only; this suite's two repos share a launchd slug, so
+# the duplicate comes from a stubbed lookup rather than a real collision.
+typeset -g AS_DUP="$(
+  _agent_find_any() {
+    print -r -- "local.job.a.dup"$'\t'"claude"$'\t'"dup"$'\t'"a-dup"$'\t'"/r/a"
+    print -r -- "local.job.b.dup"$'\t'"agy"$'\t'"dup"$'\t'"b-dup"$'\t'"/r/b"
+  }
+  agent-status any dup </dev/null 2>&1; print "rc=$?")"
+assert "several matches with no terminal fail"    grep -qx -- "rc=1" <<<"$AS_DUP"
+assert "… saying several match"                   grep -q -- "several sessions match 'dup'" <<<"$AS_DUP"
+assert "… and listing both sessions"              test "$(grep -c -- ' [ab]-dup ' <<<"$AS_DUP")" -eq 2
+
+# agent-rm any never removes without a confirmation it cannot get here.
+agent-rm any t1 </dev/null 2>"$BASE/rm-any-refused.err"; RC=$?
+assert "agent-rm any with no terminal refuses"    test $RC -eq 1
+assert "… saying why"                             grep -q -- "no terminal to confirm" "$BASE/rm-any-refused.err"
+assert "… and t1 is untouched"                    ptmux has-session -t "=$SLUG-t1"
+cd "$REPO" || exit 1
 
 # The ranking rule under test is "whose task was started most recently, per
 # that checkout's own record". _job_now writes whole seconds, and two
@@ -459,7 +494,18 @@ assert "… and it said so"                      grep -q -- "$SLUG2-t3 is back" 
 refute "… while nothing was skipped this time" grep -q -- "SKIPPED .*$SLUG2" <<<"$RL_OUT"
 print "  note claude-relaunch, a lone missing session in its own checkout:"
 print -r -- "$RL_OUT" | sed 's/^/       | /'
+
+# agent-rm any with AGENT_JOB_CONFIRM=no removes a session in ANOTHER checkout:
+# t4 lives in REPO2 and is removed from REPO. A throwaway, so t3 stays for the
+# stash tests below.
+claude-run t4 "fourth" 2>"$BASE/run-t4.err" >/dev/null
+assert "t4 starts in the second checkout"         ptmux has-session -t "=$SLUG2-t4"
 cd "$REPO" || exit 1
+AGENT_JOB_CONFIRM=no agent-rm any "$SLUG2-t4" </dev/null 2>"$BASE/rm-any.err"; RC=$?
+assert "agent-rm any SESSION removes it from another checkout" test $RC -eq 0
+refute "… its session is gone"                    ptmux has-session -t "=$SLUG2-t4"
+refute "… and it is no longer registered"         grep -q -- "$SLUG2-t4" <<<"$(agent-status all 2>&1)"
+assert "… while t3 in the same checkout stays"    ptmux has-session -t "=$SLUG2-t3"
 
 # 3(c). Codex uses the shared runner with its own resume syntax and ownership
 # marker. A Codex task cannot take over a Claude task with the same name.
