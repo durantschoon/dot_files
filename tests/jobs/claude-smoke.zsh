@@ -249,6 +249,12 @@ cleanup() {
   cd "$REPO" 2>/dev/null && claude-rm t2 >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && claude-rm t3 >/dev/null 2>&1
   [[ -n ${REPO2-} ]] && cd "$REPO2" 2>/dev/null && claude-rm t4 >/dev/null 2>&1
+  # agent-prune fixtures, removed by label: p1's checkout is deleted on
+  # purpose, so a cwd-based claude-rm could not find it.
+  local pl; for pl in p1 p2 p3 p4; do
+    ptmux kill-session -t "=${PRUNE_SLUG_OF[$pl]:-none}" >/dev/null 2>&1
+    _agent_prune_remove "local.job.$JOB_LAUNCHD_SLUG.$pl" >/dev/null 2>&1
+  done
   cd "$REPO" 2>/dev/null && codex-rm cx >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && codex-rm sx >/dev/null 2>&1
   cd "$REPO" 2>/dev/null && agy-rm ax >/dev/null 2>&1
@@ -672,6 +678,72 @@ unset AGENT_HOMEBASE_BIN
 
 # 5. make wiring.
 assert "make check-jobs runs this file" grep -q "claude-smoke.zsh" "$WT/Makefile"
+
+# 6. agent-prune. Fixtures, all claude, with labels pinned like the rest:
+#   p1  missing, checkout deleted             -> orphaned
+#   p2  missing, record and files backdated   -> stale
+#   p3  missing, started just now             -> kept
+#   p4  up                                    -> idle only under --days 0
+typeset -gA PRUNE_SLUG_OF
+typeset -g REPO3=$HOME_LOCAL/Repos/Claude_Smoke3.$$
+mkdir -p -- "$REPO3" && git init -q -- "$REPO3"
+cd "$REPO3" || exit 1
+claude-run p1 "orphan" 2>/dev/null >/dev/null
+PRUNE_SLUG_OF[p1]=$(job-name p1)
+cd "$REPO2" || exit 1
+for t in p2 p3 p4; do
+  claude-run $t "prune fixture $t" 2>/dev/null >/dev/null
+  PRUNE_SLUG_OF[$t]=$(job-name $t)
+done
+for t in p1 p2 p3; do
+  wait_agent_ran "local.job.$JOB_LAUNCHD_SLUG.$t" || fail "$t's agent never finished its RunAtLoad pass"
+  ptmux kill-session -t "=$PRUNE_SLUG_OF[$t]" >/dev/null 2>&1
+done
+command rm -rf -- "$REPO3"
+print -r -- "at=2000-01-01T00:00:00+0000" >> "$REPO2/logs/p2.job"
+touch -t 200001010000 -- "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p2.conf" \
+  "$HOME_LOCAL/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.p2.plist" 2>/dev/null
+cd "$REPO" || exit 1
+
+# A fresh tmux server means relaunch may still be running: refuse.
+typeset -g PR_OUT; PR_OUT="$(AGENT_PRUNE_MIN_UPTIME=999999 agent-prune 2>&1)"; RC=$?
+assert "agent-prune refuses right after the tmux server started" test $RC -eq 1
+assert "… saying when it started"                grep -q -- "tmux server started" <<<"$PR_OUT"
+
+typeset -gx AGENT_PRUNE_MIN_UPTIME=0
+PR_OUT="$(agent-prune 2>&1)"; RC=$?
+assert "agent-prune dry run exits 0"             test $RC -eq 0
+assert "… lists p1 as orphaned"                  grep -q -- "^orphaned .* $PRUNE_SLUG_OF[p1] " <<<"$PR_OUT"
+assert "… lists p2 as stale"                     grep -q -- "^stale .* $PRUNE_SLUG_OF[p2] " <<<"$PR_OUT"
+refute "… keeps p3, missing but recent"          grep -q -- " $PRUNE_SLUG_OF[p3] " <<<"$PR_OUT"
+refute "… does not list the live p4"             grep -q -- " $PRUNE_SLUG_OF[p4] " <<<"$PR_OUT"
+assert "… and removes nothing"                   test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p2.conf"
+assert "--days 0 lists the live p4 as idle"      grep -q -- "^idle .* $PRUNE_SLUG_OF[p4] " <<<"$(agent-prune --days 0 2>&1)"
+
+agent-prune --apply </dev/null >/dev/null 2>"$BASE/prune-refused.err"; RC=$?
+assert "--apply with no terminal refuses"        test $RC -eq 1
+assert "… saying why"                            grep -q -- "no terminal to confirm" "$BASE/prune-refused.err"
+assert "… leaving p2 registered"                 test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p2.conf"
+
+PR_OUT="$(AGENT_JOB_CONFIRM=no agent-prune --apply </dev/null 2>&1)"; RC=$?
+assert "--apply with AGENT_JOB_CONFIRM=no exits 0" test $RC -eq 0
+refute "… unregisters the orphan p1"             test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p1.conf"
+refute "… unregisters the stale p2"              test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p2.conf"
+assert "… keeps the recent p3"                   test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p3.conf"
+assert "… never touches the live p4"             ptmux has-session -t "=$PRUNE_SLUG_OF[p4]"
+typeset -g PR_STAMP; PR_STAMP=$(grep -o -- '--restore [0-9-]*' <<<"$PR_OUT" | awk '{print $2}')
+assert "… and names the backup to restore"       test -n "$PR_STAMP"
+assert "the backup manifest holds both rows" \
+  test "$(grep -vc '^#' "$REG_DIR/pruned/$PR_STAMP/manifest.tsv" 2>/dev/null)" -eq 2
+
+assert "--restore lists the backup"              grep -q -- "$PR_STAMP" <<<"$(agent-prune --restore 2>&1)"
+agent-prune --restore "$PR_STAMP" >/dev/null 2>"$BASE/prune-restore.err"; RC=$?
+assert "--restore STAMP exits 0"                 test $RC -eq 0
+assert "… puts p2's registration back"           test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.p2.conf"
+assert "… says how to start the sessions"        grep -q -- "agent-relaunch claude --all" "$BASE/prune-restore.err"
+agent-prune --restore "$PR_STAMP" >/dev/null 2>"$BASE/prune-restore2.err"
+assert "restoring twice leaves existing rows alone" grep -q -- "registered again" "$BASE/prune-restore2.err"
+unset AGENT_PRUNE_MIN_UPTIME
 
 # The cleanup, and with it the default-server guard, run explicitly: zsh
 # ignores what an EXIT trap returns (measured in stage 15), so a guard left to
