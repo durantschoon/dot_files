@@ -24,6 +24,10 @@ The repository contains a unified job runner abstraction for `tmux`, `launchd`, 
 
 **Agent Instruction:** If the user asks about `tmux-new`, `tmux-run`, `tmux-ls`, `job-recap`, etc., load `.jobs.zsh` and skip everything else.
 
+### Closing a worktree without merging (`worktree-cleanup`)
+
+When a worktree task ends with nothing to ship (research, an inquiry, a dropped experiment), follow [the worktree-cleanup skill](claude/skills/worktree-cleanup/SKILL.md). It asks before discarding uncommitted files or unmerged commits, closes the Herdr workspace that `worktree-start` opened, and removes the worktree and branch.
+
 ### Getting the user's attention (`herdr-notify`)
 
 When you are stuck, blocked (a merge conflict, a question only the user can answer) or have finished a long-running task, do not just print it to the terminal: read [the herdr-notify skill](skills/herdr-notify/SKILL.md) and push a notification to the Herdr UI with `herdr notification show "<Title>" --body "<what you need>"` (`--sound request` when you need the user to proceed, `--sound done` when only reporting completion). This applies to every model family and needs no relay through another agent.
