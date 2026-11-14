@@ -927,7 +927,7 @@ call, so extensions never collide; only genuine double ownership does."
      (list
       (simple-service 'dotfiles-environment-variables
                       home-environment-variables-service-type
-                      '(("PATH" . "$HOME/.local/bin:$HOME/bin:$PATH")
+                      '(("PATH" . "$HOME/.local/bin:$HOME/.juliaup/bin:$HOME/bin:$PATH")
                         ("HOMEBASE" . "orb-guix")
                         ("TZ" . "America/New_York")))
       (simple-service 'local-bin-activation home-activation-service-type

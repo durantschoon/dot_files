@@ -842,9 +842,10 @@ leftcontrol = capslock
          ;; a bare "No such file or directory" naming the binary that plainly
          ;; does exist, which is why it is worth annotating here.
          ;;
-         ;; Claude Code's native build is exactly such a binary
-         ;; (~/.local/share/claude/versions/<v>, INTERP
-         ;; /lib64/ld-linux-x86-64.so.2, needing libc/librt/libpthread/libdl/libm).
+         ;; Claude Code's native build (~/.local/share/claude/versions/<v>) and
+         ;; upstream Julia builds managed by juliaup (~/.julia/juliaup/julia-*/bin/julia)
+         ;; are both such binaries (INTERP /lib64/ld-linux-x86-64.so.2, needing
+         ;; libc/librt/libpthread/libdl/libm).
          ;;
          ;; Only the loader needs the symlink.  Guix's own ld.so has its store
          ;; library directory compiled in as the default search path, so the

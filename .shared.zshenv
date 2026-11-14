@@ -102,6 +102,9 @@ add_to_front_of_path "$HOME/.codeium/windsurf/bin"
 # opencode
 add_to_front_of_path "$HOME/.opencode/bin"
 
+# juliaup (Julia version multiplexer; bin/install-julia.sh also links into ~/.local/bin)
+add_to_front_of_path "$HOME/.juliaup/bin"
+
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 add_to_front_of_path "$PNPM_HOME"

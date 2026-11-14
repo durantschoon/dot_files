@@ -240,6 +240,7 @@ help-text:
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
 	@echo "  make install-agy    - Install agy, Google's Antigravity CLI (idempotent; loader wrapper on Guix System)"
 	@echo "  make install-herdr  - Install herdr, the AI agent multiplexer (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
+	@echo "  make install-julia  - Install Julia via juliaup (idempotent; Homebrew on macOS, ~/.juliaup/bin + ~/.local/bin on Linux)"
 	@echo "  make install-ghostty - Install Ghostty terminal emulator (Homebrew cask on macOS)"
 	@echo "  make install-yazi   - Install Yazi and media-handling stack (Homebrew on macOS)"
 	@echo ""
@@ -399,7 +400,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-starship install-claude install-uv install-agy install-herdr install-radicle setup-sshd-for-ingress
+setup-native: set_up_links install-starship install-claude install-uv install-agy install-herdr install-julia install-radicle setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
 .PHONY: register-machine check-register-machine
@@ -489,6 +490,23 @@ else ifeq ($(flavor),$(FLAVOR_TERMUX))
 		echo "  Termux: herdr has no native Android binary (work from your phone via SSH)"
 else
 	@bash bin/install-herdr.sh
+endif
+
+# Julia (via juliaup) everywhere: Guix's packaged `julia` is stuck on 1.8.5, so
+# this also runs from apply/apply-wayland/update alongside setup-native.
+# Idempotent; bin/install-julia.sh installs via Homebrew on macOS or the official
+# juliaup installer into ~/.juliaup/bin (linked into ~/.local/bin).
+.PHONY: install-julia
+install-julia:
+ifeq ($(os),$(OS_WINDOWS))
+	@echo "Native Windows: install Julia (via juliaup) with:"
+	@echo "  winget install Julialang.Juliaup"
+	@echo "(from WSL, run 'make install-julia' in the WSL shell instead)"
+else ifeq ($(flavor),$(FLAVOR_TERMUX))
+	@command -v julia >/dev/null 2>&1 && echo "  julia found ($$(which julia))" || \
+		echo "  Termux: juliaup has no official Android binary (work from your phone via SSH)"
+else
+	@bash bin/install-julia.sh
 endif
 
 # Ghostty terminal emulator (Homebrew cask on macOS, distro package on Linux)
@@ -665,6 +683,8 @@ ifeq ("$(os)","$(OS_MAC)")
 	@command -v starship > /dev/null 2>&1 || brew install starship
 	@# herdr: AI agent multiplexer. Linux gets it from install-herdr (into ~/.local/bin).
 	@command -v herdr > /dev/null 2>&1 || brew install herdr
+	@# julia (via juliaup): Homebrew formula + default release channel.
+	@command -v julia > /dev/null 2>&1 || bash bin/install-julia.sh
 	@# Install Yazi and its media-handling stack
 	@brew install yazi ffmpeg sevenzip jq poppler fd ripgrep fzf zoxide imagemagick
 	@# zsh completions: compinit refuses a group-writable dir in fpath or any
@@ -1629,6 +1649,8 @@ apply: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> ensuring herdr is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
+	@echo "==> ensuring Julia (via juliaup) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-julia || echo "warning: install-julia failed; re-run 'make install-julia' later"
 	@echo "==> done (Guix Home applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -1680,6 +1702,8 @@ apply-wayland: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> ensuring herdr is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
+	@echo "==> ensuring Julia (via juliaup) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-julia || echo "warning: install-julia failed; re-run 'make install-julia' later"
 	@echo "==> done (Guix Home Wayland applied)"
 	@echo ""
 	@echo "--- NOTE: PATH ---"
@@ -2971,6 +2995,8 @@ update: warn-dotfiles-home
 	@$(MAKE) --no-print-directory install-agy || echo "warning: install-agy failed; re-run 'make install-agy' later"
 	@echo "==> ensuring herdr is installed (idempotent)"
 	@$(MAKE) --no-print-directory install-herdr || echo "warning: install-herdr failed; re-run 'make install-herdr' later"
+	@echo "==> ensuring Julia (via juliaup) is installed (idempotent)"
+	@$(MAKE) --no-print-directory install-julia || echo "warning: install-julia failed; re-run 'make install-julia' later"
 
 install-manifest:
 	@echo "==> guix package -m manifests/base.scm"

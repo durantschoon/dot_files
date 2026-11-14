@@ -70,6 +70,7 @@ For standard shell setup not related to the background job runners:
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
 *   **Prompt configuration:** `.zshrc.starship`, `starship/starship.toml`
 *   **Herdr config & tool:** `herdr/config.toml` (linked by `make set_up_links`; binary installed by `bin/install-herdr.sh` via `make install-herdr`, `apply`, or `setup-native`)
+*   **Julia (`juliaup`):** `bin/install-julia.sh` (`make install-julia`, run by `apply`, `apply-wayland`, `update`, `set_up_links`, and `setup-native`; updates via `juliaup update` or `bin/install-julia.sh --force`)
 *   **Termux setup & font:** `bin/termux-setup`, `termux/termux.properties` (extra-keys toolbar & navigation cluster, synced to `~/.termux/termux.properties`), `system/fonts/CascadiaMonoNF-Regular-patched.ttf` (Cascadia Mono NF + ⏴⏵⏶⏷ from Noto Sans Symbols 2; synced to `~/.termux/font.ttf`), rebuilt with `bin/patch-font-glyphs.py`
 *   **macOS Packages (Homebrew):** `set_up_links` and `setup-native` install the Ghostty cask and Yazi (+ media-handling stack) on macOS; also available via `make install-ghostty` and `make install-yazi`
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`, `bin/mr-clone` (clone a configured repo by name anywhere)
