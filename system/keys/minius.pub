@@ -1,4 +1,7 @@
 # minius (durant@minius, ed25519) -- durant's entire SSH allowlist on geeeks.
 # See the openssh-service-type block in system/geeeks.scm.  Public half only;
-# the private key never leaves minius.  Fetched from ~/.ssh/id_ed25519_ds.pub.
+# the private key never leaves minius.  Fetched from minius:~/.ssh/id_ed25519_ds.pub
+# -- the host matters: geeeks has a DIFFERENT key at that same path
+# (SHA256:6DISUd2M+ps0IjkXtRe174XZPi+X3ldSbJoCKZ68rRg durant@geeeks).
+# This one is SHA256:qjkOX7uCHROwwvloHMR59v09FZx+kS+O2SMVII2nmJo.
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPKi5+6UngkpToHHgDfy5PXFl7wOYuhVE7bUhSfw/5MN durant@minius
