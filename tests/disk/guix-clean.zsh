@@ -14,6 +14,10 @@ mkdir -p "$fake_bin"
 cat > "$fake_bin/guix" <<EOF
 #!/usr/bin/env bash
 echo "guix \$*" >> "$log"
+if [[ "\$*" == *delete-generations* && -n "\${FAKE_GUIX_DELETE_ERR:-}" ]]; then
+    printf '%s\n' "\$FAKE_GUIX_DELETE_ERR" >&2
+    exit 1
+fi
 if [[ "\${1:-}" == "gc" && "\${2:-}" == "--list-roots" ]]; then
     printf '%s\n' "\${FAKE_GUIX_ROOTS:-}"
 fi
@@ -136,5 +140,43 @@ assert_contains "3: expired stamp triggers gc --optimize" "$calls3" "guix gc --o
 assert_contains "3: recent cache root counted" "$out3" "[ok] 1 recent (<=30d) guix shell / inferior cache root(s)"
 assert_contains "3: stale cache root flagged" "$out3" "$stale_root"
 assert_contains "3: extra root flagged" "$out3" "$extra_root"
+
+# 4. "no matching generation" (e.g. only current generation is >1m old) is a clean no-op
+: > "$log"
+out4=$(
+    HOME="$home1" USER=tester PATH="$fake_bin:$PATH" \
+    GUIX_CLEAN_GUIX="$fake_bin/guix" \
+    GUIX_CLEAN_SUDO="$fake_bin/sudo" \
+    GUIX_CLEAN_HERD="$fake_bin/herd" \
+    GUIX_CLEAN_SYSTEM_DIR="$tmp/nonexistent-sys" \
+    GUIX_CLEAN_ROOT_PULL_DIR="$tmp/nonexistent-root-pull" \
+    GUIX_CLEAN_STAMP="$stamp" \
+    FAKE_GUIX_DELETE_ERR=$'guix package: warning: not removing generation 16, which is current\nguix package: error: no matching generation' \
+    FAKE_GUIX_ROOTS="/var/guix/profiles/per-user/tester/current-guix-1-link" \
+    "$script" 2>&1
+)
+calls4=$(<"$log")
+assert_contains "4: no matching generation treated as no-op" "$out4" "(nothing older than 1m to delete)"
+assert_not_contains "4: suppresses error: no matching generation" "$out4" "error: no matching generation"
+assert_contains "4: continues to guix gc" "$calls4" $'\nguix gc\n'
+
+# 5. Real delete-generations error (e.g. invalid syntax) still fails
+: > "$log"
+if out5=$(
+    HOME="$home1" USER=tester PATH="$fake_bin:$PATH" \
+    GUIX_CLEAN_GUIX="$fake_bin/guix" \
+    GUIX_CLEAN_SUDO="$fake_bin/sudo" \
+    GUIX_CLEAN_HERD="$fake_bin/herd" \
+    GUIX_CLEAN_SYSTEM_DIR="$tmp/nonexistent-sys" \
+    GUIX_CLEAN_ROOT_PULL_DIR="$tmp/nonexistent-root-pull" \
+    GUIX_CLEAN_STAMP="$stamp" \
+    FAKE_GUIX_DELETE_ERR="guix package: error: invalid syntax: 100y" \
+    "$script" 2>&1
+); then
+    print -u2 "FAIL 5: expected non-zero exit on real delete-generations error"
+    fail=1
+else
+    assert_contains "5: surfaces real delete-generations error" "$out5" "invalid syntax: 100y"
+fi
 
 [[ $fail == 0 ]]

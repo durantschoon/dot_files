@@ -39,26 +39,45 @@ fi
 
 user_name=${USER:-$(id -un)}
 
+# Guix's delete-matching-generations exits 1 with "error: no matching generation"
+# when no non-current generation is older than $age (or "does not exist" when a
+# profile was never created). Treat both as a clean no-op while still surfacing
+# real failures (invalid age syntax, permission errors, store errors).
+run_delete_generations() {
+    local out rc=0
+    out=$(LC_ALL=C "$@" 2>&1) || rc=$?
+    if (( rc == 0 )); then
+        [[ -n $out ]] && printf '%s\n' "$out"
+        return 0
+    fi
+    if [[ $out == *"no matching generation"* || $out == *"does not exist"* ]]; then
+        echo "    (nothing older than $age to delete)"
+        return 0
+    fi
+    [[ -n $out ]] && printf '%s\n' "$out" >&2
+    return "$rc"
+}
+
 echo "==> 1/6: Cleaning user package generations older than $age"
-"$guix_bin" package --delete-generations="$age"
+run_delete_generations "$guix_bin" package --delete-generations="$age"
 
 echo "==> 2/6: Cleaning Guix Home generations older than $age"
 if [[ -e $HOME/.guix-home || -L $HOME/.guix-home || -e /var/guix/profiles/per-user/$user_name/guix-home ]]; then
-    "$guix_bin" home delete-generations "$age"
+    run_delete_generations "$guix_bin" home delete-generations "$age"
 else
     echo "    (skipped: no ~/.guix-home generation active for $user_name)"
 fi
 
 echo "==> 3/6: Cleaning guix pull generations older than $age"
-"$guix_bin" pull --delete-generations="$age"
+run_delete_generations "$guix_bin" pull --delete-generations="$age"
 if [[ -e $root_pull_dir || -L $root_pull_dir ]]; then
     echo "    (also cleaning root's guix pull generations via $sudo_bin -i)"
-    "$sudo_bin" -i guix pull --delete-generations="$age"
+    run_delete_generations "$sudo_bin" -i guix pull --delete-generations="$age"
 fi
 
 echo "==> 4/6: Cleaning Guix System generations older than $age"
 if [[ -e $system_dir || -L $system_dir ]]; then
-    "$sudo_bin" -i guix system delete-generations "$age"
+    run_delete_generations "$sudo_bin" -i guix system delete-generations "$age"
 else
     echo "    (skipped: $system_dir does not exist; foreign-distro Guix)"
 fi
