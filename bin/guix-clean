@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Periodic Guix cleanup:
+#   1. Delete user package generations older than AGE (default 1m)
+#   2. Delete Guix Home generations older than AGE (when ~/.guix-home exists)
+#   3. Delete user (and root, if present) guix pull generations older than AGE
+#   4. Delete Guix System generations older than AGE (when /run/current-system exists)
+#   5. Run `guix gc` (and restart user gpg-agent so a collected pinentry path
+#      never leaves a live agent pointing at a deleted store item)
+#   6. Run `guix gc --optimize` if it has not run in OPTIMIZE_DAYS (default 180,
+#      ~6 months; guix-daemon already deduplicates on the fly, so this is only a
+#      periodic sweep)
+#   7. Run `guix gc --list-roots` and flag non-standard or stale (>30d) cached
+#      roots that still pin store items.
+set -euo pipefail
+
+age=${GUIX_CLEAN_AGE:-${AGE:-1m}}
+optimize_days=${GUIX_CLEAN_OPTIMIZE_DAYS:-${OPTIMIZE_DAYS:-180}}
+cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}
+stamp=${GUIX_CLEAN_STAMP:-$cache_dir/guix-last-optimize}
+stale_cache_days=${GUIX_CLEAN_STALE_CACHE_DAYS:-30}
+
+system_dir=${GUIX_CLEAN_SYSTEM_DIR:-/run/current-system}
+root_pull_dir=${GUIX_CLEAN_ROOT_PULL_DIR:-/var/guix/profiles/per-user/root/current-guix}
+sudo_bin=${GUIX_CLEAN_SUDO:-sudo}
+herd_bin=${GUIX_CLEAN_HERD:-herd}
+
+if [[ -n ${GUIX_CLEAN_GUIX:-} ]]; then
+    guix_bin=$GUIX_CLEAN_GUIX
+elif [[ -x $HOME/.config/guix/current/bin/guix ]]; then
+    guix_bin=$HOME/.config/guix/current/bin/guix
+else
+    guix_bin=guix
+fi
+
+if ! command -v "$guix_bin" >/dev/null 2>&1; then
+    echo "guix-clean: guix not found ($guix_bin); nothing to clean on this host." >&2
+    exit 1
+fi
+
+user_name=${USER:-$(id -un)}
+
+echo "==> 1/6: Cleaning user package generations older than $age"
+"$guix_bin" package --delete-generations="$age"
+
+echo "==> 2/6: Cleaning Guix Home generations older than $age"
+if [[ -e $HOME/.guix-home || -L $HOME/.guix-home || -e /var/guix/profiles/per-user/$user_name/guix-home ]]; then
+    "$guix_bin" home delete-generations "$age"
+else
+    echo "    (skipped: no ~/.guix-home generation active for $user_name)"
+fi
+
+echo "==> 3/6: Cleaning guix pull generations older than $age"
+"$guix_bin" pull --delete-generations="$age"
+if [[ -e $root_pull_dir || -L $root_pull_dir ]]; then
+    echo "    (also cleaning root's guix pull generations via $sudo_bin -i)"
+    "$sudo_bin" -i guix pull --delete-generations="$age"
+fi
+
+echo "==> 4/6: Cleaning Guix System generations older than $age"
+if [[ -e $system_dir || -L $system_dir ]]; then
+    "$sudo_bin" -i guix system delete-generations "$age"
+else
+    echo "    (skipped: $system_dir does not exist; foreign-distro Guix)"
+fi
+
+echo "==> 5/6: Running garbage collection (guix gc)"
+"$guix_bin" gc
+if command -v "$herd_bin" >/dev/null 2>&1; then
+    "$herd_bin" restart gpg-agent >/dev/null 2>&1 \
+        && echo "    restarted gpg-agent (keeps pinentry store path current)" \
+        || true
+fi
+
+echo "==> 6/6: Checking store deduplication (--optimize, threshold: ${optimize_days}d)"
+run_optimize=0
+if [[ ! -f $stamp ]]; then
+    run_optimize=1
+elif (( optimize_days <= 0 )); then
+    run_optimize=1
+elif [[ -n $(find "$stamp" -maxdepth 0 -mtime +"$optimize_days" 2>/dev/null) ]]; then
+    run_optimize=1
+fi
+
+if (( run_optimize == 1 )); then
+    echo "    Running 'guix gc --optimize' (last run > ${optimize_days}d ago or never)..."
+    "$guix_bin" gc --optimize
+    mkdir -p "$(dirname "$stamp")"
+    touch "$stamp"
+else
+    last_date=$(date -r "$stamp" +%Y-%m-%d 2>/dev/null || stat -c '%y' "$stamp" 2>/dev/null | cut -d' ' -f1 || echo "recently")
+    echo "    Skipping deduplication (last run: $last_date; runs every ${optimize_days}d)"
+fi
+
+echo ""
+echo "==> Inspecting active GC roots (guix gc --list-roots)"
+raw_roots=$("$guix_bin" gc --list-roots 2>/dev/null | sort -u || true)
+
+std_count=0
+recent_cache_count=0
+declare -a stale_cache_roots=()
+declare -a extra_roots=()
+
+while IFS= read -r root; do
+    [[ -z $root ]] && continue
+    if [[ $root =~ ^/var/guix/profiles/(system|default)(-[0-9]+-link)?$ ]] \
+        || [[ $root =~ ^/var/guix/profiles/per-user/[^/]+/(guix-home|guix-profile|current-guix)(-[0-9]+-link)?$ ]] \
+        || [[ $root == "$HOME/.guix-profile" ]] \
+        || [[ $root == "$HOME/.guix-home" ]] \
+        || [[ $root == "$HOME/.config/guix/current" ]]; then
+        std_count=$((std_count + 1))
+    elif [[ $root =~ ^(/var/guix/profiles/per-user/[^/]+|.*/\.cache/guix)/(profiles|inferiors)/ ]]; then
+        if [[ ! -e $root ]] || [[ -n $(find "$root" -maxdepth 0 -mtime +"$stale_cache_days" 2>/dev/null) ]]; then
+            stale_cache_roots+=("$root")
+        else
+            recent_cache_count=$((recent_cache_count + 1))
+        fi
+    else
+        extra_roots+=("$root")
+    fi
+done <<< "$raw_roots"
+
+echo "    [ok] $std_count standard profile/system generation root(s)"
+if (( recent_cache_count > 0 )); then
+    echo "    [ok] $recent_cache_count recent (<=${stale_cache_days}d) guix shell / inferior cache root(s)"
+fi
+
+if (( ${#stale_cache_roots[@]} == 0 && ${#extra_roots[@]} == 0 )); then
+    echo "    [ok] No stray or stale GC roots found."
+else
+    if (( ${#stale_cache_roots[@]} > 0 )); then
+        echo ""
+        echo "    [!!] ${#stale_cache_roots[@]} cached guix shell / time-machine root(s) older than ${stale_cache_days}d (or broken):"
+        for r in "${stale_cache_roots[@]}"; do
+            echo "         $r"
+        done
+        echo "         To remove them and collect their store items:"
+        echo "           rm -f ${stale_cache_roots[*]} && guix gc"
+    fi
+    if (( ${#extra_roots[@]} > 0 )); then
+        echo ""
+        echo "    [!!] ${#extra_roots[@]} non-standard GC root(s) (e.g. local build links or project profiles):"
+        for r in "${extra_roots[@]}"; do
+            echo "         $r"
+        done
+        echo "         Remove any unwanted symlinks above, then run 'guix gc'."
+    fi
+fi

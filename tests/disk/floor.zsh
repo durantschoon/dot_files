@@ -30,11 +30,11 @@ run() {
 run 'exactly 20 GiB passes' 0 $((20 * 1024 * 1024))
 run 'one KiB under the floor refuses' 1 $((20 * 1024 * 1024 - 1))
 out=$(env DISK_FLOOR_DF="$tmp/df" DISK_FLOOR_FAKE_AVAIL=0 "$script" apply 2>&1) || true
-[[ $out == *'make setup-native'* && $out == *'FORCE_APPLY=1'* ]] || {
+[[ $out == *'make guix-clean-1m'* && $out == *'make setup-native'* && $out == *'FORCE_APPLY=1'* ]] || {
     print -u2 "FAIL refusal text"
     print -u2 "$out"
     fail=1
 }
-print "ok refusal names setup-native and the override"
+print "ok refusal names guix-clean-1m, setup-native and the override"
 run 'FORCE_APPLY skips the floor' 0 0 FORCE_APPLY=1
 [[ $fail == 0 ]]

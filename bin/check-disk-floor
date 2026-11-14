@@ -29,6 +29,7 @@ need_k=$((floor_gib * 1024 * 1024))
 free_gib=$(awk -v k="$avail_k" 'BEGIN { printf "%.1f", k/1024/1024 }')
 if (( avail_k < need_k )); then
     echo "Refusing make $goal: ${free_gib} GiB free on $mount, need ${floor_gib} GiB for a Guix home." >&2
+    echo "To reclaim Guix store space: make guix-clean-1m" >&2
     echo "On a small partition run: make setup-native" >&2
     echo "Override: make $goal FORCE_APPLY=1" >&2
     exit 1

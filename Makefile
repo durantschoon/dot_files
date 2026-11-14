@@ -255,6 +255,8 @@ help-text:
 	@echo "                       Runs automatically after apply/apply-wayland/update."
 	@echo "  make guix-config   - Create Guix Home configuration structure in ~/guix-config"
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
+	@echo "  make guix-clean-1m - Delete >1m generations (package, home, pull, system), run guix gc,"
+	@echo "                       deduplicate the store every 6 months, and inspect GC roots"
 	@echo ""
 	@echo "EWM Trial (Emacs Wayland Manager):"
 	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
@@ -3878,11 +3880,19 @@ emacs-unserve:
 	fi
 
 # Refuse Guix home applies when / cannot hold the store and the download cache.
-.PHONY: check-disk-floor check-disk-floor-tests
+.PHONY: check-disk-floor check-disk-floor-tests guix-clean-1m check-guix-clean-tests
 check-disk-floor:
 	@bash "$(CURDIR)/bin/check-disk-floor" "$(firstword $(MAKECMDGOALS))"
 check-disk-floor-tests:
 	zsh tests/disk/floor.zsh
+
+# Periodic Guix cleanup: delete >1m generations (package, home, pull, system),
+# run guix gc (and restart user gpg-agent), deduplicate the store if >180 days
+# since the last --optimize pass, and inspect active GC roots.
+guix-clean-1m:
+	@AGE="$${AGE:-1m}" OPTIMIZE_DAYS="$${OPTIMIZE_DAYS:-180}" bash "$(CURDIR)/bin/guix-clean"
+check-guix-clean-tests:
+	zsh tests/disk/guix-clean.zsh
 
 # Rootless tests of the foreign-distro installer policy transaction.
 .PHONY: check-guix-installer
