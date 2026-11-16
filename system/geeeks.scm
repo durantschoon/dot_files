@@ -210,6 +210,13 @@ build.")
   (plain-file "keyd-default.conf"
               "[ids]
 *
+# Exclude \"Espanso virtual device\" (uinput 1234:5678).  Without this exclusion,
+# keyd grabs Espanso's injector device via EVIOCGRAB and echoes every injected
+# keystroke out through \"keyd virtual keyboard\" (0fac:0ade), where Espanso's
+# EVDEVSource is listening -- causing any trigger contained in its own
+# replacement (e.g. s@p -> simulu[s@p]rotonmail.com) to loop infinitely, and
+# remapping any injected KEY_LEFTCTRL to CapsLock.
+-1234:5678
 
 [main]
 # Swap CapsLock and Control.  \"capslock = control\" is NOT valid keyd --
