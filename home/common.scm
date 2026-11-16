@@ -543,6 +543,15 @@ do not get to pick the browser at the point of use.  LibreWolf stays
 installed either way."
   (if (session-ref session 'nonguix-substitutes?) "firefox" "librewolf"))
 
+(define (session-browser-candidates session)
+  "Browsers to try for the default, most preferred first, resolved on the
+HOST at activation and shell start rather than at build time.  Firefox leads
+for the reasons session-browser gives, and it need not come from Guix: Pop!_OS
+ships it from apt (/usr/bin/firefox, /usr/share/applications/firefox.desktop),
+which the foreign session cannot know about when it is built.  session-browser
+is the last entry, so a host with no Firefox of its own still gets librewolf."
+  (delete-duplicates (list "firefox" (session-browser session))))
+
 (define (session-pinentry session)
   "The file gpg-agent.conf names as pinentry-program: pinentry-auto, a chooser
 that decides per request (the Linux sibling of bin/pinentry-auto, which makes
@@ -1186,8 +1195,8 @@ call, so extensions never collide; only genuine double ownership does."
                                          claude-ide))))))))))
 
 ;; browser: firefox where the host daemon can substitute it, the xdg default
-;; handler, and $BROWSER -- all derived from the SAME session-browser call,
-;; which is the point of having the function.
+;; handler, and $BROWSER -- all derived from the SAME session-browser /
+;; session-browser-candidates pair, which is the point of having the functions.
 (define %browser-layer
   (layer
    #:name 'browser
@@ -1199,8 +1208,11 @@ call, so extensions never collide; only genuine double ownership does."
      (if (session-ref session 'nonguix-substitutes?) '("firefox") '()))
    #:services
    (lambda (session)
-     (let ((browser (session-browser session))
-           (apply-cmd (session-apply-command session)))
+     (let* ((browser (session-browser session))
+            (candidates (session-browser-candidates session))
+            (desktop-files (map (lambda (name) (string-append name ".desktop"))
+                                candidates))
+            (apply-cmd (session-apply-command session)))
        (list
         ;; Register the session's browser as the https:/http: handler.
         ;;
@@ -1216,17 +1228,36 @@ call, so extensions never collide; only genuine double ownership does."
         ;; not be on XDG_DATA_DIRS yet, so the .desktop file is unfindable and
         ;; this is a no-op.  Re-running the apply command settles it; the
         ;; $BROWSER fragment below covers the gap.
+        ;;
+        ;; The handler is the first of session-browser-candidates whose
+        ;; .desktop file is actually installed, so a host Firefox (Pop!_OS's
+        ;; apt package) wins over librewolf.  The search is done here because
+        ;; xdg-settings cannot do it: its generic backend writes whatever name
+        ;; it is given into mimeapps.list and reports success, installed or not.
         (simple-service 'default-browser-activation home-activation-service-type
-                        #~(begin
-                            (setenv "XDG_DATA_DIRS"
-                                    (string-append (getenv "HOME") "/.guix-home/profile/share:"
-                                                   (or (getenv "XDG_DATA_DIRS")
-                                                       "/usr/local/share:/usr/share")))
+                        #~(let* ((data-dirs (string-append
+                                             (getenv "HOME") "/.guix-home/profile/share:"
+                                             (or (getenv "XDG_DATA_DIRS")
+                                                 "/usr/local/share:/usr/share")))
+                                 (search-dirs (cons (string-append (getenv "HOME") "/.local/share")
+                                                    (string-split data-dirs #\:)))
+                                 (installed? (lambda (desktop-file)
+                                               (let loop ((dirs search-dirs))
+                                                 (and (pair? dirs)
+                                                      (or (file-exists? (string-append
+                                                                         (car dirs) "/applications/"
+                                                                         desktop-file))
+                                                          (loop (cdr dirs)))))))
+                                 (chosen (let loop ((files '#$desktop-files))
+                                           (cond ((null? files) #$(string-append browser ".desktop"))
+                                                 ((installed? (car files)) (car files))
+                                                 (else (loop (cdr files)))))))
+                            (setenv "XDG_DATA_DIRS" data-dirs)
                             (unless (zero? (system* #$(file-append
                                                        (specification->package "xdg-utils")
                                                        "/bin/xdg-settings")
                                                     "set" "default-web-browser"
-                                                    #$(string-append browser ".desktop")))
+                                                    chosen))
                               (display #$(string-append
                                           "browser: could not set the default handler yet; re-run `"
                                           apply-cmd "`\n")))))
@@ -1234,8 +1265,10 @@ call, so extensions never collide; only genuine double ownership does."
         ;; $BROWSER, as a zshrc FRAGMENT extending the zsh layer's instance --
         ;; the second route to a browser, for tools that consult $BROWSER
         ;; before falling back to xdg-open.  Belt and braces with the handler
-        ;; above; both come from the same session-browser call so they cannot
-        ;; disagree.  Extensions append AFTER the zsh layer's base zshrc,
+        ;; above; both walk the same session-browser-candidates list, so they
+        ;; agree on any host where the candidate's binary and .desktop file
+        ;; come together (a package that installs one installs the other).
+        ;; A $BROWSER already set (WSL's wslview, from .linux.zshenv) wins.  Extensions append AFTER the zsh layer's base zshrc,
         ;; which is fine here: a bare export has no ordering constraints
         ;; (unlike the starship/direnv pair, which is why THOSE stay together
         ;; in the base fragment).
@@ -1243,7 +1276,17 @@ call, so extensions never collide; only genuine double ownership does."
                         (home-zsh-extension
                          (zshrc (list (plain-file
                                        "zshrc-browser"
-                                       (string-append "export BROWSER=\"${BROWSER:-" browser "}\"\n")))))))))))
+                                       (string-append
+                                        "if [[ -z $BROWSER ]]; then\n"
+                                        "  for candidate_browser in " (string-join candidates " ") "; do\n"
+                                        "    if (( $+commands[$candidate_browser] )); then\n"
+                                        "      export BROWSER=$candidate_browser\n"
+                                        "      break\n"
+                                        "    fi\n"
+                                        "  done\n"
+                                        "  unset candidate_browser\n"
+                                        "  export BROWSER=\"${BROWSER:-" browser "}\"\n"
+                                        "fi\n")))))))))))
 
 ;; espanso: the text expander, Wayland only -- it reads evdev and injects
 ;; through the virtual-keyboard protocol, both meaningless without a
