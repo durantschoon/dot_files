@@ -148,6 +148,23 @@ guix_write_wrapper() {
 # Runs the unmodified Claude Code binary via the Guix glibc loader; Guix
 # has no FHS /lib64 loader, and patchelf corrupts Bun binaries (embedded
 # JS blob trailer). Regenerate with: make install-claude
+# When run as a session leader (e.g. top-level command in a tmux pane with no
+# parent shell), the process group is orphaned: the kernel drops SIGTSTP, so
+# the TUI's Ctrl+Z handler leaves the pty in cooked mode waiting for a SIGCONT
+# that never arrives.  Disable tty susp and auto-resume on SIGTSTP.
+if [ -t 0 ] && [ "\$(ps -o sid= -p \$\$ 2>/dev/null)" -eq "\$\$" ] 2>/dev/null; then
+    stty susp undef 2>/dev/null || true
+    (
+        trap 'kill -CONT 0 2>/dev/null; kill -WINCH 0 2>/dev/null' TSTP
+        trap 'kill \${spid:-} 2>/dev/null; exit 0' HUP TERM INT EXIT
+        while kill -0 \$\$ 2>/dev/null; do
+            sleep 60 &
+            spid=\$!
+            wait \$spid 2>/dev/null
+            kill \$spid 2>/dev/null
+        done
+    ) </dev/null >/dev/null 2>&1 &
+fi
 exec "$loader" --argv0 "$bin_path" --library-path "$lib_path" "$bin_path" "\$@"
 EOF
     chmod 755 "$wrapper"

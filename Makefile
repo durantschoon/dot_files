@@ -3742,7 +3742,13 @@ reconfigure: check-system
 	  exit 1; \
 	fi; \
 	echo "==> sudo -i guix system reconfigure $$config"; \
-	sudo -i guix system reconfigure "$$config"
+	sudo -i guix system reconfigure "$$config"; \
+	if grep -q '(keyboard-layout "us")' "$$config" && command -v dumpkeys >/dev/null 2>&1; then \
+	  if dumpkeys 2>/dev/null | grep -q '^keycode[[:space:]]*29[[:space:]]*=[[:space:]]*Caps_Lock'; then \
+	    echo "==> clearing stale kernel ctrl:swapcaps keymap so keyd swap works on VTs"; \
+	    printf 'keycode 29 = Control\nkeycode 58 = Caps_Lock\n' | sudo loadkeys - 2>/dev/null || true; \
+	  fi; \
+	fi
 	@echo "==> done (system reconfigured)"
 	@echo ""
 	@echo "--- NEXT STEPS ---"

@@ -72,4 +72,17 @@ if [[ "$OSTYPE" == "linux"* && -n "$TTY" && "$TTY" =~ ^/dev/tty[0-9]+$ && -z "$D
     if [[ -f "$HOME/.local/share/consolefonts/ter-powerline-v32n.psf.gz" ]] && command -v setfont >/dev/null 2>&1; then
         setfont "$HOME/.local/share/consolefonts/ter-powerline-v32n.psf.gz" 2>/dev/null || true
     fi
+    # Standard VGA dark red (#aa0000, slot 1) and dark blue (#0000aa, slot 4)
+    # are hard to read on a black console background; lighten red toward orange
+    # (slots 1/9) and brighten blue (slots 4/C).
+    printf '\e]P1ff6b35\e]P9ff9e64\e]P45fafff\e]PC87d7ff' > "$TTY" 2>/dev/null || true
+    # If keyd is running at the evdev layer, the kernel console keymap must NOT
+    # also have ctrl:swapcaps (keycode 29 = Caps_Lock), or the two swaps cancel
+    # out on Linux VTs.  Fix the kernel keymap if the double-swap is active.
+    if [[ -f /etc/keyd/default.conf ]] && command -v dumpkeys >/dev/null 2>&1 && command -v loadkeys >/dev/null 2>&1; then
+        if dumpkeys -C "$TTY" 2>/dev/null | grep -q '^keycode[[:space:]]*29[[:space:]]*=[[:space:]]*Caps_Lock'; then
+            echo "VT console: undoing kernel ctrl:swapcaps double-swap with keyd..."
+            printf 'keycode 29 = Control\nkeycode 58 = Caps_Lock\n' | sudo loadkeys -C "$TTY" - 2>/dev/null || true
+        fi
+    fi
 fi
