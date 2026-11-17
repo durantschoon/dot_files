@@ -262,6 +262,7 @@ help-text:
 	@echo "EWM Trial (Emacs Wayland Manager):"
 	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
 	@echo "                       roll back with 'guix home roll-back')"
+	@echo "  make ewm-pull      - Safe pull (--rebase --autostash) in ~/src/ewm and ~/.spacemacs.d"
 	@echo "  make ewm-launch    - Launch EWM from a bare TTY (step 3 of trial)"
 	@echo "  make ewm-escape-notes - Print EWM recovery & escape hatch shortcuts"
 	@echo ""
@@ -1725,7 +1726,61 @@ apply-wayland: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@# failure here must not skip anything above it.
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
-.PHONY: apply-ewm ewm-launch ewm-escape-notes
+EWM_DIR := $(firstword $(wildcard $(HOME)/src/ewm $(HOME)/ewm) $(HOME)/src/ewm)
+
+.PHONY: apply-ewm ewm-pull ewm-launch ewm-escape-notes
+
+# ewm-pull -- safely pull (git pull --rebase --autostash) in EWM_DIR and ~/.spacemacs.d.
+# In EWM_DIR (upstream clone), any local unstaged/staged additions to .gitignore
+# (such as `logs/` from `job-init`) are migrated into .git/info/exclude and
+# .gitignore is restored to HEAD so upstream .gitignore changes never conflict.
+ewm-pull:
+	@set -u; \
+	rc=0; \
+	for repo in "$(EWM_DIR)" "$(HOME)/.spacemacs.d"; do \
+	  echo "==> ewm-pull: $$repo"; \
+	  if [ ! -d "$$repo/.git" ]; then \
+	    echo "    [skip] $$repo is not a git repository"; \
+	    continue; \
+	  fi; \
+	  if [ -d "$$repo/.git/rebase-merge" ] || [ -d "$$repo/.git/rebase-apply" ]; then \
+	    echo "    [error] rebase already in progress in $$repo; resolve or 'git -C $$repo rebase --abort' first"; \
+	    rc=1; \
+	    continue; \
+	  fi; \
+	  if [ -n "$$(git -C "$$repo" diff --name-only --diff-filter=U 2>/dev/null)" ]; then \
+	    echo "    [error] unresolved merge/stash conflicts in $$repo; resolve first"; \
+	    rc=1; \
+	    continue; \
+	  fi; \
+	  mkdir -p "$$repo/.git/info"; \
+	  grep -qxF 'logs/' "$$repo/.git/info/exclude" 2>/dev/null || echo 'logs/' >> "$$repo/.git/info/exclude"; \
+	  if [ "$$repo" = "$(EWM_DIR)" ] && ! git -C "$$repo" diff --quiet HEAD -- .gitignore 2>/dev/null; then \
+	    git -C "$$repo" diff -U0 HEAD -- .gitignore \
+	      | awk '/^\+[^+]/ { sub(/^\+/, ""); if (length($$0) > 0) print $$0 }' \
+	      | while IFS= read -r pat; do \
+	          grep -qxF "$$pat" "$$repo/.git/info/exclude" 2>/dev/null || { \
+	            echo "$$pat" >> "$$repo/.git/info/exclude"; \
+	            echo "    [info] moved '$$pat' from .gitignore -> .git/info/exclude"; \
+	          }; \
+	        done; \
+	    git -C "$$repo" checkout HEAD -- .gitignore; \
+	  fi; \
+	  before=$$(git -C "$$repo" rev-parse --short HEAD 2>/dev/null || echo unknown); \
+	  if git -C "$$repo" pull --rebase --autostash; then \
+	    after=$$(git -C "$$repo" rev-parse --short HEAD 2>/dev/null || echo unknown); \
+	    if [ "$$before" = "$$after" ]; then \
+	      echo "    [ok] up to date at $$after"; \
+	    else \
+	      echo "    [ok] updated $$before -> $$after"; \
+	    fi; \
+	  else \
+	    echo "    [error] git pull --rebase --autostash failed in $$repo"; \
+	    rc=1; \
+	  fi; \
+	done; \
+	exit $$rc
+
 
 # apply-ewm -- deploy the EWM TRIAL home generation (docs/EWM_TRIAL_PLAN.md,
 # home/ewm.scm).  Deliberately leaner than apply/apply-wayland: no guix pull,
@@ -1780,13 +1835,13 @@ ewm-launch:
 	@echo "as gfx1100 until Guix packages Mesa with LLVM 19+)"
 	@echo "========================================================================"
 	@echo ""
-	@cd $(HOME)/src/ewm/compositor && \
+	@cd $(HOME) && \
 	  LIBSEAT_BACKEND=logind \
 	  LIBGL_ALWAYS_SOFTWARE=1 \
 	  MESA_LOADER_DRIVER_OVERRIDE=kms_swrast \
 	  HSA_OVERRIDE_GFX_VERSION=11.0.0 \
 	  EWM_MODULE_PATH=$(HOME)/src/ewm/compositor/target/debug/libewm_core.so \
-	  emacs --fg-daemon=vt2 --debug-init -L ../lisp \
+	  emacs --fg-daemon=vt2 --debug-init -L $(HOME)/src/ewm/lisp \
 	    --eval '(with-eval-after-load "ewm-input" (setopt ewm-input-config (quote ((touchpad :natural-scroll t :tap t)))))' \
 	    -l ewm -f ewm-start-module; \
 	  status=$$?; \
@@ -2542,7 +2597,7 @@ check-radicle:
 	    echo "    [ok] systemd     : radicle-node service running"; \
 	  fi; \
 	fi; \
-	if ! rad node status >/dev/null 2>&1; then \
+	if ! pgrep -x radicle-node >/dev/null 2>&1 || ! rad node status >/dev/null 2>&1; then \
 	  rc=1; echo "    [--] node        : not running; fix: make setup-radicle"; \
 	else \
 	  peers=$$(rad node status 2>/dev/null | grep -c 'z6Mk.*✓' || true); \

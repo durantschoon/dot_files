@@ -20,10 +20,5 @@
        "/common.scm"))
 
 (dotfiles-home %ewm-session
-               #:layers (list %dotfiles-layer
-                              %zsh-layer
-                              %gpg-ssh-agent-layer
-                              %emacs-layer
-                              %browser-layer
-                              %claude-code-layer
-                              %gemini-layer))
+               #:layers (delq %espanso-layer %default-layers))
+

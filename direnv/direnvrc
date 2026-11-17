@@ -80,3 +80,15 @@ use_guix() {
   fi
   log_status "guix:   ready. Silence this with DIRENV_GUIX_QUIET=1"
 }
+
+# On Guix hosts without Nix installed, upstream repos that ship `.envrc` with
+# `use nix` (e.g. ~/src/ewm) would otherwise fail on every shell entry with
+# `nix-shell: command not found`.
+if ! command -v nix-shell >/dev/null 2>&1; then
+  use_nix() {
+    if [ -z "${DIRENV_GUIX_QUIET}" ]; then
+      log_status "guix: skipping 'use nix' (nix-shell not installed on this Guix host)"
+    fi
+  }
+fi
+
