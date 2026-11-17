@@ -5,293 +5,28 @@ disturbing the working GNOME session, plus an inventory of everything in this
 repo that depends on GNOME — which is what you would actually be signing up to
 replace.
 
-Everything marked **verified** was checked on this machine on 2026-08-08, with
-Stage 1 build and Stage 2 hardware launch verified on 2026-10-03. Everything
-marked **unverified** is from EWM's docs or reasoning, and should be treated as
-a question to answer during the trial rather than a fact.
+Stages 0–2 (migrating to `emacs-pgtk`, building `libewm_core.so` in a pure Guix
+shell, and launching EWM on physical hardware via `make ewm-launch` on `TTY2`)
+are **complete**. Their troubleshooting notes and architectural lessons live in
+[`docs/learning/`](learning/):
 
----
-
-## What EWM is
-
-A Rust dynamic module, built on [Smithay](https://github.com/Smithay/smithay)
-(not wlroots), that runs *inside* an Emacs session and presents Wayland clients
-as Emacs buffers. It is a real compositor — it drives DRM/KMS directly, and it
-must be launched from a TTY. Nested mode is not supported.
-
-So yes: it replaces GNOME as your session. It is not a shell layered on top.
-
-**The one fact that makes this cheap to try:** because it runs from a bare TTY,
-you can evaluate it *without uninstalling anything*. GNOME keeps running on its
-own VT under GDM; EWM gets a different VT. `Ctrl+Alt+F1` returns you to GDM at
-any point, and exiting Emacs (`C-x C-c`) shuts the compositor down and drops you
-back to the text console. Nothing in `system/geeeks.scm` needs to change until
-you have already decided you like it.
-
----
-
-## Prerequisites — current state of this machine
-
-| Requirement | Status | Summary |
-|---|---|---|
-| Emacs with **pgtk** | ✅ Present | `emacs-pgtk` 30.2 active in profile |
-| `emacs-pgtk` in Guix | ✅ Available | Drop-in v30.2 package |
-| Mesa / `libEGL.so.1` | ✅ Present | Found in system profile |
-| `wl-clipboard` | ✅ Present | `wl-copy`/`wl-paste` in home profile |
-| EWM core (`cargo`) | ✅ Built | Compiled in `~/src/ewm/compositor` |
-| Seat management | ✅ Solved | elogind works; runs on TTY2/TTY3 |
-| GPG Pinentry | ✅ Configured | `emacs-pinentry` in home profile |
-
-**Prerequisite Notes:**
-* **Emacs with pgtk:** `system-configuration-features` reports `CAIRO PGTK GTK3`
-  (native Wayland). Deployed via `home/wayland.scm` and `home/ewm.scm`.
-* **wl-clipboard:** `wl-copy`/`wl-paste` installed in home profile for Wayland
-  clipboard integration.
-* **EWM core module:** Built via `guix shell --pure rust rust:cargo ...` at
-  `~/src/ewm/compositor/target/debug/libewm_core.so`.
-* **Seat management:** elogind is present via `%desktop-services`. In Guix,
-  elogind does not grant unprivileged seat access on TTY1 (`ENXIO`), so EWM is
-  run on user VTs (TTY2/TTY3).
-* **GPG Pinentry in Emacs:** `emacs-pinentry` installed via `%wayland-packages`
-  and `allow-emacs-pinentry` enabled in `gpg-agent.conf`, allowing passphrases
-  to prompt in Emacs minibuffer.
-
-### Stage 0 — do this now, it is independent of EWM
-
-Switching `"emacs"` → `"emacs-pgtk"` in `home/wayland.scm` is worth doing on its
-own merits: pgtk is the native-Wayland Emacs build, so it stops going through
-XWayland under GNOME today. Same version, so Spacemacs is unaffected. Add
-`wl-clipboard` in the same pass.
-
-Do this one reconfigure at a time and live with it for a few days *before* you
-touch anything EWM-specific. If pgtk causes you grief in Spacemacs, you want to
-learn that while GNOME is still your desktop and the cause is unambiguous.
-
-Note the emacs daemon shepherd service in `home/wayland.scm` also names
-`"emacs"` — it must move to the same package, or you will run two different
-Emacs builds.
-
-**Status: done** (commit `bef8534`). The daemon runs pgtk and answers
-`emacsclient -e` normally.
-
-**Resolved: `emacsclient -c` hung, and the cause was a broken face.** For a
-while after the switch, `emacsclient -c` against the daemon hung with "Server
-not responding" and left it wedged — accepting connections but processing no
-evals — recoverable only with `herd restart emacs`. Tested from a real terminal,
-the combination is what matters:
-
-| Build | Config | `emacsclient -c` |
-|---|---|---|
-| X11 | Spacemacs | works |
-| pgtk | `-Q` | works |
-| pgtk | Spacemacs | **hung** |
-
-Neither ingredient alone. The culprit was origami's defface, which interpolates
-`(face-attribute 'highlight :background)` at *load* time. A daemon starts with
-only a text-terminal frame (`framep` → `t`), so the theme is not realized and
-that lookup returns `unspecified` — not a legal `:box` colour. The face is then
-baked permanently broken and every later frame inherits it, announced at each
-startup as:
-
-    Error (use-package): origami/:init: Invalid face box:
-    :line-width, 1, :color, unspecified
-
-X11 tolerates realizing that face; pgtk hangs on it. That is why it appeared to
-be a pgtk regression and was not — plain `emacs` has a real frame before origami
-loads, so the daemon is the necessary ingredient, and the shepherd emacs service
-is what introduced it.
-
-Fixed in `~/.spacemacs.d/init.el` (separate repo) in two parts: a
-`custom-set-faces` in `dotspacemacs/user-init` that pre-empts the broken
-defface, since Custom settings outrank `face-defface-spec` and user-init runs
-before layers load; and `bds/fix-origami-fold-header-face` on
-`server-after-make-frame-hook` in user-config, recomputing the real theme colour
-once a graphical frame exists. Startup log is clean and `emacsclient -c` works.
-
-**Method note, since it cost real time here:** `emacsclient -c` from a headless
-shell creates a *text-terminal* frame (`framep` → `t`), not a graphical one, so
-it never exercises the path under test; and `make-frame-on-display` from a
-non-interactive `emacsclient -e` wedges every build regardless, which produced a
-confident but worthless "both wedge, so pgtk is exonerated" reading. Only a real
-terminal settles this class of question.
-
----
-
-## Prior art — a working EWM setup to crib from
-
-`idlip/d-nix`, in `d-setup.org` under the niri subsection:
-<https://github.com/idlip/d-nix/blob/gol-d/d-setup.org#ewm-config>
-
-It is a NixOS config, not Guix, so nothing transfers verbatim — but four things
-in it are worth knowing before Stage 1:
-
-1. **Upstream ships a NixOS module.** The flake takes
-   `git+https://codeberg.org/ezemtsov/ewm` and enables it with
-   `programs.ewm.enable = true` via `inputs.ewm.nixosModules.default`. So
-   upstream expects EWM to be wired in as a *system-level integration*, not just
-   a binary you run. Guix has no equivalent, which means writing that service is
-   real work this plan does not yet account for — see Stage 1.5.
-2. **It uses `emacs-git-pgtk`**, independently confirming the pgtk requirement
-   that Stage 0 already satisfied.
-3. **`withScreencastSupport = true`**, matching the `--features=screencast` in
-   the build command below.
-4. **It pushes the session environment into D-Bus** on startup:
-   `dbus-update-activation-environment --systemd WAYLAND_DISPLAY …`
-
-Point 4 is the one to sit with. That line exists because a compositor-less
-session bus leaves D-Bus-activated services with no `WAYLAND_DISPLAY` — which is
-*precisely* the bug that broke `ssh-add` on this machine, just arriving from a
-different direction. Under EWM there is no GNOME session doing this for you, so
-whatever replaces it has to push the environment itself, or every display-less
-daemon inherits the same failure. Guix has no
-`dbus-update-activation-environment --systemd`, so the shepherd equivalent is an
-open design question.
-
-### Stage 1.5 — the integration nobody has written for Guix
-
-Between "the binary runs" and "this is my desktop" sits the service work the
-NixOS module does for free: launching the compositor as a session, exporting the
-environment to D-Bus and shepherd, and replacing the pieces
-`gnome-desktop-service-type` currently supplies (see the inventory below).
-Budget for this separately. It is the most likely reason a trial stalls after a
-successful first launch.
-
-## Stage 1 — build the compositor
-
-Do this in a throwaway `guix shell`, never in the home profile. Rust plus a
-crates.io dependency tree does not belong in a declarative profile.
-
-```sh
-git clone https://codeberg.org/ezemtsov/ewm ~/src/ewm
-cd ~/src/ewm/compositor
-guix shell --pure rust rust:cargo pkg-config nss-certs bash-minimal \
-     clang-toolchain libinput libseat eudev libxkbcommon mesa wayland \
-     glib libdisplay-info pipewire \
-     -- bash -c 'LIBCLANG_PATH=$GUIX_ENVIRONMENT/lib cargo build --features=screencast'
-```
-
-This command is measured, not guessed: stage 03 ran it clean (empty `target/`)
-against EWM `dc5eb71` and it exited 0 in 1m23s, producing
-`target/debug/libewm_core.so`. The error-by-error log of how the list was
-derived is `docs/stages/stage-03-REPORT.md`.
-
-What changed versus the earlier educated guess:
-
-- **Added `glib`** — `glib-sys` needs `glib-2.0.pc` for GIO (XDG app
-  enumeration).
-- **Added `libdisplay-info`** — `libdisplay-info-sys` needs it for EDID parsing.
-- **Added `pipewire`** — required by `--features=screencast`; `libspa-sys` fails
-  without `libpipewire-0.3.pc`. The guess omitted it.
-- **Added `clang-toolchain`** — `libspa-sys` runs `bindgen`, which needs
-  `libclang.so`. Guix does not put it anywhere `clang-sys` searches, hence the
-  explicit `LIBCLANG_PATH=$GUIX_ENVIRONMENT/lib`; that is also why
-  `bash-minimal` is in the list (something has to expand `$GUIX_ENVIRONMENT`
-  inside the shell).
-- **Added `nss-certs`** — `--pure` drops `SSL_CERT_FILE`, so cargo cannot verify
-  `index.crates.io` and dies before compiling anything.
-- **Dropped `wayland-protocols`, `pixman`, `dbus`** — never queried by any build
-  script. The Rust `wayland-protocols` crate vendors the XML, `zbus` is a
-  pure-Rust D-Bus implementation, and Smithay's GL renderer does not use pixman.
-  Removing all three was confirmed by a clean rebuild, not inferred.
-
-`--pure` is deliberate: it makes missing dependencies fail loudly at build time
-instead of silently binding to something from your profile that will not be
-there at runtime. Its cost is the two lines of scaffolding above (`nss-certs`,
-`LIBCLANG_PATH`), which is the price of that guarantee.
-
-Success gives you `target/debug/libewm_core.so` — an 82 MB unstripped ELF shared
-object. Note this is the *build-time* list; Stage 2 will exercise runtime
-dependencies (libseat/seatd, EGL, DRM) that a successful compile does not prove.
-
-**Status: done** (commit `dc5eb71` built clean; `target/debug/libewm_core.so` is
-82 MB).
-
----
-
-## Stage 2 — first launch, with the escape hatch pre-planned
-
-**Before you start:** know that `Ctrl+Alt+F1` gets you back to GDM, and that
-`C-x C-c` exits the compositor. If the screen goes black and neither works, the
-recovery is `Ctrl+Alt+Delete` (or a hard power cycle) — GNOME is untouched and
-comes back on the next boot regardless.
-
-Log out of GNOME, switch to a free VT (`Ctrl+Alt+F2` or `F3`), log in on the
-console, then run the launch target (which encapsulates all hardware
-workarounds):
-
-```sh
-make ewm-launch
-```
-
-`--fg-daemon=vt2` is required: EWM creates frames as outputs are discovered, so
-Emacs must start with no initial frame, and a named socket isolates EWM from the
-user Shepherd daemon (`server`). Attach from another VT with `emacsclient -s
-vt2` if you need to debug it live.
-
-What to actually evaluate here, in rough order of how likely each is to be the
-dealbreaker:
-
-1. Does it come up on your display at all (fractional scaling, the AMD PSR
-   freeze the wiki warns about)?
-2. Does XWayland work? The wiki has an XWayland page, so it is supported, but
-   this determines whether X11-only apps survive.
-3. Does your Spacemacs config survive being the window manager — particularly
-   keybinding collisions between Spacemacs and EWM's window commands.
-4. Screen sharing via PipeWire (you built with `--features=screencast`).
-
-### Stage 2 Verified: Launch Runbook & Framework 13 AMD Hardware Lessons (2026-10-03)
-
-EWM was successfully launched directly on physical display `eDP-1
-2880x1920@120Hz` on `geeeks` (AMD Ryzen AI 9 HX 370 / Strix Point, `gfx1152`).
-Five critical environmental hurdles were solved:
-
-1. **DRM Master Conflict with GNOME:**
-   * Linux DRM grants primary KMS master exclusively to one display server. If
-     GDM or `gnome-shell` is running, Smithay cannot become DRM master
-     (`Permission denied (os error 13)`).
-   * **Fix:** `make ewm-launch` executes `sudo -i herd stop xorg-server` prior
-     to launching, and user should log out of GNOME. Restart later with `sudo -i
-     herd start xorg-server`.
-
-2. **VT Seat Management (TTY1 vs TTY2/3):**
-   * TTY1 is the Linux kernel system console; Guix's `elogind` does not grant
-     seat controllers or input access to unprivileged sessions on TTY1 (`ENXIO`
-     / `ENOSYS`).
-   * **Fix:** Run EWM from a user virtual terminal such as **TTY2** or **TTY3**
-     with `LIBSEAT_BACKEND=logind`.
-
-3. **Mesa / LLVM 18 GPU Workaround for AMD Strix Point (`gfx1152`):**
-   * The Framework 13 APU is `gfx1152` (Radeon 890M). Guix System ships Mesa
-     built against LLVM 18 (`llvm-for-mesa-18.1.8`), which lacks `gfx1152`
-     shader compiler targets and aborts at runtime (`LLVM ERROR: Cannot
-     select...`).
-   * **Fix:** Force software rasterization on DRM KMS: `LIBGL_ALWAYS_SOFTWARE=1
-     MESA_LOADER_DRIVER_OVERRIDE=kms_swrast HSA_OVERRIDE_GFX_VERSION=11.0.0`
-     This bypasses LLVM 18 shader compilation until Guix upgrades Mesa to LLVM
-     19+.
-
-4. **Emacs Daemon Socket Collision:**
-   * `emacs --fg-daemon` without an explicit name attempts to bind socket
-     `server`, colliding with the user Shepherd Emacs daemon (`PID 1588`) and
-     causing Emacs to abort with exit code 1.
-   * **Fix:** Pass a named socket: `emacs --fg-daemon=vt2`. Connect client with
-     `emacsclient -s vt2`.
-
-5. **TTY Console Keymaps & Double-Swap with `keyd`:**
-   * `keyd` remaps physical CapsLock to Control and LeftControl to CapsLock at
-     the evdev level.
-   * When Guix System also configured `(keyboard-layout ... #:options
-     '("ctrl:swapcaps"))`, the kernel console keymap swapped them *again*,
-     cancelling the swap.
-   * **Fix:** Dropped `ctrl:swapcaps` from `system/geeeks.scm` to let `keyd`'s
-     hardware mapping apply cleanly. Added `swap-caps` alias to `.aliases` for
-     instant keymap reset.
-
-6. **HiDPI Console Legibility:**
-   * On the 2.8K display, default 8x16 console fonts are unreadable. 32px
-     Terminus Powerline (`ter-powerline-v32n`) and Spleen (`spleen-16x32`) are
-     installed in `~/.local/share/consolefonts/`, aliased to `guix-powerline` /
-     `guix-spleen`, and auto-loaded via `.zprofile`.
+- [`learning/emacs-pgtk-daemon.md`](learning/emacs-pgtk-daemon.md) — `emacsclient -c`
+  hang from load-time face evaluation (`:color unspecified`), why headless
+  shells mislead frame debugging, and `--fg-daemon=vt2` socket isolation.
+- [`learning/guix-rust-wayland-build.md`](learning/guix-rust-wayland-build.md) —
+  building a Rust/Smithay/PipeWire compositor in `guix shell --pure`
+  (`clang-toolchain` + `LIBCLANG_PATH` for `bindgen`, `nss-certs` for Cargo TLS,
+  and C `pkg-config` inputs vs pure-Rust crates).
+- [`learning/wayland-tty-drm-seat.md`](learning/wayland-tty-drm-seat.md) — DRM
+  KMS master conflict with GDM/GNOME (`herd stop xorg-server`), Guix `elogind`
+  seat access (`TTY1` vs `TTY2`/`TTY3`), and D-Bus session environment
+  propagation without GNOME.
+- [`learning/amd-strix-point-gfx1152-mesa.md`](learning/amd-strix-point-gfx1152-mesa.md)
+  — AMD Ryzen AI 9 HX 370 (`gfx1152` / Radeon 890M) crash on Guix Mesa with
+  LLVM 18 and the `kms_swrast` software rasterizer workaround.
+- [`learning/linux-tty-keyd-hidpi.md`](learning/linux-tty-keyd-hidpi.md) —
+  `keyd` vs kernel console `ctrl:swapcaps` double-swap and 32px HiDPI console
+  fonts on a 2.8K display.
 
 ---
 
@@ -308,9 +43,10 @@ Only after this stage should `system/geeeks.scm` change.
 ## Stage 4 — package it for Guix (near-future work, deliberately last)
 
 Upstream ships a Nix flake and nothing else. If EWM survives Stage 3 the `guix
-shell` line above stops being good enough — a compositor you log into should not
-depend on a `~/src` checkout and a debug build. This stage is committed to as
-future work; the sequencing below is the decision, not a menu.
+shell` build ([`learning/guix-rust-wayland-build.md`](learning/guix-rust-wayland-build.md))
+stops being good enough — a compositor you log into should not depend on a
+`~/src` checkout and a debug build. This stage is committed to as future work;
+the sequencing below is the decision, not a menu.
 
 **Sequencing.** Build with `guix shell` and see whether you like it → if yes,
 package into a *personal channel*, not upstream Guix → solve the session/env
