@@ -267,7 +267,7 @@ help-text:
 	@echo "  make ewm-escape-notes - Print EWM recovery & escape hatch shortcuts"
 	@echo ""
 	@echo "Git and Submodules:"
-	@echo "  make submodule-update - Init and update submodules (espanso/private, private)"
+	@echo "  make submodule-update - Init and update submodules (espanso/private, private, remindme/private)"
 	@echo "  make submodule-pull  - Fast-forward each initialized submodule to the tip of its"
 	@echo "                       remote default branch, detached HEAD included (the state"
 	@echo "                       'make apply' leaves behind). Never forces, never merges a"
@@ -277,9 +277,11 @@ help-text:
 	@echo "  make claude-publish  - Publish the claude/ submodule: push it, prove origin's default"
 	@echo "                       branch really has the commit, then commit ONLY that gitlink"
 	@echo "                       (refuses rather than record a pointer no other clone can fetch)"
+	@echo "  make remindme-publish - Publish the remindme/private submodule the same way"
 	@echo "  make submodule-publish SUBMODULE=<path> - the same for any submodule path"
 	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
 	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
+	@echo "  make check-remindme  - Run the bin/remindme smoke test"
 	@echo ""
 	@echo "Keys, SSH and Commit Signing (GPG):"
 	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
@@ -892,9 +894,10 @@ endif
 		echo "   Or install Emacs manually if needed."; \
 	fi
 endif
+	@git submodule update --init remindme/private 2>/dev/null || true
 
 .PHONY: guix-config apply-wayland submodule-update submodule-pull submodule-push
-.PHONY: submodule-publish claude-publish
+.PHONY: submodule-publish claude-publish remindme-publish
 guix-config:
 	@echo "====================================================================="
 	@echo "Creating Guix Home configuration structure in ~/guix-config"
@@ -1628,6 +1631,8 @@ apply: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@# a missing SSH key should stop here with git's own message rather than
 	@# surface later as a Guix error.
 	@git submodule update --init claude
+	@echo "==> git submodule update --init (remindme/private)"
+	@git submodule update --init remindme/private 2>/dev/null || true
 	@# Before the (slow) pull, and long before the activation: refuse while $$HOME
 	@# holds something the symlink manager would walk through or choke on.  See
 	@# check-home-ownership -- PREFLIGHT=1 fails on hazards only, never on a plain
@@ -1688,6 +1693,8 @@ apply-wayland: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@# espanso/private: without it mr simply knows only the public repos.
 	@echo "==> git submodule update --init (private)"
 	@git submodule update --init private 2>/dev/null || true
+	@echo "==> git submodule update --init (remindme/private)"
+	@git submodule update --init remindme/private 2>/dev/null || true
 	@echo "==> git submodule update --init claude"
 	@# Unlike espanso/private this is NOT optional: home/wayland.scm reads
 	@# ../claude/* unconditionally, so let git's error stop the build.
@@ -1980,10 +1987,13 @@ SUBMODULE_PUBLISH := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))/bin/submodu
 claude-publish:
 	@$(SUBMODULE_PUBLISH) claude
 
+remindme-publish:
+	@$(SUBMODULE_PUBLISH) remindme/private
+
 submodule-publish:
 	@if [ -z "$(SUBMODULE)" ]; then \
 	  echo "usage: make submodule-publish SUBMODULE=<path>" >&2; \
-	  echo "   or: make claude-publish" >&2; \
+	  echo "   or: make claude-publish | make remindme-publish" >&2; \
 	  exit 2; \
 	fi
 	@$(SUBMODULE_PUBLISH) $(SUBMODULE)
@@ -3520,9 +3530,12 @@ check-jobs-live:
 # Deliberately NOT a prerequisite of `check', for the same reason as check-jobs:
 # it makes commits and pushes (inside the scratch area), and `check' must stay
 # something you can run on any machine at any time without side effects.
-.PHONY: check-submodule-publish
+.PHONY: check-submodule-publish check-remindme
 check-submodule-publish:
 	@./tests/submodule/publish-smoke.zsh
+
+check-remindme:
+	@./tests/remindme/smoke.zsh
 
 # The file name IS the host class, and a machine of that class takes the class
 # name as its host name -- so you pick a config to reconfigure with by reading

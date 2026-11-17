@@ -1,0 +1,228 @@
+#!/bin/sh
+#
+# bin/remindme -- view and manage personal markdown reminder sheets with glow.
+#
+# Reminders live in the private submodule at ~/dot_files/remindme/private
+# (override with REMINDME_DIR).
+#
+# Usage:
+#   remindme <topic>          Render <topic>.md with glow
+#   remindme -p <topic>       Render <topic>.md with glow --pager
+#   remindme -e <topic>       Create or edit <topic>.md in $EDITOR
+#   remindme -l, --list       List available reminder topics
+#   remindme -s <pattern>     Search across reminder files
+#   remindme --path [<topic>] Print the directory or topic file path
+#   remindme                  Open glow's interactive TUI in REMINDME_DIR
+
+set -u
+
+PROG=remindme
+REMINDME_DIR=${REMINDME_DIR:-"$HOME/dot_files/remindme/private"}
+REMINDME_GLOW_STYLE=${REMINDME_GLOW_STYLE:-dark}
+
+die() {
+    printf '%s: %s\n' "$PROG" "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<EOF
+usage: $PROG [options] [<topic>]
+
+View and manage markdown reminder sheets in:
+  $REMINDME_DIR
+
+Options:
+  -p, --pager           Display with glow's pager (-p)
+  -e, --edit <topic>    Create or edit <topic>.md in \${VISUAL:-\${EDITOR:-vi}}
+  -l, --list            List available reminder topics
+  -s, --search <regex>  Search inside all reminder sheets
+      --path [<topic>]  Print REMINDME_DIR or the path to <topic>.md
+  -h, --help            Show this help message
+EOF
+}
+
+strip_md() {
+    case $1 in
+        *.md) printf '%s\n' "${1%.md}" ;;
+        *)    printf '%s\n' "$1" ;;
+    esac
+}
+
+has_notes() {
+    [ -d "$REMINDME_DIR" ] || return 1
+    for f in "$REMINDME_DIR"/*.md; do
+        [ -f "$f" ] || continue
+        case ${f##*/} in
+            README.md) continue ;;
+        esac
+        return 0
+    done
+    return 1
+}
+
+check_initialized() {
+    if [ ! -d "$REMINDME_DIR" ] || { [ ! -e "$REMINDME_DIR/.git" ] && ! has_notes; }; then
+        cat >&2 <<EOF
+$PROG: no reminders found in $REMINDME_DIR
+If the private submodule is not initialized yet, run:
+  git -C ~/dot_files submodule update --init remindme/private
+or create one with:
+  $PROG -e <topic>
+EOF
+        return 1
+    fi
+    return 0
+}
+
+list_topics() {
+    check_initialized || exit 1
+    found=0
+    for f in "$REMINDME_DIR"/*.md; do
+        [ -f "$f" ] || continue
+        base=${f##*/}
+        [ "$base" = "README.md" ] && continue
+        topic=${base%.md}
+        title=$(sed -n 's/^#[[:space:]]\{1,\}//p' "$f" | head -n 1)
+        if [ -n "$title" ]; then
+            printf '%-20s %s\n' "$topic" "$title"
+        else
+            printf '%s\n' "$topic"
+        fi
+        found=1
+    done
+    if [ "$found" -eq 0 ]; then
+        printf '%s: no reminder sheets in %s (create one with: %s -e <topic>)\n' \
+            "$PROG" "$REMINDME_DIR" "$PROG" >&2
+        exit 1
+    fi
+}
+
+render_file() {
+    file=$1
+    pager_flag=$2
+    if command -v glow >/dev/null 2>&1; then
+        if [ -n "$pager_flag" ]; then
+            exec glow -s "$REMINDME_GLOW_STYLE" -p "$file"
+        else
+            exec glow -s "$REMINDME_GLOW_STYLE" "$file"
+        fi
+    else
+        printf '%s: warning: glow not found on PATH; falling back to cat\n' "$PROG" >&2
+        exec cat "$file"
+    fi
+}
+
+pager_flag=''
+action='view'
+arg=''
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -l|--list)
+            action='list'
+            shift
+            ;;
+        -p|--pager)
+            pager_flag='-p'
+            shift
+            ;;
+        -e|--edit)
+            [ $# -ge 2 ] || die "$1 requires a <topic> argument"
+            action='edit'
+            arg=$2
+            shift 2
+            ;;
+        -s|--search)
+            [ $# -ge 2 ] || die "$1 requires a <pattern> argument"
+            action='search'
+            arg=$2
+            shift 2
+            ;;
+        --path)
+            action='path'
+            if [ $# -ge 2 ]; then
+                arg=$2
+                shift 2
+            else
+                shift
+            fi
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            die "unknown option: $1 (try '$PROG --help')"
+            ;;
+        *)
+            if [ -z "$arg" ]; then
+                arg=$1
+            else
+                die "unexpected argument: $1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$arg" ] && [ $# -gt 0 ]; then
+    arg=$1
+fi
+
+case $action in
+    list)
+        list_topics
+        ;;
+    path)
+        if [ -n "$arg" ]; then
+            topic=$(strip_md "$arg")
+            printf '%s/%s.md\n' "$REMINDME_DIR" "$topic"
+        else
+            printf '%s\n' "$REMINDME_DIR"
+        fi
+        ;;
+    edit)
+        topic=$(strip_md "$arg")
+        [ -n "$topic" ] || die "empty topic name"
+        mkdir -p "$REMINDME_DIR" || die "cannot create $REMINDME_DIR"
+        editor=${EDITOR:-${VISUAL:-vi}}
+        # Intentional word-splitting so EDITOR="emacsclient -c -a \"\"" works
+        eval "$editor \"\$REMINDME_DIR/\$topic.md\""
+        ;;
+    search)
+        check_initialized || exit 1
+        if command -v rg >/dev/null 2>&1; then
+            exec rg -n --glob '*.md' --glob '!README.md' -- "$arg" "$REMINDME_DIR"
+        else
+            exec grep -rn --include='*.md' --exclude='README.md' -- "$arg" "$REMINDME_DIR"
+        fi
+        ;;
+    view)
+        if [ -z "$arg" ]; then
+            check_initialized || exit 1
+            if [ -t 1 ] && command -v glow >/dev/null 2>&1; then
+                exec glow "$REMINDME_DIR"
+            else
+                list_topics
+            fi
+        else
+            topic=$(strip_md "$arg")
+            target="$REMINDME_DIR/$topic.md"
+            if [ ! -f "$target" ]; then
+                check_initialized || exit 1
+                printf '%s: no reminder named '\''%s'\'' (%s)\n' "$PROG" "$topic" "$target" >&2
+                if has_notes; then
+                    printf '\nAvailable reminders:\n' >&2
+                    list_topics | sed 's/^/  /' >&2
+                fi
+                exit 1
+            fi
+            render_file "$target" "$pager_flag"
+        fi
+        ;;
+esac

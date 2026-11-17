@@ -95,6 +95,8 @@ For standard shell setup not related to the background job runners:
 *   **Make targets:** `setup-cloud-dirs`, `check-cloud-dirs`, `cloud-sync`, `check-cloud-creds`, `cloud-creds-login`, `cloud-creds-strip`
 *   **Testing:** `tests/cloud/dirs-smoke.zsh`, `tests/cloud/creds-smoke.zsh` (`make check-cloud`)
 
-## 9. Submodules (`claude`, `espanso/private`, `private`)
-*   **Publishing a bump:** `bin/submodule-publish` (`make claude-publish`, `make submodule-publish SUBMODULE=...`); also `submodule-update`, `submodule-pull`, `submodule-push` in `Makefile`
+## 9. Submodules (`claude`, `espanso/private`, `private`, `remindme/private`)
+*   **Publishing a bump:** `bin/submodule-publish` (`make claude-publish`, `make remindme-publish`, `make submodule-publish SUBMODULE=...`); also `submodule-update`, `submodule-pull`, `submodule-push` in `Makefile`
+*   **Personal Markdown Reminders (`remindme`):** `bin/remindme`, Zsh completion `_remindme` in `.shared.zshrc`, private sheets in `remindme/private/*.md` (`git@github.com:durantschoon/remindme-private.git`), tests in `tests/remindme/smoke.zsh` (`make check-remindme`)
 *   **Testing:** `tests/submodule/publish-smoke.zsh` (`make check-submodule-publish`)
+

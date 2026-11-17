@@ -203,6 +203,35 @@ glowtmux() {
     glow -s dark -w $(( $(tmux display -p '#{pane_width}') - 4 )) "$1" | less -R
 }
 
+# remindme: render personal markdown reminder sheets from ~/dot_files/remindme/private via glow
+remindme() {
+    if [[ -x "$HOME/dot_files/bin/remindme" ]]; then
+        "$HOME/dot_files/bin/remindme" "$@"
+    else
+        command remindme "$@"
+    fi
+}
+
+_remindme() {
+    local dir="${REMINDME_DIR:-$HOME/dot_files/remindme/private}"
+    local -a topics
+    topics=( "$dir"/*.md(N:t:r) )
+    topics=( ${topics:#README} )
+    _arguments \
+        '(-p --pager)'{-p,--pager}'[Display with glow pager]' \
+        '(-e --edit)'{-e,--edit}'[Create or edit topic in $EDITOR]:reminder topic:->topics' \
+        '(-l --list)'{-l,--list}'[List available reminder topics]' \
+        '(-s --search)'{-s,--search}'[Search inside reminder sheets]:search pattern:' \
+        '--path[Print REMINDME_DIR or path to topic]:reminder topic:->topics' \
+        '(-h --help)'{-h,--help}'[Show help]' \
+        '1:reminder topic:->topics'
+    if [[ "$state" == topics ]]; then
+        _describe 'reminder topic' topics
+    fi
+}
+(( $+functions[compdef] )) && compdef _remindme remindme
+
+
 # env-* commands
 [[ -f "$ENVELOPE_MAIN_DIR/scripts/envelope-worktree.zsh" ]] && source "$ENVELOPE_MAIN_DIR/scripts/envelope-worktree.zsh"
 

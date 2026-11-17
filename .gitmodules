@@ -7,3 +7,6 @@
 [submodule "private"]
 	path = private
 	url = git@github.com:durantschoon/dot_files-private.git
+[submodule "remindme/private"]
+	path = remindme/private
+	url = git@github.com:durantschoon/remindme-private.git
