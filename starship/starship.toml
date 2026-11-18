@@ -60,6 +60,11 @@ disabled = true
 # the host as a container).  On Termux / Android, replace the default
 # "localhost" with "android_termux".  On other hosts (minius, geeeks,
 # barnowl), show the plain hostname.
+#
+# The hostname carries only the closing bracket in `format'; the opening one
+# comes from $output, because on OrbStack custom.orb has already drawn it to
+# the orb's left -- "[● ccb908a]", with the orb inside the brackets rather
+# than ahead of them.
 [custom.host]
 shell = ["sh"]
 when = 'true'
@@ -73,14 +78,17 @@ if [ "$h" = "localhost" ] || [ -z "$h" ]; then
 fi
 case "$v" in
   *orbstack*|*OrbStack*) printf "%.7s" "$h" ;;
-  *) printf "%s" "$h" ;;
+  *) printf "[%s" "$h" ;;
 esac
 '''
 style = "bold underline bright-green"
-format = "[\\[$output\\]]($style)"
+format = "[$output\\]]($style)"
 
-# Purple orb marking an OrbStack container, ahead of the hostname it belongs
-# to -- the same place the left prompt puts its ssh marker.
+# Purple orb marking an OrbStack container, inside the hostname's brackets and
+# ahead of the short container ID: "[● ccb908a]", the orb reading as a marker
+# on that ID rather than on the prompt.  So this module draws the opening
+# bracket (in the hostname's green, not the orb's purple) and custom.host
+# leaves it out whenever the orb is shown.
 #
 # The orb is U+25CF BLACK CIRCLE, coloured by `style'.  It replaces the purple
 # circle emoji U+1F7E3, which drew as a replacement box: U+1F7E3 is Emoji 12.0
@@ -104,7 +112,7 @@ case "$v" in *orbstack*|*OrbStack*) exit 0 ;; *) exit 1 ;; esac
 '''
 command = 'printf "\342\227\217"'
 style = "bold purple"
-format = "[$output]($style) "
+format = "[\\[](bold underline bright-green)[$output]($style) "
 
 # ssh marker for the left prompt: hostname's default ssh_symbol (U+1F310, like
 # the buffalo outside the BMP), shown whenever $SSH_CONNECTION is set, which is
