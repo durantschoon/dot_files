@@ -648,6 +648,7 @@ socket alone, which any Linux X session has."
     "jq"
     "rclone"
     "rsync"
+    "sox"
     ;; Guix has a real fastfetch, so no shim is needed here.  .aliases only
     ;; defines its neofetch fallback when fastfetch is absent from PATH.
     "fastfetch"
