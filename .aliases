@@ -815,13 +815,24 @@ if [ -n "$ZSH_VERSION" ]; then
     # Everything, in the order zsh itself reads it, skipping what is absent.
     alias s.zall='for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done; unset _f'
 
-    # Guix Home: reconfigure dotfiles from ~/dot_files.  `make -C' runs the
-    # Makefile with the repo as its cwd without moving this shell there, so
-    # these never touch the directory stack -- a failed apply used to be able
-    # to strand you in ~/dot_files.  --no-print-directory matches what the
-    # Makefile already passes to its own recursive $(MAKE) calls.
+    # Run any of this repo's make targets from anywhere, arguments and all:
+    #
+    #   dfmake check-session-coupling
+    #   dfmake add-pkg PKG=sox
+    #
+    # `make -C' gives the Makefile the repo as its cwd without moving this
+    # shell there, so nothing here touches the directory stack -- the pushd
+    # version this replaced could strand you in ~/dot_files when a target
+    # failed.  --no-print-directory matches what the Makefile already passes
+    # to its own recursive $(MAKE) calls, so the output is unchanged.
+    dfmake() {
+        make --no-print-directory -C ~/dot_files "$@"
+    }
+
+    # Guix Home: reconfigure dotfiles, then re-source so the new generation's
+    # dotfiles are live in this shell rather than only in the next one.
     dot-apply() {
-        make --no-print-directory -C ~/dot_files apply || return 1
+        dfmake apply || return 1
         for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done
         for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done
         unset _f
@@ -829,7 +840,7 @@ if [ -n "$ZSH_VERSION" ]; then
     alias da=dot-apply
 
     dot-apply-wayland() {
-        make --no-print-directory -C ~/dot_files apply-wayland || return 1
+        dfmake apply-wayland || return 1
         for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done
         for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done
         unset _f
@@ -838,7 +849,7 @@ if [ -n "$ZSH_VERSION" ]; then
 
     # The EWM trial generation (home/ewm.scm); back out with: guix home roll-back
     dot-apply-ewm() {
-        make --no-print-directory -C ~/dot_files apply-ewm || return 1
+        dfmake apply-ewm || return 1
         for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; unset _f
     }
     alias dae=dot-apply-ewm
