@@ -796,6 +796,26 @@ if [ -n "$ZSH_VERSION" ]; then
         fi
     }
 
+    # Re-source what zsh reads at startup, in the order zsh reads it.  The
+    # four shell files go through _source_if, which announces the ones this
+    # machine does not have; the two private fragments are tested first and
+    # stay silent when absent, since most machines legitimately lack them.
+    #
+    # `local _f' rather than the unset-afterwards it replaced, so a caller's
+    # own _f survives.  The explicit `return 0' matters: without it the last
+    # [ -f ] test leaks its status, and a machine with no private fragments
+    # would see every caller of this report failure.
+    _source_shell_files() {
+        local _f
+        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do
+            _source_if "$_f"
+        done
+        for _f in ~/.aliases.private ~/.private_aliases; do
+            [ -f "$_f" ] && _source_if "$_f"
+        done
+        return 0
+    }
+
     # The file that actually holds everything under guix home.  ${ZDOTDIR:-$HOME}
     # keeps this correct on machines that never set ZDOTDIR.
     alias s.z='_source_if "${ZDOTDIR:-$HOME}/.zshrc"'
@@ -813,7 +833,7 @@ if [ -n "$ZSH_VERSION" ]; then
     alias s.zws='_source_if ~/dot_files/.shared.work.zshrc'
 
     # Everything, in the order zsh itself reads it, skipping what is absent.
-    alias s.zall='for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done; unset _f'
+    alias s.zall=_source_shell_files
 
     # Run any of this repo's make targets from anywhere, arguments and all:
     #
@@ -833,24 +853,20 @@ if [ -n "$ZSH_VERSION" ]; then
     # dotfiles are live in this shell rather than only in the next one.
     dot-apply() {
         dfmake apply || return 1
-        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done
-        for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done
-        unset _f
+        _source_shell_files
     }
     alias da=dot-apply
 
     dot-apply-wayland() {
         dfmake apply-wayland || return 1
-        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done
-        for _f in ~/.aliases.private ~/.private_aliases; do [ -f "$_f" ] && _source_if "$_f"; done
-        unset _f
+        _source_shell_files
     }
     alias daw=dot-apply-wayland
 
     # The EWM trial generation (home/ewm.scm); back out with: guix home roll-back
     dot-apply-ewm() {
         dfmake apply-ewm || return 1
-        for _f in "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile" ~/.aliases "${ZDOTDIR:-$HOME}/.zshrc"; do _source_if "$_f"; done; unset _f
+        _source_shell_files
     }
     alias dae=dot-apply-ewm
 
