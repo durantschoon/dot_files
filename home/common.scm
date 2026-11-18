@@ -247,6 +247,27 @@ releases and other GitHub features to the terminal.")
 ;; PATH is set in the wrapper too, and is not optional: freeplane.sh shells out
 ;; to grep/awk/sed/tr/which just to parse `java -version'.  With an empty PATH it
 ;; fails in the version check, before Java is ever invoked.
+;;
+;; TEXT SIZE is not a packaging concern, but this is where you will come looking
+;; for it.  The knob is `display_scale' (a percentage) in
+;; ~/.config/freeplane/1.12.x/auto.properties -- 1.13 keeps using the 1.12.x
+;; profile deliberately, see the README.txt it drops in 1.13.x.  UITools scales
+;; by user_defined_screen_resolution * display_scale / 7200, so one number moves
+;; node text, icons, map and chrome together.
+;;
+;; `defaultfontsize' LOOKS like the knob and is not: NodeStyleController falls
+;; back to it only when no style names a size, and both the stock
+;; standard-1.6.mm template and the existing maps in ~/MindMaps pin SIZE="10" in
+;; their default style, so changing it does nothing visible.
+;;
+;; One zoom-in step is one entry along predefined_zoom_levels
+;; (...,90%,100%,110%,120%,...) -- MapViewController.zoomIn walks that list --
+;; so display_scale=120 is "zoomed in twice", made permanent.
+;;
+;; auto.properties is per-machine and Freeplane rewrites it wholesale from
+;; memory on exit, which is why it is not deployed from this repo: edit it only
+;; while Freeplane is shut down, or set it in Tools > Preferences > Appearance >
+;; Display scale (%).
 (define freeplane
   (package
     (name "freeplane")
