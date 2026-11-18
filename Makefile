@@ -1640,7 +1640,28 @@ apply: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || $(EXPECTED_WARNINGS) guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || { \
+	    echo ""; \
+	    echo "  *** the pinned 'guix pull' failed ***"; \
+	    echo "  channels.scm exists, so the pin is the only pull this target will"; \
+	    echo "  accept.  It is deliberately NOT falling back to a bare 'guix pull'."; \
+	    echo ""; \
+	    echo "  That fallback used to live on this line, and it moved guix to"; \
+	    echo "  latest master -- abandoning the pin without saying so.  The damage"; \
+	    echo "  showed up later and elsewhere: a reconfigure that rebuilds the"; \
+	    echo "  world, or that fails on a package the pin never promised, with"; \
+	    echo "  nothing in the output connecting it back to a pull that quietly"; \
+	    echo "  did something other than what it was asked."; \
+	    echo ""; \
+	    echo "  Usual causes: no network, or an unbuildable commit PAIR in"; \
+	    echo "  channels.scm -- guix and nonguix are pinned together and have to"; \
+	    echo "  move together (see that file's header)."; \
+	    echo ""; \
+	    echo "  To see the guix you have now:         guix describe"; \
+	    echo "  To move the pin forward on purpose:   make update"; \
+	    echo ""; \
+	    exit 1; \
+	  }; \
 	else \
 	  $(EXPECTED_WARNINGS) guix pull ; \
 	fi
@@ -1683,7 +1704,28 @@ apply-wayland: check-disk-floor warn-dotfiles-home setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-home-ownership PREFLIGHT=1
 	@echo "==> guix pull (pinned if channels.scm exists)"
 	@if [ -f channels.scm ]; then \
-	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || $(EXPECTED_WARNINGS) guix pull ; \
+	  $(EXPECTED_WARNINGS) guix pull --allow-downgrades --channels=channels.scm || { \
+	    echo ""; \
+	    echo "  *** the pinned 'guix pull' failed ***"; \
+	    echo "  channels.scm exists, so the pin is the only pull this target will"; \
+	    echo "  accept.  It is deliberately NOT falling back to a bare 'guix pull'."; \
+	    echo ""; \
+	    echo "  That fallback used to live on this line, and it moved guix to"; \
+	    echo "  latest master -- abandoning the pin without saying so.  The damage"; \
+	    echo "  showed up later and elsewhere: a reconfigure that rebuilds the"; \
+	    echo "  world, or that fails on a package the pin never promised, with"; \
+	    echo "  nothing in the output connecting it back to a pull that quietly"; \
+	    echo "  did something other than what it was asked."; \
+	    echo ""; \
+	    echo "  Usual causes: no network, or an unbuildable commit PAIR in"; \
+	    echo "  channels.scm -- guix and nonguix are pinned together and have to"; \
+	    echo "  move together (see that file's header)."; \
+	    echo ""; \
+	    echo "  To see the guix you have now:         guix describe"; \
+	    echo "  To move the pin forward on purpose:   make update"; \
+	    echo ""; \
+	    exit 1; \
+	  }; \
 	else \
 	  $(EXPECTED_WARNINGS) guix pull ; \
 	fi
