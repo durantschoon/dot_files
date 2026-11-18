@@ -202,7 +202,18 @@ alias h='history 1'
 alias hg='history 1 | grep'
 alias ipy='python -m IPython'
 alias ipn='ipython notebook'
-alias ll='ls -l'
+# `ls' takes --color only where the implementation has it: GNU coreutils
+# (Linux, Termux, and macOS once `brew install coreutils' puts gnubin at the
+# front of PATH -- see .mac.zshenv).  The BSD ls macOS ships otherwise dies
+# with "illegal option", so probe once per source instead of per command.
+# `always' rather than `auto' so the colour survives a pipe into `less -R' or
+# `grep'; the cost is escape codes in `ll > file', where `ls -l' is the honest
+# command anyway.
+if ls --color=always /dev/null >/dev/null 2>&1; then
+    alias ll='ls -l --color=always'
+else
+    alias ll='ls -l'
+fi
 alias m='less'
 alias md='mkdir -p'
 alias ms='make shell'

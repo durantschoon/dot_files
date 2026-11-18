@@ -1046,7 +1046,11 @@ call, so extensions never collide; only genuine double ownership does."
                         "eval \"$(direnv hook zsh)\"\n"
                         "alias e='emacsclient -c -a \"\"'\n"
                         "alias ec='emacsclient -t -a \"\"'\n"
-                        "alias ll=\"ls -lah\"\n"
+                        ;; Guix's ls is GNU coreutils, so --color needs no
+                        ;; probe here.  ~/.aliases, sourced below, redefines
+                        ;; ll with the cross-platform probe and wins; this
+                        ;; stays as the base for a shell without ~/.aliases.
+                        "alias ll=\"ls -lah --color=always\"\n"
                         "[[ -f ~/.aliases ]] && source ~/.aliases\n"))
            (local-file "../.zshrc.starship" "zshrc.starship")
            (local-file "../.shared.zshrc" "shared.zshrc")
