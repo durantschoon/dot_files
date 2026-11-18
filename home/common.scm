@@ -667,6 +667,18 @@ socket alone, which any Linux X session has."
     "font-adobe-source-code-pro"
     "font-fira-code"
     "font-cica"
+    ;; font-google-noto-emoji: the only emoji font here.  Until it was added,
+    ;; every emoji on this machine rendered out of font-cica, which ships
+    ;; monochrome emoji as a side effect of being a Japanese programming font.
+    ;; Anything newer than Cica's coverage had nothing to fall back to and drew
+    ;; as a replacement box -- which is how the prompt's purple circle
+    ;; (U+1F7E3, Emoji 12.0) was lost.  Check coverage before blaming a font:
+    ;;   fc-list ':charset=1F7E3' family    # empty => no font has it
+    ;; This installs NotoColorEmoji.ttf, so the glyphs are colour bitmaps.
+    ;; It is not what fixes the prompt: starship/starship.toml deliberately
+    ;; stays inside the BMP so the prompt also survives clients without this
+    ;; font, ConEmu above all.  This is for emoji everywhere else.
+    "font-google-noto-emoji"
     "nss-certs"
     "myrepos"
     "moreutils"

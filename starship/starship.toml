@@ -27,13 +27,14 @@ command_timeout = 1000
 # Prompt layout.  First line, right edge: the Guix version on any host with a
 # pulled Guix (Guix System or a foreign distro) and inside a `guix shell' (a
 # shell follows the buffalo inside one; nothing is shown on hosts without
-# Guix).  Right-hand prompt on the second line: which machine, the history
-# event number to recall with !N, and the time and date (the old zsh RPROMPT's
-# "[%h]" and "[%* on %D]").  Modules named in format or right_format drop out
-# of $all, so the left prompt does not repeat them.
+# Guix).  Right-hand prompt on the second line: which machine (behind a purple
+# orb when that machine is an OrbStack container), the history event number to
+# recall with !N, and the time and date (the old zsh RPROMPT's "[%h]" and
+# "[%* on %D]").  Modules named in format or right_format drop out of $all, so
+# the left prompt does not repeat them.
 # The left prompt leads with an ssh marker, as it did when hostname lived there.
 format = "${env_var.SSH_CONNECTION}$all$fill${custom.guix_shell}${custom.guix}$line_break$character"
-right_format = "${custom.host} ${env_var.STARSHIP_HISTNO}$time"
+right_format = "${custom.orb}${custom.host} ${env_var.STARSHIP_HISTNO}$time"
 
 # zsh's RPROMPT sits on the prompt's last line only, so right_format cannot
 # span two lines.  The Guix segment goes on the first line instead, pushed to
@@ -54,11 +55,11 @@ symbol = " "   # nf-dev-python
 [hostname]
 disabled = true
 
-# Which machine: on OrbStack the container hostname is a random ID, so lead
-# with the purple circle / orb emoji (U+1F7E3) and cut the ID to its first
-# seven characters, like a short git hash.  On Termux / Android, replace the
-# default "localhost" with "android_termux".  On other hosts (minius, geeeks,
-# barnowl), show the plain hostname without the orb.
+# Which machine: on OrbStack the container hostname is a random ID, so cut it
+# to its first seven characters, like a short git hash (custom.orb below marks
+# the host as a container).  On Termux / Android, replace the default
+# "localhost" with "android_termux".  On other hosts (minius, geeeks,
+# barnowl), show the plain hostname.
 [custom.host]
 shell = ["sh"]
 when = 'true'
@@ -71,12 +72,39 @@ if [ "$h" = "localhost" ] || [ -z "$h" ]; then
   h="android_termux"
 fi
 case "$v" in
-  *orbstack*|*OrbStack*) printf "\360\237\237\243 %.7s" "$h" ;;
+  *orbstack*|*OrbStack*) printf "%.7s" "$h" ;;
   *) printf "%s" "$h" ;;
 esac
 '''
 style = "bold underline bright-green"
 format = "[\\[$output\\]]($style)"
+
+# Purple orb marking an OrbStack container, ahead of the hostname it belongs
+# to -- the same place the left prompt puts its ssh marker.
+#
+# The orb is U+25CF BLACK CIRCLE, coloured by `style'.  It replaces the purple
+# circle emoji U+1F7E3, which drew as a replacement box: U+1F7E3 is Emoji 12.0
+# (2019), newer than every font installed here, including font-cica, which is
+# what supplies the prompt's other emoji (the buffalo, shell and globe).  With
+# nothing to fall back to, fontconfig gave up.  U+25CF is in CaskaydiaCove NF
+# itself, so no fallback is needed at all, and taking the colour from `style'
+# instead of from the codepoint keeps the orb purple in ConEmu too, which
+# cannot draw past the BMP whatever the font.  For a truer purple than ANSI
+# magenta, `style' takes hex: "bold #a855f7".
+#
+# Its own module because a custom module's style covers its whole segment, and
+# the hostname is green.  That repeats custom.host's /proc/version read, as the
+# two guix modules below repeat their `ver' helper, and for the same reason.
+[custom.orb]
+shell = ["sh"]
+when = '''
+v=""
+[ -f /proc/version ] && read -r v < /proc/version 2>/dev/null
+case "$v" in *orbstack*|*OrbStack*) exit 0 ;; *) exit 1 ;; esac
+'''
+command = 'printf "\342\227\217"'
+style = "bold purple"
+format = "[$output]($style) "
 
 # ssh marker for the left prompt: hostname's default ssh_symbol (U+1F310, like
 # the buffalo outside the BMP), shown whenever $SSH_CONNECTION is set, which is
