@@ -750,19 +750,10 @@ if [ -n "$ZSH_VERSION" ]; then
     }
     alias fng='funcs' # funcs grep
 
-    if command -v pup >/dev/null && alias pup >/dev/null 2>&1; then
-        unalias pup
-    fi
-
     # supposedly works on mac and linux
     alias ollama_update="ollama list | awk -F: 'NR>1 && !/reviewer/ {system(\"ollama pull \"\$1)}'"
-
-    if command -v pup > /dev/null; then
-        alias ollama_library_list='(\
-              echo "Listing all available models from https://ollama.com/library\n"; \
-              curl -s "https://ollama.com/library" | pup "#repo ul li a div:nth-child(1) h2 div span text{}" | sort) | \
-              more'
-    fi
+    alias ollama_list='curl -fsSL "https://ollama.com/library" | grep -oE '\''href="/library/[^"/]+"'\'' | sed '\''s#href="/library/##; s#"##'\'' | sort -u | less -FX'
+    alias ollama_library_list='ollama_list'
 
     ###########################################################################
     # Re-source a zsh config file.
