@@ -5,6 +5,7 @@ The term in **Use** is the one to write now. A later row may replace it again.
 
 | Since | Commit | Use | Instead of | Why |
 | --- | --- | --- | --- | --- |
+| 2026-11-19 | `7e414bbdd1244961e93e626964c1a8d1c6a0ca57` | `probpush` | `pushprob` | Groups with `probpop` and `probtree` on the noun, so the three sort and tab-complete together; `pushprob` is removed, not aliased. |
 | 2026-11-03 | `5e62c577bb428b81c067716f3a2deafcdb1241cb` | `check-ssh-with-gpg-for-egress` | `check-ssh` | The target only checks that gpg-agent is serving SSH keys, while outbound login uses the file key on minius, so `check-ssh` and `check-ssh-agent` are removed. |
 | 2026-11-03 | `5e62c577bb428b81c067716f3a2deafcdb1241cb` | `check-sshd-for-ingress-tests` | `check-sshd-bootstrap` | `check-sshd-bootstrap` sounded like it started sshd, and the target only runs the unit tests. |
 | 2026-11-03 | `5e62c577bb428b81c067716f3a2deafcdb1241cb` | `check-sshd-for-ingress` | `check-sshd` | This is the live incoming-server check that pairs with `setup-sshd-for-ingress`, so `check-sshd` is removed. |
