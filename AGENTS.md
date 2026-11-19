@@ -16,6 +16,31 @@ For a multi-file change in this checkout, which other agents share, create the f
 
 To commit in a new worktree, then merge, push and clean up, follow [the worktree-ship skill](claude/skills/worktree-ship/SKILL.md). It moves only the task's own paths out of the shared checkout, so other agents' uncommitted edits stay where they are.
 
+### Renaming anything people type (`language-changes`)
+
+When a make target, command, alias, concept or any other word people say or
+type changes, record it in [`docs/language.md`](docs/language.md) by following
+[the language-changes skill](claude/skills/language-changes/SKILL.md): one row
+per replacement, newest first, citing the commit that introduced the new name.
+**The rename is committed first; the row cites that hash afterwards.**
+
+This matters more here than in most repos because the house style is to
+**remove** the old name rather than keep an alias (`setup-sshd` ->
+`setup-sshd-for-ingress`, `check-ssh` -> `check-ssh-with-gpg-for-egress`,
+`set_up_links` -> `setup-native-links`). Once the old spelling is gone from the
+tree, that table is the only thing that still resolves it for someone reading
+an older document, report or commit message -- so the row is what makes
+removing the alias safe.
+
+Do not rewrite old documents to the new name when they quote file content or
+cite line numbers (a stage report, for instance): that turns a record of what
+happened into something that never did. Add a note naming the new term, the
+commit that renamed it, and the last hash that still had the old one.
+
+`githooks/pre-commit` prints a NOTE when a commit removes a make target
+without staging `docs/language.md`. It is a reminder, not a gate, and it only
+sees make targets -- renaming an alias or a concept is on you to notice.
+
 ## 1. Tmux and Job Runner Commands (`tmux-*`, `job-*`, `docker-*`, `launchd-*`)
 The repository contains a unified job runner abstraction for `tmux`, `launchd`, and `docker` to handle long-running local tasks. All three runners use the same verb convention (`-run`, `-ls`, `-status`, `-logs`).
 *   **Core Implementation:** `.jobs.zsh`

@@ -48,6 +48,28 @@ if ! git diff --quiet -- Makefile; then
     echo "            If a target seems to be missing, that is why."
 fi
 
+# A removed or renamed make target is a word people TYPE. docs/language.md is
+# the repo's record of such changes, and it is the only thing that keeps an old
+# name resolvable once the target is gone -- which matters, because the house
+# style is to remove the old name rather than alias it. Nothing enforced this,
+# so the row got written only when someone remembered.
+#
+# A NOTE, not a block: "removed a target line" is a proxy for "renamed
+# something significant" and it will sometimes be wrong (deleting a dead
+# target, reshuffling .PHONY). A hook that blocks on a guess trains people to
+# pass --no-verify, which costs more than the occasional missed row.
+removed_targets=$(git diff --cached -U0 -- Makefile \
+    | grep -E '^-[a-zA-Z0-9_][a-zA-Z0-9_.-]*:' \
+    | sed 's/^-//; s/:.*//' | sort -u | tr '\n' ' ')
+if [ -n "$removed_targets" ] \
+   && ! git diff --cached --name-only | grep -qx 'docs/language.md'; then
+    echo "pre-commit: NOTE -- target(s) removed or renamed: $removed_targets"
+    echo "            docs/language.md is NOT staged. If this is a rename of"
+    echo "            something people type, add a row (Since, Commit, Use,"
+    echo "            Instead of, Why) so the old name stays resolvable."
+    echo "            The commit hash goes in AFTER this commit exists."
+fi
+
 # Run only the checks whose inputs are actually present. A commit that removes
 # home/ or system/ has nothing for that half to check, and the Makefile globs
 # would error rather than pass.
