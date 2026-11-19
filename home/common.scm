@@ -649,6 +649,22 @@ socket alone, which any Linux X session has."
     "rclone"
     "rsync"
     "sox"
+    ;; alsa-utils is here for `arecord', which is what Claude Code's voice mode
+    ;; needs.  It picks a capture backend in three steps: a bundled native NAPI
+    ;; module, then arecord, then sox `rec'.  The native one cannot load on
+    ;; Guix -- bin/install-claude.sh runs the binary through the Guix loader
+    ;; with --library-path pointing at ~/.guix-profile/lib, which has no
+    ;; libasound -- and it is caught and skipped silently.  Without arecord
+    ;; that leaves the sox path, which appends
+    ;;
+    ;;     silence 1 0.1 3% 1 2.0 3%
+    ;;
+    ;; and so throws away everything below 3% amplitude.  This laptop's
+    ;; internal mic idles at 0.43% and ordinary speech barely clears 3%, so the
+    ;; whole stream was being discarded and voice reported "No speech
+    ;; detected" -- with a working microphone.  The arecord path streams raw
+    ;; with no silence gate at all, which is the actual fix.
+    "alsa-utils"
     ;; Guix has a real fastfetch, so no shim is needed here.  .aliases only
     ;; defines its neofetch fallback when fastfetch is absent from PATH.
     "fastfetch"
