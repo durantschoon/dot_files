@@ -26,6 +26,7 @@ alias cs_size='claude-sessions --sort=size --desc'
 alias cx='chmod +x'
 alias dfh='df -h .'
 alias dm='docker-machine'
+alias dot='cd ~/dot_files/'
 alias ds='echo -e "\e[3mExample: use +2 to switch to the directory 2 down\e[0m"; dirs -v'
 alias dush="\
  echo '== Gigs =='; du -sh * 2>/dev/null | egrep '[0-9]G' | sort -rn; \
@@ -202,7 +203,11 @@ alias h='history 1'
 alias hg='history 1 | grep'
 alias ipy='python -m IPython'
 alias ipn='ipython notebook'
-# `ls' takes --color only where the implementation has it: GNU coreutils
+Welcome to the Emacs shell
+
+~/dot_files:main?:1 λ Welcome to the Emacs shell
+
+~/dot_files:main?:1 λ # `ls' takes --color only where the implementation has it: GNU coreutils
 # (Linux, Termux, and macOS once `brew install coreutils' puts gnubin at the
 # front of PATH -- see .mac.zshenv).  The BSD ls macOS ships otherwise dies
 # with "illegal option", so probe once per source instead of per command.
@@ -222,6 +227,7 @@ alias nrun='npm run'
 alias nrt='echo npm run test; npm run test'
 alias labels='lsblk -o NAME,SIZE,LABEL'
 alias path='echo $PATH | c2n'
+alias dot='pushd ~/dot_files/'
 alias pp='popd; ds'
 alias port_scan='lsof -nP +c 15 | { head -1; grep LISTEN; } ' # mac only?
 alias py="echo 'Using ipython instead, duh' ; ipython"
@@ -399,7 +405,13 @@ vt() {
     sudo chvt "$1"
 }
 alias vt-gnome='sudo chvt 8'
-alias vt-ewm='sudo chvt 1'
+# TTY2, not TTY1.  Guix reserves TTY1 as the kernel system console and elogind
+# grants no seat-controller or input-device access to a user session there, so a
+# compositor launched from TTY1 dies with ENXIO/ENOSYS -- see
+# docs/learning/wayland-tty-drm-seat.md section 2.  This alias used to say
+# chvt 1, which pointed at the one VT where EWM cannot run.  docs/EWM_TRIAL_PLAN
+# .md launches on TTY2 and `--fg-daemon=vt2' is named to match.
+alias vt-ewm='sudo chvt 2'
 alias vt1='sudo chvt 1'
 alias vt2='sudo chvt 2'
 alias vt3='sudo chvt 3'
