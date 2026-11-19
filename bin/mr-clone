@@ -5,12 +5,28 @@ mr's own `checkout' clones a repo to the ONE path its section names
 ([Repos/ds/media-announce] -> ~/Repos/ds/media-announce).  This looks the repo
 up by name in the same config and clones it wherever you are:
 
+  mr-clone git@github.com:u/repo.git   a URL the config has never heard of
   mr-clone media-announce              ./media-announce
   mr-clone media-announce scratch/ma   into scratch/ma
   mr-clone media-announce --depth 1    extra options go to `git clone'
   mr-clone --canonical media-announce  to the path its section names (~/...)
   mr-clone -n GIPS                     print the git command, run nothing
   mr-clone --list                      every repo the config knows, with URLs
+
+A URL ARGUMENT
+
+  Anything that looks like a URL (`scheme://...` or `user@host:path`) skips
+  the config lookup entirely and is cloned directly.  Two things then happen
+  that do NOT happen for a name out of the config:
+
+    * https is rewritten to ssh (`https://host/a/b` -> `git@host:a/b`), so the
+      clone has a pushable remote.  `--https` keeps the URL as given.
+    * the clone is registered in ~/.mrconfig.local afterwards, the same as
+      the `mr-register' alias does, because a URL is by definition a repo the
+      config does not know yet.  `--no-register' skips it.
+
+  A repo named out of the config is NOT registered: it is already there, and
+  registering it again would list it twice.
 
 WHERE THE URLS COME FROM
 
@@ -34,6 +50,7 @@ NAMES
 """
 import difflib
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -145,7 +162,13 @@ def known_repos():
     """{name: (url, branch, section_path_or_None, note)} from every source."""
     # Section names are relative to the directory of ~/.mrconfig as found
     # (~), not of the file it is a symlink to (~/dot_files).
-    sections = parse_config(open(MRCONFIG).read(), os.path.dirname(MRCONFIG), set(), {})
+    try:
+        text = open(MRCONFIG).read()
+    except FileNotFoundError:
+        # No ~/.mrconfig yet (a machine before `make set_up_links').  Nothing
+        # is known by name; a URL argument still works, and --list says so.
+        return [], []
+    sections = parse_config(text, os.path.dirname(MRCONFIG), set(), {})
     parsed = {p: parse_checkout(s["checkout"]) for p, s in sections.items() if "checkout" in s}
     repos = []
     for path, info in parsed.items():
@@ -185,7 +208,8 @@ def usage(code=0):
 
 def split_args(argv):
     """mr-clone's own flags, the repo and an optional target, and git's args."""
-    own = {"list": False, "canonical": False, "dry": False}
+    own = {"list": False, "canonical": False, "dry": False,
+           "https": False, "register": None}
     pos, git = [], []
     i = 0
     while i < len(argv):
@@ -200,6 +224,12 @@ def split_args(argv):
             own["canonical"] = True
         elif a in ("-n", "--dry-run"):
             own["dry"] = True
+        elif a == "--https":
+            own["https"] = True
+        elif a == "--no-register":
+            own["register"] = False
+        elif a == "--register":
+            own["register"] = True
         elif a.startswith("-"):
             git.append(a)
             if a in GIT_VALUED and i + 1 < len(argv):
@@ -208,6 +238,30 @@ def split_args(argv):
             pos.append(a)
         i += 1
     return own, pos, git
+
+
+SCP_LIKE = re.compile(r"^[A-Za-z0-9_.+-]+@[A-Za-z0-9_.-]+:")
+
+
+def looks_like_url(s):
+    """A URL argument, as opposed to a name in the mr config."""
+    return "://" in s or bool(SCP_LIKE.match(s))
+
+
+def to_ssh(url):
+    """https://host/a/b(.git) -> git@host:a/b(.git).  Anything else unchanged.
+
+    Only http(s) is rewritten.  ssh://, git@host:path, and file paths are
+    already pushable or deliberately not ssh, so they are left alone.
+    """
+    m = re.match(r"^https?://(?:[^@/]+@)?([^/:]+)(?::\d+)?/(.+?)/*$", url)
+    return f"git@{m.group(1)}:{m.group(2)}" if m else url
+
+
+def name_from_url(url):
+    """The directory a bare `git clone <url>' would create."""
+    tail = re.sub(r"/+$", "", url).rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    return re.sub(r"\.git$", "", tail) or "repo"
 
 
 def home_rel(p):
@@ -228,6 +282,12 @@ def main(argv):
             rows.append((label, url + (f"  (-b {branch})" if branch else ""), home_rel(path)))
         for _, name, url in sorted(extra, key=lambda r: r[1].lower()):
             rows.append((name, url, "(known_repos.toml)"))
+        if not rows:
+            print(f"mr-clone: no repos known ({home_rel(MRCONFIG)} is missing or lists none).",
+                  file=sys.stderr)
+            print("  a URL argument still works and is registered after cloning",
+                  file=sys.stderr)
+            return 1
         w1 = max(len(r[0]) for r in rows); w2 = max(len(r[1]) for r in rows)
         for r in rows:
             print(f"{r[0]:<{w1}}  {r[1]:<{w2}}  {r[2]}")
@@ -241,39 +301,55 @@ def main(argv):
     if own["canonical"] and target:
         die("--canonical and a target directory contradict each other", 64)
 
-    # exact section path, then basename (case-insensitive)
-    wl = want.lower().rstrip("/")
-    hits = [r for r in repos if home_rel(r[0]).lstrip("~/").lower() == wl.lstrip("~/")]
-    if not hits:
-        hits = [r for r in repos if os.path.basename(r[0]).lower() == wl]
-    by_branch = False
-    if not hits:
-        # an envelope worktree by its branch: [Repos/enveloped/eGIPS] is GIPS
-        hits = [r for r in repos if r[4] == "worktree" and (r[2] or "").lower() == wl]
-        by_branch = bool(hits)
-    url = branch = section = None
-    rest = ""
-    if len(hits) > 1:
-        print(f"mr-clone: '{want}' is in {len(hits)} places; name one by its section path:", file=sys.stderr)
-        for p, u, b, *_ in hits:
-            print(f"  mr-clone {home_rel(p).lstrip('~/')}    # {u}{f' (-b {b})' if b else ''}", file=sys.stderr)
-        return 1
-    if hits:
-        section, url, branch, rest, _ = hits[0]
-        # named by its branch, it clones into a directory of that name
-        name = branch if by_branch else os.path.basename(section)
+    # A URL argument skips config resolution entirely: there is nothing to
+    # look up, and the two extras (ssh rewrite, register afterwards) apply
+    # only in this mode.
+    if looks_like_url(want):
+        if own["canonical"]:
+            die("--canonical needs a name from the mr config, not a URL", 64)
+        url = want if own["https"] else to_ssh(want)
+        if url != want:
+            print(f"  ssh: {want} -> {url}", file=sys.stderr)
+        name, branch, section, rest = name_from_url(url), None, None, ""
+        if own["register"] is None:
+            own["register"] = True
     else:
-        xh = [e for e in extra if e[1].lower() == wl]
-        if not xh:
-            all_names = sorted({os.path.basename(p) for p, *_ in repos} | {e[1] for e in extra}, key=str.lower)
-            close = difflib.get_close_matches(want, all_names, n=5, cutoff=0.5)
-            close += [n for n in all_names if wl in n.lower() and n not in close][:5]
-            print(f"mr-clone: no repo named '{want}' in the mr config.", file=sys.stderr)
-            if close:
-                print(f"  did you mean: {', '.join(close)}", file=sys.stderr)
-            print("  mr-clone --list shows every name", file=sys.stderr)
+        if own["register"] is None:
+            own["register"] = False
+        # exact section path, then basename (case-insensitive)
+        wl = want.lower().rstrip("/")
+        hits = [r for r in repos if home_rel(r[0]).lstrip("~/").lower() == wl.lstrip("~/")]
+        if not hits:
+            hits = [r for r in repos if os.path.basename(r[0]).lower() == wl]
+        by_branch = False
+        if not hits:
+            # an envelope worktree by its branch: [Repos/enveloped/eGIPS] is GIPS
+            hits = [r for r in repos if r[4] == "worktree" and (r[2] or "").lower() == wl]
+            by_branch = bool(hits)
+        url = branch = section = None
+        rest = ""
+        if len(hits) > 1:
+            print(f"mr-clone: '{want}' is in {len(hits)} places; name one by its section path:", file=sys.stderr)
+            for p, u, b, *_ in hits:
+                print(f"  mr-clone {home_rel(p).lstrip('~/')}    # {u}{f' (-b {b})' if b else ''}", file=sys.stderr)
             return 1
-        _, name, url = xh[0]
+        if hits:
+            section, url, branch, rest, _ = hits[0]
+            # named by its branch, it clones into a directory of that name
+            name = branch if by_branch else os.path.basename(section)
+        else:
+            xh = [e for e in extra if e[1].lower() == wl]
+            if not xh:
+                all_names = sorted({os.path.basename(p) for p, *_ in repos} | {e[1] for e in extra}, key=str.lower)
+                close = difflib.get_close_matches(want, all_names, n=5, cutoff=0.5)
+                close += [n for n in all_names if wl in n.lower() and n not in close][:5]
+                print(f"mr-clone: no repo named '{want}' in the mr config.", file=sys.stderr)
+                if close:
+                    print(f"  did you mean: {', '.join(close)}", file=sys.stderr)
+                print("  mr-clone --list shows every name", file=sys.stderr)
+                print("  a URL is also accepted, and is registered after cloning", file=sys.stderr)
+                return 1
+            _, name, url = xh[0]
 
     if own["canonical"]:
         if not section:
@@ -287,11 +363,36 @@ def main(argv):
     print("+ " + " ".join(shlex.quote(c) for c in cmd), file=sys.stderr)
     if rest:
         print(f"  note: mr's checkout also runs, after the clone: {rest}", file=sys.stderr)
+    reg = ["mr", "-c", os.path.expanduser("~/.mrconfig.local"), "register"]
+    if own["register"]:
+        print("+ " + " ".join(shlex.quote(c) for c in reg)
+              + f"    # run in {home_rel(os.path.abspath(dest))}", file=sys.stderr)
     if own["dry"]:
         return 0
     if (os.path.isdir(dest) and os.listdir(dest)) or (os.path.exists(dest) and not os.path.isdir(dest)):
         die(f"{home_rel(os.path.abspath(dest))} already exists")
-    return subprocess.run(cmd).returncode
+    rc = subprocess.run(cmd).returncode
+    if rc != 0 or not own["register"]:
+        return rc
+
+    # The `mr-register' alias, inlined: `mr -c ~/.mrconfig.local register'.
+    # NEVER a bare `mr register' -- that appends to ~/.mrconfig, which is the
+    # shared tracked file (see .mrconfig's own header).  It is a shell
+    # function, so it cannot be called from here; the command is run directly.
+    # Registering is cwd-sensitive: mr records the repo you are IN.
+    try:
+        rrc = subprocess.run(reg, cwd=dest).returncode
+    except FileNotFoundError:
+        print("mr-clone: cloned, but `mr' is not on PATH, so it is not registered.",
+              file=sys.stderr)
+        print(f"  register it later with:  cd {shlex.quote(dest)} && mr-register",
+              file=sys.stderr)
+        return rc
+    if rrc != 0:
+        print(f"mr-clone: cloned into {home_rel(os.path.abspath(dest))}, but"
+              " registering failed.", file=sys.stderr)
+        print(f"  retry with:  cd {shlex.quote(dest)} && mr-register", file=sys.stderr)
+    return rrc
 
 
 if __name__ == "__main__":
