@@ -1894,6 +1894,34 @@ ewm-escape-notes:
 	@echo "  * guix home roll-back- Restore GNOME-tuned home generation after trial."
 
 # ewm-launch -- launch EWM from a bare TTY (step 3 of trial)
+# ewm-launch -- run the EWM compositor on this VT, then put the VT back.
+#
+# THE RESTORE AT THE END IS NOT OPTIONAL, and the reason is worth reading
+# before anyone "simplifies" it away.
+#
+# EWM is a Wayland compositor.  Like every compositor on a VT it sets the
+# keyboard into a raw mode (KDSKBMODE -- K_RAW/K_MEDIUMRAW, or K_OFF) so the
+# kernel stops translating keycodes into characters, and reads evdev itself.
+# A clean exit restores that.  A CRASH does not, and then the console is
+# unusable: raw scancode bytes arrive at the tty as unprintable characters,
+# or nothing arrives at all.  You discover this at a login prompt that will
+# not accept a password.
+#
+# What makes it expensive to diagnose is that everything upstream still tests
+# perfectly.  keyd and the kernel keymap both sit ABOVE this layer, so
+# `keyd monitor' shows exactly the right keycodes (Caps -> leftcontrol,
+# leftcontrol -> capslock) and `dumpkeys' shows a complete, correct keymap,
+# while the console accepts nothing.  That combination sent one whole session
+# chasing the Caps/Control swap, a latched keyd layer, and a wiped keymap --
+# three wrong answers, because the broken layer is the one neither tool
+# reports.  If this ever recurs, check `kbd_mode -C /dev/tty<N>' FIRST.
+#
+# /dev/tty is the VT this recipe runs on, which is the one EWM took over.
+# stty sane repairs the line discipline (echo, icanon) at the same time.
+# Unprivileged kbd_mode works when the invoking user owns the VT, which is
+# the normal case for a VT you logged into; sudo is the fallback.  Both are
+# `|| true' and both run BEFORE the exit below, so a failed restore can
+# neither mask nor replace EWM's own exit status.
 ewm-launch:
 	@echo ""
 	@echo "========================================================================"
@@ -1920,6 +1948,10 @@ ewm-launch:
 	    --eval '(with-eval-after-load "ewm-input" (setopt ewm-input-config (quote ((touchpad :natural-scroll t :tap t)))))' \
 	    -l ewm -f ewm-start-module; \
 	  status=$$?; \
+	  : 'restore the VT a dead compositor left in a raw keyboard mode --'; \
+	  : 'see the block above this target for why this is not optional'; \
+	  kbd_mode -u -C /dev/tty 2>/dev/null || sudo kbd_mode -u -C /dev/tty || true; \
+	  stty sane 2>/dev/null < /dev/tty || true; \
 	  echo ""; \
 	  echo "========================================================================"; \
 	  echo "EWM session ended (exit code $$status)."; \
