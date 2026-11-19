@@ -12,14 +12,14 @@ I use [Zsh](http://www.zsh.org/) with [starship prompt](https://starship.rs/) fo
 
 ### Where to put this repo
 
-**Use `~/dot_files`** (a symlink to another path is fine). The Makefile, `guix home reconfigure`, and `set_up_links` assume you run commands from that directory so `home/*.scm` `local-file` paths and symlink targets line up. If you clone elsewhere first:
+**Use `~/dot_files`** (a symlink to another path is fine). The Makefile, `guix home reconfigure`, and `setup-native-links` assume you run commands from that directory so `home/*.scm` `local-file` paths and symlink targets line up. If you clone elsewhere first:
 
 ```sh
 ln -s /path/to/your/clone "$HOME/dot_files"
 cd ~/dot_files
 ```
 
-Running `make apply`, `make apply-wayland`, or `make set_up_links` from another location prints a reminder.
+Running `make apply`, `make apply-wayland`, or `make setup-native-links` from another location prints a reminder.
 
 ### Two layers: `home/` and `system/`
 
@@ -129,7 +129,7 @@ make apply-wayland   # Update wayland/espanso configuration
 The shared tmux and Herdr configs live at [`.tmux.conf`](./.tmux.conf) and
 [`herdr/config.toml`](./herdr/config.toml). Guix Home deploys them from
 `home/common.scm`; native setups link them into `~/.tmux.conf` and
-`~/.config/herdr/config.toml` with `make set_up_links`, which on macOS also
+`~/.config/herdr/config.toml` with `make setup-native-links`, which on macOS also
 links `~/Library/Application Support/herdr/config.toml`, the path Herdr
 actually reads there. Herdr itself is ensured automatically by `make apply`,
 `make apply-wayland`, `make update`, and `make setup-native` (or manually

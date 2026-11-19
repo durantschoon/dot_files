@@ -168,8 +168,8 @@ def known_repos():
         # No ~/.mrconfig yet, which is how a machine looks before the
         # dotfiles are deployed -- by whichever path that machine uses:
         # `guix home' through `make apply'/`apply-wayland' on a Guix machine
-        # (home/common.scm declares .mrconfig), or `make set_up_links' on a
-        # native one.  Not interchangeable: set_up_links REFUSES when
+        # (home/common.scm declares .mrconfig), or `make setup-native-links' on a
+        # native one.  Not interchangeable: setup-native-links REFUSES when
         # ~/.guix-home exists (Makefile guard-native-over-guix), because the
         # home generation already owns .mrconfig.
         # Nothing is known by name; a URL argument still works, and

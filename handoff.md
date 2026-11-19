@@ -149,6 +149,6 @@ Feed the one-line summary ("9 worktrees ready to clean, 1 needs a look") into
     `--dangerously-skip-permissions`), so not provisioned.
 
   Applied by `bin/agent-permissions` (idempotent; merges into the JSON
-  configs, writes the Codex rules file whole). `make set_up_links` and the
+  configs, writes the Codex rules file whole). `make setup-native-links` and the
   Guix Home dotfiles-layer activation run it. `make check-agent-permissions`
   is part of `make check` and only reads.

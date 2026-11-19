@@ -1,5 +1,5 @@
 # Herdr config. Source of truth is ~/dot_files/herdr/config.toml; `make
-# set_up_links` symlinks it to ~/.config/herdr/config.toml and, on macOS,
+# setup-native-links` symlinks it to ~/.config/herdr/config.toml and, on macOS,
 # to ~/Library/Application Support/herdr/config.toml (the path Herdr reads).
 #
 # reload with

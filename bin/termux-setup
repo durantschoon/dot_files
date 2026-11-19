@@ -110,11 +110,11 @@ if [ "$RELOAD_NEEDED" -eq 1 ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Run make set_up_links if make exists
+# Run make setup-native-links if make exists
 # -----------------------------------------------------------------------------
 if command -v make >/dev/null 2>&1 && [ -f "$DOTFILES_DIR/Makefile" ]; then
-    echo "==> Setting up dotfile symlinks via 'make set_up_links'..."
-    (cd "$DOTFILES_DIR" && make set_up_links)
+    echo "==> Setting up dotfile symlinks via 'make setup-native-links'..."
+    (cd "$DOTFILES_DIR" && make setup-native-links)
 else
     echo "==> Linking essential dotfiles manually..."
     ln -sfn "$DOTFILES_DIR/.zshrc.starship" "$HOME/.zshrc"

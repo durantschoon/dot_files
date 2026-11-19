@@ -15,7 +15,7 @@ story: what is tracked, how a new machine gets the key, and what to do when
 |                              | `%gpg-ssh-agent-layer`, `home/common.scm` | same                | linux: `make apply` (guix home)                   |
 | linux pinentry chooser       | `session-pinentry`, `home/common.scm` | called by gpg-agent      | pinentry-curses over ssh (`USE_TTY=1`); a WSLg window under WSL; pinentry-gnome3 otherwise |
 | git signing settings         | `.gitconfig`                   | `~/.gitconfig`                 | linux: store symlink via guix home; mac: `[include]` added by `make install-gnupg` |
-| `GPG_TTY`                    | `.zshrc.starship`, `.zshrc`    | every interactive shell        | already sourced by `make set_up_links`           |
+| `GPG_TTY`                    | `.zshrc.starship`, `.zshrc`    | every interactive shell        | already sourced by `make setup-native-links`           |
 | the key itself               | **never tracked**              | `~/.gnupg/private-keys-v1.d/`  | moved by hand once per machine, below            |
 
 The key: `0x6A2DAE7008D4F938`, fingerprint

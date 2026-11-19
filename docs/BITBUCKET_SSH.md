@@ -10,7 +10,7 @@ After this branch is merged and pulled on each machine:
 
 * Guix machines: use the usual `make apply`, `make apply-wayland` or
   `make apply-ewm`. All three share the SSH activation and Git configuration.
-* Native macOS, Linux/WSL and Termux: use the usual `make set_up_links`
+* Native macOS, Linux/WSL and Termux: use the usual `make setup-native-links`
   (also called by `make setup-native` and `bin/termux-setup`).
 * To run only the SSH migration, use `make setup-bitbucket-ssh`.
   This does not install the shared Git configuration by itself.

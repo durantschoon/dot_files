@@ -8,11 +8,11 @@ installed on every platform this repo sets up:
 | host      | how                                                     |
 |-----------|---------------------------------------------------------|
 | Guix Home | `"myrepos"` in `%base-packages`, `home/common.scm`      |
-| apt       | the `apt-get install ... myrepos` line in `set_up_links` |
-| macOS     | `brew install mr` in `set_up_links`                     |
+| apt       | the `apt-get install ... myrepos` line in `setup-native-links` |
+| macOS     | `brew install mr` in `setup-native-links`                     |
 
 The config, `~/.mrconfig`, is the committed `.mrconfig` at the repo root,
-deployed by Guix Home (`home/common.scm`) or symlinked by `make set_up_links`.
+deployed by Guix Home (`home/common.scm`) or symlinked by `make setup-native-links`.
 
 ## Daily use
 
@@ -109,7 +109,7 @@ only some hosts carry. Without it, `mr update` would clone every absent
 repo and `mr status` would count each one as a failure.
 
 To bring a new host up: clone `dot_files` by hand (that is where the config
-comes from), run `make set_up_links` or `make apply`, then
+comes from), run `make setup-native-links` or `make apply`, then
 
 ```sh
 mr --force checkout    # --force overrides the skip; clones what is missing

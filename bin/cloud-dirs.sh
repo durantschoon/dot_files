@@ -35,7 +35,7 @@
 # dangling ~/Org/home is worse than none, because org-agenda then fails on
 # every file in it.  It does not delete or move anything that is not a symlink
 # it is replacing: a real directory in a link's place is reported for the human
-# to resolve, in the spirit of set_up_links' "NOTE: ~/bin is a directory".
+# to resolve, in the spirit of setup-native-links' "NOTE: ~/bin is a directory".
 # And it never touches the contents of an Obsidian vault.
 #
 # Overrides: PROTON_DRIVE_DIR (the Proton root, as in bin/ensure-proton-and-espanso.sh),
@@ -352,7 +352,7 @@ setup_mode() {
     loc=$(detect_location)
     if [[ -z "$loc" ]]; then
         if [[ -t 0 && -x "$REPO_ROOT/unix_work_or_home.sh" ]]; then
-            # The same prompt set_up_links uses, so a machine ends up with one
+            # The same prompt setup-native-links uses, so a machine ends up with one
             # location answer rather than two that can disagree.
             log "==> this machine has no location yet (~/.HOME or ~/.WORK)"
             (cd "$REPO_ROOT" && ./unix_work_or_home.sh) || true

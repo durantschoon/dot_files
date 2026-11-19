@@ -59,25 +59,25 @@ There are dedicated tools for running interactive AI sessions as background jobs
 *   **Gemini Configs:** `gemini/hooks.json`, `gemini/scripts/`, `gemini/skills/`
 
 *   **Homebase hygiene jobs:** `bin/homebase` (`on`/`off`/`status`/`tick`; gates `bin/mr-hygiene` + `bin/tmux-hygiene` and media-announce autosave to one machine), the `homebase` layer in `home/common.scm` (shepherd timer), and the homebase handoff in `agent-stash-all`/`agent-stash-pop`. Once a day `mr-hygiene` also reports abandoned worktrees (`bin/worktree_hygiene.py`); it never deletes them.
-*   **Worktree-cleanup grants:** `bin/agent-permissions` merges `git branch -D`, `git worktree remove`, and `git worktree prune` into Claude Code `permissions.allow`, Codex `~/.codex/rules/dot_files.rules`, and the Cursor CLI `~/.cursor/cli-config.json`. `set_up_links` and the Guix dotfiles-layer activation run it. `make check-agent-permissions` (part of `make check`) only reads. agy has no per-command allowlist.
+*   **Worktree-cleanup grants:** `bin/agent-permissions` merges `git branch -D`, `git worktree remove`, and `git worktree prune` into Claude Code `permissions.allow`, Codex `~/.codex/rules/dot_files.rules`, and the Cursor CLI `~/.cursor/cli-config.json`. `setup-native-links` and the Guix dotfiles-layer activation run it. `make check-agent-permissions` (part of `make check`) only reads. agy has no per-command allowlist.
 
 **Agent Instruction:** When modifying AI workflows or CLI commands related to `agent-`, `claude-`, `agy-` or `codex-`, focus heavily on `.agent-jobs.zsh`.
 
 ## 4. Shell & Environment Baseline
-* **Bitbucket SSH migration:** `.gitconfig` (SSH URL rewrites), `bin/setup-bitbucket-ssh` (host trust and legacy Host blocks), `docs/BITBUCKET_SSH.md`; native `set_up_links` and the Guix `%dotfiles-layer` activation deploy it. Container key setup: `build-aux/setup-guix-github-key.sh`. Check with `make check-bitbucket-ssh`.
+* **Bitbucket SSH migration:** `.gitconfig` (SSH URL rewrites), `bin/setup-bitbucket-ssh` (host trust and legacy Host blocks), `docs/BITBUCKET_SSH.md`; native `setup-native-links` and the Guix `%dotfiles-layer` activation deploy it. Container key setup: `build-aux/setup-guix-github-key.sh`. Check with `make check-bitbucket-ssh`.
 For standard shell setup not related to the background job runners:
 *   **Core Zsh:** `.zshrc`, `.zprofile`, `.aliases`, `.shared.zshenv`, `.shared.zshrc`
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
 *   **Prompt configuration:** `.zshrc.starship`, `starship/starship.toml`
-*   **Herdr config & tool:** `herdr/config.toml` (linked by `make set_up_links`; binary installed by `bin/install-herdr.sh` via `make install-herdr`, `apply`, or `setup-native`)
-*   **Julia (`juliaup`):** `bin/install-julia.sh` (`make install-julia`, run by `apply`, `apply-wayland`, `update`, `set_up_links`, and `setup-native`; updates via `juliaup update` or `bin/install-julia.sh --force`)
+*   **Herdr config & tool:** `herdr/config.toml` (linked by `make setup-native-links`; binary installed by `bin/install-herdr.sh` via `make install-herdr`, `apply`, or `setup-native`)
+*   **Julia (`juliaup`):** `bin/install-julia.sh` (`make install-julia`, run by `apply`, `apply-wayland`, `update`, `setup-native-links`, and `setup-native`; updates via `juliaup update` or `bin/install-julia.sh --force`)
 *   **Termux setup & font:** `bin/termux-setup`, `termux/termux.properties` (extra-keys toolbar & navigation cluster, synced to `~/.termux/termux.properties`), `system/fonts/CascadiaMonoNF-Regular-patched.ttf` (Cascadia Mono NF + ⏴⏵⏶⏷ from Noto Sans Symbols 2; synced to `~/.termux/font.ttf`), rebuilt with `bin/patch-font-glyphs.py`
-*   **macOS Packages (Homebrew):** `set_up_links` and `setup-native` install the Ghostty cask and Yazi (+ media-handling stack) on macOS; also available via `make install-ghostty` and `make install-yazi`
+*   **macOS Packages (Homebrew):** `setup-native-links` and `setup-native` install the Ghostty cask and Yazi (+ media-handling stack) on macOS; also available via `make install-ghostty` and `make install-yazi`
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`, `bin/mr-clone` (clone a configured repo by name anywhere)
 *   **Radicle (`rad://` remotes):** `%radicle-layer` in `home/common.scm` (package + `radicle-node` Shepherd service), `install-radicle` / `setup-radicle` / `check-radicle` in `Makefile` (LaunchAgent template `system/launchd/com.durantschoon.radicle-node.plist` on mac), the login warning in `.shared.zshrc`; see `docs/MYREPOS.md`
 *   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` / `check-ssh-with-gpg-for-egress` targets in `Makefile`, and `machines.toml` / `bin/gpg-hub` (`make gpg-hub-create`, `make gpg-spoke-copy`: inventory-backed subkey enrollment). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`.
 
-**Agent Instruction:** Note that Guix environments (like Linux or `orb-guix`) construct `.zshrc` dynamically by concatenating configs, while native environments (like Mac without Guix) rely on `make set_up_links` to symlink `.zshrc.starship` and source `.shared.zshrc` manually. If asked to add a command, alias, or shell feature "everywhere" or "on all platforms," make sure it is added to the shared configs or updated in both the Guix `home/*.scm` files and the native Zsh files so it isn't lost on one platform.
+**Agent Instruction:** Note that Guix environments (like Linux or `orb-guix`) construct `.zshrc` dynamically by concatenating configs, while native environments (like Mac without Guix) rely on `make setup-native-links` to symlink `.zshrc.starship` and source `.shared.zshrc` manually. If asked to add a command, alias, or shell feature "everywhere" or "on all platforms," make sure it is added to the shared configs or updated in both the Guix `home/*.scm` files and the native Zsh files so it isn't lost on one platform.
 
 ## 5. Emacs Integration
 *   **Installer script:** `install_emacs.zsh`

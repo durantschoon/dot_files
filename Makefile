@@ -156,9 +156,9 @@ ifeq ($(LOGIN_SHELL),)
 	LOGIN_SHELL := /bin/zsh
 endif
 
-.PHONY: all setup-native set_up_links wsl help help-text guix-root-install warn-dotfiles-home guard-native-over-guix
+.PHONY: all setup-native setup-native-links set_up_links wsl help help-text guix-root-install warn-dotfiles-home guard-native-over-guix
 
-# Makefile and set_up_links assume the repo is at $(HOME)/dot_files (symlink is fine).
+# Makefile and setup-native-links assume the repo is at $(HOME)/dot_files (symlink is fine).
 DOTFILES_HOME := $(HOME)/dot_files
 
 warn-dotfiles-home:
@@ -253,7 +253,8 @@ help-text:
 	@echo "                       then installs Claude Code, uv, agy and herdr if missing)"
 	@echo "  make register-machine - Print the new-host checklist (role, disk, ssh, gpg, repos)"
 	@echo "  make all           - Compatibility alias for setup-native"
-	@echo "  make set_up_links  - Create symlinks for dotfiles"
+	@echo "  make setup-native-links - Create NATIVE dotfile symlinks (macOS, Termux)."
+	@echo "                       On a Guix machine guix home owns these: use make apply."
 	@echo "  make install-starship - Install Starship prompt (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make update-codex   - Install or update Codex in ~/.local (works with Guix npm)"
@@ -394,7 +395,7 @@ help-text:
 	@echo "  make help          - Show this help message"
 	@echo ""
 	@echo "  This Makefile assumes the repo lives at ~/dot_files (symlink ok)."
-	@echo "  Targets apply, apply-wayland, and set_up_links warn if that is not the case."
+	@echo "  Targets apply, apply-wayland, and setup-native-links warn if that is not the case."
 	@echo ""
 	@echo "Platform-specific notes:"
 	@echo "  - Detected OS: $(os) $(arch)"
@@ -427,7 +428,7 @@ endif
 
 all: setup-native
 
-setup-native: set_up_links install-starship install-claude install-uv install-agy install-herdr install-julia install-radicle setup-sshd-for-ingress
+setup-native: setup-native-links install-starship install-claude install-uv install-agy install-herdr install-julia install-radicle setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-cloud-dirs
 
 .PHONY: register-machine check-register-machine
@@ -574,7 +575,7 @@ current_dir := $(shell $(PWD_CMD))
 # Going guix -> native is therefore not a visible break; it is a silent revert
 # to whatever the store snapshot predates, and the failure shows up later as
 # "my edit did nothing" with no obvious cause.  A warning printed among the
-# dozens of lines set_up_links emits would not be read in time to matter.
+# dozens of lines setup-native-links emits would not be read in time to matter.
 #
 # ~/.guix-home is the right probe: `guix home reconfigure' creates it as the
 # symlink to the activated generation, so it exists if and only if a home
@@ -585,7 +586,7 @@ current_dir := $(shell $(PWD_CMD))
 guard-native-over-guix:
 	@if [ -e "$$HOME/.guix-home" ] && [ -z "$(FORCE_NATIVE)" ]; then \
 	  echo ""; \
-	  echo "  *** refusing to run set_up_links: Guix Home owns this account ***"; \
+	  echo "  *** refusing to run setup-native-links: Guix Home owns this account ***"; \
 	  echo "  $$HOME/.guix-home exists, so a home generation is active and already"; \
 	  echo "  owns .zshenv (and through ZDOTDIR, ~/.config/zsh), .aliases, .mg,"; \
 	  echo "  .mrconfig, .wayland.zshenv and bin."; \
@@ -595,12 +596,21 @@ guard-native-over-guix:
 	  echo "  To change dotfiles, edit the repo and run:  make apply"; \
 	  echo "  To see who owns what right now:             make check-home-ownership"; \
 	  echo "  To go native anyway (you will want to remove the guix home first):"; \
-	  echo "                                              make set_up_links FORCE_NATIVE=1"; \
+	  echo "                                              make setup-native-links FORCE_NATIVE=1"; \
 	  echo ""; \
 	  exit 1; \
 	fi
 
-set_up_links: warn-dotfiles-home guard-native-over-guix
+# set_up_links -- the old name of setup-native-links, kept so the name in older
+# docs, other machines' scripts and muscle memory still works.  It said nothing
+# about WHICH link path it is, which is the whole problem: it is the NATIVE
+# (macOS / Termux) path, and on a Guix machine guix home owns those files --
+# see guard-native-over-guix.  Remove this alias once nothing references it.
+set_up_links:
+	@echo "note: 'set_up_links' is now 'setup-native-links' (it is the native path, not the guix one)"
+	@$(MAKE) --no-print-directory setup-native-links
+
+setup-native-links: warn-dotfiles-home guard-native-over-guix
 	@echo OS detected as $(os) $(arch)
 	@echo ------------------------------
 ifneq ("","$(unix_family)")
@@ -645,7 +655,7 @@ ifeq ($(PACKAGE_MANAGER),apt)
 	@# mg rides along on this line rather than getting its own: unlike fastfetch
 	@# below it has been in Debian/Ubuntu for years, so there is no fallback to
 	@# arrange and no reason to let it fail separately.  It belongs on the apt
-	@# path at all because set_up_links installs ~/.mg on EVERY platform, and a
+	@# path at all because setup-native-links installs ~/.mg on EVERY platform, and a
 	@# startup file for an editor that is not there is just a dangling symlink.
 	@# The guix side gets mg from manifests/base.scm and home/common.scm.
 	@# myrepos (mr) rides along for the same reason: ~/.mrconfig is linked on
@@ -778,7 +788,7 @@ endif
 	@if [ ! -f "$(CURDIR)/.$(os).zshenv" ]; then \
 	  echo "NOTE: no .$(os).zshenv in this repo; leaving ~/.zshenv alone"; \
 	elif [ -e ~/.zshenv ] && [ ! -L ~/.zshenv ]; then \
-	  echo "NOTE: ~/.zshenv is a real file, not a symlink. Move it aside, then run make set_up_links again."; \
+	  echo "NOTE: ~/.zshenv is a real file, not a symlink. Move it aside, then run make setup-native-links again."; \
 	else \
 	  $(CURDIR)/bin/link-dotfile "$(CURDIR)/.$(os).zshenv" ~/.zshenv; \
 	fi
@@ -804,13 +814,13 @@ endif
 	@mkdir -p ~/dot_files/bin
 	@sh bin/setup-bitbucket-ssh
 	@if [ -d "$$HOME/bin" ] && [ ! -L "$$HOME/bin" ]; then \
-		echo "NOTE: ~/bin is a directory, not a symlink. Move or merge scripts into ~/dot_files/bin/, remove ~/bin, then run make set_up_links again."; \
+		echo "NOTE: ~/bin is a directory, not a symlink. Move or merge scripts into ~/dot_files/bin/, remove ~/bin, then run make setup-native-links again."; \
 	else \
 		$(CURDIR)/bin/link-dotfile ~/dot_files/bin ~/bin || true; \
 	fi
 
 	@if [ -d "$$HOME/.ipython" ] && [ ! -L "$$HOME/.ipython" ]; then \
-		echo "NOTE: ~/.ipython is a directory, not a symlink. Move config to ~/dot_files/.ipython/, remove ~/.ipython, then run make set_up_links again."; \
+		echo "NOTE: ~/.ipython is a directory, not a symlink. Move config to ~/dot_files/.ipython/, remove ~/.ipython, then run make setup-native-links again."; \
 	else \
 		$(CURDIR)/bin/link-dotfile ~/dot_files/.ipython ~/.ipython || true; \
 	fi
@@ -3378,7 +3388,7 @@ endif
 #                        exists, with some paths already switched over.
 #
 # And, once a generation is active, one kind of LEFTOVER: a $HOME symlink into
-# this repo that Guix Home does not claim.  set_up_links made it; guix neither
+# this repo that Guix Home does not claim.  setup-native-links made it; guix neither
 # owns it nor replaces it, so it outlives the migration.  At best it is dead
 # weight (~/.zshrc -- zsh reads $ZDOTDIR instead).  At worst something still
 # reads it, and reads the LIVE repo alongside the deployed snapshot: a leftover
@@ -3386,7 +3396,7 @@ endif
 # second time, so its edits took effect without an apply while nothing else's
 # did.  The loop over claimed paths cannot see these -- by definition they are
 # not claimed -- so this is a separate scan of $HOME's top level, which is the
-# only place set_up_links links into.  Links that ARE ancestors of a claimed
+# only place setup-native-links links into.  Links that ARE ancestors of a claimed
 # path are skipped here; the hazard check above already reports them.
 #
 # An ABSENT path gets one more distinction once a generation is active: if
