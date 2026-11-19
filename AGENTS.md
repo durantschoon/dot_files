@@ -90,6 +90,32 @@ There are dedicated tools for running interactive AI sessions as background jobs
 
 ## 4. Shell & Environment Baseline
 * **Bitbucket SSH migration:** `.gitconfig` (SSH URL rewrites), `bin/setup-bitbucket-ssh` (host trust and legacy Host blocks), `docs/BITBUCKET_SSH.md`; native `setup-native-links` and the Guix `%dotfiles-layer` activation deploy it. Container key setup: `build-aux/setup-guix-github-key.sh`. Check with `make check-bitbucket-ssh`.
+**`rg` in your own shell; POSIX `grep` in committed code.** These are two
+different rules and conflating them breaks the installer.
+
+*In an agent's own Bash calls, prefer `rg` and `fd`.* Not a style preference:
+Claude Code injects `grep` and `find` shell functions that re-route through
+its bundled `ugrep`/`bfs` by setting `ARGV0`, and the Guix launcher that
+`bin/install-claude.sh` generates passes a hardcoded `--argv0`, so the binary
+never sees it and answers `error: unknown option '-G'`. Plain `grep` and
+`find` are therefore *broken*, not merely slow, in agent shells on a Guix
+machine. When `rg`/`fd` will not do, `command grep` / `command find` bypass
+the function layer.
+
+*In committed scripts, the Makefile and githooks, use POSIX `grep`.* `ripgrep`
+is in `%base-packages`, so it is on every machine guix home manages -- but
+NOT on the Guix ISO or on a machine before its first `make apply`, which is
+exactly where `guix-platform-install`'s bootstrap runs. Converting the 60
+`grep` calls in the Makefile and the 15 in `bin/` would buy nothing and break
+the one path that cannot afford it. Where `rg` genuinely helps, guard it and
+fall back, as `bin/remindme` does:
+
+```sh
+if command -v rg >/dev/null 2>&1; then ...   # rg path
+else ...                                      # grep path
+fi
+```
+
 For standard shell setup not related to the background job runners:
 *   **Core Zsh:** `.zshrc`, `.zprofile`, `.aliases`, `.shared.zshenv`, `.shared.zshrc`
 *   **OS-specific:** `.mac.zshenv`, `.linux.zshenv`
