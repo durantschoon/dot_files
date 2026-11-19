@@ -85,6 +85,26 @@ endif
 # registered, unusable output after interruption.  The pinned foreign session
 # uses the exact channel revisions, so skip grafts there; native Guix System
 # sessions retain the default graft behavior.
+# CAN_PROMPT -- true only when a recipe may safely read from the terminal.
+#
+# `[ -t 0 ]' alone is NOT enough, and getting that wrong cost a whole
+# `make apply-wayland' run.  A BACKGROUND job can have a tty on stdin; reading
+# from it then earns SIGTTIN from the kernel, so the recipe does not receive
+# the input, it gets SUSPENDED -- after having already printed its prompt:
+#
+#     Unlock them now? [Y/n] zsh: suspended (tty input)
+#
+# which reads as a crash in the gpg phase rather than as a job waiting for
+# `fg'.  The missing condition is being the tty's FOREGROUND process group,
+# which is what comparing tpgid (the tty's foreground pgrp; -1 when there is no
+# controlling tty) against our own pgid tests.
+#
+# NEGATING IT NEEDS BRACES: `! $(CAN_PROMPT)' is wrong, because `!' binds to
+# the first pipeline and not to the whole && list, so it would ask for "no tty
+# AND foreground" -- a condition that is never true, leaving the SIGTTIN bug
+# in place while looking fixed.  Write `if ! { $(CAN_PROMPT); }; then'.
+CAN_PROMPT = [ -t 0 ] && [ "$$(ps -o tpgid= -p $$$$ 2>/dev/null | tr -d ' ')" = "$$(ps -o pgid= -p $$$$ 2>/dev/null | tr -d ' ')" ]
+
 GUIX_HOME_GRAFT_FLAGS :=
 ifeq ($(flavor),orbstack)
 	GUIX_HOME_GRAFT_FLAGS := --no-grafts
@@ -799,7 +819,7 @@ endif
 		echo "Already set up for HOME (~/.HOME exists)"; \
 	elif [ -e ~/.WORK ]; then \
 		echo "Already set up for WORK (~/.WORK exists)"; \
-	elif [ -t 0 ]; then \
+	elif $(CAN_PROMPT); then \
 		./unix_work_or_home.sh; \
 	else \
 		echo "Non-interactive mode: defaulting to HOME setup"; \
@@ -1511,8 +1531,9 @@ unlock-ssh-keys:
 	echo "--- SSH KEYS LOCKED ---"; \
 	echo "gpg-agent was restarted, so these keys need their passphrase again:"; \
 	cat "$$tmp/labels"; \
-	if [ ! -t 0 ]; then \
-	  echo "(not a terminal: the next ssh or git push will ask instead)"; exit 0; \
+	if ! { $(CAN_PROMPT); }; then \
+	  echo "(not the foreground job: the next ssh or git push will ask instead)"; \
+	  echo "         or run: make unlock-ssh-keys   (from a plain terminal)"; exit 0; \
 	fi; \
 	printf 'Unlock them now? [Y/n] '; read -r ans; \
 	case "$$ans" in [Nn]*) echo "    skipped -- the next ssh or git push will ask"; exit 0 ;; esac; \
@@ -1533,7 +1554,7 @@ unlock-gpg:
 	@command -v gpgconf >/dev/null 2>&1 || exit 0; \
 	key=$$(git config --get user.signingkey || echo "0x6A2DAE7008D4F938"); \
 	gpg-connect-agent --no-autostart updatestartuptty /bye >/dev/null 2>&1; \
-	if [ -t 0 ]; then \
+	if $(CAN_PROMPT); then \
 	  echo "==> Prompting for GPG passphrase (cached for 16h)..."; \
 	  if echo "unlock" | gpg --sign --local-user "$$key" -o /dev/null; then \
 	    echo "    [ok] GPG signing key $$key unlocked"; \
@@ -1541,7 +1562,7 @@ unlock-gpg:
 	    echo "    [--] GPG signing key not unlocked"; exit 1; \
 	  fi; \
 	else \
-	  echo "(not a terminal: cannot prompt for GPG passphrase)"; exit 1; \
+	  echo "(not the foreground job: cannot prompt for GPG passphrase; run \`make unlock-gpg' from a plain terminal)"; exit 1; \
 	fi
 
 # unlock-keys -- unlock both GPG signing key and SSH authentication keys
@@ -3214,8 +3235,8 @@ add-pkg:
 	@# Guix System box is the one that deploys wayland.scm, so test for that.
 	@# Gated on a tty so the pre-commit hook and any non-interactive caller do not
 	@# hang waiting on a read that will never come.
-	@if [ ! -t 0 ]; then \
-	  echo "==> not a terminal; not offering to apply"; \
+	@if ! { $(CAN_PROMPT); }; then \
+	  echo "==> not the foreground job; not offering to apply"; \
 	elif [ -d /run/current-system ]; then \
 	  printf '==> run `make apply-wayland` now? [y/N] '; read r; \
 	  case "$$r" in [Yy]*) $(MAKE) apply-wayland ;; *) echo "    skipped" ;; esac; \
