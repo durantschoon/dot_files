@@ -223,7 +223,9 @@ alias nrun='npm run'
 alias nrt='echo npm run test; npm run test'
 alias labels='lsblk -o NAME,SIZE,LABEL'
 alias path='echo $PATH | c2n'
-alias dot='pushd ~/dot_files/'
+# pdot/pp are the pushd pair: pdot to go, pp to come back and list the
+# stack.  Plain `dot' (cd) is above, for when you do not want a stack entry.
+alias pdot='pushd ~/dot_files/'
 alias pp='popd; ds'
 alias port_scan='lsof -nP +c 15 | { head -1; grep LISTEN; } ' # mac only?
 alias py="echo 'Using ipython instead, duh' ; ipython"
