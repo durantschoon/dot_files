@@ -203,11 +203,7 @@ alias h='history 1'
 alias hg='history 1 | grep'
 alias ipy='python -m IPython'
 alias ipn='ipython notebook'
-Welcome to the Emacs shell
-
-~/dot_files:main?:1 λ Welcome to the Emacs shell
-
-~/dot_files:main?:1 λ # `ls' takes --color only where the implementation has it: GNU coreutils
+# `ls' takes --color only where the implementation has it: GNU coreutils
 # (Linux, Termux, and macOS once `brew install coreutils' puts gnubin at the
 # front of PATH -- see .mac.zshenv).  The BSD ls macOS ships otherwise dies
 # with "illegal option", so probe once per source instead of per command.
