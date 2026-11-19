@@ -156,7 +156,7 @@ ifeq ($(LOGIN_SHELL),)
 	LOGIN_SHELL := /bin/zsh
 endif
 
-.PHONY: all setup-native setup-native-links set_up_links wsl help help-text guix-root-install warn-dotfiles-home guard-native-over-guix
+.PHONY: all setup-native setup-native-links wsl help help-text guix-root-install warn-dotfiles-home guard-native-over-guix
 
 # Makefile and setup-native-links assume the repo is at $(HOME)/dot_files (symlink is fine).
 DOTFILES_HOME := $(HOME)/dot_files
@@ -600,15 +600,6 @@ guard-native-over-guix:
 	  echo ""; \
 	  exit 1; \
 	fi
-
-# set_up_links -- the old name of setup-native-links, kept so the name in older
-# docs, other machines' scripts and muscle memory still works.  It said nothing
-# about WHICH link path it is, which is the whole problem: it is the NATIVE
-# (macOS / Termux) path, and on a Guix machine guix home owns those files --
-# see guard-native-over-guix.  Remove this alias once nothing references it.
-set_up_links:
-	@echo "note: 'set_up_links' is now 'setup-native-links' (it is the native path, not the guix one)"
-	@$(MAKE) --no-print-directory setup-native-links
 
 setup-native-links: warn-dotfiles-home guard-native-over-guix
 	@echo OS detected as $(os) $(arch)
