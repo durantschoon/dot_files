@@ -4,6 +4,17 @@ Measured facts that changed a decision, kept so the decision does not get
 re-litigated from memory. Newest first. Each entry records the question, the
 measurement (command and result), and what was decided because of it.
 
+## 2026-11-19 — `rad id update` only proposes, and `threshold: 1` is not the quorum
+
+Adding a delegate looked like it did nothing twice. Full write-up:
+[`learning/radicle-identity-quorum-namespaces.md`](learning/radicle-identity-quorum-namespaces.md).
+Three separate traps: `rad id update` creates an `active` revision and
+`rad id accept` is a second step; with no `--title`/`--description` it opens
+`$EDITOR` and so writes nothing at all from a script or over ssh; and an
+identity-document change needs quorum of the delegate set, which with two
+delegates is both of them, regardless of `"threshold": 1`. `rad id show <rev>`
+is the only command that shows the tally and says `Quorum: no`.
+
 ## 2026-11-09 — Pop!_OS Guix builds were denied by the builder profile, not by `noexec`
 
 **Question.** `guix home reconfigure` on Pop!_OS died with `In execvp of ./configure: Permission denied` while building ZFS. Was the build directory `noexec`, or was AppArmor refusing the generated script?
