@@ -93,14 +93,22 @@ There are dedicated tools for running interactive AI sessions as background jobs
 **`rg` in your own shell; POSIX `grep` in committed code.** These are two
 different rules and conflating them breaks the installer.
 
-*In an agent's own Bash calls, prefer `rg` and `fd`.* Not a style preference:
-Claude Code injects `grep` and `find` shell functions that re-route through
-its bundled `ugrep`/`bfs` by setting `ARGV0`, and the Guix launcher that
-`bin/install-claude.sh` generates passes a hardcoded `--argv0`, so the binary
-never sees it and answers `error: unknown option '-G'`. Plain `grep` and
-`find` are therefore *broken*, not merely slow, in agent shells on a Guix
-machine. When `rg`/`fd` will not do, `command grep` / `command find` bypass
-the function layer.
+*In an agent's own Bash calls, prefer `rg` and `fd`.* Not a style preference,
+and **not a bug anyone can fix here.** Claude Code injects `grep` and `find`
+shell functions that re-route through its bundled `ugrep`/`bfs` by dispatching
+on **argv0** (busybox style). On this machine `claude` is a `#!/bin/sh`
+launcher wrapper (`bin/install-claude.sh` writes it, because Guix has no FHS
+loader and patchelf corrupts Bun binaries), and **argv0 cannot cross a shebang
+boundary**: the interpreter sets `$0` to the script path, so neither
+`exec -a ugrep` nor zsh's `ARGV0=ugrep` reaches the wrapper. Measured, both
+arrive as `$0=<script path>` with `$ARGV0` unset. The binary therefore runs as
+`claude` and answers `error: unknown option '-G'`.
+
+Passing `--argv0 "${ARGV0:-...}"` through the wrapper was tried and reverted:
+there is nothing for it to read. Making it work would need the wrapper to be a
+real executable rather than a script. So plain `grep` and `find` are *broken*,
+not merely slow, in agent shells here, and that is permanent: use `rg`/`fd`,
+or `command grep` / `command find` to bypass the function layer.
 
 *In committed scripts, the Makefile and githooks, use POSIX `grep`.* `ripgrep`
 is in `%base-packages`, so it is on every machine guix home manages -- but
