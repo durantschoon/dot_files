@@ -4,6 +4,20 @@ Measured facts that changed a decision, kept so the decision does not get
 re-litigated from memory. Newest first. Each entry records the question, the
 measurement (command and result), and what was decided because of it.
 
+## 2026-11-19 — `argv[0]` cannot cross a shebang, so a wrapper kills multi-call dispatch
+
+`grep` and `find` fail in Claude Code's Bash tool here with
+`error: unknown option '-G'`. Write-up:
+[`learning/guix-wrapper-argv0-multicall.md`](learning/guix-wrapper-argv0-multicall.md).
+Claude Code's binary is multi-call (`claude`/`ugrep`/`bfs`, chosen by argv[0])
+and its injected shell functions select a personality with `ARGV0=`/`exec -a`
+— but `~/.local/bin/claude` is a `#!/bin/sh` loader wrapper, and the shebang
+interpreter sets `$0` to the script path, discarding argv[0] before the script
+starts. Measured three ways, all identical. Forwarding `--argv0 "${ARGV0:-…}"`
+was tried and reverted: there is nothing for it to read. `rg`/`fd` or
+`command grep` is the permanent answer, and the general rule is that wrapping
+any multi-call binary in a shell script silently disables its dispatch.
+
 ## 2026-11-19 — `rad id update` only proposes, and `threshold: 1` is not the quorum
 
 Adding a delegate looked like it did nothing twice. Full write-up:
