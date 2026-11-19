@@ -165,8 +165,15 @@ def known_repos():
     try:
         text = open(MRCONFIG).read()
     except FileNotFoundError:
-        # No ~/.mrconfig yet (a machine before `make set_up_links').  Nothing
-        # is known by name; a URL argument still works, and --list says so.
+        # No ~/.mrconfig yet, which is how a machine looks before the
+        # dotfiles are deployed -- by whichever path that machine uses:
+        # `guix home' through `make apply'/`apply-wayland' on a Guix machine
+        # (home/common.scm declares .mrconfig), or `make set_up_links' on a
+        # native one.  Not interchangeable: set_up_links REFUSES when
+        # ~/.guix-home exists (Makefile guard-native-over-guix), because the
+        # home generation already owns .mrconfig.
+        # Nothing is known by name; a URL argument still works, and
+        # --list says so.
         return [], []
     sections = parse_config(text, os.path.dirname(MRCONFIG), set(), {})
     parsed = {p: parse_checkout(s["checkout"]) for p, s in sections.items() if "checkout" in s}
