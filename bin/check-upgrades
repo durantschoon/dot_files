@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+# check-upgrades -- report how stale the pinned and unpinned toolchains are.
+#
+# READ-ONLY and NON-MUTATING. It never pulls, never fetches into .git, never
+# upgrades anything. The decision to bump stays with the human, because for the
+# channel pin it is not a safe mechanical step: channels.scm documents at
+# length why the guix and nonguix commits are a MATCHED PAIR, proven together
+# on a machine. A robot that bumps one of them produces a config that does not
+# build.
+#
+# Usage:
+#   check-upgrades              Full report. Always exits 0 -- it is a report.
+#   check-upgrades --nag        Print NOTHING when everything is fresh; print a
+#                               short reminder and exit 1 when something is
+#                               stale. This is the cron/mcron mode: silence is
+#                               the common case, so a message means act.
+#   check-upgrades --offline    Skip every network probe (git ls-remote, brew).
+#
+# Environment:
+#   UPGRADE_STALE_DAYS   Age at which a channel pin counts as stale (default 60)
+#   BREW_HOST            Machine where Homebrew lives, named in the reminder
+#                        when this machine has no brew (default minius)
+#
+# WHY AGE AND NOT "N COMMITS BEHIND": counting commits needs a full clone of
+# guix, which is gigabytes and the thing this script exists to avoid. The
+# upstream tip comes from `git ls-remote', one round trip, no local state. So
+# the report answers the two questions that actually drive a decision -- is the
+# pin different from upstream, and how old is it -- and leaves the diff to
+# `guix time-machine' at the moment you choose to bump.
+set -uo pipefail
+
+prog=check-upgrades
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 2
+cd "$repo" || exit 2
+
+stale_days=${UPGRADE_STALE_DAYS:-60}
+brew_host=${BREW_HOST:-minius}
+nag=0
+offline=0
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        --nag)     nag=1; shift ;;
+        --offline) offline=1; shift ;;
+        -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) printf '%s: unknown option: %s (try --help)\n' "$prog" "$1" >&2; exit 2 ;;
+    esac
+done
+
+now=$(date +%s)
+
+# GNU timeout is `timeout' on Guix/Linux and `gtimeout' from brew's coreutils on
+# a Mac. An empty array when neither exists degrades to running the command
+# bare rather than failing -- a slow probe beats no probe.
+net_timeout=${UPGRADE_NET_TIMEOUT:-20}
+timeout_cmd=()
+if command -v timeout > /dev/null 2>&1; then
+    timeout_cmd=(timeout "$net_timeout")
+elif command -v gtimeout > /dev/null 2>&1; then
+    timeout_cmd=(gtimeout "$net_timeout")
+fi
+
+# Lines accumulated for --nag mode. A non-empty list is what makes --nag speak
+# and exit 1; the full report prints as it goes regardless.
+nags=()
+
+# say: report-mode output. Suppressed under --nag, which speaks only in nags.
+say() { [ "$nag" -eq 1 ] || printf '%s\n' "$*"; }
+
+# nag_add: record something worth a human's attention.
+nag_add() { nags+=("$1"); }
+
+# tip_url URL -- the host to ASK for a branch tip, which is not always the host
+# the channel is pinned to. git.savannah.gnu.org routinely takes minutes to
+# answer ls-remote or never answers at all; Codeberg's official guix mirror
+# answers the same question instantly. This substitution affects the PROBE
+# ONLY -- channels.scm keeps pointing at Savannah, which is what guix pull
+# authenticates against, and that must not change for a status report.
+tip_url() {
+    case $1 in
+        *git.savannah.gnu.org/git/guix.git) echo "https://codeberg.org/guix/guix.git" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# remote_tip URL BRANCH -- upstream sha without cloning. Empty on any failure
+# (offline, no SSH agent, private repo, a host that hangs), which the callers
+# report as "could not reach" rather than silently treating as fresh.
+#
+# The timeout is not optional defensiveness: without it a cron job inherits
+# Savannah's hang and sits there until the next one starts on top of it.
+remote_tip() {
+    [ "$offline" -eq 1 ] && return 1
+    "${timeout_cmd[@]}" git ls-remote --exit-code "$(tip_url "$1")" "refs/heads/$2" \
+        2>/dev/null | awk 'NR==1 {print $1}'
+}
+
+# commit_epoch SHA -- author date of a commit, from whichever guix channel
+# checkout already has the object. `guix pull' leaves these under
+# ~/.cache/guix/checkouts, so on any machine that has ever pulled, the pinned
+# commit's date is available locally and for free. Empty when no checkout has
+# it (a fresh machine, or a Mac that only ever ran brew).
+commit_epoch() {
+    local sha=$1 d
+    for d in "$HOME"/.cache/guix/checkouts/*/; do
+        [ -d "$d" ] || continue
+        git -C "$d" log -1 --format=%ct "$sha" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+days_since() { echo $(( (now - $1) / 86400 )); }
+
+# ---------------------------------------------------------------------------
+# 1. Channel pins (guix, nonguix)
+# ---------------------------------------------------------------------------
+# Comments are stripped BEFORE parsing. channels.scm is mostly prose, and that
+# prose quotes commits and URLs; without this the parser picks up the
+# documentation. The channel-introduction commit is excluded for free by
+# matching `(commit "...")' specifically -- an introduction spells its commit
+# as a bare string argument to make-channel-introduction.
+channels_report() {
+    say "==> channel pins (channels.scm)"
+    [ -f channels.scm ] || { say "    MISSING channels.scm"; return; }
+
+    local body names urls branches commits n i
+    body=$(sed 's/;.*//' channels.scm)
+    names=$(printf '%s\n' "$body"    | sed -n "s/.*(name '\([a-z][a-z0-9-]*\)).*/\1/p")
+    urls=$(printf '%s\n' "$body"     | sed -n 's/.*(url "\([^"]*\)").*/\1/p')
+    branches=$(printf '%s\n' "$body" | sed -n 's/.*(branch "\([^"]*\)").*/\1/p')
+    commits=$(printf '%s\n' "$body"  | sed -n 's/.*(commit "\([0-9a-f]\{40\}\)").*/\1/p')
+
+    n=$(printf '%s\n' "$names" | grep -c . || true)
+    for i in $(seq 1 "$n"); do
+        local name url branch commit epoch age tip
+        name=$(printf  '%s\n' "$names"    | sed -n "${i}p")
+        url=$(printf   '%s\n' "$urls"     | sed -n "${i}p")
+        branch=$(printf '%s\n' "$branches" | sed -n "${i}p")
+        commit=$(printf '%s\n' "$commits" | sed -n "${i}p")
+        [ -n "$name" ] && [ -n "$commit" ] || continue
+        branch=${branch:-master}
+
+        if epoch=$(commit_epoch "$commit"); then
+            age=$(days_since "$epoch")
+            say "    $name: ${commit:0:7} ($(date -d "@$epoch" +%Y-%m-%d 2>/dev/null \
+                 || date -r "$epoch" +%Y-%m-%d), ${age}d old)"
+            if [ "$age" -ge "$stale_days" ]; then
+                nag_add "channel pin '$name' is ${age}d old (${commit:0:7})"
+            fi
+        else
+            say "    $name: ${commit:0:7} (age unknown -- no local checkout has the object)"
+        fi
+
+        if tip=$(remote_tip "$url" "$branch") && [ -n "$tip" ]; then
+            if [ "$tip" = "$commit" ]; then
+                say "        up to date with $branch"
+            else
+                say "        upstream $branch is now ${tip:0:7}"
+            fi
+        elif [ "$offline" -eq 1 ]; then
+            say "        (offline: upstream not checked)"
+        else
+            say "        could not reach $url"
+        fi
+    done
+
+    # The bump ritual, printed where it is needed rather than kept in a doc
+    # nobody opens at the moment of deciding.
+    say "    to bump: edit BOTH commits, then prove the pair before applying:"
+    say "        guix time-machine -C channels.scm -- show firefox"
+}
+
+# ---------------------------------------------------------------------------
+# 2. Firefox -- the security-relevant consequence of a stale nonguix pin
+# ---------------------------------------------------------------------------
+# This is the one package where staleness is an exposure and not an
+# inconvenience: it is the browser, it comes from nonguix, and a months-old
+# build carries publicly known exploited CVEs. Reading the INSTALLED version is
+# local and instant; `guix time-machine -- show firefox' would be correct and
+# would also take minutes, which is wrong for a cron.
+firefox_report() {
+    say "==> firefox (from the nonguix pin)"
+    if command -v firefox > /dev/null 2>&1; then
+        say "    installed: $(firefox --version 2>/dev/null | head -n1)"
+        say "    compare:   https://www.mozilla.org/firefox/notes/"
+    else
+        say "    not installed on this machine"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 3. Homebrew -- lives on the Mac, which may not be this machine
+# ---------------------------------------------------------------------------
+# The awkward case this handles: a cron running inside the OrbStack Linux VM
+# has no brew, because brew is the HOST's package manager. OrbStack installs a
+# `mac' shim inside its Linux machines that runs a command on macOS, so the VM
+# can ask the host. When even that is missing, the script does the honest
+# thing -- it names the machine where the command has to be run, which is the
+# whole point of a reminder.
+brew_report() {
+    say "==> homebrew"
+    if [ "$offline" -eq 1 ]; then
+        say "    (offline: not checked)"
+        return
+    fi
+
+    local runner=() outdated
+    if command -v brew > /dev/null 2>&1; then
+        runner=(brew)
+    elif command -v mac > /dev/null 2>&1 && mac brew --version > /dev/null 2>&1; then
+        runner=(mac brew)
+        say "    (asking the macOS host through OrbStack's \`mac' bridge)"
+    elif grep -qi orbstack /proc/version 2>/dev/null; then
+        # Inside the OrbStack VM the host IS reachable in principle, so a
+        # missing bridge is a broken expectation worth reporting.
+        say "    OrbStack VM, but no \`mac' bridge on PATH"
+        nag_add "no \`mac' bridge here -- run \`brew outdated' on $brew_host by hand"
+        return
+    else
+        # A machine with no brew and no path to one has no stake in brew's
+        # staleness. Nagging here would make every Linux box complain forever
+        # about a Mac it cannot see, which trains the reader to ignore the nag.
+        say "    not applicable on this machine (no brew, not the OrbStack VM)"
+        return
+    fi
+
+    outdated=$("${runner[@]}" outdated --quiet 2>/dev/null)
+    if [ -z "$outdated" ]; then
+        say "    all formulae current"
+    else
+        say "$(printf '%s\n' "$outdated" | sed 's/^/    /')"
+        nag_add "$(printf '%s\n' "$outdated" | grep -c .) brew formulae outdated on $brew_host -- \`brew upgrade'"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 4. Submodules
+# ---------------------------------------------------------------------------
+# `git ls-remote' again rather than `git submodule foreach git fetch': the
+# question is only "is the recorded gitlink the upstream tip", and ls-remote
+# answers it without writing a single object into .git.
+submodules_report() {
+    say "==> submodules"
+    [ -f .gitmodules ] || { say "    none"; return; }
+
+    local path url sha tip
+    while read -r _ path; do
+        url=$(git config -f .gitmodules --get "submodule.$path.url" 2>/dev/null)
+        sha=$(git rev-parse "HEAD:$path" 2>/dev/null)
+        [ -n "$sha" ] || { say "    $path: not recorded in HEAD"; continue; }
+
+        if tip=$(remote_tip "$url" "$(git -C "$path" symbolic-ref --short HEAD 2>/dev/null || echo main)") \
+           && [ -n "$tip" ]; then
+            if [ "$tip" = "$sha" ]; then
+                say "    $path: ${sha:0:7} up to date"
+            else
+                say "    $path: ${sha:0:7} -> upstream ${tip:0:7}"
+                nag_add "submodule $path is behind upstream -- \`make submodule-pull'"
+            fi
+        elif [ "$offline" -eq 1 ]; then
+            say "    $path: ${sha:0:7} (offline)"
+        else
+            say "    $path: ${sha:0:7} (upstream unreachable)"
+        fi
+    done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null)
+}
+
+channels_report
+firefox_report
+brew_report
+submodules_report
+
+if [ "$nag" -eq 1 ]; then
+    [ ${#nags[@]} -eq 0 ] && exit 0
+    printf 'upgrade check (%s): %d item(s) want attention\n' "$(hostname)" "${#nags[@]}"
+    printf '  - %s\n' "${nags[@]}"
+    printf '  full report: make -C %s check-upgrades\n' "$repo"
+    exit 1
+fi
+
+say ""
+say "Nothing above was changed. Staleness is a prompt to decide, not a failure:"
+say "bump the channel pair only when you need a package it lacks, when firefox"
+say "is behind a security release, or when you have time to prove and roll back."
+exit 0

@@ -258,6 +258,10 @@ help-text:
 	@echo "  make guix-root-install - Install Guix packages as root (run this first if needed)"
 	@echo "  make guix-clean-1m - Delete >1m generations (package, home, pull, system), run guix gc,"
 	@echo "                       deduplicate the store every 6 months, and inspect GC roots"
+	@echo "  make check-upgrades - Report how stale the channel pair, firefox, brew and the"
+	@echo "                       submodules are. Read-only; upgrades nothing. NOT part of"
+	@echo "                       'make check' -- an old pin is intended, not drift."
+	@echo "  make check-upgrades-nag - The same, silent unless something is stale (for cron)"
 	@echo ""
 	@echo "EWM Trial (Emacs Wayland Manager):"
 	@echo "  make apply-ewm     - Deploy the EWM TRIAL home generation (home/ewm.scm;"
@@ -3135,6 +3139,7 @@ home-check:
 # of a real finding -- which still blocks the commit and so reads like a catch.
 # The hook warns when this Makefile has unstaged changes; see the note there.
 .PHONY: check check-system check-keyd-sync check-channels-sync check-system-secrets
+.PHONY: check-upgrades check-upgrades-nag
 .PHONY: check-system-hosts install-hooks add-pkg reconfigure
 .PHONY: check-session-coupling
 
@@ -3661,6 +3666,29 @@ check-keyd-sync:
 	  echo "    NOTE: no system config inlines keyd; keyd.conf is unguarded"; \
 	fi; \
 	exit $$rc
+
+# Staleness of everything this repo pins or installs: the channel pair, the
+# firefox that pair produces, brew, submodules.  Read-only -- it pulls nothing
+# and upgrades nothing.
+#
+# DELIBERATELY NOT PART OF `make check'.  check answers "is this machine
+# correctly configured", and every answer it gives is actionable drift.  A
+# three-month-old channel pin is not drift; it is the normal, intended state of
+# a pin, and wiring it into check would make check fail on every machine
+# forever, which is how a check stops being read.  This target is for a human
+# or a cron asking a different question: is it time to decide?
+#
+# `make check-upgrades-nag' is the cron form: silent when fresh, exit 1 with a
+# short list when not.  See bin/check-upgrades for the OrbStack `mac' bridge
+# that lets a job inside the Linux VM ask the macOS host about brew.
+check-upgrades:
+	@bin/check-upgrades
+
+# The nonzero exit is the whole signal, so cron calls bin/check-upgrades --nag
+# directly.  Here it is translated into a line of text instead, because `make'
+# answering a status question with "*** Error 1" reads as a broken Makefile.
+check-upgrades-nag:
+	@bin/check-upgrades --nag || echo "(exit 1 -- stale; that nonzero is what a cron job acts on)"
 
 # Compares channel names, URLs, commits and fingerprints as an unordered set,
 # so formatting and the (define ...) wrapper are free to differ.
