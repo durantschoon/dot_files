@@ -1,0 +1,178 @@
+#!/bin/sh
+# gpg-key-owner -- whose key is this ID?  Answers from machines.toml.
+#
+#   gpg-key-owner [--inventory FILE] KEYID
+#       prints exactly one line and exits 0:
+#         machine NAME   KEYID is that machine's signing_subkey or existing_subkey_id
+#         primary        KEYID is [gpg] primary_fingerprint
+#         ambiguous      KEYID (a short ID) matches more than one owner
+#         unassigned     the inventory parses but does not list KEYID
+#   gpg-key-owner [--inventory FILE] --hub-subkey
+#       prints the signing_subkey of the [gpg] hub machine (40 hex), or
+#       exits 65 with nothing on stdout when the hub or its subkey is unset.
+#
+# KEYID is a 40-hex fingerprint, a 16-hex long ID or an 8-hex short ID, with
+# or without a leading 0x and a trailing `!', in either case.  It matches an
+# inventory value when the shorter of the two is a suffix of the longer.
+#
+# Exit status: 64 usage (missing or non-hex KEYID), 65 the inventory does not
+# parse (no [gpg] primary_fingerprint), 66 the inventory is missing or
+# unreadable.  Nothing is printed on stdout unless the status is 0.
+#
+# Who calls it: bin/pinentry-auto (the Mac's pinentry, to label the prompt),
+# build-aux/guix-container-gpg (the container's cold-cache note) and
+# build-aux/guix-container-gpg-bridge.sh (the container's default key).
+# pinentry-auto runs under gpg-agent's bare launchd PATH with macOS's BWK
+# awk, so this is POSIX sh + POSIX awk only: no python, no GNU awk
+# extensions, no regex interval expressions.
+
+usage() {
+    echo "usage: gpg-key-owner [--inventory FILE] KEYID | --hub-subkey" >&2
+    exit 64
+}
+
+# script_dir: the directory of this script with symlinks resolved, so the
+# default inventory is found through a symlink such as ~/bin/gpg-key-owner.
+script_dir() {
+    self=$0
+    while [ -L "$self" ] && command -v readlink >/dev/null 2>&1; do
+        link=$(readlink "$self") || break
+        case $link in
+            /*) self=$link ;;
+            *) self=$(dirname "$self")/$link ;;
+        esac
+    done
+    dirname "$self"
+}
+
+inventory=
+mode=owner
+keyid=
+while [ $# -gt 0 ]; do
+    case $1 in
+        --inventory)
+            [ $# -ge 2 ] || usage
+            inventory=$2
+            shift 2
+            ;;
+        --inventory=*)
+            inventory=${1#--inventory=}
+            shift
+            ;;
+        --hub-subkey)
+            mode=hub
+            shift
+            ;;
+        --) shift; break ;;
+        -*) usage ;;
+        *) break ;;
+    esac
+done
+
+if [ "$mode" = owner ]; then
+    [ $# -eq 1 ] || usage
+    keyid=$1
+    case $keyid in 0x*|0X*) keyid=${keyid#??} ;; esac
+    keyid=${keyid%!}
+    case $keyid in
+        ''|*[!0-9A-Fa-f]*) usage ;;
+    esac
+    case ${#keyid} in
+        8|16|40) ;;
+        *) usage ;;
+    esac
+else
+    [ $# -eq 0 ] || usage
+fi
+
+[ -n "$inventory" ] || inventory=$(script_dir)/../machines.toml
+if [ ! -f "$inventory" ] || [ ! -r "$inventory" ]; then
+    echo "gpg-key-owner: cannot read inventory $inventory" >&2
+    exit 66
+fi
+
+# The awk program prints its answer, or exits 65 when the [gpg] table has no
+# primary_fingerprint (the file does not look like machines.toml at all).
+# Only three key shapes are read, each as   key = "HEX"  on one line:
+#   primary_fingerprint in [gpg]; signing_subkey and existing_subkey_id in
+#   [machines.NAME].
+# Lines whose first non-blank character is `#' are comments and never match,
+# so the commented-out look-alikes in machines.toml are ignored.
+awk -v mode="$mode" -v query="$keyid" '
+function strip(s) {
+    sub(/^[ \t]+/, "", s)
+    sub(/[ \t\r]+$/, "", s)
+    return s
+}
+# quoted(s): the value of   key = "value"   (trailing comment allowed), or "".
+function quoted(s,    v) {
+    v = s
+    sub(/^[^=]*=[ \t]*/, "", v)
+    if (substr(v, 1, 1) != "\"") return ""
+    v = substr(v, 2)
+    if (index(v, "\"") == 0) return ""
+    return substr(v, 1, index(v, "\"") - 1)
+}
+function ishex(s) {
+    return s != "" && s !~ /[^0-9A-Fa-f]/
+}
+function validname(s) {
+    return s != "" && s !~ /[^A-Za-z0-9._-]/
+}
+# suffix_match(a, b): the shorter of a and b ends the longer.
+function suffix_match(a, b,    la, lb) {
+    la = length(a); lb = length(b)
+    if (la == 0 || lb == 0) return 0
+    if (la <= lb) return substr(b, lb - la + 1) == a
+    return substr(a, la - lb + 1) == b
+}
+function consider(value, owner) {
+    value = toupper(value)
+    if (!ishex(value)) return
+    if (mode == "owner" && suffix_match(value, query) && !(owner in seen)) {
+        seen[owner] = 1
+        matches++
+        answer = owner
+    }
+}
+BEGIN { query = toupper(query); section = ""; matches = 0; have_primary = 0 }
+{
+    line = strip($0)
+    if (line == "" || substr(line, 1, 1) == "#") next
+    if (substr(line, 1, 1) == "[") {
+        name = line
+        sub(/[ \t]*#.*$/, "", name)
+        section = ""
+        if (name == "[gpg]") section = "gpg"
+        else if (substr(name, 1, 10) == "[machines." && substr(name, length(name), 1) == "]") {
+            name = substr(name, 11, length(name) - 11)
+            if (validname(name)) section = "machine " name
+        }
+        next
+    }
+    key = line
+    sub(/[ \t]*=.*$/, "", key)
+    if (section == "gpg" && key == "primary_fingerprint") {
+        v = quoted(line)
+        if (ishex(v)) { have_primary = 1; consider(v, "primary") }
+    } else if (section == "gpg" && key == "hub") {
+        hub = quoted(line)
+    } else if (substr(section, 1, 8) == "machine " &&
+               (key == "signing_subkey" || key == "existing_subkey_id")) {
+        v = quoted(line)
+        consider(v, section)
+        if (key == "signing_subkey" && ishex(v))
+            subkey[substr(section, 9)] = toupper(v)
+    }
+}
+END {
+    if (!have_primary) exit 65
+    if (mode == "hub") {
+        if (!validname(hub) || !(hub in subkey) || length(subkey[hub]) != 40) exit 65
+        print subkey[hub]
+        exit 0
+    }
+    if (matches == 0) print "unassigned"
+    else if (matches == 1) print answer
+    else print "ambiguous"
+}' "$inventory"

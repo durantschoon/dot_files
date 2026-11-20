@@ -18,6 +18,50 @@ socket=$gnupghome/S.gpg-agent
 socat=/root/.guix-profile/bin/socat
 lock=/tmp/guix-container-gpg-bridge.lock
 
+# pin_signing_key: make the container sign as the hub by default.
+#
+# machines.toml says orb-guix signs through minius's agent; this makes that
+# true of the KEY too.  The tracked .gitconfig names the primary without a
+# `!', and given a primary gpg signs with the newest signing subkey it can
+# use -- through the hub's agent, that is whichever machine was enrolled
+# last (framepop's, measured 2026-11-19), not the hub's.  So when
+# ~/.config/git/gpg-machine.conf (the per-machine include in .gitconfig) is
+# absent, write it with the hub's subkey pinned, in the format bin/gpg-hub's
+# configure() writes.  The hub is [gpg] hub; its subkey is that machine's
+# signing_subkey (bin/gpg-key-owner --hub-subkey).  An existing file, or a
+# dangling symlink in its place, is never touched: the hard link below
+# fails rather than replace anything.  Any failure only prints a note.
+# Runs at every container start (guix-container-daemon.sh), so an edit to
+# machines.toml takes effect at the next start of a container without the
+# file; `--pin-signing-key' runs only this step.
+pin_signing_key() {
+    conf_dir=${HOME:-/root}/.config/git
+    conf=$conf_dir/gpg-machine.conf
+    { [ -e "$conf" ] || [ -L "$conf" ]; } && return 0
+    owner_tool=$(dirname "$0")/../bin/gpg-key-owner
+    hub_fpr=$("$owner_tool" --hub-subkey 2>/dev/null) || {
+        echo "gpg bridge: no hub signing subkey in machines.toml; $conf not written" >&2
+        return 0
+    }
+    case $hub_fpr in
+        *[!0-9A-F]*|'') echo "gpg bridge: unexpected hub subkey '$hub_fpr'; $conf not written" >&2; return 0 ;;
+    esac
+    mkdir -p "$conf_dir" || return 0
+    tmp=$conf.tmp.$$
+    if printf '[user]\n\tsigningkey = %s!\n' "$hub_fpr" >"$tmp" &&
+       ln "$tmp" "$conf" 2>/dev/null; then
+        echo "gpg bridge: wrote $conf (signingkey = $hub_fpr!, the hub's subkey)" >&2
+    fi
+    command rm -f "$tmp"
+    return 0
+}
+
+if [ "${1:-}" = --pin-signing-key ]; then
+    pin_signing_key
+    exit 0
+fi
+pin_signing_key
+
 [ -x "$socat" ] || { echo "gpg bridge: $socat missing (make setup-guix-container)" >&2; exit 1; }
 
 # kill_matching PROGRAM ARGS: TERM every process whose program name (argv[0]
