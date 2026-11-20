@@ -426,9 +426,15 @@ alias restart-gnome='sudo -i herd restart xorg-server 2>/dev/null || sudo -i her
 # ssh to home machines
 # -----------------------------------------------------------------------------
 
-alias minius='ssh durant@minius'
-alias geeeks='ssh durant@geeeks'
-alias framepop='ssh durant@framepop'
+# No user@ here on purpose.  For these three the login name matches the
+# local one, so ssh supplies it; popowl's differs and lives in
+# ~/.ssh/private-hosts, installed from the dot_files-private submodule,
+# because dot_files is PUBLIC.  Keeping User in ssh_config rather than in
+# the alias means git, rsync, scp, mr and rad get it too, not just these.
+alias minius='ssh minius'
+alias geeeks='ssh geeeks'
+alias framepop='ssh framepop'
+alias popowl='ssh popowl'
 
 # -----------------------------------------------------------------------------
 # Emacs daemon over ssh  (see `make emacs-serve` on the host machine)
