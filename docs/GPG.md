@@ -227,8 +227,12 @@ master passphrase", but the key being unlocked is the **first** ID; the
   `Passphrase: MASTER key  (agent on minius)` for the primary, or
   `Passphrase: key <ID>  (agent on minius)` for an ID no machine lists (also
   what every key gets if `machines.toml` cannot be read). A prompt with no
-  key ID (ssh, symmetric) is shown unchanged. The agent also serves the
-  guix-dev container's requests, so container prompts are labelled too.
+  key ID (ssh, symmetric) is shown unchanged. The ID is read with or
+  without the `0x` that `keyid-format 0xlong` (`gnupg/gpg.conf`) adds. The
+  agent also serves the guix-dev container's requests, so container prompts
+  are labelled too. `tests/gpg/pinentry-label.sh` (run by
+  `make check-gpg-enrollment`) checks the label against fakes, never a real
+  pinentry.
 - **The container's terminal note.** When the container's cache is cold,
   `build-aux/guix-container-gpg` prints which key gpg will sign with and
   whose it is, e.g.

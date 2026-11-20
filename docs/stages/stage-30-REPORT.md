@@ -91,6 +91,184 @@ this case. Asserting only the no-`0x` form would pass a test against a wrapper
 that mislabels the Mac's own prompts; dropping the `0x` case would make the test
 weaker than the header's claim. Neither permitted path closes it.
 
+## Resolution (2026-11-20, after the prompt's Amendment)
+
+The coordinator reproduced the finding and lifted the block with the
+Amendment section of `docs/stages/stage-30-PROMPT.md` (on `origin/overnight-1119`
+at `023e2ff`; this branch does not merge that commit). The BLOCKED section above
+is kept as it was written. On top of the pushed BLOCKED commit `7eb3ec4` there
+are two more commits, and neither one amends anything already pushed:
+
+1. `d901d8e` -- `Merge branch 'main': keep the hub's pinentry label, retire
+   stage 26's wrapper`. Parents: `7eb3ec4` and `adc9f28`. It covers items 1-4 and
+   7-10. At this commit `bin/pinentry-auto` and the bridge are byte-identical to
+   `adc9f28`. It does not contain `tests/gpg/pinentry-label.sh` or the Makefile
+   line.
+2. `47fd587` (before the report-only amend; the pushed hash differs) -- `fix(gpg): read "ID 0x..." in the pinentry label, and test the
+   wrapper`. It contains the wrapper fix, the new test, the Makefile wiring, the
+   test's mention in `docs/GPG.md` and `AGENTS.md`, and this section.
+
+### Checklist echo (final tree)
+
+- [x] 1. `git merge --no-ff --no-commit origin/main`. `2897103` and `adc9f28`
+      keep their hashes. `git merge-base --is-ancestor origin/main HEAD` -> exit 0.
+- [x] 2. At `d901d8e`, `git diff adc9f28 d901d8e -- bin/pinentry-auto
+      build-aux/guix-container-gpg-bridge.sh` prints nothing. At the final
+      commit the bridge still prints nothing. The wrapper shows only the fix
+      (Amendment): the regex accepts an optional `0x`, which is stripped before
+      the lookup.
+- [x] 3. `bin/gpg-key-owner`: only the "Who calls it" comment changed
+      (Deviation 3 above). `build-aux/guix-container-gpg` is unchanged.
+      `key-owner.sh` sections 1, 1b and 4 are kept.
+- [x] 4. `key-owner.sh` sections 2./3. and 5. are removed and the header is
+      corrected. Assertions went from 125 to 86 on this host.
+- [x] 5. `tests/gpg/pinentry-label.sh` is the BLOCKED appendix version plus the
+      Amendment's copy-and-rewrite of `find_pinentry`. The up-front
+      "real pinentry exists" guard is gone, replaced by a check that the rewrite
+      changed exactly line 37 and left no `/opt/homebrew/bin` or `/usr/local/bin`
+      in the copy. The committed file supersedes the appendix.
+- [x] 6. `check-gpg-enrollment` runs it after `key-owner.sh`, and its help line
+      names it. No other Makefile line changed.
+- [x] 7. `docs/GPG.md`: `main`'s two bullets are kept verbatim
+      (`git diff origin/main -- docs/GPG.md` has no `-` line). The section
+      "Which passphrase am I being asked for?" now gives `adc9f28`'s prompt text.
+      Gone from it: the filter mode, the unlabelled fallback and "never
+      overwritten". It still describes the container note, `bin/gpg-key-owner`
+      and the rewrite-whenever-different pin.
+- [x] 8. `AGENTS.md` section 4 GPG bullet is corrected and names
+      `tests/gpg/pinentry-label.sh`.
+- [x] 9./10. The stage 26 PROMPT and REPORT and `docs/language.md` are not
+      touched. Which parts of stage 26 are superseded is listed in the section
+      "Which parts of stage 26 this stage would supersede" below. It is now
+      done, not pending.
+
+### Final wrapper diff against `adc9f28`
+
+```
+-            if (match($0, /ID [0-9A-Fa-f]+/)) {
+-                id = toupper(substr($0, RSTART + 3, RLENGTH - 3))
++            if (match($0, /ID (0x)?[0-9A-Fa-f]+/)) {
++                id = substr($0, RSTART + 3, RLENGTH - 3)
++                sub(/^0x/, "", id)
++                id = toupper(id)
+```
+
+### Verification items on the final tree
+
+1. Item 2: covered in the checklist. `.aliases`: `git diff adc9f28 d901d8e --
+   .aliases` is only the integration branch's existing `HOMEBASE_GUIX` comment
+   hunk. `git diff 2897103 origin/main --stat` lists `bin/pinentry-auto` (61),
+   the bridge (24) and `docs/GPG.md` (11). Each of these is now `adc9f28`'s
+   version, plus the fix for the wrapper and stage 26's corrected section for
+   `GPG.md`.
+2. `make check-gpg-enrollment </dev/null` -> exit 0:
+   `enrollment.py` `Ran 14 tests` / `OK`; `key-owner.sh` `86 passed, 0 failed`;
+   `pinentry-label.sh` `53 passed, 0 failed` (dash, bash x mawk; the 2 fifo
+   cases under mawk print `info:` and are not counted). Under
+   `guix shell gawk busybox --`, `pinentry-label.sh` gives `322 passed, 0 failed`
+   (sh = busybox ash, dash, bash x busybox awk, mawk, gawk, busybox awk).
+3. Mutation check. Each run is a scratch copy of wrapper + `machines.toml` +
+   test, under `guix shell gawk busybox`:
+
+   | Wrapper | Result |
+   | --- | --- |
+   | final (fixed) | `322 passed, 0 failed` |
+   | fix reverted (= `adc9f28`) | `310 passed, 12 failed`: the 0x case under all 12 pairs |
+   | (a) `sub(/^SETDESC /...)` -> `;` | `169 passed, 153 failed`: every label case |
+   | (a, literal deletion) | measured on the BLOCKED version: 180 FAILs |
+   | (b) `fflush()` removed | `319 passed, 3 failed`: fifo case under gawk x 3 shells |
+   | (c) `MASTER key` reworded | `310 passed, 12 failed`: primary case under all 12 pairs |
+   | `find_pinentry` gains a third dir | `0 passed, 1 failed`, exit 1 before any wrapper runs |
+
+4. shellcheck: `tests/gpg/pinentry-label.sh` 0, `tests/gpg/key-owner.sh` 0,
+   `bin/gpg-key-owner` 0, `bin/pinentry-auto` (fixed) 0. The bridge (untouched)
+   has the same 2x SC2254 at lines 39 and 40 as reported above.
+5. Pinentry exits while stdin stays open: measured above (BLOCKED part) and not
+   asserted. The fix does not touch that path.
+6. `make -pq help-text` target list: identical to the base (209 targets, no
+   diff). `make help-text` differs from the base in exactly one line:
+
+   ```
+   73c73
+   <   make check-gpg-enrollment - Run the gpg-hub enrollment and bin/gpg-key-owner tests (no real keyring)
+   ---
+   >   make check-gpg-enrollment - Run the gpg-hub enrollment, bin/gpg-key-owner and tests/gpg/pinentry-label.sh tests (no real keyring)
+   ```
+   `main`'s two commits add no target or help line.
+7. `rg -n 'pinentry-auto-filter|pin-signing-key|pin_signing_key' --glob '!docs/stages/**'`
+   -> no hits (exit 1). Positive control: the same pattern hits
+   `docs/stages/stage-26-REPORT.md`, `stage-30-PROMPT.md` and this report.
+
+The Makefile recipe as wired:
+
+```
+check-gpg-enrollment:
+	@python3 "$(CURDIR)/tests/gpg/enrollment.py"
+	@"$(CURDIR)/tests/gpg/key-owner.sh"
+	@"$(CURDIR)/tests/gpg/pinentry-label.sh"
+```
+
+### Gates, final tree (`47fd587`, signed `G C4E66F1E89EE3EB8`; merge `d901d8e` also `G C4E66F1E89EE3EB8`)
+
+| Gate | Baseline (`72cfbd3`) | Final | Pass |
+| --- | --- | --- | --- |
+| G1 `make -k check` | exit 2; only `check-radicle` (`Makefile:2631`) | exit 2; only `make: *** [Makefile:2632: check-radicle] Error 1` (line +1 from the wiring); `check-shell`: `0 error-level findings (9 warning(s) reported, not fatal)` | pass (known red) |
+| G2 `git diff --check 72cfbd3 HEAD` | clean | clean (on `47fd587`) | pass |
+| G3 shellcheck, new/modified scripts | -- | 0 findings on each (item 4) | pass |
+| `make check-gpg-enrollment </dev/null` | exit 0 (14 OK, 125) | exit 0 (14 OK, 86, 53) | pass |
+
+`git diff 72cfbd3 HEAD --stat`:
+
+```
+ .aliases                               |  10 +
+ AGENTS.md                              |   2 +-
+ Makefile                               |   3 +-
+ bin/gpg-key-owner                      |  10 +-
+ bin/pinentry-auto                      | 234 +++-------
+ build-aux/guix-container-gpg-bridge.sh |  68 +--
+ docs/GPG.md                            |  54 ++-
+ docs/stages/stage-30-REPORT.md         | 812 +++++++++++++++++++++++++++++++++
+ tests/gpg/key-owner.sh                 | 272 +----------
+ tests/gpg/pinentry-label.sh            | 366 +++++++++++++++
+ 10 files changed, 1325 insertions(+), 506 deletions(-)
+```
+(at `47fd587`; the amend changes only this report's count.) The changes to
+`bin/pinentry-auto` and the bridge are measured against the base, which carries
+stage 26's versions. Against `adc9f28`, the bridge diff is empty and the
+wrapper diff is the 2-to-4 line fix.
+
+### Deviations (Resolution)
+
+R1. The block report and the Amendment both call the fix "two-line". It
+    replaces 2 lines with 4, because the `0x` is stripped by `sub()` on its own
+    line before `toupper`. This is exactly the text proposed in the BLOCKED
+    section.
+R2. The rewrite in the test is checked by line content: exactly one line
+    differs, it equals the expected loop line, and no brew bin path remains. It
+    is not checked by line number. The `ok` line reports the number it found (37).
+R3. The test copies `machines.toml` next to the wrapper copy, because the
+    wrapper reads `$(dirname "$0")/../machines.toml`. The real file is only
+    read.
+R4. The BLOCKED commit's G1 and this one cite different Makefile line numbers
+    for `check-radicle` (2631 vs 2632). The cause is the one added recipe line;
+    the target set is the same.
+R5. The merge commit's own tree was checked only with
+    `make check-gpg-enrollment` (exit 0; 14 OK, 86 passed), not a full
+    `make -k check`. G1 was run on the final tree.
+
+### Open questions (Resolution)
+
+- mawk holds input until EOF, so the fifo case is not counted under it. The
+  wrapper only runs on macOS. Not fixed (Amendment).
+- `main`'s `GPG.md` bullet shows one space before `(agent on`; the wrapper
+  emits two. Kept verbatim (Amendment).
+- `bin/gpg-key-owner --hub-subkey` has no caller outside `key-owner.sh` 1b. Kept
+  (Amendment).
+- Whether the Mac shows `key 0` today is inferred, not observed. The fix makes
+  the question moot for prompts in either format.
+- BWK awk (macOS) is still unrun. The first `make check-gpg-enrollment` on the
+  Mac is the BWK and `/bin/sh` (bash 3.2) run of this test.
+
 ## What was done before stopping, and where it is
 
 Nothing below is committed (the block commit carries only this report). The work

@@ -71,8 +71,10 @@ label_requests() {
         }
         /^SETDESC / {
             who = ""
-            if (match($0, /ID [0-9A-Fa-f]+/)) {
-                id = toupper(substr($0, RSTART + 3, RLENGTH - 3))
+            if (match($0, /ID (0x)?[0-9A-Fa-f]+/)) {
+                id = substr($0, RSTART + 3, RLENGTH - 3)
+                sub(/^0x/, "", id)
+                id = toupper(id)
                 if (id == primary)   who = "MASTER key"
                 else if (id in owner) who = owner[id] "%27s signing key"
                 else                 who = "key " id
