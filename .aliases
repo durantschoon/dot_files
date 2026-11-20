@@ -29,10 +29,10 @@ alias dm='docker-machine'
 alias dot='cd ~/dot_files/'
 alias ds='echo -e "\e[3mExample: use +2 to switch to the directory 2 down\e[0m"; dirs -v'
 alias dush="\
- echo '== Gigs =='; du -sh * 2>/dev/null | egrep '[0-9]G' | sort -rn; \
- echo -e '\n== Megs =='; du -sh * 2>/dev/null | egrep '[0-9]M' | sort -rn; \
- echo -e '\n== Kilos =='; du -sh * 2>/dev/null | egrep '[0-9]K' | sort -rn"
-alias eg=egrep
+ echo '== Gigs =='; du -sh * 2>/dev/null | grep -E '[0-9]G' | sort -rn; \
+ echo -e '\n== Megs =='; du -sh * 2>/dev/null | grep -E '[0-9]M' | sort -rn; \
+ echo -e '\n== Kilos =='; du -sh * 2>/dev/null | grep -E '[0-9]K' | sort -rn"
+alias eg='grep -E'
 alias espanso_edit="espanso stop; sleep 0.5s; open ~/.espanso_config_link/match/base.yml"
 alias espanso_start='espanso start'
 alias g=grep
@@ -536,9 +536,9 @@ elif [[ "$(uname)" == *"MINGW"* ]]; then
 elif [[ -d /mnt/c/Program\ Files/CMake ]]; then
     # WSL: use Windows cmake if available
     if [[ $(whoami) == root ]]; then
-        alias llhome='ll -L | egrep -v '\''(NTUSER|ntuser)'\'
-        alias llhomea='ll -aL | egrep -v '\''(NTUSER|ntuser)'\'
-        alias cdhome='cd ~/wsl_user; ll -L | egrep -v '\''(NTUSER|ntuser)'\'
+        alias llhome='ll -L | grep -E -v '\''(NTUSER|ntuser)'\'
+        alias llhomea='ll -aL | grep -E -v '\''(NTUSER|ntuser)'\'
+        alias cdhome='cd ~/wsl_user; ll -L | grep -E -v '\''(NTUSER|ntuser)'\'
     fi
 fi
 
@@ -1259,14 +1259,14 @@ if [ -n "$ZSH_VERSION" ]; then
     alias -g D="DISPLAY=:0.0"
     alias -g DN=/dev/null
     alias -g ED="export DISPLAY=:0.0"
-    alias -g EG='|& egrep'
+    alias -g EG='|& grep -E'
     alias -g EH='|& head'
     alias -g EL='|& less'
     alias -g ELS='|& less -S'
     alias -g ETL='|& tail -20'
     alias -g ET='|& tail'
     alias -g F=' | fmt -'
-    alias -g G='| egrep'
+    alias -g G='| grep -E'
     alias -g H='| head'
     alias -g HL='|& head -20'
     alias -g Sk="*~(*.bz2|*.gz|*.tgz|*.zip|*.z)"
@@ -1286,13 +1286,13 @@ if [ -n "$ZSH_VERSION" ]; then
     alias -g T='| tail'
     alias -g US='| sort -u'
     alias -g VM=/var/log/messages
-    alias -g X0G='| xargs -0 egrep'
+    alias -g X0G='| xargs -0 grep -E'
     alias -g X0='| xargs -0' # see https://www.gnu.org/software/parallel instead of xargs
     # brew install parallel
     # on mac you need final - below
     # seq 1000 | parallel -N100 –pipe –slf instances "(hostname; wc -l) | paste -sd: - | bc"
     F0 () { find $* -print0; } # use F0 to pipe to X0 or X0G (the `;' is for bash's parser -- see f2m above)
-    alias -g XG='| xargs egrep'
+    alias -g XG='| xargs grep -E'
     alias -g X='| xargs'
 
 # elif [ -n "$BASH_VERSION" ]; then
