@@ -2269,7 +2269,12 @@ smoke_sig_run() {
   "$SMOKE_SELF" --signal-self-test "$SIG_READY" >/dev/null 2>&1 &
   child=$!
   _sig_ready() { [[ -s $SIG_READY ]] }
-  waitfor _sig_ready || fail "N12 the $sig self-test child never reported its tree" \
+  # Not waitfor's 10 s: the child repeats this script's whole setup before it
+  # reports, which measured ~8 s on minius (macOS, load ~4.5), so 10 s failed
+  # about one run in two.  The child sleeps 45 s after reporting; 40 s is ample.
+  local i
+  for i in {1..80}; do _sig_ready && break; sleep 0.5; done
+  _sig_ready || fail "N12 the $sig self-test child never reported its tree" \
     "child pid $child"
   SIG_BASE="$(command cat "$SIG_READY")"
   [[ -d $SIG_BASE ]] || fail "N12 the $sig child's tree was not there to begin with" "$SIG_BASE"
