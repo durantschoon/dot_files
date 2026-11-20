@@ -2434,7 +2434,7 @@ has "N15c --on offers hosts"                      "$out" "compadd: local"
 has "N15c --restart offers its policies"          "$out" "compadd: no on-failure always"
 has "N15c '-' on an rm verb offers --all"         "$out" "compadd: --all"
 has "N15c '-' on tmux-remote-launch offers --on"   "$out" "compadd: --on"
-has "N15c agent-* asks for the engine first"      "$out" "compadd: claude agy codex cursor"
+has "N15c agent-* asks for the engine first"      "$out" "compadd: claude agy codex grok"
 has "N15c *-run hands the words after TASK to _normal" "$out" "normal: make  @2"
 has "N15c ... and the words after --"             "$out" "normal: git  @2"
 

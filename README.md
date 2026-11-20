@@ -659,8 +659,8 @@ something else under someone else's) and `PROMPT` is what starts it. A repo's
 The shared implementation is `agent-run ENGINE TASK [PROMPT ...]`; the named
 wrappers supply the engine. Codex starts with `codex PROMPT` and recovers with
 `codex resume --last`; AGY starts with `agy -i PROMPT` and recovers with
-`agy continue`. A `cursor` engine is also accepted through the generic
-`agent-*` verbs. Set `CODEX_JOB_BIN`, `AGY_JOB_BIN`, `CURSOR_JOB_BIN`, or
+`agy continue`. A `grok` engine (xAI's Grok Build CLI, `grok --continue` /
+`grok --resume ID`) is also accepted through the generic `agent-*` verbs. Set `CODEX_JOB_BIN`, `AGY_JOB_BIN`, `GROK_JOB_BIN`, or
 `AGENT_JOB_BIN` (Claude; `CLAUDE_JOB_BIN` still works) to choose an executable.
 
 `make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
