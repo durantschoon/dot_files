@@ -23,17 +23,84 @@ done
 
 if [ -n "$signing" ]; then
     key=$(git config user.signingkey 2>/dev/null)
-    grip=$(gpg --with-colons --with-keygrip --list-keys ${key:+"$key"} 2>/dev/null |
-           awk -F: '/^grp/{print $10; exit}')
+    case $key in *!) pinned=1 ;; *) pinned= ;; esac
+    want=${key%!}
+    # Which key will gpg sign with?  This mirrors gpg's own choice
+    # (g10/getkey.c, finish_lookup), so the cache test below is for the key
+    # that will actually ask for a passphrase:
+    #   - user.signingkey ends in `!': exactly that key (primary or subkey);
+    #   - otherwise the newest (latest creation date) signing-capable subkey
+    #     that is not expired, revoked or invalid;
+    #   - otherwise the primary.
+    # (gpg also skips subkeys whose secret it lacks; through the hub's agent
+    # every machine's secret is present, which is why an unpinned key signs
+    # with the newest machine's subkey here.)  With no user.signingkey, the
+    # first key listed stands in for gpg's default key.
+    # Prints: TYPE KEYID FINGERPRINT KEYGRIP   (TYPE is pub or sub).
+    chosen=$(gpg --with-colons --with-keygrip --list-keys ${want:+"$want"} 2>/dev/null |
+        awk -F: -v want="$want" -v pinned="$pinned" '
+        function suffix(a, b,    la, lb) {
+            la = length(a); lb = length(b)
+            if (la == 0 || lb == 0) return 0
+            if (la <= lb) return substr(b, lb - la + 1) == a
+            return substr(a, la - lb + 1) == b
+        }
+        BEGIN { want = toupper(want); sub(/^0X/, "", want); n = 0 }
+        $1 == "pub" && n > 0 { stop = 1 }
+        stop { next }
+        $1 == "pub" || $1 == "sub" {
+            n++; type[n] = $1; id[n] = toupper($5); val[n] = $2
+            created[n] = $6 + 0; caps[n] = $12
+            next
+        }
+        $1 == "fpr" && n > 0 && fpr[n] == "" { fpr[n] = toupper($10) }
+        $1 == "grp" && n > 0 && grp[n] == "" { grp[n] = $10 }
+        END {
+            best = 0
+            if (pinned != "") {
+                for (k = 1; k <= n; k++)
+                    if (suffix(want, fpr[k]) || suffix(want, id[k])) { best = k; break }
+            } else {
+                for (k = 2; k <= n; k++)
+                    if (type[k] == "sub" && index(caps[k], "s") > 0 &&
+                        val[k] != "e" && val[k] != "r" && val[k] != "i" &&
+                        (best == 0 || created[k] > created[best]))
+                        best = k
+                if (best == 0 && n > 0) best = 1
+            }
+            if (best > 0 && grp[best] != "")
+                print type[best], id[best], fpr[best], grp[best]
+        }')
+    ktype=${chosen%% *}
+    rest=${chosen#* }
+    kid=${rest%% *}
+    rest=${rest#* }
+    kfpr=${rest%% *}
+    grip=${rest#* }
+    [ -n "$chosen" ] || grip=
     cached=$(gpg-connect-agent --no-autostart "KEYINFO $grip" /bye 2>/dev/null |
              awk '$2 == "KEYINFO" {print $7}')
     if [ -n "$grip" ] && [ "$cached" = - ]; then
+        case $ktype in sub) what="signing subkey" ;; *) what="primary key" ;; esac
+        owner=$("$(dirname "$0")/../bin/gpg-key-owner" "$kid" 2>/dev/null) || owner=
+        case $owner in
+            "machine "*) whose=" -- ${owner#machine } (machines.toml)" ;;
+            primary) whose=" -- the PRIMARY (master) key (machines.toml)" ;;
+            unassigned) whose=" -- not assigned to any machine in machines.toml" ;;
+            *) whose= ;;
+        esac
         # git captures gpg's stderr and shows it only on failure, so write to
         # the terminal directly while the prompt is pending.
         # (Probe in a subshell: a failed redirection on exec ends dash.)
         if (exec 3>/dev/tty) 2>/dev/null; then exec 3>/dev/tty; else exec 3>&2; fi
+        printf 'gpg: passphrase needed for %s %s%s.\n' "$what" "$kid" "$whose" >&3
+        if [ -z "$pinned" ] && [ "$ktype" = sub ]; then
+            printf '     user.signingkey (%s) has no "!", so gpg chose the newest signing subkey.\n' "${key:-unset}" >&3
+            printf '     To pin a key, put  [user] signingkey = %s!\n' "$kfpr" >&3
+            printf '     in ~/.config/git/gpg-machine.conf (docs/GPG.md, "Which passphrase am I being asked for?").\n' >&3
+        fi
         cat >&3 <<'EOF'
-gpg: passphrase needed. Look for the pinentry window on the containing Mac.
+     Look for the pinentry window on the containing Mac.
      If signing fails, run these from ~/dot_files in a LOCAL terminal on
      the containing Mac (minius), outside orb-guix / guix-dev:
        make check-gpg-bridge

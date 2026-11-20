@@ -197,6 +197,63 @@ What the restricted socket means in practice:
   environment fix above.
 - `gpg: problem with fast path key listing: Forbidden - ignored` is noise from
   the same restriction.
+- Since stage 26 the cache check above tests the key gpg will actually sign
+  with (not the primary), and the note names it and its machine; the
+  container also pins the hub's subkey by default. See the next section.
+
+## Which passphrase am I being asked for?
+
+Every machine's signing subkey has its own passphrase (set at enrollment,
+above), and the hub holds all of them. A prompt that says only
+`ID 0x1FE5BBBC0A765369 ... (main key ID 0x6A2DAE7008D4F938)` reads as "the
+master passphrase", but the key being unlocked is the **first** ID; the
+"main key ID" is just the primary it belongs to.
+
+- **The prompt says.** On the Mac, `bin/pinentry-auto` (the agent's
+  pinentry) adds one line to the description from `machines.toml`, e.g.
+  `machines.toml: this is the signing subkey of FRAMEPOP`, or
+  `... this is the PRIMARY (master) key`, or
+  `... this key is not assigned to any machine`. The agent also serves the
+  guix-dev container's requests, so container prompts are labelled too. If
+  the lookup cannot run (no `machines.toml`, no `bin/gpg-key-owner`, no
+  `awk`), the prompt is shown exactly as before, unlabelled.
+- **Ask directly:** `bin/gpg-key-owner KEYID` prints `machine NAME`,
+  `primary`, `unassigned` or (for a short ID matching two entries)
+  `ambiguous`. KEYID may be a fingerprint, a 16- or 8-hex ID, with or
+  without `0x` and `!`.
+- **Before signing**, see which secrets this machine (or the agent it
+  borrows) holds and which signing subkey is newest:
+  `gpg -K --keyid-format long 0x6A2DAE7008D4F938`.
+- **After signing**, see which subkey signed:
+  `git log -1 --format='%h sig=%G? subkey=%GK'`, then
+  `bin/gpg-key-owner <that subkey>`.
+
+**Why an unpinned key picks someone else's subkey.** `user.signingkey`
+without a trailing `!` names the whole key, and gpg then signs with the
+newest signing-capable subkey whose secret it can use. A spoke holds only
+its own subkey's secret, so that is its own. The hub holds every machine's,
+so an unpinned key there signs with whichever machine was enrolled last.
+Measured 2026-11-19 in the guix-dev container (tracked `.gitconfig` names
+`0x6A2DAE7008D4F938` with no `!`, no `~/.config/git/gpg-machine.conf`):
+commits were signed with `1FE5BBBC0A765369`, framepop's subkey, and the
+prompt asked for framepop's passphrase. Enrollment pins each machine with
+`signingkey = <fingerprint>!` in `~/.config/git/gpg-machine.conf`, which
+avoids this.
+
+**The container default.** The guix-dev container is not enrolled (it
+borrows minius's agent), so nothing pinned it. Now
+`build-aux/guix-container-gpg-bridge.sh`, run at every container start,
+writes `~/.config/git/gpg-machine.conf` with the hub's subkey pinned
+(`[gpg] hub` in `machines.toml`, that machine's `signing_subkey`, with `!`)
+when the file does not exist. An existing file is never overwritten, so a
+different pin can be set by hand. It takes effect at the next container
+start (or `make setup-gpg-bridge`, which restarts the bridge). After that,
+the container asks for minius's signing passphrase, the one
+`make unlock-gpg` on the Mac also uses (but each has its own cache).
+
+To see the label on a cold key, on minius from a local terminal:
+`echo test | gpg --sign --local-user 'C4E66F1E89EE3EB8!' -o /dev/null`
+(expected: `machines.toml: this is the signing subkey of MINIUS`).
 
 ## When the key expires (2027-02-08)
 
