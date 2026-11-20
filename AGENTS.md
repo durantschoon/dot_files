@@ -45,7 +45,7 @@ sees make targets -- renaming an alias or a concept is on you to notice.
 The repository contains a unified job runner abstraction for `tmux`, `launchd`, and `docker` to handle long-running local tasks. All three runners use the same verb convention (`-run`, `-ls`, `-status`, `-logs`).
 *   **Core Implementation:** `.jobs.zsh`
 *   **Logging utility:** `bin/job-tee`
-*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/tee-smoke.zsh`, `tests/jobs/private-tmux` (`make check-jobs`); `tests/jobs/podman-live.zsh` needs a real container engine (`make check-jobs-live`)
+*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/tee-smoke.zsh`, `tests/jobs/private-tmux` (`make check-jobs`), and `tests/jobs/lib.zsh` (shared ok/FAIL/SKIP assertion helpers, sourced by smoke, tee-smoke and podman-live); `tests/jobs/podman-live.zsh` needs a real container engine (`make check-jobs-live`)
 
 **Agent Instruction:** If the user asks about `tmux-new`, `tmux-run`, `tmux-ls`, `job-recap`, etc., load `.jobs.zsh` and skip everything else.
 
@@ -72,6 +72,8 @@ The user is migrating to a declarative Guix setup with distinct "home" and "syst
 *   **Incoming SSH:** `bin/sshd-setup`, `setup-sshd-for-ingress` / `check-sshd-for-ingress` in `Makefile` (automatic on apply/setup-native), `system/keys/minius.pub`; Guix System declares sshd in `system/geeeks.scm`. Tests: `tests/ssh/bootstrap.py` (`make check-sshd-for-ingress-tests`).
 *   **System locale (foreign distros, e.g. orb-guix, WSL):** `setup-locale` / `check-locale` in `Makefile` (generates `LOCALE` for the distro glibc; fixes the `setlocale: LC_ALL` warning)
 *   **Known-warning filter:** `bin/expected-warnings` (hides and counts the warnings `apply`/`apply-wayland` are known to print; add new ones to its `%EXPECTED` table)
+*   **Extracted checks:** `bin/check-home-ownership`, `bin/check-gpg`, `bin/check-tailscale` and `bin/check-orbstack` are the bodies of the same-named make targets, which pass make's variables in by name (`os`, `flavor`, paths); edit the script, not the Makefile. Tests: `tests/home/ownership-smoke.sh`, `tests/gpg/check-gpg-smoke.sh`, `tests/tailscale/check-smoke.sh`, `tests/orbstack/check-smoke.sh` (`make check-home-ownership-tests`, `make check-gpg-tests`, `make check-tailscale-tests`, `make check-orbstack-tests`; not part of `make check`).
+*   **Shell lint:** `make check-shell` (part of `make check`; shellcheck over `bin/` by shebang), and `githooks/pre-commit` runs shellcheck at severity error on staged `bin/` scripts.
 *   **Documentation:** `docs/GENERATIONS_AND_ROLLBACK.md`, `docs/EWM_TRIAL_PLAN.md`, `docs/archive/README.md` (how to recover removed notes)
 
 **Agent Instruction:** If asked to modify Guix package manifests, home configurations, or system configurations, stick to these files.
@@ -90,6 +92,7 @@ There are dedicated tools for running interactive AI sessions as background jobs
 
 ## 4. Shell & Environment Baseline
 * **Bitbucket SSH migration:** `.gitconfig` (SSH URL rewrites), `bin/setup-bitbucket-ssh` (host trust and legacy Host blocks), `docs/BITBUCKET_SSH.md`; native `setup-native-links` and the Guix `%dotfiles-layer` activation deploy it. Container key setup: `build-aux/setup-guix-github-key.sh`. Check with `make check-bitbucket-ssh`.
+* **GitHub SSH Host blocks:** `bin/setup-github-ssh` ensures the plain `Host github.com` block (used by `.gitmodules`) and `Host github.com-ds` in the user's SSH config; native `setup-native-links` runs it (alone: `make setup-github-ssh`), the Guix activation does not yet. Check with `make check-github-ssh` (`tests/github-ssh-smoke.sh`, no network).
 **`rg` in your own shell; POSIX `grep` in committed code.** These are two
 different rules and conflating them breaks the installer.
 
@@ -134,7 +137,7 @@ For standard shell setup not related to the background job runners:
 *   **macOS Packages (Homebrew):** `setup-native-links` and `setup-native` install the Ghostty cask and Yazi (+ media-handling stack) on macOS; also available via `make install-ghostty` and `make install-yazi`
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`, `bin/mr-clone` (clone a configured repo by name anywhere)
 *   **Radicle (`rad://` remotes):** `%radicle-layer` in `home/common.scm` (package + `radicle-node` Shepherd service), `install-radicle` / `setup-radicle` / `check-radicle` in `Makefile` (LaunchAgent template `system/launchd/com.durantschoon.radicle-node.plist` on mac), the login warning in `.shared.zshrc`; see `docs/MYREPOS.md`
-*   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` / `check-ssh-with-gpg-for-egress` targets in `Makefile`, and `machines.toml` / `bin/gpg-hub` (`make gpg-hub-create`, `make gpg-spoke-copy`: inventory-backed subkey enrollment). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`.
+*   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` / `check-ssh-with-gpg-for-egress` targets in `Makefile`, and `machines.toml` / `bin/gpg-hub` (`make gpg-hub-create`, `make gpg-spoke-copy`: inventory-backed subkey enrollment). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`. `bin/gpg-key-owner` answers which machine in `machines.toml` owns a key ID (tests: `tests/gpg/key-owner.sh`, run by `make check-gpg-enrollment`); on the hub `bin/pinentry-auto` uses it to label the passphrase prompt with that machine.
 
 **Agent Instruction:** Note that Guix environments (like Linux or `orb-guix`) construct `.zshrc` dynamically by concatenating configs, while native environments (like Mac without Guix) rely on `make setup-native-links` to symlink `.zshrc.starship` and source `.shared.zshrc` manually. If asked to add a command, alias, or shell feature "everywhere" or "on all platforms," make sure it is added to the shared configs or updated in both the Guix `home/*.scm` files and the native Zsh files so it isn't lost on one platform.
 
