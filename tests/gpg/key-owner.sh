@@ -1,20 +1,15 @@
 #!/bin/sh
-# tests/gpg/key-owner.sh -- bin/gpg-key-owner, the machine label in
-# bin/pinentry-auto, the key choice in build-aux/guix-container-gpg and the
-# container's default key pin in build-aux/guix-container-gpg-bridge.sh.
+# tests/gpg/key-owner.sh -- bin/gpg-key-owner (sections 1 and 1b) and the
+# key choice and cold-cache note in build-aux/guix-container-gpg (section 4).
+#
+# The pinentry label is tested by tests/gpg/pinentry-label.sh.  Sections 2,
+# 3 and 5 drove stage 26's pinentry filter and bridge pin; stage 30 removed
+# them with that code and kept the numbering, so stage 26's report still
+# names the right sections.
 #
 # Everything runs in a mktemp -d with fakes on a private PATH.  Nothing here
-# contacts a gpg-agent, signs, or reads ~/.gnupg: `gpg', `gpg-connect-agent',
-# `git' and the pinentry are all stubs.  The real machines.toml is only read.
-#
-# How pinentry-auto finds the fake: its lookup tries /opt/homebrew/bin and
-# /usr/local/bin before PATH.  This test does not touch that order; it puts
-# a fake `pinentry-mac' first on PATH and refuses to run (FAIL) if either brew
-# prefix holds a real pinentry-mac, because then the fake cannot be reached.
-#
-# Each pinentry case runs under every shell (dash, bash) and every distinct
-# awk found (awk, mawk, gawk, original-awk, busybox awk), by placing `sh' and
-# `awk' symlinks first on the private PATH -- a stand-in for macOS's BWK awk.
+# contacts a gpg-agent, signs, or reads ~/.gnupg: `gpg', `gpg-connect-agent'
+# and `git' are all stubs.  The real machines.toml is only read.
 #
 # Prints one line per case (`ok ...' or `FAIL ...'); exits non-zero on any
 # FAIL.
@@ -139,205 +134,6 @@ same "fixture: no primary prints nothing" "" "$out"
 # Through a symlink, from another cwd, the default inventory is still found.
 ln -s "$owner" "$tmp/gpg-key-owner-link"
 same "symlinked, other cwd" "machine framepop" "$(cd / && "$tmp/gpg-key-owner-link" 1FE5BBBC0A765369)"
-
-# ---------------------------------------------------------------------------
-# 2./3. pinentry-auto as a filter, under each shell and each awk
-# ---------------------------------------------------------------------------
-
-for brew in /opt/homebrew/bin/pinentry-mac /usr/local/bin/pinentry-mac; do
-    if [ -e "$brew" ]; then
-        bad "pinentry-auto: $brew exists, so the fake on PATH cannot be reached"
-    fi
-done
-
-# A copy of the repo's pieces, so the inventory can be removed.
-repo=$tmp/repo
-mkdir -p "$repo/bin"
-cp "$root/bin/pinentry-auto" "$root/bin/gpg-key-owner" "$repo/bin/"
-cp "$inventory" "$repo/machines.toml"
-
-fake=$tmp/fakebin
-mkdir -p "$fake"
-cat >"$fake/pinentry-mac" <<'EOF'
-#!/bin/sh
-# Fake pinentry: records every line it receives (byte-exact), answers OK.
-case "${1:-}" in --version) echo "fake-pinentry 0.0"; exit 0 ;; esac
-: >"$FAKE_RECORD"
-printf 'OK Pleased to meet you\n'
-n=0
-while :; do
-    if IFS= read -r l; then
-        printf '%s\n' "$l" >>"$FAKE_RECORD"
-    else
-        [ -n "$l" ] && printf '%s' "$l" >>"$FAKE_RECORD"
-        break
-    fi
-    n=$((n + 1))
-    printf 'OK\n'
-    if [ -n "${FAKE_DIE_AFTER:-}" ] && [ "$n" -ge "$FAKE_DIE_AFTER" ]; then
-        exit "${FAKE_STATUS:-0}"
-    fi
-done
-exit "${FAKE_STATUS:-0}"
-EOF
-chmod +x "$fake/pinentry-mac"
-
-# A real-shaped description (gpg_format_keydesc, keyid-format 0xlong).
-desc_tail='created 2026-11-05 (main key ID 0x6A2DAE7008D4F938).%0A'
-desc_head='Please enter the passphrase to unlock the OpenPGP secret key:%0A%22Durant Schoon <x@example.org>%22%0A255-bit EDDSA key,'
-framepop_label='machines.toml: this is the signing subkey of FRAMEPOP%0A'
-
-# conversation FILE SETDESC-LINE: a conversation around one SETDESC.
-conversation() {
-    {
-        printf 'OPTION ttyname=/dev/ttys004\n'
-        printf 'OPTION lc-ctype=en_US.UTF-8\n'
-        printf 'SETKEYINFO n/0123456789ABCDEF0123456789ABCDEF01234567\n'
-        printf '%s\n' "$2"
-        printf 'SETPROMPT Passphrase:\n'
-        printf 'SETTITLE   leading blanks \\ and a backslash %%25 \n'
-        printf 'GETPIN\n'
-        printf 'BYE'
-    } >"$1"
-}
-# expected FILE SETDESC-LINE: what the pinentry should receive.
-expected() { conversation "$1" "$2"; }
-
-shells=
-for s in dash bash; do
-    p=$(command -v "$s" 2>/dev/null) && shells="$shells $p"
-done
-awks=
-seen_real=
-for a in awk mawk gawk original-awk nawk; do
-    p=$(command -v "$a" 2>/dev/null) || continue
-    real=$(readlink -f "$p" 2>/dev/null || printf '%s' "$p")
-    case " $seen_real " in *" $real "*) continue ;; esac
-    seen_real="$seen_real $real"
-    awks="$awks $p"
-done
-if command -v busybox >/dev/null 2>&1 && busybox awk 'BEGIN{}' 2>/dev/null; then
-    printf '#!/bin/sh\nexec %s awk "$@"\n' "$(command -v busybox)" >"$tmp/busybox-awk"
-    chmod +x "$tmp/busybox-awk"
-    awks="$awks $tmp/busybox-awk"
-fi
-printf 'info: shells:%s\ninfo: awks:%s\n' "$shells" "$awks"
-
-# run_pinentry SHELL AWK INPUT OUTPUT [ARGS]: run the wrapper with the fake
-# first on PATH, `sh' -> SHELL and `awk' -> AWK; prints the exit status.
-run_pinentry() {
-    sh_=$1 awk_=$2 in_=$3 out_=$4
-    shift 4
-    ln -sf "$sh_" "$fake/sh"
-    ln -sf "$awk_" "$fake/awk"
-    env -u PINENTRY_USER_DATA PATH="$fake:/usr/bin:/bin" FAKE_RECORD="$tmp/record" \
-        "$sh_" "$repo/bin/pinentry-auto" "$@" <"$in_" >"$out_" 2>"$tmp/stderr"
-    echo $?
-}
-
-# label_case NAME SETDESC EXPECTED-SETDESC
-label_case() {
-    conversation "$tmp/in" "$2"
-    expected "$tmp/want" "$3"
-    rc=$(run_pinentry "$sh" "$awk" "$tmp/in" "$tmp/out")
-    if [ "$rc" = 0 ] && cmp -s "$tmp/want" "$tmp/record"; then
-        ok "$tag $1"
-    else
-        bad "$tag $1 (exit $rc)"
-        diff "$tmp/want" "$tmp/record" | sed 's/^/    /'
-    fi
-}
-
-for sh in $shells; do
-    for awk in $awks; do
-        tag="pinentry[$(basename "$sh")/$(basename "$awk")]:"
-
-        d="SETDESC $desc_head ID 0x1FE5BBBC0A765369,%0A$desc_tail"
-        label_case "framepop subkey, blank separator" "$d" "$d$framepop_label"
-        # Every other line arrived unchanged and in order: label_case
-        # compares the whole recorded conversation; also check the answers.
-        same "$tag answers passed back to the agent" 8 "$(command grep -c '^OK' "$tmp/out")"
-
-        d="SETDESC $desc_head ID%200x1FE5BBBC0A765369,%0A$desc_tail"
-        label_case "%20 separator" "$d" "$d$framepop_label"
-        d="SETDESC Please+enter+the+passphrase%0A255-bit+EDDSA+key,+ID+0x1FE5BBBC0A765369,%0Acreated+2026-11-05+(main+key+ID+0x6A2DAE7008D4F938).%0A"
-        label_case "+ separator" "$d" "$d$framepop_label"
-        d="SETDESC $desc_head ID 1FE5BBBC0A765369,%0A$desc_tail"
-        label_case "no 0x" "$d" "$d$framepop_label"
-        d="SETDESC $desc_head ID 0xC4E66F1E89EE3EB8,%0A$desc_tail"
-        label_case "minius subkey" "$d" "${d}machines.toml: this is the signing subkey of MINIUS%0A"
-        d="SETDESC Please enter the passphrase to unlock the OpenPGP secret key:%0A%22Durant Schoon <x@example.org>%22%0A4096-bit RSA key, ID 0x6A2DAE7008D4F938,%0Acreated 2024-08-29.%0A"
-        label_case "primary-only description" "$d" "${d}machines.toml: this is the PRIMARY (master) key%0A"
-        d="SETDESC $desc_head ID 0xDEADBEEFDEADBEEF,%0A$desc_tail"
-        label_case "unknown ID" "$d" "${d}machines.toml: this key is not assigned to any machine%0A"
-        d="SETDESC Please enter the passphrase to unlock the OpenPGP secret key, ID 0x1FE5BBBC0A765369"
-        label_case "description without trailing %0A" "$d" "$d%0Amachines.toml: this is the signing subkey of FRAMEPOP"
-        d="SETDESC An ssh process requested the use of key%0A  SHA256:abcdefIDxyz%0A  (/Users/x/.ssh/id_ed25519)%0ADo you want to allow this?"
-        label_case "ssh SETDESC (no key ID) unchanged" "$d" "$d"
-        d="SETDESC Enter passphrase%0A"
-        label_case "symmetric SETDESC unchanged" "$d" "$d"
-        d="SETDESC DAVID 0x1FE5BBBC0A765369 is not an ID"
-        label_case "ID inside a word is not a key ID" "$d" "$d"
-
-        # Exit status of the pinentry is the wrapper's.
-        conversation "$tmp/in" "SETDESC x"
-        rc=$(FAKE_STATUS=7 run_pinentry "$sh" "$awk" "$tmp/in" "$tmp/out")
-        status_is "$tag pinentry exit status passed through" 7 "$rc"
-
-        # --version passes straight through.
-        rc=$(run_pinentry "$sh" "$awk" /dev/null "$tmp/out" --version)
-        same "$tag --version" "0 fake-pinentry 0.0" "$rc $(cat "$tmp/out")"
-
-        # A pinentry that exits while the agent still holds the pipe open:
-        # the wrapper must exit promptly, with the pinentry's status.
-        command rm -f "$tmp/fifo" "$tmp/early.rc"
-        mkfifo "$tmp/fifo"
-        ln -sf "$sh" "$fake/sh"; ln -sf "$awk" "$fake/awk"
-        ( env -u PINENTRY_USER_DATA PATH="$fake:/usr/bin:/bin" FAKE_RECORD="$tmp/record" \
-              FAKE_DIE_AFTER=1 FAKE_STATUS=3 \
-              "$sh" "$repo/bin/pinentry-auto" <"$tmp/fifo" >/dev/null 2>&1
-          echo $? >"$tmp/early.rc" ) &
-        ( printf 'GETPIN\n'; exec sleep 15 ) >"$tmp/fifo" &
-        writer=$!
-        i=0
-        while [ ! -s "$tmp/early.rc" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
-        same "$tag pinentry exits before the agent closes: wrapper exits" "3" "$(cat "$tmp/early.rc" 2>/dev/null)"
-        kill "$writer" 2>/dev/null
-        wait 2>/dev/null
-    done
-done
-
-# With the inventory removed, the conversation is byte-identical to the
-# input (the wrapper execs the pinentry exactly as before).
-first_word() { printf '%s' "$1"; }
-mv "$repo/machines.toml" "$repo/machines.toml.away"
-for sh in $shells; do
-    # shellcheck disable=SC2086
-    awk=$(first_word $awks)
-    tag="pinentry[$(basename "$sh")/$(basename "$awk")]:"
-    conversation "$tmp/in" "SETDESC $desc_head ID 0x1FE5BBBC0A765369,%0A$desc_tail"
-    rc=$(run_pinentry "$sh" "$awk" "$tmp/in" "$tmp/out")
-    if [ "$rc" = 0 ] && cmp -s "$tmp/in" "$tmp/record"; then
-        ok "$tag no inventory: conversation byte-identical"
-    else
-        bad "$tag no inventory: conversation differs (exit $rc)"
-    fi
-done
-mv "$repo/machines.toml.away" "$repo/machines.toml"
-
-# Without gpg-key-owner, likewise.
-mv "$repo/bin/gpg-key-owner" "$repo/gpg-key-owner.away"
-# shellcheck disable=SC2086
-sh=$(first_word $shells)
-# shellcheck disable=SC2086
-awk=$(first_word $awks)
-rc=$(run_pinentry "$sh" "$awk" "$tmp/in" "$tmp/out")
-if [ "$rc" = 0 ] && cmp -s "$tmp/in" "$tmp/record"; then
-    ok "pinentry: no gpg-key-owner: conversation byte-identical"
-else
-    bad "pinentry: no gpg-key-owner: conversation differs (exit $rc)"
-fi
-mv "$repo/gpg-key-owner.away" "$repo/bin/gpg-key-owner"
 
 # ---------------------------------------------------------------------------
 # 4. guix-container-gpg with stubbed gpg, gpg-connect-agent and git
@@ -473,56 +269,6 @@ run_gpg 0x6A2DAE7008D4F938 --verify sig.asc -
 same "container-gpg: non-signing call queries no key" "" "$(cat "$tmp/keyinfo.log" 2>/dev/null)"
 same "container-gpg: non-signing call passes its arguments" \
     "$(args_of --verify sig.asc -)" "$(cat "$tmp/sign.args")"
-
-# ---------------------------------------------------------------------------
-# 5. Part D: the container's default key pin, HOME in a mktemp -d
-# ---------------------------------------------------------------------------
-
-bridge=$root/build-aux/guix-container-gpg-bridge.sh
-hub_fpr=$("$owner" --hub-subkey)
-home=$tmp/home
-mkdir -p "$home"
-HOME=$home sh "$bridge" --pin-signing-key 2>/dev/null
-same "pin: written with the hub's subkey when absent" \
-    "$(printf '[user]\n\tsigningkey = %s!' "$hub_fpr")" \
-    "$(cat "$home/.config/git/gpg-machine.conf" 2>/dev/null)"
-same "pin: hub subkey is minius' (real inventory)" minius-F64750966E672AB3552EF14EC4E66F1E89EE3EB8 "minius-$hub_fpr"
-leftovers=$(ls -A "$home/.config/git")
-same "pin: no temporary file left" gpg-machine.conf "$leftovers"
-
-printf '[user]\n\tsigningkey = 0xSOMETHINGELSE!\n# keep me\n' >"$home/.config/git/gpg-machine.conf"
-cp "$home/.config/git/gpg-machine.conf" "$tmp/before"
-HOME=$home sh "$bridge" --pin-signing-key 2>/dev/null
-if cmp -s "$tmp/before" "$home/.config/git/gpg-machine.conf"; then
-    ok "pin: existing file left byte-identical"
-else
-    bad "pin: existing file was changed"
-fi
-
-home2=$tmp/home2
-mkdir -p "$home2/.config/git"
-ln -s "$tmp/nowhere" "$home2/.config/git/gpg-machine.conf"
-HOME=$home2 sh "$bridge" --pin-signing-key 2>/dev/null
-if [ -L "$home2/.config/git/gpg-machine.conf" ] && [ ! -e "$tmp/nowhere" ]; then
-    ok "pin: dangling symlink left alone"
-else
-    bad "pin: dangling symlink was followed or replaced"
-fi
-
-# An inventory whose hub has no subkey writes nothing.
-copy=$tmp/copy
-mkdir -p "$copy/build-aux" "$copy/bin"
-cp "$bridge" "$copy/build-aux/"
-cp "$owner" "$copy/bin/"
-printf '[gpg]\nhub = "nobody"\nprimary_fingerprint = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"\n' >"$copy/machines.toml"
-home3=$tmp/home3
-mkdir -p "$home3"
-HOME=$home3 sh "$copy/build-aux/guix-container-gpg-bridge.sh" --pin-signing-key 2>/dev/null
-if [ -e "$home3/.config/git/gpg-machine.conf" ]; then
-    bad "pin: written although the hub has no subkey"
-else
-    ok "pin: nothing written when the hub has no subkey"
-fi
 
 printf '%s passed, %s failed\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

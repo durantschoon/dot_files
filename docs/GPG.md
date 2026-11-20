@@ -197,9 +197,20 @@ What the restricted socket means in practice:
   environment fix above.
 - `gpg: problem with fast path key listing: Forbidden - ignored` is noise from
   the same restriction.
+- **The container signs as the hub.** The hub's agent holds every machine's
+  signing subkey, and with only the bare primary ID gpg picks the newest one,
+  so until 2026-11-20 the container asked for framepop's passphrase while the
+  Mac asked for minius's. The bridge script now writes
+  `~/.config/git/gpg-machine.conf` in the container, selecting the hub's
+  `signing_subkey` from `machines.toml` with `!`, so both want the same
+  passphrase.
+- **Every Mac prompt names its key.** `bin/pinentry-auto` looks up the key ID
+  of each prompt in `machines.toml` and adds a first line such as
+  `Passphrase: minius's signing key (agent on minius)` or `Passphrase: MASTER
+  key`. The Linux chooser in `home/common.scm` does not do this yet.
 - Since stage 26 the cache check above tests the key gpg will actually sign
-  with (not the primary), and the note names it and its machine; the
-  container also pins the hub's subkey by default. See the next section.
+  with (not the primary), and the note names it and its machine
+  (`bin/gpg-key-owner`). See the next section.
 
 ## Which passphrase am I being asked for?
 
@@ -210,13 +221,22 @@ master passphrase", but the key being unlocked is the **first** ID; the
 "main key ID" is just the primary it belongs to.
 
 - **The prompt says.** On the Mac, `bin/pinentry-auto` (the agent's
-  pinentry) adds one line to the description from `machines.toml`, e.g.
-  `machines.toml: this is the signing subkey of FRAMEPOP`, or
-  `... this is the PRIMARY (master) key`, or
-  `... this key is not assigned to any machine`. The agent also serves the
-  guix-dev container's requests, so container prompts are labelled too. If
-  the lookup cannot run (no `machines.toml`, no `bin/gpg-key-owner`, no
-  `awk`), the prompt is shown exactly as before, unlabelled.
+  pinentry) looks the first `ID` of the description up in `machines.toml`
+  and puts a first line on the prompt naming the owner and the agent's host:
+  `Passphrase: framepop's signing key  (agent on minius)`,
+  `Passphrase: MASTER key  (agent on minius)` for the primary, or
+  `Passphrase: key <ID>  (agent on minius)` for an ID no machine lists (also
+  what every key gets if `machines.toml` cannot be read). A prompt with no
+  key ID (ssh, symmetric) is shown unchanged. The ID is read with or
+  without the `0x` that `keyid-format 0xlong` (`gnupg/gpg.conf`) adds. The
+  agent also serves the guix-dev container's requests, so container prompts
+  are labelled too. `tests/gpg/pinentry-label.sh` (run by
+  `make check-gpg-enrollment`) checks the label against fakes, never a real
+  pinentry.
+- **The container's terminal note.** When the container's cache is cold,
+  `build-aux/guix-container-gpg` prints which key gpg will sign with and
+  whose it is, e.g.
+  `gpg: passphrase needed for signing subkey C4E66F1E89EE3EB8 -- minius (machines.toml).`
 - **Ask directly:** `bin/gpg-key-owner KEYID` prints `machine NAME`,
   `primary`, `unassigned` or (for a short ID matching two entries)
   `ambiguous`. KEYID may be a fingerprint, a 16- or 8-hex ID, with or
@@ -242,18 +262,18 @@ avoids this.
 
 **The container default.** The guix-dev container is not enrolled (it
 borrows minius's agent), so nothing pinned it. Now
-`build-aux/guix-container-gpg-bridge.sh`, run at every container start,
+`build-aux/guix-container-gpg-bridge.sh`, run at every container start (and
+by `make setup-gpg-bridge` on the Mac, which restarts the container end),
 writes `~/.config/git/gpg-machine.conf` with the hub's subkey pinned
-(`[gpg] hub` in `machines.toml`, that machine's `signing_subkey`, with `!`)
-when the file does not exist. An existing file is never overwritten, so a
-different pin can be set by hand. It takes effect at the next container
-start (or `make setup-gpg-bridge`, which restarts the bridge). After that,
-the container asks for minius's signing passphrase, the one
-`make unlock-gpg` on the Mac also uses (but each has its own cache).
+(`[gpg] hub` in `machines.toml`, that machine's `signing_subkey`, with `!`).
+It rewrites the file whenever its content differs, so a pin set there by
+hand is replaced at the next start. The container then asks for minius's
+signing passphrase, the one `make unlock-gpg` on the Mac also uses (but each
+has its own cache).
 
 To see the label on a cold key, on minius from a local terminal:
 `echo test | gpg --sign --local-user 'C4E66F1E89EE3EB8!' -o /dev/null`
-(expected: `machines.toml: this is the signing subkey of MINIUS`).
+(expected first line: `Passphrase: minius's signing key  (agent on minius)`).
 
 ## When the key expires (2027-02-08)
 

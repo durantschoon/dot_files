@@ -320,7 +320,7 @@ help-text:
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
 	@echo "  make check-gpg-tests - Run the bin/check-gpg smoke test (stub gpg, fake HOME; never signs)"
-	@echo "  make check-gpg-enrollment - Run the gpg-hub enrollment and bin/gpg-key-owner tests (no real keyring)"
+	@echo "  make check-gpg-enrollment - Run the gpg-hub enrollment, bin/gpg-key-owner and tests/gpg/pinentry-label.sh tests (no real keyring)"
 	@echo "  make setup-sshd-for-ingress - Install/enable the incoming SSH server (automatic during apply/setup-native)"
 	@echo "  make check-sshd-for-ingress - Check the incoming SSH server (distinct from check-ssh-with-gpg-for-egress)"
 	@echo "                       (not part of 'make check': may prompt for sudo)"
@@ -1312,6 +1312,7 @@ gpg-hub-teardown:
 check-gpg-enrollment:
 	@python3 "$(CURDIR)/tests/gpg/enrollment.py"
 	@"$(CURDIR)/tests/gpg/key-owner.sh"
+	@"$(CURDIR)/tests/gpg/pinentry-label.sh"
 
 # Can `git commit' sign on THIS machine?  Walks the chain in the order it
 # fails in practice and prints the fix at the first broken link:

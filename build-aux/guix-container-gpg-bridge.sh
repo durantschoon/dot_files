@@ -18,50 +18,6 @@ socket=$gnupghome/S.gpg-agent
 socat=/root/.guix-profile/bin/socat
 lock=/tmp/guix-container-gpg-bridge.lock
 
-# pin_signing_key: make the container sign as the hub by default.
-#
-# machines.toml says orb-guix signs through minius's agent; this makes that
-# true of the KEY too.  The tracked .gitconfig names the primary without a
-# `!', and given a primary gpg signs with the newest signing subkey it can
-# use -- through the hub's agent, that is whichever machine was enrolled
-# last (framepop's, measured 2026-11-19), not the hub's.  So when
-# ~/.config/git/gpg-machine.conf (the per-machine include in .gitconfig) is
-# absent, write it with the hub's subkey pinned, in the format bin/gpg-hub's
-# configure() writes.  The hub is [gpg] hub; its subkey is that machine's
-# signing_subkey (bin/gpg-key-owner --hub-subkey).  An existing file, or a
-# dangling symlink in its place, is never touched: the hard link below
-# fails rather than replace anything.  Any failure only prints a note.
-# Runs at every container start (guix-container-daemon.sh), so an edit to
-# machines.toml takes effect at the next start of a container without the
-# file; `--pin-signing-key' runs only this step.
-pin_signing_key() {
-    conf_dir=${HOME:-/root}/.config/git
-    conf=$conf_dir/gpg-machine.conf
-    { [ -e "$conf" ] || [ -L "$conf" ]; } && return 0
-    owner_tool=$(dirname "$0")/../bin/gpg-key-owner
-    hub_fpr=$("$owner_tool" --hub-subkey 2>/dev/null) || {
-        echo "gpg bridge: no hub signing subkey in machines.toml; $conf not written" >&2
-        return 0
-    }
-    case $hub_fpr in
-        *[!0-9A-F]*|'') echo "gpg bridge: unexpected hub subkey '$hub_fpr'; $conf not written" >&2; return 0 ;;
-    esac
-    mkdir -p "$conf_dir" || return 0
-    tmp=$conf.tmp.$$
-    if printf '[user]\n\tsigningkey = %s!\n' "$hub_fpr" >"$tmp" &&
-       ln "$tmp" "$conf" 2>/dev/null; then
-        echo "gpg bridge: wrote $conf (signingkey = $hub_fpr!, the hub's subkey)" >&2
-    fi
-    command rm -f "$tmp"
-    return 0
-}
-
-if [ "${1:-}" = --pin-signing-key ]; then
-    pin_signing_key
-    exit 0
-fi
-pin_signing_key
-
 [ -x "$socat" ] || { echo "gpg bridge: $socat missing (make setup-guix-container)" >&2; exit 1; }
 
 # kill_matching PROGRAM ARGS: TERM every process whose program name (argv[0]
@@ -103,6 +59,30 @@ grep -qx no-autostart "$gnupghome/common.conf" 2>/dev/null ||
 # One started before that line existed; shepherd's socket-activated agent
 # under $XDG_RUNTIME_DIR is left alone (it serves ssh, not this socket).
 kill_matching gpg-agent "--homedir $gnupghome *--daemon*"
+
+# Sign as the HUB.  The agent across the bridge is the hub's, and it holds
+# every machine's signing subkey; with only the bare primary ID from
+# .gitconfig, gpg picks the newest one (framepop's, measured 2026-11-20), so
+# the container asked for a different machine's passphrase than the Mac
+# itself.  Selecting the hub's subkey with `!', in the same include file
+# `make gpg-spoke-copy' writes, makes both sides want one passphrase.
+inventory=/root/dot_files/machines.toml
+hub=$(sed -n 's/^hub *= *"\(.*\)"/\1/p' "$inventory" 2>/dev/null)
+hub_subkey=$(awk -v section="[machines.$hub]" '
+    $0 == section { inside = 1; next }
+    /^\[/ { inside = 0 }
+    inside && /^signing_subkey *= *"[0-9A-Fa-f]+"/ { split($0, part, "\""); print part[2]; exit }
+' "$inventory" 2>/dev/null)
+machine_conf=/root/.config/git/gpg-machine.conf
+if [ -n "$hub_subkey" ]; then
+    wanted=$(printf '[user]\n\tsigningkey = %s!' "$hub_subkey")
+    if [ "$(cat "$machine_conf" 2>/dev/null)" != "$wanted" ]; then
+        install -d "${machine_conf%/*}"
+        printf '%s\n' "$wanted" >"$machine_conf.tmp" && mv "$machine_conf.tmp" "$machine_conf"
+    fi
+else
+    echo "gpg bridge: no signing_subkey for hub '$hub' in $inventory; git falls back to the primary key ID" >&2
+fi
 
 # The listener stays up even while the Mac side is down, so gpg sees a
 # refused request instead of a missing socket.
