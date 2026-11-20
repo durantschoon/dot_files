@@ -256,6 +256,8 @@ help-text:
 	@echo "  make setup-native-links - Create NATIVE dotfile symlinks (macOS, Termux)."
 	@echo "                       On a Guix machine guix home owns these: use make apply."
 	@echo "  make install-starship - Install Starship prompt (idempotent; Homebrew on macOS, ~/.local/bin on Linux)"
+	@echo "  make install-shellcheck - Install ShellCheck on native macOS, Linux or Termux"
+	@echo "  make check-shellcheck - Verify ShellCheck is available on this host"
 	@echo "  make install-claude - Install Claude Code (idempotent; patches the binary on Guix System)"
 	@echo "  make update-codex   - Install or update Codex in ~/.local (works with Guix npm)"
 	@echo "  make install-uv     - Install uv on non-Guix hosts (idempotent; Guix gets it from make apply)"
@@ -428,8 +430,27 @@ endif
 
 all: setup-native
 
-setup-native: setup-native-links install-starship install-claude install-uv install-agy install-herdr install-julia install-radicle setup-sshd-for-ingress
+setup-native: setup-native-links install-starship install-shellcheck install-claude install-uv install-agy install-herdr install-julia install-radicle setup-sshd-for-ingress
 	@$(MAKE) --no-print-directory check-cloud-dirs
+
+.PHONY: install-shellcheck check-shellcheck
+install-shellcheck:
+	@if command -v shellcheck >/dev/null 2>&1; then \
+	  echo "ShellCheck found ($$(command -v shellcheck))"; \
+	elif [ "$(flavor)" = "$(FLAVOR_TERMUX)" ]; then \
+	  pkg install -y shellcheck; \
+	elif [ "$(os)" = "$(OS_MAC)" ]; then \
+	  brew install shellcheck; \
+	elif [ "$(PACKAGE_MANAGER)" = "apt" ]; then \
+	  sudo apt-get install -y shellcheck; \
+	else \
+	  echo "install-shellcheck: no installer for $(os)/$(flavor); use Guix Home or install ShellCheck with this host's package manager" >&2; \
+	  exit 1; \
+	fi
+
+check-shellcheck:
+	@command -v shellcheck >/dev/null 2>&1 || { echo "ShellCheck missing; run make install-shellcheck or make apply" >&2; exit 1; }
+	@shellcheck --version | grep '^version:'
 
 .PHONY: register-machine check-register-machine
 register-machine:
@@ -3569,7 +3590,7 @@ check-home-ownership:
 # rad:// remotes cannot fetch fails `make check' instead of a morning review.
 # check-agent-permissions reads the grant files and runs a scratch-HOME smoke
 # test; it writes nothing.  check-worktrees classifies scratch git repos.
-check: check-link-dotfile check-radicle-smoke check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
+check: check-link-dotfile check-radicle-smoke check-timezone check-system check-session-coupling check-shellcheck $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
