@@ -1,0 +1,158 @@
+#!/bin/sh
+# check-tailscale -- the body of `make check-tailscale', moved out of the
+# Makefile recipe unchanged (stage 24).  Read-only: it reports, it never runs
+# `tailscale up', `tailscale down' or anything else that changes tailnet state.
+#
+# Make context is passed in, never re-derived.  Every variable below is
+# REQUIRED; a missing or empty one exits 64 with a usage line.
+#
+#   OS                   $(os)                   detected OS, e.g. mac / linux
+#   OS_MAC               $(OS_MAC)               the value of OS that means macOS
+#   FLAVOR               $(flavor)               detected flavor, e.g. termux / orbstack
+#   FLAVOR_TERMUX        $(FLAVOR_TERMUX)        the value of FLAVOR that means Termux
+#   MAKE                 $(MAKE)                 make to recurse with (Termux: setup-tailscale)
+#   TAILSCALED_PLIST_SRC $(TAILSCALED_PLIST_SRC) repo copy of the tailscaled plist
+#   TAILSCALE_LABELS     $(TAILSCALE_LABELS)     space-separated launchd labels
+#   TAILSCALE_BIN        $(TAILSCALE_BIN)        the tailscale CLI
+#   TAILSCALE_FWD_LABEL  $(TAILSCALE_FWD_LABEL)  label of the ip-forwarding daemon
+#
+# Like the recipe it came from, it runs from the repository root (make's
+# CURDIR): system/launchd/<label>.plist and bin/termux-tailscale are relative.
+#
+# Unquoted expansions stay unquoted, as they were in the recipe (where make
+# substituted its own variables textually); hence the shellcheck directives,
+# which change nothing at run time.
+#
+# --- the recipe's own comment, verbatim from the Makefile ---
+#
+# Answers "is this machine actually on the tailnet, and will it still be after
+# a reboot?" -- which are different questions.  A running daemon that was
+# started by hand satisfies the first and not the second, so the deployed plist
+# is checked as carefully as the process.
+#
+# It also asserts the NAME, because the name is load-bearing here: EMACS_HOST
+# defaults to $(HOMEBASE) (orb-guix; previously minius) and the `eam' alias
+# uses it, so both reach this machine by its MagicDNS name.  When a node re-registers while its name is
+# still held by another node -- which is exactly what happened moving off the
+# App Store app, since the daemon generates a fresh node key rather than
+# inheriting the app's -- the control plane silently appends -1.  Nothing
+# breaks loudly; `make emacs-attach' just starts dialling a node that no longer
+# answers.  Comparing the registered name against the requested one turns that
+# into a failed check.
+#
+# "Requested" is the daemon's own pref when set -- `tailscale set --hostname'
+# lands in prefs and so survives re-auth, which a rename done in the admin
+# console does not -- and otherwise macOS's LocalHostName, lowercased the way
+# Tailscale would lowercase it.  (LocalHostName, not `uname -n': the latter is
+# MiniUs.local here, and the .local would never match.)
+
+usage='usage: OS=... OS_MAC=... FLAVOR=... FLAVOR_TERMUX=... MAKE=... TAILSCALED_PLIST_SRC=... TAILSCALE_LABELS=... TAILSCALE_BIN=... TAILSCALE_FWD_LABEL=... check-tailscale'
+for required in OS OS_MAC FLAVOR FLAVOR_TERMUX MAKE TAILSCALED_PLIST_SRC TAILSCALE_LABELS TAILSCALE_BIN TAILSCALE_FWD_LABEL; do
+  eval "required_value=\${$required:-}"
+  if [ -z "$required_value" ]; then
+    echo "check-tailscale: $required is not set" >&2
+    echo "$usage" >&2
+    exit 64
+  fi
+done
+
+# ifeq ($(flavor),$(FLAVOR_TERMUX))
+if [ "$FLAVOR" = "$FLAVOR_TERMUX" ]; then
+if ! command -v tailscale >/dev/null 2>&1; then $MAKE setup-tailscale || exit 1; fi
+sh bin/termux-tailscale check
+exit
+fi
+
+# else
+echo "==> tailscaled system daemon"
+# ifneq ("$(os)","$(OS_MAC)")
+if [ "$OS" != "$OS_MAC" ]; then
+echo "    skipped: mac-only (detected $OS)"
+exit 0
+fi
+
+# else
+rc=0
+# shellcheck disable=SC2086
+prog=$(sed -n 's|^[[:space:]]*<string>\(/.*tailscaled\)</string>.*|\1|p' $TAILSCALED_PLIST_SRC | head -1)
+if [ ! -x "$prog" ]; then
+  rc=1
+  echo "    MISSING: $prog is not executable"
+  echo "             (the plist hardcodes the Apple Silicon brew prefix;"
+  echo "              an Intel Mac puts it under /usr/local)"
+else
+  echo "    binary:  $prog"
+fi
+for label in $TAILSCALE_LABELS; do
+  src=system/launchd/$label.plist; dst=/Library/LaunchDaemons/$label.plist
+  # shellcheck disable=SC2086
+  if [ ! -f $dst ]; then
+    rc=1; echo "    NOT DEPLOYED: $dst -- run 'make setup-tailscale'"
+    continue
+  fi
+  # shellcheck disable=SC2086
+  if ! diff -u $src $dst > /dev/null 2>&1; then
+    rc=1
+    echo "    DRIFT in $label -- deployed copy and repo copy disagree:"
+    diff -u $src $dst || true
+    continue
+  fi
+  # shellcheck disable=SC2086
+  owner=$(/usr/bin/stat -f '%Su:%Sg %Lp' $dst)
+  case "$owner" in
+    "root:wheel 644"|"root:wheel 600") ;;
+    *) rc=1
+       echo "    BAD PERMS on $label: $owner"
+       echo "               (launchd wants root:wheel, not group/world writable)"
+       continue ;;
+  esac
+  # shellcheck disable=SC2086
+  if launchctl print system/$label > /dev/null 2>&1; then
+    echo "    daemon:  $label (in sync, $owner, loaded)"
+  else
+    rc=1; echo "    NOT LOADED: launchctl has no system/$label"
+  fi
+done
+state=$($TAILSCALE_BIN status --json 2>/dev/null \
+         | sed -n 's/.*"BackendState": *"\([^"]*\)".*/\1/p' | head -1)
+case "$state" in
+  Running) echo "    tailnet: Running" ;;
+  "")      rc=1; echo "    NO ANSWER from $TAILSCALE_BIN (daemon down, or socket path mismatch)" ;;
+  *)       rc=1; echo "    BackendState=$state -- try: sudo $TAILSCALE_BIN up --advertise-exit-node" ;;
+esac
+want=$($TAILSCALE_BIN debug prefs 2>/dev/null \
+        | sed -n 's/.*"Hostname": *"\([^"]*\)".*/\1/p' | head -1)
+# shellcheck disable=SC2018,SC2019
+[ -n "$want" ] || want=$(scutil --get LocalHostName 2>/dev/null | tr 'A-Z' 'a-z')
+got=$($TAILSCALE_BIN status --peers=false 2>/dev/null | awk 'NR==1{print $2}')
+if [ -z "$got" ]; then
+  :
+elif [ "$got" = "$want" ]; then
+  echo "    name:    $got"
+else
+  rc=1
+  echo "    NAME DRIFT: registered as '$got', wanted '$want'"
+  echo "                A node cannot claim a name another node still"
+  echo "                holds, so the control plane appended -N.  Delete"
+  echo "                the stale node in the admin console, then:"
+  echo "                  sudo $TAILSCALE_BIN set --hostname=$want"
+fi
+v4=$(sysctl -n net.inet.ip.forwarding 2>/dev/null)
+v6=$(sysctl -n net.inet6.ip6.forwarding 2>/dev/null)
+if [ "$v4" = "1" ] && [ "$v6" = "1" ]; then
+  echo "    forward: ipv4=1 ipv6=1"
+else
+  rc=1
+  echo "    IP FORWARDING OFF: ipv4=$v4 ipv6=$v6"
+  echo "                Exit-node clients get silently dropped by the"
+  echo "                kernel.  tailscaled warns about this but has no"
+  echo "                code to set it on darwin, which is why"
+  echo "                $TAILSCALE_FWD_LABEL exists.  Fix:"
+  echo "                  make setup-tailscale"
+fi
+if /usr/sbin/scutil --nc list 2>/dev/null | grep -q '^\* (Connected).*io\.tailscale\.ipn\.macos'; then
+  rc=1
+  echo "    CONFLICT: the App Store Tailscale is also connected"
+  echo "              (two nodes, same hostname, fighting over routes)"
+fi
+exit $rc
