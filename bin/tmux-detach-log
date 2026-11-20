@@ -1,0 +1,41 @@
+#!/bin/sh
+# tmux-detach-log SESSION TTY -- record a tmux client detaching, and say so.
+#
+# Run by the client-detached hook in .tmux.conf.  Appends one line per detach
+# to ~/tmux-detach.log, plus every client still attached to that session and
+# the process that started it: a client still attached right after the detach
+# means something took the session over (tmux attach -d, as tmux-up does),
+# and its process chain says from where.  No client left means a plain detach:
+# the prefix then d, or the view's terminal going away.  Then a herdr
+# notification, when herdr is running, so nobody has to remember to look.
+session="${1:-?}"
+tty="${2:-?}"
+log="$HOME/tmux-detach.log"
+now=$(date '+%F %T')
+
+others=$(tmux list-clients -t "=$session" -F '#{client_tty} #{client_pid}' 2>/dev/null)
+
+{
+    printf '%s detached %s from %s\n' "$now" "$session" "$tty"
+    if [ -z "$others" ]; then
+        printf '    no client left: a plain detach\n'
+    else
+        printf '%s\n' "$others" | while read -r ctty cpid; do
+            chain=""
+            p=$cpid
+            # Walk up four parents: enough to show ssh, herdr or a script.
+            for _ in 1 2 3 4; do
+                if [ -z "$p" ] || ! [ "$p" -gt 1 ] 2>/dev/null; then break; fi
+                cmd=$(ps -o args= -p "$p" 2>/dev/null | cut -c1-60)
+                chain="${chain:+$chain <- }$cmd"
+                p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+            done
+            printf '    taken over by %s: %s\n' "$ctty" "$chain"
+        done
+    fi
+} >> "$log" 2>&1
+
+if command -v herdr >/dev/null 2>&1; then
+    if [ -z "$others" ]; then body="plain detach from $tty"; else body="taken over by another client; see ~/tmux-detach.log"; fi
+    herdr notification show "tmux: $session detached" --body "$body" --sound request >/dev/null 2>&1 || true
+fi
