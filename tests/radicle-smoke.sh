@@ -94,10 +94,10 @@ cat > "$tmp/bin/pgrep" <<'EOF'
 test -f "$RADICLE_SMOKE_HOME/running"
 EOF
 chmod +x "$tmp/bin/"*
-make -s -C "$root" setup-radicle RADICLE_NODE_BIN="$tmp/bin/radicle-node" > "$tmp/first-output" || fail "setup-radicle failed"
+make -s -C "$root" setup-radicle RADICLE_SKIP= RADICLE_NODE_BIN="$tmp/bin/radicle-node" > "$tmp/first-output" || fail "setup-radicle failed"
 test "$(cat "$tmp/home/calls")" = "$(printf 'auth\nrestart')" || fail "setup-radicle did not authenticate and start exactly once"
 # check-radicle is part of `make check`: it must pass on a healthy node and change nothing.
-make -s -C "$root" check-radicle RADICLE_NODE_BIN="$tmp/bin/radicle-node" > "$tmp/second-output" || fail "check-radicle failed on a healthy node"
+make -s -C "$root" check-radicle RADICLE_SKIP= RADICLE_NODE_BIN="$tmp/bin/radicle-node" > "$tmp/second-output" || fail "check-radicle failed on a healthy node"
 test "$(cat "$tmp/home/calls")" = "$(printf 'auth\nrestart')" || fail "check-radicle ran auth or restart"
 
 # 5. A protected key gets a clear terminal requirement without mutating it.
@@ -106,7 +106,7 @@ cat > "$tmp/bin/ssh-keygen" <<'EOF'
 exit 1
 EOF
 chmod +x "$tmp/bin/ssh-keygen"
-if make -s -C "$root" setup-radicle RADICLE_NODE_BIN="$tmp/bin/radicle-node" > "$tmp/encrypted-output" 2>&1 </dev/null; then
+if make -s -C "$root" setup-radicle RADICLE_SKIP= RADICLE_NODE_BIN="$tmp/bin/radicle-node" > "$tmp/encrypted-output" 2>&1 </dev/null; then
     fail "protected key unexpectedly passed setup without a credential"
 fi
 grep -q 'interactive terminal' "$tmp/encrypted-output" || fail "protected-key guidance missing"
@@ -120,5 +120,14 @@ test "$RAD_PASSPHRASE" = 'test passphrase'
 EOF
 chmod +x "$tmp/bin/fake-node"
 "$root/bin/radicle-node-service" "$tmp/bin/fake-node" || fail "service wrapper did not provide passphrase"
+
+# 7. On orb-guix every Radicle target is a no-op that succeeds and calls nothing.
+: > "$tmp/home/calls"
+for target in install-radicle setup-radicle check-radicle; do
+    make -s -C "$root" "$target" RADICLE_SKIP=orb-guix RADICLE_NODE_BIN="$tmp/bin/radicle-node" > "$tmp/skip-output" 2>&1 </dev/null \
+        || fail "$target failed under RADICLE_SKIP"
+    grep -q 'skipped on orb-guix' "$tmp/skip-output" || fail "$target did not print the orb-guix skip"
+done
+test ! -s "$tmp/home/calls" || fail "RADICLE_SKIP still ran a Radicle command"
 
 echo "radicle-smoke: ok"

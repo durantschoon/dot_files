@@ -2572,6 +2572,18 @@ render-radicle-systemd = sed -e 's|@RADICLE_NODE@|$(RADICLE_NODE_BIN)|' \
 	  -e 's|@PATH@|$(patsubst %/,%,$(dir $(RADICLE_NODE_BIN))):/usr/local/bin:/usr/bin:/bin|' \
 	  -e 's|@LOG@|$(RADICLE_LOG)|' $(RADICLE_SYSTEMD_SRC)
 
+# orb-guix (the OrbStack guix-dev container) runs no Radicle: minius, the Mac
+# hosting it, does all Radicle work (durant, 2026-11-20).  The Guix side is the
+# radicle? session fact in home/common.scm; here every Radicle target becomes a
+# one-line no-op, so `make check' passes and nothing installs, prompts or
+# starts a node.  The smoke test passes RADICLE_SKIP= to exercise the real
+# recipes on any host.
+RADICLE_SKIP := $(if $(filter orbstack,$(flavor)),orb-guix,)
+
+ifneq ($(RADICLE_SKIP),)
+install-radicle setup-radicle check-radicle:
+	@echo "==> Radicle: skipped on $(RADICLE_SKIP) -- minius does all Radicle work"
+else
 install-radicle:
 	@bash bin/install-radicle.sh
 
@@ -2706,6 +2718,7 @@ check-radicle:
 	  echo "    [ok] node        : running, $$peers connected peer(s)"; \
 	fi; \
 	exit $$rc
+endif
 
 agent-permissions:
 	$(CURDIR)/bin/agent-permissions

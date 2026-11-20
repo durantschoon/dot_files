@@ -19,8 +19,9 @@
 ;; Inside the guix-dev container (JOB_CONTAINER_SELF from compose, or
 ;; /.dockerenv for a container created before compose set it, as the Makefile's
 ;; IN_GUIX_DEV does) the session drops the local gpg-agent; see
-;; %guix-dev-session.
+;; %guix-dev-session.  Under OrbStack that container is orb-guix, which also
+;; drops Radicle; see %orb-guix-session.
 (dotfiles-home (if (or (getenv "JOB_CONTAINER_SELF")
                        (file-exists? "/.dockerenv"))
-                   %guix-dev-session
+                   (if (orbstack-kernel?) %orb-guix-session %guix-dev-session)
                    %foreign-session))

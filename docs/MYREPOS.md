@@ -231,6 +231,13 @@ installs missing tools and runs `rad auth` when the identity is missing.
 Every new zsh prints a one-line warning while the node is down
 (`RADICLE_WARN=0` silences it).
 
+**Not on orb-guix.** The OrbStack container runs no Radicle; minius, the Mac
+hosting it, does all of it. There the Guix Home `radicle` layer is inactive
+(`%orb-guix-session` sets `radicle? #f`), so neither the tools nor a
+`radicle-node` service are deployed, and `install-radicle`, `setup-radicle`
+and `check-radicle` each print one "skipped on orb-guix" line and succeed
+(`RADICLE_SKIP` in the Makefile). Fetch and push `rad://` remotes from minius.
+
 For a protected identity key, `make setup-radicle` offers an interactive
 choice: save the passphrase in `~/.radicle/keys/radicle.passphrase` (mode 600)
 for unattended startup, remove the key passphrase, or stop. The service reads
