@@ -377,6 +377,7 @@ help-text:
 	@echo "                       to Claude Code, Codex, and the Cursor CLI (agy has no allowlist)"
 	@echo "  make check-agent-permissions - Smoke-test that grant and report gaps (part of make check)"
 	@echo "  make check-worktrees - Classify abandoned worktrees in scratch repos (part of make check)"
+	@echo "  make check-shell   - Shellcheck the sh/bash/dash scripts in bin/ (fails on errors, prints warnings; part of make check)"
 	@echo ""
 	@echo "Emacs Remote Server:"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
@@ -2734,6 +2735,33 @@ check-radicle-smoke:
 check-worktrees:
 	@python3 tests/hygiene/worktrees.py
 
+# shellcheck over bin/.  Scripts are chosen by shebang, not extension, so a new
+# one is covered without editing a list: line 1 names sh, bash or dash, either
+# directly (#!/bin/sh) or through env (#!/usr/bin/env bash, env -S ...).  zsh,
+# python, perl and shebang-less files are counted as skipped.  Fails only on
+# severity error; warnings are printed, not fatal.  Without shellcheck (the
+# Guix ISO, a machine before its first apply) it says so and exits 0 without
+# claiming a pass.  POSIX sh + POSIX grep: recipes run under /bin/sh.
+# githooks/pre-commit applies the same shebang rule to staged bin/ files.
+.PHONY: check-shell
+check-shell:
+	@if ! command -v shellcheck >/dev/null 2>&1; then \
+	  echo "==> check-shell: shellcheck not installed; skipped, nothing was checked"; exit 0; fi; \
+	files=; n=0; skipped=0; \
+	for f in bin/*; do \
+	  [ -f "$$f" ] || continue; \
+	  if head -n 1 "$$f" | grep -qE '^#![[:space:]]*(/[^[:space:]]*/)?(env[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?(sh|bash|dash)([[:space:]]|$$)'; \
+	  then files="$$files $$f"; n=$$((n+1)); else skipped=$$((skipped+1)); fi; \
+	done; \
+	echo "==> check-shell: $$n sh/bash/dash scripts in bin/ checked, $$skipped other files skipped"; \
+	[ -n "$$files" ] || exit 0; \
+	out=$$(shellcheck -S warning -f gcc $$files); rc=$$?; \
+	[ -z "$$out" ] || printf '%s\n' "$$out"; \
+	[ $$rc -le 1 ] || { echo "==> check-shell: shellcheck itself failed (exit $$rc)"; exit 1; }; \
+	errs=$$(printf '%s\n' "$$out" | grep -c ': error: '); warns=$$(printf '%s\n' "$$out" | grep -c ': warning: '); \
+	if [ "$$errs" -gt 0 ]; then echo "==> check-shell: FAILED, $$errs error-level finding(s), $$warns warning(s)"; exit 1; fi; \
+	echo "==> check-shell: 0 error-level findings ($$warns warning(s) reported, not fatal)"
+
 check-guix-container:
 	 $(GUIX_DOCKER) compose -f compose.guix.yaml ps
 	 $(GUIX_DOCKER) exec guix-dev make check-timezone
@@ -3569,7 +3597,8 @@ check-home-ownership:
 # rad:// remotes cannot fetch fails `make check' instead of a morning review.
 # check-agent-permissions reads the grant files and runs a scratch-HOME smoke
 # test; it writes nothing.  check-worktrees classifies scratch git repos.
-check: check-link-dotfile check-radicle-smoke check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees
+# check-shell runs shellcheck over bin/ and writes nothing.
+check: check-link-dotfile check-radicle-smoke check-timezone check-system check-session-coupling $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees check-shell
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
