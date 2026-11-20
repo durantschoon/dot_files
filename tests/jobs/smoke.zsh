@@ -34,7 +34,7 @@
 # child owns the token jobsmoke-<its own pid> and cleans up after itself.
 #
 # Real, not simulated: the local tmux binary (on a private server), docker,
-# launchctl for one assertion, and `make -n` for the check-jobs wiring.
+# launchctl for one assertion, and `make -n` for the check-jobs-tests wiring.
 
 emulate -L zsh
 setopt no_nomatch
@@ -226,7 +226,7 @@ typeset -g SMOKE_PICK=1
 # The launchd label is the ONE artefact of this run that is not per-run.
 #
 # A launchd label is also a row in macOS's Login Items ("Allow in the
-# Background"). With `local.job.job-smoke-<pid>.t1' every `make check-jobs'
+# Background"). With `local.job.job-smoke-<pid>.t1' every `make check-jobs-tests'
 # raised a fresh "job-tee can run in the background" notification and left a
 # dead entry behind -- measured in stage 15 against
 # /private/var/db/com.apple.backgroundtaskmanagement, which keeps the entry
@@ -2170,16 +2170,16 @@ has "N7 job-ls labels launchd as this machine only" "$JOBLS" "launchd (this mach
 has "N7 job-ls labels docker as this machine only"  "$JOBLS" "docker (this machine)"
 
 # --------------------------------------------------------------------------
-# N8. make check-jobs is wired up, and is NOT part of make check
+# N8. make check-jobs-tests is wired up, and is NOT part of make check
 # --------------------------------------------------------------------------
-# Dry runs only: `make check-jobs' would re-enter this script, and `make check'
+# Dry runs only: `make check-jobs-tests' would re-enter this script, and `make check'
 # reaches out to tailscaled and the container engine. Both are run for real as
 # gates, from the worktree root, outside this file.
 
 typeset -g MK_HELP="$(command make -C "$WT" help 2>&1)"
-has "N8a make help lists check-jobs" "$MK_HELP" "make check-jobs"
-typeset -g MK_JOBS_DRY="$(command make -C "$WT" -n check-jobs 2>&1)"
-has "N8b make check-jobs runs this script" "$MK_JOBS_DRY" "./tests/jobs/smoke.zsh"
+has "N8a make help lists check-jobs-tests" "$MK_HELP" "make check-jobs-tests"
+typeset -g MK_JOBS_DRY="$(command make -C "$WT" -n check-jobs-tests 2>&1)"
+has "N8b make check-jobs-tests runs this script" "$MK_JOBS_DRY" "./tests/jobs/smoke.zsh"
 typeset -g MK_CHECK_DRY="$(command make -C "$WT" -n check 2>&1)"
 hasnt "N8c make check does not run it" "$MK_CHECK_DRY" "smoke.zsh"
 

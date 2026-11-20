@@ -533,7 +533,7 @@ tmux-dash                             # the row now ends in "  > waiting on revi
 job-recap --writer gemini < recap.md  # from inside the session; $JOB_TASK names it
 ```
 
-`make check-jobs` runs the `bin/job-tee` test
+`make check-jobs-tests` runs the `bin/job-tee` test
 [`tests/jobs/tee-smoke.zsh`](./tests/jobs/tee-smoke.zsh) (it needs none of the
 below), then the end-to-end test in
 [`tests/jobs/smoke.zsh`](./tests/jobs/smoke.zsh). It is deliberately not part
@@ -663,7 +663,7 @@ wrappers supply the engine. Codex starts with `codex PROMPT` and recovers with
 `grok --resume ID`) is also accepted through the generic `agent-*` verbs. Set `CODEX_JOB_BIN`, `AGY_JOB_BIN`, `GROK_JOB_BIN`, or
 `AGENT_JOB_BIN` (Claude; `CLAUDE_JOB_BIN` still works) to choose an executable.
 
-`make check-jobs` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
+`make check-jobs-tests` runs `tests/jobs/claude-smoke.zsh` after the runner smoke
 test: a scratch `$HOME`, a private tmux server reached only through
 `tests/jobs/private-tmux`, a fake `claude` that records its argv, and real
 launchd agents under the fixed labels `local.job.claudesmoke.*` that the exit

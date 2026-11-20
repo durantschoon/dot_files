@@ -3,7 +3,7 @@
 #
 # tests/cloud/dirs-smoke.zsh -- bin/cloud-dirs.sh against a scratch home.
 #
-#   ./tests/cloud/dirs-smoke.zsh          (also: part of make check-cloud)
+#   ./tests/cloud/dirs-smoke.zsh          (also: part of make check-cloud-tests)
 #
 # Runs anywhere, on a machine with no Proton Drive and no rclone: HOME and
 # PROTON_DRIVE_DIR both point into a scratch tree, so the script is exercised

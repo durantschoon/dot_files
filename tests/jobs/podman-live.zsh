@@ -4,7 +4,7 @@
 # tests/jobs/podman-live.zsh -- the container half of .jobs.zsh against a REAL
 # engine.
 #
-#   ./tests/jobs/podman-live.zsh          (also: make check-jobs-live)
+#   ./tests/jobs/podman-live.zsh          (also: make check-jobs-live-tests)
 #
 # tests/jobs/smoke.zsh next door covers the same verbs, but its `docker' and
 # `podman' are scratch-dir scripts that record their argv: it can prove what
