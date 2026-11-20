@@ -11,8 +11,9 @@
 #
 # Two deliberate design choices:
 #
-#   Scoped.  It fires only when the commit touches home/, system/, keyd.conf or
-#   the Makefile. A hook that blocks commits unrelated to its subject gets
+#   Scoped.  It fires only when the commit touches home/, system/, keyd.conf,
+#   the Makefile or bin/. A bin/-only commit runs just the shellcheck half
+#   below, not make check. A hook that blocks commits unrelated to its subject gets
 #   bypassed reflexively, and a reflexively bypassed hook guards nothing.
 #
 #   Staged, not working-tree.  `make check-system' reads files from disk, which
@@ -24,14 +25,49 @@
 set -e
 
 # Nothing this hook guards is in play -- get out of the way.
-git diff --cached --name-only | grep -qE '^(home/|system/|keyd\.conf$|Makefile$)' || exit 0
-
-echo "pre-commit: guarded files staged, running make check against the index"
+git diff --cached --name-only | grep -qE '^(home/|system/|keyd\.conf$|Makefile$|bin/)' || exit 0
 
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 git checkout-index --prefix="$tmp/" -a
+
+# bin/ half: shellcheck the STAGED shell scripts at severity error. The rule is
+# the one `make check-shell' uses -- chosen by shebang, not extension: line 1
+# names sh, bash or dash, directly or through env. Logic keeps moving out of
+# the Makefile into bin/, so without this the extraction would shrink what the
+# hook guards. No shellcheck (Guix ISO, pre-apply machine): say so, don't block.
+bin_staged=$(git diff --cached --name-only --diff-filter=ACMRT -- bin/)
+if [ -n "$bin_staged" ]; then
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        echo "pre-commit: NOTE -- shellcheck not installed; staged bin/ scripts NOT checked"
+    else
+        sh_re='^#![[:space:]]*(/[^[:space:]]*/)?(env[[:space:]]+(-[^[:space:]]+[[:space:]]+)*)?(sh|bash|dash)([[:space:]]|$)'
+        sc_failed=0
+        sc_count=0
+        while IFS= read -r f; do
+            if [ -f "$tmp/$f" ] && head -n 1 "$tmp/$f" | grep -qE "$sh_re"; then
+                sc_count=$((sc_count + 1))
+                if ! (cd "$tmp" && shellcheck -S error "$f"); then
+                    sc_failed=1
+                fi
+            fi
+        done <<EOF
+$bin_staged
+EOF
+        echo "pre-commit: shellcheck -S error on $sc_count staged bin/ shell script(s)"
+        if [ "$sc_failed" -ne 0 ]; then
+            echo ""
+            echo "pre-commit: BLOCKED by shellcheck. Fix the above, or bypass with --no-verify."
+            exit 1
+        fi
+    fi
+fi
+
+# Everything below is the make-check half, unchanged; a bin/-only commit stops here.
+git diff --cached --name-only | grep -qE '^(home/|system/|keyd\.conf$|Makefile$)' || exit 0
+
+echo "pre-commit: guarded files staged, running make check against the index"
 
 # Sharp edge, and the reason for the warning below: the Makefile comes from the
 # index too. Add or edit a check without staging the Makefile and this runs the
