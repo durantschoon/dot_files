@@ -20,107 +20,16 @@
 # --version and --help pass straight through, so `pinentry-auto --version'
 # shows which program a plain (non-ssh) request would get.
 #
-# On the hub, the prompt also names the machine whose key is being unlocked
-# (machines.toml, via bin/gpg-key-owner); see "Name the machine" below.
-
-# ---------------------------------------------------------------------------
-# Filter mode: `pinentry-auto --pinentry-auto-filter OWNER_TOOL' is how this
-# script runs its own stdin filter (below), never how gpg-agent calls it.
-# It copies stdin to stdout line by line, labelling SETDESC.
-# ---------------------------------------------------------------------------
-
-# desc_keyid TEXT: the hex of the first `ID <sep>[0x]HEX' in TEXT, where
-# <sep> is a blank, `+' or `%20' and HEX is 8, 16 or 40 hex digits not
-# followed by another letter or digit, and `ID' does not end a longer word.
-# Prints nothing when there is none.  POSIX awk; no regex intervals.
-desc_keyid() {
-    printf '%s\n' "$1" | awk '
-    function ishex(c) { return c != "" && index("0123456789ABCDEFabcdef", c) > 0 }
-    function isalnum(c) {
-        return c != "" && index("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", c) > 0
-    }
-    {
-        s = $0
-        start = 1
-        while ((i = index(substr(s, start), "ID")) > 0) {
-            p = start + i - 1
-            start = p + 2
-            if (p > 1 && isalnum(substr(s, p - 1, 1))) continue
-            q = p + 2
-            if (substr(s, q, 1) == " " || substr(s, q, 1) == "+") q++
-            else if (substr(s, q, 3) == "%20") q += 3
-            else continue
-            if (substr(s, q, 2) == "0x" || substr(s, q, 2) == "0X") q += 2
-            n = 0
-            while (ishex(substr(s, q + n, 1))) n++
-            if (isalnum(substr(s, q + n, 1))) continue
-            if (n == 8 || n == 16 || n == 40) { print substr(s, q, n); exit }
-        }
-    }'
-}
-
-# label_for OWNER-LINE: the words added to the prompt.  They contain no `%',
-# CR or LF (machine names are [A-Za-z0-9._-]), so they are Assuan-safe.
-label_for() {
-    case $1 in
-        "machine "*)
-            name=${1#machine }
-            upper=$(printf '%s' "$name" | tr abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 2>/dev/null)
-            [ -n "$upper" ] || upper=$name
-            case $upper in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
-            printf '%s' "machines.toml: this is the signing subkey of $upper" ;;
-        primary) printf '%s' "machines.toml: this is the PRIMARY (master) key" ;;
-        unassigned) printf '%s' "machines.toml: this key is not assigned to any machine" ;;
-        ambiguous) printf '%s' "machines.toml: this short key ID matches more than one machine" ;;
-        *) return 1 ;;
-    esac
-}
-
-# labelled LINE OWNER_TOOL: the SETDESC line with the label added, or a
-# non-zero status (the caller then sends LINE unchanged).
-labelled() {
-    cr=$(printf '\r')
-    case $1 in *"$cr"*) return 1 ;; esac
-    id=$(desc_keyid "${1#SETDESC }") || return 1
-    [ -n "$id" ] || return 1
-    owner=$("$2" "$id" 2>/dev/null) || return 1
-    label=$(label_for "$owner") || return 1
-    case $1 in
-        *%0A|*%0a) out="$1$label%0A" ;;
-        *) out="$1%0A$label" ;;
-    esac
-    # An Assuan line is at most 1000 bytes; never send one the pinentry
-    # would reject.  (LC_ALL=C below makes ${#out} count bytes.)
-    [ "${#out}" -le 1000 ] || return 1
-    printf '%s' "$out"
-}
-
-if [ "${1:-}" = --pinentry-auto-filter ]; then
-    LC_ALL=C
-    export LC_ALL
-    owner_tool=$2
-    # First line: this process's PID, for the pinentry side (see below).
-    printf '%s\n' "$$" || exit 0
-    while :; do
-        line=
-        if IFS= read -r line; then nl=1; else nl=; fi
-        # EOF: the agent closed its end.
-        if [ -z "$nl" ] && [ -z "$line" ]; then exit 0; fi
-        case $line in
-            "SETDESC "*)
-                if new=$(labelled "$line" "$owner_tool") && [ -n "$new" ]; then
-                    line=$new
-                fi ;;
-        esac
-        if [ -n "$nl" ]; then
-            printf '%s\n' "$line" || exit 0
-        else
-            # A last line without a newline stays without one.
-            printf '%s' "$line"
-            exit 0
-        fi
-    done
-fi
+# Every prompt says WHOSE passphrase it wants.  Each machine has its own
+# signing subkey with its own passphrase (machines.toml), and this hub's
+# agent holds all of them, so a bare "unlock the OpenPGP secret key" left
+# the user guessing between machine passwords.  gpg-agent describes each
+# prompt with an Assuan `SETDESC <text>' line on the pinentry's stdin; the
+# text carries the key's long ID ("ID 1FE5BBBC0A765369").  label_requests
+# looks that ID up in machines.toml and puts a first line on the prompt:
+#   Passphrase: framepop's signing key  (agent on minius)
+#   Passphrase: MASTER key  (agent on minius)
+# An ID it does not know gets "key <id>"; it never blocks the prompt.
 
 find_pinentry() {
     # $1 = program name.  brew's prefix first (the agent's PATH may be the
@@ -132,6 +41,46 @@ find_pinentry() {
         fi
     done
     command -v "$1"
+}
+
+agent_host() {
+    # macOS's LocalHostName (minius), else the short hostname.
+    scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname
+}
+
+label_requests() {
+    # Copy the agent's Assuan commands through unchanged except SETDESC, one
+    # line at a time (fflush) because the conversation is interactive.
+    # $1 = machines.toml (may be missing), $2 = this host's name.
+    awk -v inventory="$1" -v host="$2" '
+        BEGIN {
+            # Long key ID (last 16 hex digits) -> machine, from lines like
+            #   [machines.framepop]  signing_subkey = "890B...5369"
+            while ((getline line < inventory) > 0) {
+                if (match(line, /^\[machines\.[^]]+\]/))
+                    machine = substr(line, 11, RLENGTH - 11)
+                else if (line ~ /^(signing_subkey|existing_subkey_id) *= *"[0-9A-Fa-f]+"/) {
+                    split(line, part, "\"")
+                    owner[toupper(substr(part[2], length(part[2]) - 15))] = machine
+                } else if (line ~ /^primary_fingerprint *= *"/) {
+                    split(line, part, "\"")
+                    primary = toupper(substr(part[2], length(part[2]) - 15))
+                }
+            }
+            gsub(/%/, "%25", host)
+        }
+        /^SETDESC / {
+            who = ""
+            if (match($0, /ID [0-9A-Fa-f]+/)) {
+                id = toupper(substr($0, RSTART + 3, RLENGTH - 3))
+                if (id == primary)   who = "MASTER key"
+                else if (id in owner) who = owner[id] "%27s signing key"
+                else                 who = "key " id
+            }
+            if (who != "")
+                sub(/^SETDESC /, "SETDESC Passphrase: " who "  (agent on " host ")%0A%0A")
+        }
+        { print; fflush() }'
 }
 
 case "${PINENTRY_USER_DATA:-}" in
@@ -165,77 +114,12 @@ if [ -z "$program" ]; then
     exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Name the machine in the prompt.
-#
-# On the hub (and the guix-dev container, which signs through the hub's
-# agent) every machine's signing subkey can be unlocked here, and the prompt
-# shows only a 16-hex ID followed by "main key ID <primary>", which reads as
-# "the master passphrase" even when it is framepop's subkey.  So the SETDESC
-# line the agent sends gains one line saying whose key it is, according to
-# machines.toml (bin/gpg-key-owner).
-#
-# The description arrives as gpg formats it (g10/passphrase.c,
-# gpg_format_keydesc), percent-escaped, after the agent has turned `+' back
-# into blanks (agent/command.c, cmd_setkeydesc); one line, wrapped here:
-#   SETDESC Please enter the passphrase to unlock the OpenPGP secret key:%0A
-#   %22NAME <MAIL>%22%0A255-bit EDDSA key, ID 0x1FE5BBBC0A765369,%0A
-#   created 2026-11-05 (main key ID 0x6A2DAE7008D4F938).%0A
-# The key being unlocked is the FIRST `ID'.
-#
-# This must never make signing worse.  Without gpg-key-owner, machines.toml
-# or a working awk the wrapper execs the pinentry exactly as before; a
-# SETDESC without a key ID, or whose lookup fails, passes through unchanged;
-# every other line is copied byte-for-byte and one at a time by the shell's
-# `read', which never reads past a newline on a pipe, so nothing is held
-# back from the pinentry.
-#
-# Plumbing: filter | pinentry.  The filter (this script again, in filter
-# mode, exec'd so that its $$ is its own PID) first sends that PID down the
-# pipe; the pinentry side reads the line, runs the pinentry on the rest and,
-# when the pinentry exits, TERMs the filter.  Without that, a pinentry that
-# died while the agent waited for its reply would leave the filter blocked
-# on the agent and this shell holding the agent's reply pipe open, so the
-# agent would wait instead of seeing EOF.  The exit status is the pinentry's.
-# ---------------------------------------------------------------------------
+case "${1:-}" in
+    --version|--help)
+        exec "$program" "$@"   # no Assuan session: nothing to label
+        ;;
+esac
 
-for arg in "$@"; do
-    case $arg in
-        --version|--help) exec "$program" "$@" ;;
-    esac
-done
-
-# resolve FILE: FILE with symlinks resolved (readlink is not POSIX; without
-# it the path is used as given).
-resolve() {
-    self=$1
-    while [ -L "$self" ] && command -v readlink >/dev/null 2>&1; do
-        link=$(readlink "$self") || break
-        case $link in
-            /*) self=$link ;;
-            *) self=$(dirname "$self")/$link ;;
-        esac
-    done
-    printf '%s\n' "$self"
-}
-
-self=$(resolve "$0" 2>/dev/null)
-owner_tool=$(dirname "$self" 2>/dev/null)/gpg-key-owner
-# The probe proves the tool, awk and the inventory all work before the
-# conversation starts; any failure means "behave exactly as before".
-if [ ! -f "$self" ] || [ ! -r "$self" ] || [ ! -x "$owner_tool" ] ||
-   ! command -v awk >/dev/null 2>&1 || ! command -v sh >/dev/null 2>&1 ||
-   [ "$("$owner_tool" 00000000 2>/dev/null)" != unassigned ]; then
-    exec "$program" "$@"
-fi
-
-exec sh "$self" --pinentry-auto-filter "$owner_tool" | {
-    IFS= read -r filter_pid
-    "$program" "$@"
-    status=$?
-    case $filter_pid in
-        ''|*[!0-9]*) ;;
-        *) kill "$filter_pid" 2>/dev/null ;;
-    esac
-    exit "$status"
-}
+# machines.toml sits at the top of dot_files, one level above bin/.  The
+# pipeline's status is the pinentry's (the last command), which gpg-agent reads.
+label_requests "$(dirname "$0")/../machines.toml" "$(agent_host)" | "$program" "$@"

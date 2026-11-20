@@ -19,12 +19,10 @@
 # parse (no [gpg] primary_fingerprint), 66 the inventory is missing or
 # unreadable.  Nothing is printed on stdout unless the status is 0.
 #
-# Who calls it: bin/pinentry-auto (the Mac's pinentry, to label the prompt),
-# build-aux/guix-container-gpg (the container's cold-cache note) and
-# build-aux/guix-container-gpg-bridge.sh (the container's default key).
-# pinentry-auto runs under gpg-agent's bare launchd PATH with macOS's BWK
-# awk, so this is POSIX sh + POSIX awk only: no python, no GNU awk
-# extensions, no regex interval expressions.
+# Who calls it: build-aux/guix-container-gpg (the container's cold-cache
+# note), and people asking from a shell.  It is POSIX sh + POSIX awk only
+# (no python, no GNU awk extensions, no regex interval expressions) so that
+# it also runs on macOS with BWK awk and a bare PATH.
 
 usage() {
     echo "usage: gpg-key-owner [--inventory FILE] KEYID | --hub-subkey" >&2
