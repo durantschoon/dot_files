@@ -161,3 +161,50 @@ text — the file is the user's to change); or item 2 and item 3 cannot both hol
 because `build-aux/guix-container-gpg` or `bin/gpg-key-owner` depends on
 something only stage 26's wrapper or bridge provided; or `main` has moved past
 `adc9f28` when you fetch (report the new commits and stop).
+
+## Amendment (2026-11-20, after the BLOCKED report `7eb3ec4`)
+
+The block was correct and is lifted by this section; where it disagrees with
+the text above, this section wins.
+
+**Finding, confirmed by the coordinator** on `adc9f28`'s own `label_requests`
+with the real `machines.toml`: a description carrying `ID C4E66F1E89EE3EB8`
+is labelled `minius's signing key`; the same key as `ID 0xC4E66F1E89EE3EB8` is
+labelled `key 0`. The tracked `gnupg/gpg.conf:21` sets `keyid-format 0xlong`,
+which is the form gpg writes on a machine that uses that file. Whether the Mac
+shows `key 0` today is inferred, not observed.
+
+**Shape: two commits on top of `7eb3ec4`, never an amend of a pushed commit.**
+
+1. The merge commit, as items 1–4 and 7–10 describe, with
+   `bin/pinentry-auto` and the bridge byte-identical to `adc9f28` (item 2
+   holds AT THIS COMMIT). It does not contain `tests/gpg/pinentry-label.sh` or
+   the Makefile line, so no test is red at this commit. Message as given
+   above.
+2. One follow-up commit,
+   `fix(gpg): read "ID 0x..." in the pinentry label, and test the wrapper`,
+   containing exactly: the two-line fix to `bin/pinentry-auto` that the block
+   report proposes (the regex accepts an optional `0x`, which is stripped
+   before the lookup) and nothing else in that file; the new
+   `tests/gpg/pinentry-label.sh`; item 6's Makefile wiring; the `GPG.md` /
+   `AGENTS.md` mention of the test; and the report. It is separate so the
+   user can drop the wrapper change alone. `git diff adc9f28 HEAD --
+   bin/pinentry-auto` must show only those lines; the bridge stays
+   byte-identical.
+
+**The test must run on the Mac** (block report, Open question 1), where
+`/opt/homebrew/bin/pinentry-mac` exists and the wrapper prefers it. The test
+runs a COPY of the wrapper in its temp dir in which the two absolute
+candidate directories in `find_pinentry` are rewritten to directories inside
+the temp dir, and asserts that the rewrite changed exactly the lines it
+expected (so a future edit to `find_pinentry` fails the test loudly instead of
+letting it start a real pinentry). The up-front "a real pinentry exists, FAIL"
+guard is then removed. The wrapper itself gains no override for this.
+
+Not fixed here, listed again under Open questions: the `mawk` buffering
+(Open question 2 — the wrapper only ever runs on macOS), the spacing in
+`main`'s `GPG.md` bullet (kept verbatim), and `--hub-subkey` having no caller.
+
+The report is extended, not rewritten: keep the BLOCKED section and add a
+"Resolution" section after it with the gates and verification items 1–7 on the
+final tree. Push once more when both commits and the report are done.
