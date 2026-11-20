@@ -242,6 +242,57 @@ alias spew='wget -qO-' # URL to spew the contents to stdout
 # collisions were rejected on purpose -- `tsc' is the TypeScript compiler,
 # and anything longer defeats the point of an alias.
 alias tls='tailscale'
+
+# tls-status -- `tailscale status', with the two facts you actually scan for
+# given visual weight: THIS machine bold, offline peers dimmed.
+#
+# It colours tailscale's OWN output rather than rebuilding the table from
+# --json.  Rebuilding means reimplementing the status column, which is free
+# text ("offline, last seen 3d ago", "idle; offers exit node", "-") and would
+# drift from whatever tailscale prints next release.  So --json supplies only
+# the two booleans it is authoritative about -- which peer is Self, and which
+# are Online -- and the table supplies the layout.  Matching on field 2 (the
+# host name) keeps it immune to the column widths shifting with name length.
+#
+# A function, not an alias: it needs a pipeline.  Honours NO_COLOR, and emits
+# plain text when stdout is not a tty, so `tls-status | grep' still works.
+tls-status() {
+    local color=1
+    [ -t 1 ] || color=0
+    [ -n "${NO_COLOR:-}" ] && color=0
+    tailscale status --json 2>/dev/null \
+      | python3 -c '
+import json, os, subprocess, sys
+color = sys.argv[1] == "1"
+B, D, R = ("\033[1m", "\033[2m", "\033[0m") if color else ("", "", "")
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(subprocess.call(["tailscale", "status"]))   # fall back to plain
+def names(node):
+    # The table prints the short MagicDNS name, which is NOT always HostName:
+    # razrfold is HostName "tailscale-termux". Key on both so neither misses.
+    out = {node.get("HostName") or ""}
+    out.add((node.get("DNSName") or "").split(".")[0])
+    return {n for n in out if n}
+self_names = names(d.get("Self") or {})
+online = {}
+for peer in (d.get("Peer") or {}).values():
+    for n in names(peer):
+        online[n] = bool(peer.get("Online"))
+table = subprocess.run(["tailscale", "status"], capture_output=True, text=True)
+for line in table.stdout.splitlines():
+    f = line.split()
+    host = f[1] if len(f) > 1 else ""
+    if host and host in self_names:
+        print(B + line + R)
+    elif host in online and not online[host]:
+        print(D + line + R)
+    else:
+        print(line)
+sys.stderr.write(table.stderr)
+' "$color"
+}
 alias up='cd ..'
 alias up2='cd ../..'
 alias up3='cd ../../..'
