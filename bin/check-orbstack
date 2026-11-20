@@ -1,0 +1,122 @@
+#!/bin/sh
+# Verify the OrbStack container runtime on macOS: the orb CLI, the deployed
+# startup LaunchAgent (in sync with the repo copy and loaded), that Colima and
+# Docker Desktop are neither loaded nor running, that the docker CLI is
+# OrbStack's, that the active context is orbstack, and that the engine answers.
+# Read-only. Exits non-zero on any finding; prints "skipped" off macOS.
+#
+# Extracted verbatim from the Makefile's check-orbstack recipe. Make decides
+# every value below and passes it in; this script recomputes none of them.
+# All are required (COLIMA_BIN may be empty, but must be set):
+#
+#   OS                     make's $(os): mac, linux, windows, ...
+#   OS_MAC                 make's $(OS_MAC): the value of OS that means macOS
+#   ORBSTACK_BIN           make's $(ORBSTACK_BIN): the orb CLI
+#   ORBSTACK_LABEL         make's $(ORBSTACK_LABEL): startup LaunchAgent label
+#   ORBSTACK_PLIST_SRC     make's $(ORBSTACK_PLIST_SRC): repo copy of the plist
+#                          (relative paths resolve against the caller's cwd)
+#   ORBSTACK_PLIST_DST     make's $(ORBSTACK_PLIST_DST): deployed plist
+#   DOCKER_BIN             make's $(DOCKER_BIN): the docker CLI path
+#   COLIMA_LABEL           make's $(COLIMA_LABEL): Colima's launchd label
+#   COLIMA_BIN             make's $(COLIMA_BIN): first colima found, or empty
+#   DOCKER_DESKTOP_LABELS  make's $(DOCKER_DESKTOP_LABELS): space-separated
+#                          Docker Desktop system launchd labels
+#   HOME                   make's $(HOME)
+
+usage() {
+    echo "usage: OS=... OS_MAC=... ORBSTACK_BIN=... ORBSTACK_LABEL=... ORBSTACK_PLIST_SRC=... ORBSTACK_PLIST_DST=... DOCKER_BIN=... COLIMA_LABEL=... COLIMA_BIN=... DOCKER_DESKTOP_LABELS=... HOME=... $0" >&2
+    exit 64
+}
+
+# Non-empty values.
+for var in OS OS_MAC ORBSTACK_BIN ORBSTACK_LABEL ORBSTACK_PLIST_SRC \
+           ORBSTACK_PLIST_DST DOCKER_BIN COLIMA_LABEL DOCKER_DESKTOP_LABELS HOME; do
+    eval "val=\${$var:-}"
+    if [ -z "$val" ]; then
+        echo "check-orbstack: $var is not set" >&2
+        usage
+    fi
+done
+# Set, possibly empty: $(wildcard) finds no colima on most machines.
+if [ -z "${COLIMA_BIN+set}" ]; then
+    echo "check-orbstack: COLIMA_BIN is not set (pass it empty when there is none)" >&2
+    usage
+fi
+
+echo "==> OrbStack container runtime"
+if [ "$OS" != "$OS_MAC" ]; then
+  echo "    skipped: mac-only (detected $OS)"
+  exit 0
+fi
+
+rc=0
+if [ ! -x "$ORBSTACK_BIN" ]; then
+  rc=1; echo "    MISSING: $ORBSTACK_BIN"
+else
+  echo "    CLI:     $ORBSTACK_BIN"
+fi
+if [ ! -f "$ORBSTACK_PLIST_DST" ]; then
+  rc=1; echo "    NOT DEPLOYED: $ORBSTACK_PLIST_DST"
+elif ! diff -u "$ORBSTACK_PLIST_SRC" "$ORBSTACK_PLIST_DST" > /dev/null 2>&1; then
+  rc=1; echo "    DRIFT: deployed OrbStack LaunchAgent differs from the repo"
+  diff -u "$ORBSTACK_PLIST_SRC" "$ORBSTACK_PLIST_DST" || true
+elif launchctl print "gui/$(id -u)/$ORBSTACK_LABEL" > /dev/null 2>&1; then
+  echo "    startup: $ORBSTACK_LABEL (in sync, loaded)"
+else
+  rc=1; echo "    NOT LOADED: gui/$(id -u)/$ORBSTACK_LABEL"
+fi
+if launchctl print "gui/$(id -u)/$COLIMA_LABEL" > /dev/null 2>&1; then
+  rc=1; echo "    CONFLICT: $COLIMA_LABEL is still loaded"
+elif [ ! -x "$COLIMA_BIN" ] && [ ! -d "$HOME/.colima" ] \
+     && [ ! -d "$HOME/Library/Application Support/colima" ]; then
+  echo "    Colima:  not installed"
+elif launchctl print-disabled "gui/$(id -u)" 2>/dev/null \
+     | grep -Eq "\"$COLIMA_LABEL\" => (true|disabled)"; then
+  echo "    Colima:  startup disabled"
+else
+  rc=1; echo "    Colima:  not loaded, but not persistently disabled"
+fi
+colima_procs=$(pgrep -fl '(/colima( |$)|/limactl .*[/]\.colima[/])' 2>/dev/null || true)
+if [ -z "$colima_procs" ]; then
+  echo "    process: no Colima/Lima helpers running"
+else
+  rc=1; echo "    CONFLICT: Colima-related processes remain:"
+  echo "$colima_procs" | sed 's/^/              /'
+fi
+# Word splitting is the point: the make variable is a space-separated list.
+# shellcheck disable=SC2086
+for label in $DOCKER_DESKTOP_LABELS; do
+  if launchctl print "system/$label" > /dev/null 2>&1; then
+    rc=1; echo "    CONFLICT: Docker Desktop helper $label is loaded"
+  elif launchctl print-disabled system 2>/dev/null \
+       | grep -Eq "\"$label\" => (true|disabled)"; then
+    echo "    Desktop: $label disabled"
+  else
+    rc=1; echo "    Desktop: $label is not persistently disabled"
+  fi
+done
+desktop_procs=$(pgrep -fl '(/Applications/Docker.app/|/Library/PrivilegedHelperTools/com\.docker\.)' 2>/dev/null || true)
+if [ -z "$desktop_procs" ]; then
+  echo "    process: no Docker Desktop helpers running"
+else
+  rc=1; echo "    CONFLICT: Docker Desktop processes remain:"
+  echo "$desktop_procs" | sed 's/^/              /'
+fi
+cli=$(readlink "$DOCKER_BIN" 2>/dev/null)
+case "$cli" in
+  *OrbStack.app*) echo "    Docker:  $DOCKER_BIN -> $cli" ;;
+  *) rc=1; echo "    WRONG CLI: $DOCKER_BIN -> ${cli:-not a symlink}" ;;
+esac
+context=$("$DOCKER_BIN" context show 2>/dev/null)
+if [ "$context" = orbstack ]; then
+  echo "    context: orbstack"
+else
+  rc=1; echo "    WRONG CONTEXT: ${context:-unavailable} (wanted orbstack)"
+fi
+server=$("$DOCKER_BIN" version --format '{{.Server.Version}}' 2>/dev/null)
+if [ -n "$server" ]; then
+  echo "    engine:  reachable (Docker $server)"
+else
+  rc=1; echo "    ENGINE DOWN: Docker server did not answer"
+fi
+exit $rc
