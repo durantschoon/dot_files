@@ -987,7 +987,16 @@ call, so extensions never collide; only genuine double ownership does."
       (simple-service 'dotfiles-environment-variables
                       home-environment-variables-service-type
                       '(("PATH" . "$HOME/.local/bin:$HOME/.juliaup/bin:$HOME/bin:$PATH")
-                        ("HOMEBASE" . "orb-guix")
+                        ;; Role-named; see the HOMEBASE block in the Makefile.
+                        ;; HOMEBASE is the MACHINE (ssh target, uptime,
+                        ;; fallback); HOMEBASE_GUIX is where guix work
+                        ;; happens.  They differ today only because minius
+                        ;; is a Mac and needs a container for guix; when the
+                        ;; home base runs guix natively, delete the
+                        ;; HOMEBASE_GUIX line and the Makefile falls back to
+                        ;; HOMEBASE.
+                        ("HOMEBASE" . "minius")
+                        ("HOMEBASE_GUIX" . "orb-guix")
                         ("TZ" . "America/New_York")))
       (simple-service 'local-bin-activation home-activation-service-type
                       #~(begin

@@ -381,7 +381,7 @@ help-text:
 	@echo ""
 	@echo "Emacs Remote Server:"
 	@echo "  make emacs-serve   - Start Emacs daemon here + show how to attach over ssh"
-	@echo "  make emacs-attach  - Attach to a remote daemon (default: EMACS_HOST=$$(HOMEBASE))"
+	@echo "  make emacs-attach  - Attach to a remote daemon (default: EMACS_HOST=$(HOMEBASE_GUIX))"
 	@echo "  make emacs-unserve - Stop the Emacs daemon"
 	@echo ""
 	@echo "Verification and Smoke Tests:"
@@ -3062,7 +3062,7 @@ endif
 # is checked as carefully as the process.
 #
 # It also asserts the NAME, because the name is load-bearing here: EMACS_HOST
-# defaults to $(HOMEBASE) (orb-guix; previously minius) and the `eam' alias
+# defaults to $(HOMEBASE_GUIX) (orb-guix, a container on minius) and the `eam' alias
 # uses it, so both reach this machine by its MagicDNS name.  When a node re-registers while its name is
 # still held by another node -- which is exactly what happened moving off the
 # App Store app, since the daemon generates a fresh node key rather than
@@ -3992,11 +3992,35 @@ reconfigure: check-system
 # ---------------------------------------------------------------------------
 .PHONY: emacs-serve emacs-receive-ssh emacs-unserve emacs-attach emacs-connect-ssh
 
-# Default home base machine on the tailnet (override: HOMEBASE=...)
-HOMEBASE ?= orb-guix
+# The home base, named by ROLE rather than by mechanism.
+#
+#   HOMEBASE       the MACHINE: the ssh target, the one with uptime, the
+#                  fallback for anything that just needs a host.
+#   HOMEBASE_GUIX  where guix work happens -- the emacs daemon, the
+#                  hygiene jobs.  Today a CONTAINER, because HOMEBASE is a
+#                  Mac and cannot run guix natively.
+#
+# The fallback is the whole point.  `?=' leaves an exported value alone and
+# home/common.scm exports HOMEBASE_GUIX=orb-guix, so today it resolves to
+# the container.  Give the home base a machine that runs guix natively --
+# a Guix System desktop -- and you delete that one env entry: HOMEBASE_GUIX
+# collapses to HOMEBASE here, with no rename anywhere else.  That is why it
+# is not HOMEBASE_CONTAINER (names the mechanism, which is the part meant to
+# disappear) and not HOMEBASE_MACHINE (a second name for the same host, which
+# would outlive the Mac).
+#
+# Known inconsistency, accepted deliberately: bin/homebase already owns a
+# HOMEBASE_* namespace of SERVICE knobs (HOMEBASE_STATE,
+# HOMEBASE_HYGIENE_MINUTES, HOMEBASE_AUTOSAVE_REPO -- paths and numbers), so
+# a hostname joining it reads slightly oddly either way.
+#
+# Override either: make emacs-attach HOMEBASE_GUIX=geeeks
+HOMEBASE ?= minius
+HOMEBASE_GUIX ?= $(HOMEBASE)
 
 # Host running `make emacs-serve`. Override: make emacs-attach EMACS_HOST=geeeks
-EMACS_HOST ?= $(HOMEBASE)
+# The daemon lives where guix lives, so this follows HOMEBASE_GUIX.
+EMACS_HOST ?= $(HOMEBASE_GUIX)
 # Use a full path here if ssh's non-interactive shell can't find emacsclient,
 # e.g. make emacs-attach REMOTE_EMACSCLIENT=/opt/homebrew/bin/emacsclient
 REMOTE_EMACSCLIENT ?= emacsclient
@@ -4079,12 +4103,12 @@ emacs-serve:
 	echo ""; \
 	echo "  # Or, from a checkout of this repo on the other machine:"; \
 	TARGET_HOST="$${TS_HOST:-$$SHORT_HOST.local}"; \
-	if [ "$$TARGET_HOST" = "$(HOMEBASE)" ]; then \
+	if [ "$$TARGET_HOST" = "$(HOMEBASE_GUIX)" ]; then \
 	  echo "  make emacs-attach EMACS_HOST=$$TARGET_HOST"; \
-	  echo "  # (EMACS_HOST=$$TARGET_HOST is the default because HOMEBASE is set to $(HOMEBASE) on all tailscale machines: bare 'make emacs-attach' works directly)"; \
+	  echo "  # (EMACS_HOST=$$TARGET_HOST is the default because HOMEBASE_GUIX is $(HOMEBASE_GUIX) on all tailscale machines: bare 'make emacs-attach' works directly)"; \
 	else \
 	  echo "  make emacs-attach EMACS_HOST=$$TARGET_HOST"; \
-	  echo "  # (EMACS_HOST defaults to $(HOMEBASE) on all tailscale machines; override with EMACS_HOST=$$TARGET_HOST)"; \
+	  echo "  # (EMACS_HOST defaults to $(HOMEBASE_GUIX) on all tailscale machines; override with EMACS_HOST=$$TARGET_HOST)"; \
 	fi; \
 	echo ""; \
 	echo "=== Read-only peek (no attaching, no stray keystrokes) ==="; \
@@ -4110,8 +4134,8 @@ emacs-serve:
 emacs-attach:
 	@echo ""
 	@echo "=== Attaching to the Emacs daemon on $(EMACS_HOST) ==="
-	@if [ "$(EMACS_HOST)" = "$(HOMEBASE)" ]; then \
-	  echo "  (using default HOMEBASE=$(HOMEBASE); override with EMACS_HOST=<host>)"; \
+	@if [ "$(EMACS_HOST)" = "$(HOMEBASE_GUIX)" ]; then \
+	  echo "  (using default HOMEBASE_GUIX=$(HOMEBASE_GUIX); override with EMACS_HOST=<host>)"; \
 	fi
 	@echo ""
 	@echo "  ssh -t $(EMACS_HOST) $(REMOTE_EMACSCLIENT) -t"
