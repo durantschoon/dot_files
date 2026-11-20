@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Grant the worktree-cleanup commands each agent can allow.
+"""Grant the worktree-cleanup commands each agent can allow, and deny one.
 
-Idempotent.  Merges allow entries into the Claude Code and Cursor CLI
-configs and leaves every other key alone.  Rewrites
+Idempotent.  Merges allow and deny entries into the Claude Code and Cursor
+CLI configs and leaves every other key alone.
+
+Raw `git worktree prune` is DENIED, not granted (it used to be granted).  On
+a checkout two machines share -- orb-guix sees minius's dot_files over
+virtiofs; geeeks and framepop share a data partition -- each side's
+worktree paths are missing on the other, so a prune from one side deletes
+the other side's live worktree records.  Agents run
+bin/git-worktree-prune-safe instead, which skips foreign records.  The old
+prune grants are removed from allow lists that still have them.  Rewrites
 ~/.codex/rules/dot_files.rules whole, because that file belongs to this
 repo.  agy has no per-command allowlist, so it is reported and skipped.
 
@@ -22,12 +30,17 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 CLAUDE_ALLOW = (
     "Bash(git branch -D:*)",
     "Bash(git -C * branch -D *)",
     "Bash(git worktree remove:*)",
     "Bash(git -C * worktree remove *)",
+)
+
+# Raw prune orphans the other side of a shared checkout; see the docstring.
+CLAUDE_DENY = (
     "Bash(git worktree prune:*)",
     "Bash(git -C * worktree prune*)",
 )
@@ -40,15 +53,31 @@ CURSOR_ALLOW = (
     "Shell(git:-C * branch -D*)",
     "Shell(git:worktree remove*)",
     "Shell(git:-C * worktree remove*)",
+)
+
+CURSOR_DENY = (
     "Shell(git:worktree prune*)",
     "Shell(git:-C * worktree prune*)",
 )
 
+# Granted by earlier versions of this script; taken back out of allow so a
+# config never both allows and denies the same command.
+CLAUDE_REVOKE = CLAUDE_DENY
+CURSOR_REVOKE = CURSOR_DENY
+
 CODEX_RULES = (
     'prefix_rule(pattern=["git", "branch", "-D"], decision="allow")\n'
-    'prefix_rule(pattern=["git", "worktree", ["remove", "prune"]], '
-    'decision="allow")\n'
+    'prefix_rule(pattern=["git", "worktree", "remove"], decision="allow")\n'
+    'prefix_rule(pattern=["git", "worktree", "prune"], decision="forbidden")\n'
 )
+
+
+class Policy(NamedTuple):
+    """What one JSON config must allow, must deny, and must no longer allow."""
+
+    allow: tuple[str, ...]
+    deny: tuple[str, ...]
+    revoke: tuple[str, ...]
 
 
 def _home() -> Path:
@@ -177,9 +206,15 @@ def _object_entries(text: str, open_index: int) -> tuple[list[tuple[str, int, in
 
 
 def _array_strings(text: str, open_index: int) -> tuple[list[tuple[str, int]], int]:
+    """(value, end) of each string in the array at open_index, and its ']'."""
+    spans, close = _array_spans(text, open_index)
+    return [(value, end) for value, _start, end in spans], close
+
+
+def _array_spans(text: str, open_index: int) -> tuple[list[tuple[str, int, int]], int]:
     close = _matching(text, open_index, "[", "]")
     cursor = open_index + 1
-    items: list[tuple[str, int]] = []
+    items: list[tuple[str, int, int]] = []
     while True:
         cursor = _skip_ws(text, cursor)
         if cursor >= close:
@@ -188,19 +223,65 @@ def _array_strings(text: str, open_index: int) -> tuple[list[tuple[str, int]], i
             cursor += 1
             continue
         if text[cursor] != '"':
-            _die("permissions.allow entries must be strings")
+            _die("permissions lists must hold only strings")
+        start = cursor
         value, cursor = _parse_string(text, cursor)
-        items.append((value, cursor))
+        items.append((value, start, cursor))
     return items, close
 
 
-def _allow_block(entries: tuple[str, ...], indent: str) -> str:
+def _list_block(key: str, entries: tuple[str, ...], indent: str) -> str:
     lines = ",\n".join(f"{indent}  {json.dumps(entry)}" for entry in entries)
-    return f'{indent}"allow": [\n{lines}\n{indent}]'
+    return f'{indent}"{key}": [\n{lines}\n{indent}]'
 
 
-def _insert_allow(text: str, entries: tuple[str, ...]) -> str:
-    """Return text with entries added to the root permissions.allow list.
+def _permissions_list(text: str, key: str) -> int | None:
+    """Index of the '[' of the root permissions.<key> array, or None."""
+    start = _skip_ws(text, 0)
+    if start >= len(text) or text[start] != "{":
+        _die("settings file is not a JSON object")
+    pairs, _close = _object_entries(text, start)
+    permissions = next((item for item in pairs if item[0] == "permissions"), None)
+    if permissions is None:
+        return None
+    value_start = _skip_ws(text, permissions[1])
+    if text[value_start] != "{":
+        _die('"permissions" is not a JSON object')
+    fields, _perm_close = _object_entries(text, value_start)
+    found = next((item for item in fields if item[0] == key), None)
+    if found is None:
+        return None
+    list_start = _skip_ws(text, found[1])
+    if text[list_start] != "[":
+        _die(f'"permissions.{key}" is not a JSON array')
+    return list_start
+
+
+def _remove_entries(text: str, key: str, entries: tuple[str, ...]) -> str:
+    """Return text with entries dropped from permissions.<key>.
+
+    Removes each element with the separator before it (or after it, for the
+    first), so the remaining bytes keep their layout.
+    """
+    while True:
+        list_start = _permissions_list(text, key)
+        if list_start is None:
+            return text
+        spans, close = _array_spans(text, list_start)
+        index = next((i for i, item in enumerate(spans) if item[0] in entries), None)
+        if index is None:
+            return text
+        _value, start, end = spans[index]
+        if len(spans) == 1:
+            text = text[: list_start + 1] + text[close:]
+        elif index == 0:
+            text = text[:start] + text[spans[1][1]:]
+        else:
+            text = text[: spans[index - 1][2]] + text[end:]
+
+
+def _insert_list(text: str, key: str, entries: tuple[str, ...]) -> str:
+    """Return text with entries added to the root permissions.<key> list.
 
     Every byte outside that list stays as it was.
     """
@@ -212,7 +293,7 @@ def _insert_allow(text: str, entries: tuple[str, ...]) -> str:
     if permissions is None:
         wrapped = (
             ',\n  "permissions": {\n'
-            + _allow_block(entries, "    ")
+            + _list_block(key, entries, "    ")
             + "\n  }"
         )
         if not pairs:
@@ -226,18 +307,18 @@ def _insert_allow(text: str, entries: tuple[str, ...]) -> str:
     if text[value_start] != "{":
         _die('"permissions" is not a JSON object')
     fields, _perm_close = _object_entries(text, value_start)
-    allow = next((item for item in fields if item[0] == "allow"), None)
-    if allow is None:
-        addition = "\n" + _allow_block(entries, "    ")
+    found = next((item for item in fields if item[0] == key), None)
+    if found is None:
+        addition = "\n" + _list_block(key, entries, "    ")
         if fields:
             _fkey, _fstart, fend = fields[-1]
             return text[:fend] + "," + addition + text[fend:]
         return text[: value_start + 1] + addition + "\n  " + text[value_start + 1 :]
 
-    _akey, allow_start, _allow_end = allow
+    _akey, allow_start, _allow_end = found
     allow_start = _skip_ws(text, allow_start)
     if text[allow_start] != "[":
-        _die('"permissions.allow" is not a JSON array')
+        _die(f'"permissions.{key}" is not a JSON array')
     items, array_close = _array_strings(text, allow_start)
     present = {value for value, _end in items}
     missing = [entry for entry in entries if entry not in present]
@@ -278,20 +359,31 @@ def _read_json_object(path: Path) -> str | None:
     return text
 
 
-def _missing_allow(text: str | None, entries: tuple[str, ...]) -> list[str]:
+def _current_list(text: str | None, key: str) -> list[str]:
+    """The root permissions.<key> list of text, or [] when absent."""
     if text is None:
-        return list(entries)
+        return []
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as error:
         _die(f"invalid JSON ({error})")
-    allow = parsed.get("permissions", {})
-    if not isinstance(allow, dict):
+    permissions = parsed.get("permissions", {})
+    if not isinstance(permissions, dict):
         _die('"permissions" is not a JSON object')
-    current = allow.get("allow", [])
+    current = permissions.get(key, [])
     if not isinstance(current, list):
-        _die('"permissions.allow" is not a JSON array')
-    return [entry for entry in entries if entry not in current]
+        _die(f'"permissions.{key}" is not a JSON array')
+    return current
+
+
+def _gaps(text: str | None, policy: Policy) -> list[str]:
+    """What text lacks: missing allow/deny entries and revoked ones still allowed."""
+    allow = _current_list(text, "allow")
+    deny = _current_list(text, "deny")
+    gaps = [f"allow {entry}" for entry in policy.allow if entry not in allow]
+    gaps += [f"deny {entry}" for entry in policy.deny if entry not in deny]
+    gaps += [f"revoke {entry}" for entry in policy.revoke if entry in allow]
+    return gaps
 
 
 def _write_new(path: Path, text: str) -> None:
@@ -334,52 +426,60 @@ def _write_replaced(path: Path, text: str) -> None:
         raise
 
 
-def _ensure_json_allow(
+CLAUDE_POLICY = Policy(CLAUDE_ALLOW, CLAUDE_DENY, CLAUDE_REVOKE)
+CURSOR_POLICY = Policy(CURSOR_ALLOW, CURSOR_DENY, CURSOR_REVOKE)
+
+
+def _ensure_json(
     path: Path,
-    entries: tuple[str, ...],
+    policy: Policy,
     created: str,
     check: bool,
     label: str,
 ) -> bool:
-    """Merge entries into path.  Return True when the file already had them."""
+    """Bring path in line with policy.  Return True when it already was."""
     text = _read_json_object(path)
-    missing = _missing_allow(text, entries)
-    if not missing:
+    gaps = _gaps(text, policy)
+    if not gaps:
         if check:
             print(f"    [ok] {label:<12}: {path}")
         return True
     if check:
-        print(f"    [--] {label:<12}: missing {len(missing)} in {path}; fix: make agent-permissions")
+        print(f"    [--] {label:<12}: {len(gaps)} to fix in {path} ({'; '.join(gaps)}); fix: make agent-permissions")
         return False
     if text is None:
         _write_new(path, created)
     else:
-        updated = _insert_allow(text, tuple(missing))
+        updated = _remove_entries(text, "allow", policy.revoke)
+        allow = _current_list(updated, "allow")
+        deny = _current_list(updated, "deny")
+        missing_allow = tuple(entry for entry in policy.allow if entry not in allow)
+        missing_deny = tuple(entry for entry in policy.deny if entry not in deny)
+        if missing_allow:
+            updated = _insert_list(updated, "allow", missing_allow)
+        if missing_deny:
+            updated = _insert_list(updated, "deny", missing_deny)
         if updated == text:
             return True
         if not updated.endswith("\n"):
             updated += "\n"
         _write_replaced(path, updated)
-    # Confirm the merge landed, and that a created file parses.
-    confirmed = _missing_allow(_read_json_object(path), entries)
+    # Confirm the edit landed, and that the file parses.
+    confirmed = _gaps(_read_json_object(path), policy)
     if confirmed:
-        _die(f"failed to record {confirmed} in {path}")
+        _die(f"failed to apply {confirmed} to {path}")
     print(f"agent-permissions: updated {path}")
     return True
 
 
-def _claude_created(entries: tuple[str, ...]) -> str:
-    body = _allow_block(entries, "    ")
+def _claude_created(policy: Policy) -> str:
+    body = _list_block("allow", policy.allow, "    ") + ",\n" + _list_block("deny", policy.deny, "    ")
     return '{\n  "permissions": {\n' + body + "\n  }\n}\n"
 
 
-def _cursor_created(entries: tuple[str, ...]) -> str:
-    body = _allow_block(entries, "    ")
-    return (
-        '{\n  "version": 1,\n  "permissions": {\n'
-        + body
-        + ',\n    "deny": []\n  }\n}\n'
-    )
+def _cursor_created(policy: Policy) -> str:
+    body = _list_block("allow", policy.allow, "    ") + ",\n" + _list_block("deny", policy.deny, "    ")
+    return '{\n  "version": 1,\n  "permissions": {\n' + body + "\n  }\n}\n"
 
 
 def _ensure_codex(check: bool) -> bool:
@@ -412,12 +512,12 @@ def main(argv: list[str]) -> int:
     if check:
         print("==> agent permissions")
     results = (
-        _ensure_json_allow(
-            claude_settings(), CLAUDE_ALLOW, _claude_created(CLAUDE_ALLOW), check, "claude"
+        _ensure_json(
+            claude_settings(), CLAUDE_POLICY, _claude_created(CLAUDE_POLICY), check, "claude"
         ),
         _ensure_codex(check),
-        _ensure_json_allow(
-            cursor_config(), CURSOR_ALLOW, _cursor_created(CURSOR_ALLOW), check, "cursor"
+        _ensure_json(
+            cursor_config(), CURSOR_POLICY, _cursor_created(CURSOR_POLICY), check, "cursor"
         ),
     )
     if check:

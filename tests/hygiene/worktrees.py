@@ -62,6 +62,18 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(hygiene.classify(False, False, False, 3, 1, 0, "ancestor"), "review")
         self.assertEqual(hygiene.classify(False, False, True, 9, 0, 0, "ancestor"), "review")
         self.assertEqual(hygiene.classify(True, True, False, 0, 0, 0, None), "prune")
+        self.assertEqual(hygiene.classify(True, True, False, 0, 0, 0, None, True), "foreign")
+        self.assertEqual(hygiene.classify(False, True, True, 0, 0, 0, None), "foreign")
+
+    def test_is_foreign(self):
+        main = "/root/dot_files"
+        self.assertFalse(hygiene.is_foreign("/root/dot_files/.claude/worktrees/x", main))
+        self.assertFalse(hygiene.is_foreign("/root/dot_files_x", main))
+        self.assertTrue(hygiene.is_foreign("/Users/durant/dot_files/.claude/worktrees/x", main))
+        self.assertTrue(hygiene.is_foreign("/root/dot_files/x", "/Users/durant/dot_files"))
+        # A repo directly under / must not make every path local.
+        self.assertTrue(hygiene.is_foreign("/elsewhere/x", "/repo"))
+        self.assertFalse(hygiene.is_foreign("/repo/.claude/worktrees/x", "/repo"))
 
     def test_summary_and_commands_do_not_drop_an_unlanded_branch(self):
         findings = [
@@ -69,7 +81,12 @@ class ClassifyTests(unittest.TestCase):
             {"class": "review", "repo": "/r", "path": "/r-live", "branch": "keep", "landed": None},
         ]
         commands = hygiene.cleanup_commands(findings)
-        self.assertEqual(commands, ["cd /r && git worktree prune -v"])
+        self.assertEqual(commands, [f"{hygiene.SAFE_PRUNE} -C /r -v"])
+        self.assertTrue(hygiene.SAFE_PRUNE.is_file())
+        # A foreign record gets no command at all, and does not count as ready.
+        foreign = [{"class": "foreign", "repo": "/r", "path": "/Users/x", "branch": "b", "landed": None}]
+        self.assertEqual(hygiene.cleanup_commands(foreign), [])
+        self.assertIsNone(hygiene.summary_line(foreign))
         self.assertIsNone(hygiene.summary_line([]))
         self.assertEqual(
             hygiene.summary_line([{"class": "remove"}, {"class": "review"}]),
@@ -151,10 +168,29 @@ class ScanTests(unittest.TestCase):
         commands = "\n".join(hygiene.cleanup_commands(report["findings"]))
         self.assertIn(f"git worktree remove {shlex_landed(Path(real(landed)))} && git branch -d landed", commands)
         self.assertIn("git branch -D feature", commands)
-        self.assertIn("git worktree prune -v", commands)
+        self.assertIn("git-worktree-prune-safe -C", commands)
+        self.assertNotIn("git worktree prune", commands)
         self.assertNotIn("git branch -D gone", commands)
         self.assertNotIn("git branch -d gone", commands)
         self.assertNotIn(real(wip), commands)
+
+    def test_foreign_missing_worktree_is_left_alone(self):
+        repo = self.tmp / "home" / "repo"
+        repo.parent.mkdir()
+        init_repo(repo)
+        git(repo, "branch", "theirs")
+        elsewhere = self.tmp / "other-machine" / "repo_theirs"
+        elsewhere.parent.mkdir()
+        git(repo, "worktree", "add", str(elsewhere), "theirs")
+        shutil.rmtree(elsewhere.parent)
+
+        report = self.scan(repo)
+        found = classes(report)
+        self.assertEqual(found[real(elsewhere)], "foreign")
+        self.assertEqual(hygiene.cleanup_commands(report["findings"]), [])
+        text = hygiene.render(report, fetched=False)
+        self.assertIn("Not on this machine (left alone)", text)
+        self.assertNotIn("Directory gone", text)
 
     def test_envelope_checkout_is_skipped(self):
         repo = self.tmp / "repo"
