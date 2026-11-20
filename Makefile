@@ -318,6 +318,8 @@ help-text:
 	@echo "  make gpg-hub-teardown - Remove staged secret-subkey exports on the hub"
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
+	@echo "  make check-gpg-tests - Run the bin/check-gpg smoke test (stub gpg, fake HOME; never signs)"
+	@echo "  make check-gpg-enrollment - Run the gpg-hub enrollment and bin/gpg-key-owner tests (no real keyring)"
 	@echo "  make setup-sshd-for-ingress - Install/enable the incoming SSH server (automatic during apply/setup-native)"
 	@echo "  make check-sshd-for-ingress - Check the incoming SSH server (distinct from check-ssh-with-gpg-for-egress)"
 	@echo "                       (not part of 'make check': may prompt for sudo)"
@@ -326,6 +328,8 @@ help-text:
 	@echo "                       (not part of 'make check': depends on the calling shell and the passphrase cache)"
 	@echo "  make setup-bitbucket-ssh - Migrate this user's Bitbucket SSH host trust and Host blocks"
 	@echo "  make check-bitbucket-ssh - Test the Bitbucket SSH migration without network access"
+	@echo "  make setup-github-ssh - Ensure the Host github.com and github.com-ds blocks in ~/.ssh/config"
+	@echo "  make check-github-ssh - Test the GitHub SSH Host blocks without network access"
 	@echo "  make check-ssh-github - check-ssh-with-gpg-for-egress, then a live 'ssh -T git@github.com' with triage hints"
 	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
@@ -362,9 +366,11 @@ help-text:
 	@echo "  make setup-tailscale - Install Tailscale on Termux, or the macOS LaunchDaemon;"
 	@echo "                       runs at boot before login, unlike the menu-bar app)"
 	@echo "  make check-tailscale - Start and verify Tailscale on Termux; verify the macOS daemon"
+	@echo "  make check-tailscale-tests - Run the bin/check-tailscale smoke test (stubs; mac and Termux branches)"
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
+	@echo "  make check-orbstack-tests - Run the bin/check-orbstack smoke test (stubs; the mac branch)"
 	@echo "  make setup-timezone - Point /etc/localtime at TIMEZONE (default America/New_York;"
 	@echo "                       foreign distros such as orb-guix; needs root)"
 	@echo "  make check-timezone - Verify /etc/localtime matches TIMEZONE"
@@ -392,6 +398,7 @@ help-text:
 	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
 	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
+	@echo "  make check-home-ownership-tests - Run the bin/check-home-ownership smoke test (fake HOME in a temp dir)"
 	@echo ""
 	@echo "Misc and Platform Notes:"
 	@echo "  make wsl           - Show WSL setup instructions"
@@ -826,6 +833,7 @@ endif
 endif
 	@mkdir -p ~/dot_files/bin
 	@sh bin/setup-bitbucket-ssh
+	@sh bin/setup-github-ssh
 	@if [ -d "$$HOME/bin" ] && [ ! -L "$$HOME/bin" ]; then \
 		echo "NOTE: ~/bin is a directory, not a symlink. Move or merge scripts into ~/dot_files/bin/, remove ~/bin, then run make setup-native-links again."; \
 	else \
@@ -1287,6 +1295,7 @@ gpg-hub-teardown:
 	@python3 "$(CURDIR)/bin/gpg-hub" hub-teardown
 check-gpg-enrollment:
 	@python3 "$(CURDIR)/tests/gpg/enrollment.py"
+	@"$(CURDIR)/tests/gpg/key-owner.sh"
 
 # Can `git commit' sign on THIS machine?  Walks the chain in the order it
 # fails in practice and prints the fix at the first broken link:
@@ -1301,105 +1310,12 @@ check-gpg-enrollment:
 #      may prompt; a background job skips this step)
 # Deliberately NOT a prerequisite of `check': step 6 can prompt, and the
 # answer depends on this machine's keyring rather than on the repo.
-.PHONY: check-gpg
+.PHONY: check-gpg check-gpg-tests
 check-gpg:
-	@echo "==> gpg commit signing"
-	@rc=0; \
-	if ! command -v gpg >/dev/null 2>&1; then \
-	  echo "    [--] gpg      : not on PATH"; \
-	  echo "         fix: brew install gnupg   (mac)  /  make apply  (guix: gnupg is in the profile)"; \
-	  exit 1; \
-	fi; \
-	echo "    [ok] gpg      : $$(command -v gpg) ($$(gpg --version | head -1 | awk '{print $$3}'))"; \
-	prog=$$(git config --get gpg.program); \
-	if [ -n "$$prog" ] && ! command -v "$$prog" >/dev/null 2>&1; then \
-	  rc=1; echo "    [--] gpg.program = $$prog does not exist"; \
-	  echo "         fix: git config --global --unset gpg.program   (git then uses gpg from PATH)"; \
-	fi; \
-	key=$$(git config --get user.signingkey); \
-	if [ -z "$$key" ]; then \
-	  echo "    [--] key      : user.signingkey is not set"; \
-	  echo "         fix: make install-gnupg   (mac: adds the include of .gitconfig)  /  make apply  (linux)"; \
-	  exit 1; \
-	fi; \
-	echo "    [ok] key      : user.signingkey = $$key"; \
-	sec=$$(gpg --batch --with-colons --list-secret-keys "$$key" 2>/dev/null | grep '^sec:' | head -1); \
-	if [ -z "$$sec" ]; then \
-	  echo "    [--] secret   : no secret key for $$key in $$HOME/.gnupg"; \
-	  echo "         fix: make gpg-spoke-copy -- docs/GPG.md, \"Hub and spoke enrollment\""; \
-	  exit 1; \
-	fi; \
-	exp=$$(echo "$$sec" | cut -d: -f7); now=$$(date +%s); \
-	if [ -z "$$exp" ]; then \
-	  echo "    [ok] secret   : present, never expires"; \
-	elif [ "$$exp" -lt "$$now" ]; then \
-	  rc=1; echo "    [--] secret   : present but EXPIRED on $$(date -r "$$exp" +%Y-%m-%d 2>/dev/null || date -d "@$$exp" +%Y-%m-%d)"; \
-	  echo "         fix: gpg --edit-key $$key expire   (then re-export the public key: docs/GPG.md)"; \
-	elif [ $$(( (exp - now) / 86400 )) -lt 30 ]; then \
-	  echo "    [!!] secret   : present, expires in $$(( (exp - now) / 86400 )) days -- extend it soon: gpg --edit-key $$key expire"; \
-	else \
-	  echo "    [ok] secret   : present, expires $$(date -r "$$exp" +%Y-%m-%d 2>/dev/null || date -d "@$$exp" +%Y-%m-%d)"; \
-	fi; \
-	pin=$$(sed -n 's/^pinentry-program[[:space:]]*//p' "$$HOME/.gnupg/gpg-agent.conf" 2>/dev/null); \
-	if [ -n "$$pin" ] && [ ! -x "$$pin" ]; then \
-	  rc=1; echo "    [--] pinentry : $$pin is missing"; \
-	  echo "         fix: make install-gnupg   (mac)  /  make apply  (linux, after a guix gc)"; \
-	elif [ -z "$$pin" ] && [ "$(os)" = "$(OS_MAC)" ]; then \
-	  rc=1; echo "    [--] pinentry : none configured; gpg falls back to curses, which Emacs and background jobs cannot drive"; \
-	  echo "         fix: make install-gnupg"; \
-	else \
-	  echo "    [ok] pinentry : $${pin:-gpg default}"; \
-	fi; \
-	sign=$$(git config --get commit.gpgsign); \
-	if [ "$$sign" = true ]; then \
-	  echo "    [ok] git      : commit.gpgsign = true"; \
-	else \
-	  rc=1; echo "    [--] git      : commit.gpgsign = $${sign:-<unset>}"; \
-	  echo "         fix: make install-gnupg   (mac)  /  make apply  (linux)"; \
-	fi; \
-	stale=$$(find "$$HOME/.gnupg" -maxdepth 1 -name '.#lk*' 2>/dev/null | wc -l | tr -d ' '); \
-	if [ "$$stale" -gt 0 ]; then \
-	  echo "    [..] locks    : $$stale stale .#lk* lock files in ~/.gnupg (harmless; from killed gpg processes)"; \
-	  echo "         tidy: find ~/.gnupg -maxdepth 1 -name '.#lk*' -delete   (with no gpg running)"; \
-	fi; \
-	if [ $$rc != 0 ]; then echo "==> gpg signing: fix the [--] lines above"; exit 1; fi; \
-	if [ -t 0 ]; then \
-	  if [ -n "$$SSH_CONNECTION" ]; then \
-	    case "$$PINENTRY_USER_DATA" in *USE_TTY=1*) \
-	      echo "    [ok] ssh      : PINENTRY_USER_DATA=USE_TTY=1, so the prompt comes to this terminal";; \
-	    *) echo "    [--] ssh      : PINENTRY_USER_DATA is not set; the pinentry would prompt on this machine's own screen (mac: hangs here; GNOME: \"pinentry error\")"; \
-	       echo "         fix: open a new shell (.zshrc.starship sets it), or: export PINENTRY_USER_DATA=USE_TTY=1"; \
-	       echo "              if a request is already stuck: gpgconf --kill gpg-agent"; exit 1;; \
-	    esac; \
-	  fi; \
-	  if [ -z "$$GPG_TTY" ]; then \
-	    echo "    [--] tty      : GPG_TTY is not set, so a terminal pinentry has nowhere to draw (\"Inappropriate ioctl for device\")"; \
-	    echo "         fix: export GPG_TTY=\$$(tty)   (zsh sets it; a bash login -- Tailscale SSH falling back to /bin/sh -- does not: exec zsh -l)"; \
-	    exit 1; \
-	  elif [ ! -r "$$GPG_TTY" ] || [ ! -w "$$GPG_TTY" ]; then \
-	    echo "    [--] tty      : $$GPG_TTY is owned by $$(ls -l "$$GPG_TTY" | awk '{print $$3}'), so the pinentry cannot open it (\"Permission denied\")"; \
-	    echo "         fix: sudo chown $$USER $$GPG_TTY   (Tailscale SSH leaves its ptys owned by root; openssh does not)"; \
-	    exit 1; \
-	  fi; \
-	  echo "    signing a test message through the agent (may prompt for the passphrase)..."; \
-	  tmpdir=$${TMPDIR:-/tmp}; \
-	  if [ "$(flavor)" = "$(FLAVOR_TERMUX)" ] && [ -z "$${TMPDIR:-}" ]; then \
-	    tmpdir=$${PREFIX:-/data/data/com.termux/files/usr}/tmp; \
-	  fi; \
-	  errfile=$$(mktemp "$$tmpdir/check-gpg.XXXXXXXX") || { \
-	    echo "    [--] sign     : cannot create a temporary file in $$tmpdir"; exit 1; \
-	  }; \
-	  if echo "make check-gpg" | gpg --sign --local-user "$$key" -o /dev/null 2>"$$errfile"; then \
-	    echo "    [ok] sign     : works"; \
-	  else \
-	    echo "    [--] sign     : $$(tail -1 "$$errfile")"; \
-	    echo "         fix: see docs/GPG.md, \"Troubleshooting\""; \
-	    command rm -f "$$errfile"; exit 1; \
-	  fi; command rm -f "$$errfile"; \
-	else \
-	  echo "    [..] sign     : skipped (no terminal to prompt on; run make check-gpg from a shell)"; \
-	fi; \
-	echo "==> gpg signing OK"
+	@OS="$(os)" OS_MAC="$(OS_MAC)" FLAVOR="$(flavor)" FLAVOR_TERMUX="$(FLAVOR_TERMUX)" "$(CURDIR)/bin/check-gpg"
+
+check-gpg-tests:
+	@"$(CURDIR)/tests/gpg/check-gpg-smoke.sh"
 
 # Is the gpg-ssh-agent layer actually usable from THIS shell?  Walks the chain
 # a `git push' depends on, in order, and prints the fix at the first broken
@@ -1422,12 +1338,18 @@ check-gpg:
 # hour, so it would make `check' fail for reasons that are not config drift.
 # The socket test comes before any gpg-connect-agent call, because that
 # command autostarts an agent and this target must not have side effects.
-.PHONY: setup-bitbucket-ssh check-bitbucket-ssh check-ssh-with-gpg-for-egress
+.PHONY: setup-bitbucket-ssh check-bitbucket-ssh setup-github-ssh check-github-ssh check-ssh-with-gpg-for-egress
 setup-bitbucket-ssh:
 	@sh bin/setup-bitbucket-ssh
 
 check-bitbucket-ssh:
 	@sh tests/bitbucket-ssh-smoke.sh
+
+setup-github-ssh:
+	@sh bin/setup-github-ssh
+
+check-github-ssh:
+	@sh tests/github-ssh-smoke.sh
 
 check-ssh-with-gpg-for-egress:
 	@echo "==> gpg-agent as ssh agent"
@@ -2893,80 +2815,11 @@ else
 endif
 
 check-orbstack:
-	@echo "==> OrbStack container runtime"
-ifneq ("$(os)","$(OS_MAC)")
-	@echo "    skipped: mac-only (detected $(os))"
-else
-	@rc=0; \
-	if [ ! -x $(ORBSTACK_BIN) ]; then \
-	  rc=1; echo "    MISSING: $(ORBSTACK_BIN)"; \
-	else \
-	  echo "    CLI:     $(ORBSTACK_BIN)"; \
-	fi; \
-	if [ ! -f $(ORBSTACK_PLIST_DST) ]; then \
-	  rc=1; echo "    NOT DEPLOYED: $(ORBSTACK_PLIST_DST)"; \
-	elif ! diff -u $(ORBSTACK_PLIST_SRC) $(ORBSTACK_PLIST_DST) > /dev/null 2>&1; then \
-	  rc=1; echo "    DRIFT: deployed OrbStack LaunchAgent differs from the repo"; \
-	  diff -u $(ORBSTACK_PLIST_SRC) $(ORBSTACK_PLIST_DST) || true; \
-	elif launchctl print gui/$$(id -u)/$(ORBSTACK_LABEL) > /dev/null 2>&1; then \
-	  echo "    startup: $(ORBSTACK_LABEL) (in sync, loaded)"; \
-	else \
-	  rc=1; echo "    NOT LOADED: gui/$$(id -u)/$(ORBSTACK_LABEL)"; \
-	fi; \
-	if launchctl print gui/$$(id -u)/$(COLIMA_LABEL) > /dev/null 2>&1; then \
-	  rc=1; echo "    CONFLICT: $(COLIMA_LABEL) is still loaded"; \
-	elif [ ! -x "$(COLIMA_BIN)" ] && [ ! -d "$(HOME)/.colima" ] \
-	     && [ ! -d "$(HOME)/Library/Application Support/colima" ]; then \
-	  echo "    Colima:  not installed"; \
-	elif launchctl print-disabled gui/$$(id -u) 2>/dev/null \
-	     | grep -Eq '"$(COLIMA_LABEL)" => (true|disabled)'; then \
-	  echo "    Colima:  startup disabled"; \
-	else \
-	  rc=1; echo "    Colima:  not loaded, but not persistently disabled"; \
-	fi; \
-	colima_procs=$$(pgrep -fl '(/colima( |$$)|/limactl .*[/]\.colima[/])' 2>/dev/null || true); \
-	if [ -z "$$colima_procs" ]; then \
-	  echo "    process: no Colima/Lima helpers running"; \
-	else \
-	  rc=1; echo "    CONFLICT: Colima-related processes remain:"; \
-	  echo "$$colima_procs" | sed 's/^/              /'; \
-	fi; \
-	for label in $(DOCKER_DESKTOP_LABELS); do \
-	  if launchctl print system/$$label > /dev/null 2>&1; then \
-	    rc=1; echo "    CONFLICT: Docker Desktop helper $$label is loaded"; \
-	  elif launchctl print-disabled system 2>/dev/null \
-	       | grep -Eq "\"$$label\" => (true|disabled)"; then \
-	    echo "    Desktop: $$label disabled"; \
-	  else \
-	    rc=1; echo "    Desktop: $$label is not persistently disabled"; \
-	  fi; \
-	done; \
-	desktop_procs=$$(pgrep -fl '(/Applications/Docker.app/|/Library/PrivilegedHelperTools/com\.docker\.)' 2>/dev/null || true); \
-	if [ -z "$$desktop_procs" ]; then \
-	  echo "    process: no Docker Desktop helpers running"; \
-	else \
-	  rc=1; echo "    CONFLICT: Docker Desktop processes remain:"; \
-	  echo "$$desktop_procs" | sed 's/^/              /'; \
-	fi; \
-	cli=$$(readlink $(DOCKER_BIN) 2>/dev/null); \
-	case "$$cli" in \
-	  *OrbStack.app*) echo "    Docker:  $(DOCKER_BIN) -> $$cli" ;; \
-	  *) rc=1; echo "    WRONG CLI: $(DOCKER_BIN) -> $${cli:-not a symlink}" ;; \
-	esac; \
-	context=$$($(DOCKER_BIN) context show 2>/dev/null); \
-	if [ "$$context" = orbstack ]; then \
-	  echo "    context: orbstack"; \
-	else \
-	  rc=1; echo "    WRONG CONTEXT: $${context:-unavailable} (wanted orbstack)"; \
-	fi; \
-	server=$$($(DOCKER_BIN) version --format '{{.Server.Version}}' 2>/dev/null); \
-	if [ -n "$$server" ]; then \
-	  echo "    engine:  reachable (Docker $$server)"; \
-	else \
-	  rc=1; echo "    ENGINE DOWN: Docker server did not answer"; \
-	fi; \
-	exit $$rc
-endif
+	@OS="$(os)" OS_MAC="$(OS_MAC)" ORBSTACK_BIN="$(ORBSTACK_BIN)" ORBSTACK_LABEL="$(ORBSTACK_LABEL)" ORBSTACK_PLIST_SRC="$(ORBSTACK_PLIST_SRC)" ORBSTACK_PLIST_DST="$(ORBSTACK_PLIST_DST)" DOCKER_BIN="$(DOCKER_BIN)" COLIMA_LABEL="$(COLIMA_LABEL)" COLIMA_BIN="$(COLIMA_BIN)" DOCKER_DESKTOP_LABELS="$(DOCKER_DESKTOP_LABELS)" HOME="$(HOME)" "$(CURDIR)/bin/check-orbstack"
+
+.PHONY: check-orbstack-tests
+check-orbstack-tests:
+	@"$(CURDIR)/tests/orbstack/check-smoke.sh"
 
 # Tailscale, as a system daemon rather than a menu-bar app.
 #
@@ -3081,6 +2934,13 @@ else
 endif
 endif
 
+# bin/check-tailscale recurses into `$MAKE setup-tailscale' on Termux, so it
+# needs make's own path.  It goes through this variable because GNU make runs
+# any recipe line that spells $(MAKE) literally even under -n/-q/-t; through
+# the indirection `make -n check-tailscale' runs nothing on any host (the old
+# inline recipe's Termux line spelled $(MAKE), so there it ran under -n).
+CHECK_TAILSCALE_MAKE = $(MAKE)
+
 # Answers "is this machine actually on the tailnet, and will it still be after
 # a reboot?" -- which are different questions.  A running daemon that was
 # started by hand satisfies the first and not the second, so the deployed plist
@@ -3102,94 +2962,11 @@ endif
 # Tailscale would lowercase it.  (LocalHostName, not `uname -n': the latter is
 # MiniUs.local here, and the .local would never match.)
 check-tailscale:
-ifeq ($(flavor),$(FLAVOR_TERMUX))
-	@if ! command -v tailscale >/dev/null 2>&1; then $(MAKE) setup-tailscale || exit 1; fi
-	@sh bin/termux-tailscale check
-else
-	@echo "==> tailscaled system daemon"
-ifneq ("$(os)","$(OS_MAC)")
-	@echo "    skipped: mac-only (detected $(os))"
-else
-	@rc=0; \
-	prog=$$(sed -n 's|^[[:space:]]*<string>\(/.*tailscaled\)</string>.*|\1|p' $(TAILSCALED_PLIST_SRC) | head -1); \
-	if [ ! -x "$$prog" ]; then \
-	  rc=1; \
-	  echo "    MISSING: $$prog is not executable"; \
-	  echo "             (the plist hardcodes the Apple Silicon brew prefix;"; \
-	  echo "              an Intel Mac puts it under /usr/local)"; \
-	else \
-	  echo "    binary:  $$prog"; \
-	fi; \
-	for label in $(TAILSCALE_LABELS); do \
-	  src=system/launchd/$$label.plist; dst=/Library/LaunchDaemons/$$label.plist; \
-	  if [ ! -f $$dst ]; then \
-	    rc=1; echo "    NOT DEPLOYED: $$dst -- run 'make setup-tailscale'"; \
-	    continue; \
-	  fi; \
-	  if ! diff -u $$src $$dst > /dev/null 2>&1; then \
-	    rc=1; \
-	    echo "    DRIFT in $$label -- deployed copy and repo copy disagree:"; \
-	    diff -u $$src $$dst || true; \
-	    continue; \
-	  fi; \
-	  owner=$$(/usr/bin/stat -f '%Su:%Sg %Lp' $$dst); \
-	  case "$$owner" in \
-	    "root:wheel 644"|"root:wheel 600") ;; \
-	    *) rc=1; \
-	       echo "    BAD PERMS on $$label: $$owner"; \
-	       echo "               (launchd wants root:wheel, not group/world writable)"; \
-	       continue ;; \
-	  esac; \
-	  if launchctl print system/$$label > /dev/null 2>&1; then \
-	    echo "    daemon:  $$label (in sync, $$owner, loaded)"; \
-	  else \
-	    rc=1; echo "    NOT LOADED: launchctl has no system/$$label"; \
-	  fi; \
-	done; \
-	state=$$($(TAILSCALE_BIN) status --json 2>/dev/null \
-	         | sed -n 's/.*"BackendState": *"\([^"]*\)".*/\1/p' | head -1); \
-	case "$$state" in \
-	  Running) echo "    tailnet: Running" ;; \
-	  "")      rc=1; echo "    NO ANSWER from $(TAILSCALE_BIN) (daemon down, or socket path mismatch)" ;; \
-	  *)       rc=1; echo "    BackendState=$$state -- try: sudo $(TAILSCALE_BIN) up --advertise-exit-node" ;; \
-	esac; \
-	want=$$($(TAILSCALE_BIN) debug prefs 2>/dev/null \
-	        | sed -n 's/.*"Hostname": *"\([^"]*\)".*/\1/p' | head -1); \
-	[ -n "$$want" ] || want=$$(scutil --get LocalHostName 2>/dev/null | tr 'A-Z' 'a-z'); \
-	got=$$($(TAILSCALE_BIN) status --peers=false 2>/dev/null | awk 'NR==1{print $$2}'); \
-	if [ -z "$$got" ]; then \
-	  :; \
-	elif [ "$$got" = "$$want" ]; then \
-	  echo "    name:    $$got"; \
-	else \
-	  rc=1; \
-	  echo "    NAME DRIFT: registered as '$$got', wanted '$$want'"; \
-	  echo "                A node cannot claim a name another node still"; \
-	  echo "                holds, so the control plane appended -N.  Delete"; \
-	  echo "                the stale node in the admin console, then:"; \
-	  echo "                  sudo $(TAILSCALE_BIN) set --hostname=$$want"; \
-	fi; \
-	v4=$$(sysctl -n net.inet.ip.forwarding 2>/dev/null); \
-	v6=$$(sysctl -n net.inet6.ip6.forwarding 2>/dev/null); \
-	if [ "$$v4" = "1" ] && [ "$$v6" = "1" ]; then \
-	  echo "    forward: ipv4=1 ipv6=1"; \
-	else \
-	  rc=1; \
-	  echo "    IP FORWARDING OFF: ipv4=$$v4 ipv6=$$v6"; \
-	  echo "                Exit-node clients get silently dropped by the"; \
-	  echo "                kernel.  tailscaled warns about this but has no"; \
-	  echo "                code to set it on darwin, which is why"; \
-	  echo "                $(TAILSCALE_FWD_LABEL) exists.  Fix:"; \
-	  echo "                  make setup-tailscale"; \
-	fi; \
-	if /usr/sbin/scutil --nc list 2>/dev/null | grep -q '^\* (Connected).*io\.tailscale\.ipn\.macos'; then \
-	  rc=1; \
-	  echo "    CONFLICT: the App Store Tailscale is also connected"; \
-	  echo "              (two nodes, same hostname, fighting over routes)"; \
-	fi; \
-	exit $$rc
-endif
-endif
+	@OS="$(os)" OS_MAC="$(OS_MAC)" FLAVOR="$(flavor)" FLAVOR_TERMUX="$(FLAVOR_TERMUX)" MAKE="$(CHECK_TAILSCALE_MAKE)" TAILSCALED_PLIST_SRC="$(TAILSCALED_PLIST_SRC)" TAILSCALE_LABELS="$(TAILSCALE_LABELS)" TAILSCALE_BIN="$(TAILSCALE_BIN)" TAILSCALE_FWD_LABEL="$(TAILSCALE_FWD_LABEL)" "$(CURDIR)/bin/check-tailscale"
+
+.PHONY: check-tailscale-tests
+check-tailscale-tests:
+	@"$(CURDIR)/tests/tailscale/check-smoke.sh"
 
 # The aggregate check only reads state, including on Termux.
 .PHONY: check-tailscale-status
@@ -3496,121 +3273,11 @@ endif
 GUIX_ZSH_OWNED := .zshenv .config/zsh/.zshenv .config/zsh/.zshrc .config/zsh/.zprofile
 
 check-home-ownership:
-	@echo "==> \$$HOME dotfiles: Guix Home vs native symlinks"
-	@guix_home=0; [ -e "$$HOME/.guix-home" ] && guix_home=1; \
-	deployed=""; \
-	if [ $$guix_home -eq 1 ]; then \
-	  deployed="$$(cd "$$HOME/.guix-home/files/" 2>/dev/null && find . -mindepth 1 ! -type d | sed 's|^\./||')"; \
-	fi; \
-	claimed="$$( { printf '%s\n' $(GUIX_ZSH_OWNED) $$deployed; \
-	              grep -oE '`\("[^"]+"' home/common.scm | sed 's/^`("//; s/"$$//'; } | sort -u)"; \
-	dfroot="$$(cd "$(DOTFILES_HOME)" 2>/dev/null && pwd -P)"; \
-	[ -n "$$dfroot" ] || dfroot="/nonexistent"; \
-	conflicts=0; hazards=0; inactive=0; espanso_off=0; \
-	c1=""; c0=""; cd=""; \
-	if [ -t 1 ] && [ -z "$$NO_COLOR" ] && [ "$$TERM" != dumb ]; then \
-	  c1="$$(printf '\033[36m')"; c0="$$(printf '\033[0m')"; cd="$$(printf '\033[2m')"; \
-	fi; \
-	for p in $$claimed; do \
-	  t="$$HOME/$$p"; \
-	  anc=""; rest="$$p"; via=""; \
-	  while case "$$rest" in */*) true ;; *) false ;; esac; do \
-	    anc="$${anc:+$$anc/}$${rest%%/*}"; rest="$${rest#*/}"; \
-	    if [ -L "$$HOME/$$anc" ]; then via="$$anc"; break; fi; \
-	  done; \
-	  if [ -n "$$via" ]; then \
-	    printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: ~/$$via is a symlink -> $$(readlink "$$HOME/$$via")"; \
-	    hazards=1; continue; \
-	  fi; \
-	  if [ ! -e "$$t" ] && [ ! -L "$$t" ]; then \
-	    owner="absent"; \
-	    if [ $$guix_home -eq 1 ] && ! printf '%s\n' $$deployed | grep -qxF "$$p"; then \
-	      owner="absent -- OK: not part of this session"; inactive=1; \
-	      case "$$p" in .config/espanso/*) espanso_off=1 ;; esac; \
-	    fi; \
-	  elif [ -L "$$t" ]; then \
-	    dest="$$(readlink -f "$$t" 2>/dev/null)"; \
-	    case "$$dest" in \
-	      /gnu/store/*) owner="guix" ;; \
-	      "$$dfroot"/*) owner="native" ;; \
-	      *) owner="other -> $$dest" ;; \
-	    esac; \
-	  elif [ -d "$$t" ]; then \
-	    owner="real directory"; \
-	  else \
-	    owner="real file"; \
-	  fi; \
-	  case "$$owner" in \
-	    "real directory") \
-	      printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "HAZARD: real directory where guix wants a symlink"; \
-	      hazards=1 ;; \
-	    native|"real file") \
-	      if [ $$guix_home -eq 1 ]; then \
-	        printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "CONFLICT: $$owner, but Guix Home is active"; \
-	        conflicts=1; \
-	      else \
-	        printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner"; \
-	      fi ;; \
-	    absent*) printf '    %s%-47s %s%s\n' "$$cd" "$$p" "$$owner" "$$c0" ;; \
-	    *) printf '    %s%-47s%s %s\n' "$$c1" "$$p" "$$c0" "$$owner" ;; \
-	  esac; \
-	done; \
-	leftovers=0; \
-	if [ $$guix_home -eq 1 ]; then \
-	  claimed_words=" $$(printf '%s ' $$claimed)"; \
-	  for t in "$$HOME"/.[!.]* "$$HOME"/bin; do \
-	    [ -L "$$t" ] || continue; \
-	    n="$${t#$$HOME/}"; \
-	    case "$$(readlink -f "$$t" 2>/dev/null)" in "$$dfroot"/*) ;; *) continue ;; esac; \
-	    case "$$claimed_words" in *" $$n "*|*" $$n/"*) continue ;; esac; \
-	    printf '    %s%-47s%s %s\n' "$$c1" "$$n" "$$c0" "LEFTOVER: native link -> $$(readlink "$$t")"; \
-	    leftovers=1; \
-	  done; \
-	fi; \
-	if [ $$guix_home -eq 0 ]; then \
-	  echo "    (no ~/.guix-home: no home generation active, so native ownership is expected)"; \
-	fi; \
-	if [ $$inactive -eq 1 ]; then \
-	  echo ""; \
-	  echo "    \"absent -- OK\" = home/common.scm declares the path, but the ACTIVE generation"; \
-	  echo "    does not deploy it: its layer is switched off for this session (the apply"; \
-	  echo "    output says which, as \"inactive (unmet session facts)\").  Wanted, not broken."; \
-	  if [ $$espanso_off -eq 1 ] && [ "$(flavor)" = wsl ]; then \
-	    echo "    espanso in particular: this is guix inside WSL, and we want it this way --"; \
-	    echo "    a Linux espanso cannot see keystrokes typed into Windows apps, so espanso"; \
-	    echo "    runs on the WINDOWS side, reading the same config out of Proton Drive."; \
-	    echo "    See: make check-espanso-windows"; \
-	  fi; \
-	fi; \
-	if [ $$hazards -eq 1 ]; then \
-	  echo ""; \
-	  echo "    HAZARD = \`guix home reconfigure' will do damage or abort half-done here."; \
-	  echo "      symlinked ancestor: guix walks THROUGH it and replaces the files on the"; \
-	  echo "        far side (your git repo) with store symlinks.  Fix: rm the symlink --"; \
-	  echo "        only the link; guix then makes a real directory in its place."; \
-	  echo "      real directory: guix backs up with copy-file, which cannot copy a"; \
-	  echo "        directory (\"sendfile: Is a directory\").  Fix: mv it aside, e.g. to"; \
-	  echo "        <name>.native_BAK, and move any contents you need back afterwards."; \
-	fi; \
-	if [ $$conflicts -eq 1 ]; then \
-	  echo ""; \
-	  echo "    CONFLICT = claimed by Guix Home but currently something else, so Guix Home"; \
-	  echo "    will not see your repo edits for it.  Run: make apply  (guix backs up a"; \
-	  echo "    colliding FILE by itself, into ~/<timestamp>-guix-home-legacy-configs-backup)."; \
-	fi; \
-	if [ $$leftovers -eq 1 ]; then \
-	  echo ""; \
-	  echo "    LEFTOVER = a native-setup link into this repo that Guix Home does not"; \
-	  echo "    claim, so no apply will ever remove it.  Dead weight at best; at worst"; \
-	  echo "    something still reads it LIVE beside the deployed snapshot (a leftover"; \
-	  echo "    ~/.shared.zshenv runs .shared.zshenv twice).  Fix: rm the link -- only"; \
-	  echo "    the link; the file in the repo is untouched."; \
-	fi; \
-	if [ -n "$(PREFLIGHT)" ]; then \
-	  [ $$hazards -eq 0 ]; \
-	elif [ $$guix_home -eq 1 ]; then \
-	  [ $$hazards -eq 0 ] && [ $$conflicts -eq 0 ] && [ $$leftovers -eq 0 ]; \
-	fi
+	@GUIX_ZSH_OWNED="$(GUIX_ZSH_OWNED)" DOTFILES_HOME="$(DOTFILES_HOME)" FLAVOR="$(flavor)" PREFLIGHT="$(PREFLIGHT)" "$(CURDIR)/bin/check-home-ownership"
+
+.PHONY: check-home-ownership-tests
+check-home-ownership-tests:
+	@"$(CURDIR)/tests/home/ownership-smoke.sh"
 
 # check-protondrive earns its place here for the same reason check-tailscale
 # does: it only probes.  `winget list' and a few [ -d ] tests read state and
