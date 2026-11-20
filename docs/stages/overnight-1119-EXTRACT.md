@@ -102,3 +102,27 @@ Block if: item 5's abandon criterion triggers; the recipe depends on a make
 variable whose value cannot be passed as a string (a `$(shell …)` evaluated per
 call, a `define` block, a function); or equivalence fails for a reason other than
 a `[[` rewrite.
+
+## Correction (2026-11-20, measured on orb-guix)
+
+The Motivation above says recipes run under `dash` on this host, so the 14
+recipe lines using `[[` fail with `[[: not found` and are silently skipped. That
+was taken from the geeeks problem stack entry and not measured before this file
+was committed. It is wrong for this host's `make`:
+
+- `readlink -f /bin/sh` → `/usr/bin/dash`
+- `make -pn check-orbstack | grep '^SHELL'` →
+  `SHELL = /gnu/store/9yxvjn1xmam6anm3h7i0kpwhnyzlrjhm-bash-minimal-5.2.37/bin/sh`
+- `printf 'x:\n\t@[[ a == a ]] && echo bracket-ok\n' | make -f - x` → `bracket-ok`, exit 0
+
+Guix's GNU make uses its own `bash-minimal` as `SHELL`, not `/bin/sh`, so `[[`
+works inside recipes here. First reported by the stage 25 executor (its OQ2) and
+confirmed independently by the coordinator and the stage 25 reviewer. Whether a
+non-Guix `make` on a `dash` host (plain Debian, for instance) shows the bug is
+not measured.
+
+What this changes: the "live bug" is not live under Guix make, so it is not an
+argument for the extraction on Guix hosts. What it does not change: the
+extracted scripts are `#!/bin/sh` and DO run under `dash` here, which is why
+each one is shellcheck-clean and compared against its recipe's output. None of
+the four recipes extracted in stages 22–25 contained `[[`.

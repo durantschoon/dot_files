@@ -255,3 +255,65 @@ Before generation, reconcile the historical Discovered gates section above with
 the current Makefile and the plan's verification contracts: the repository now has
 job-runner and submodule test suites. Preserve earlier reports as historical
 evidence and measure a fresh baseline for this work.
+
+## Resumed 2026-11-19: overnight batch, stages 17–26
+
+The pause at stage 16 ended with a ten-stage batch run in parallel on the
+integration branch `overnight-1119` by an unattended coordinator, on the
+`orb-guix` container. Shared rules for the batch are in
+[overnight-1119-COMMON.md](overnight-1119-COMMON.md) and, for the four `check-*`
+extractions, [overnight-1119-EXTRACT.md](overnight-1119-EXTRACT.md). This batch
+is NOT the module-extraction sequence that `docs/MODULE_EXTRACTION_PLAN.md`
+reserves "stage 17" for in prose; that plan's stage numbers are still to be
+assigned when its charter interview happens.
+
+### Added at the stage 20 retro (reports 17–25)
+
+Stage 20 was a retro trigger, but the batch launched in parallel, so the retro
+ran after the reports landed and covers 17–25 (26 was still executing).
+
+- **`worktree.baseRef` is unset on orb-guix, so every worktree arrives wrong.**
+  Ten of ten executors started on `ae4857d` (`origin/master`) and had to
+  `git reset --hard` to the base. The stage 15 retro recorded `baseRef=head` as
+  the fix; that setting lives per machine and was never made here. The
+  verify-then-reset first action caught all ten. Setting it is a user decision.
+- **A REPORT that quotes a Makefile recipe fails `git diff --check`.** Stages 19,
+  22, 23, 24 and 25 each committed, failed G2 on a TAB-indented recipe line inside
+  the report's own code block, and amended. Prompts that ask for a recipe in the
+  report now say: put it in a fenced block at column 0 with no leading spaces
+  before the TAB, and run `git diff --check` before the first commit.
+- **"One report-only amend" was broken twice (19: three amends; 22: the amend
+  also fixed a test fixture).** Both happened before the single push and both were
+  disclosed. The rule that matters is "never after the push, and say what the
+  amend carried"; the count is not worth policing. A non-report change found
+  after the evidence run means re-running the evidence, which stage 22 did.
+- **Three prompt premises were false, all caught by executors measuring.**
+  Stage 17: 33 scripts / 11 warnings (measured 31 / 9 — the coordinator's count
+  ran in a pipeline subshell and used a looser shebang match). Stage 25: "this
+  host takes the orbstack branch" (the recipe keys on `os`, which is `linux`).
+  EXTRACT: "recipes run under dash here" (Guix make uses bash-minimal; see that
+  file's Correction). The rule already exists — measured facts over guesses —
+  and the coordinator broke it by copying a claim from the problem stack without
+  running the probe. A number or a host fact in a prompt comes with the command
+  that produced it, run on the stage's host.
+- **`make check-jobs` proves little on orb-guix.** `smoke.zsh` stops at its first
+  tmux-server assertion (4a: `server exited unexpectedly`), so 72 assertions run
+  and everything after is unreached; `podman-live.zsh` skips whole; `claude-smoke`
+  fails 111 of 164 on the unmodified base. Stage 18's reading, unconfirmed
+  because it was not granted a tmux probe: the tmux binary is the aarch64 Guix
+  build in an x86_64 (Rosetta) userland. Until that is fixed, a stage whose
+  evidence is the job suites names the Mac as its host.
+- **Parallel stages that all want the Makefile: split the script from the
+  wiring.** Stages 19 and 22–25 delivered a script and a test and listed the
+  exact Makefile lines under Open questions; one later stage adds them all.
+  Nine stages ran at once with one Makefile writer and no merge conflict between
+  them. The cost is a window where a recipe and its extracted script must agree,
+  covered by an equivalence diff per stage.
+- **The harness refused some compound git commands and `git config
+  core.hooksPath` in scratch clones** (stages 17, 19, 21, 23). Executors worked
+  around it by running commands separately and by copying the hook into
+  `.git/hooks`. Prompts should not prescribe either form.
+- **`main` moved under the batch.** Two commits landed on `main` from another
+  session while the batch ran (`4a27c9c`, `f692f69`), one of them editing the
+  same `check:` line as stage 17. The integration-branch rule kept that to one
+  inspected merge instead of a race.
