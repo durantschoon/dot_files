@@ -357,7 +357,10 @@ for sh in $shells; do
         conversation "$tmp/in" "$d"
         run "$sh" "$awk" "$wrapper" "$tmp/in" >/dev/null
         same "$tag PINENTRY_USER_DATA unset: pinentry-mac" pinentry-mac "$(cat "$tmp/which")"
-        FAKE_USE_TTY=1 run "$sh" "$awk" "$wrapper" "$tmp/in" >/dev/null
+        # A subshell: macOS /bin/sh (bash 3.2, POSIX mode) keeps a `VAR=x func`
+        # assignment after the function returns, which would select
+        # pinentry-curses for every later shell in this loop.
+        (FAKE_USE_TTY=1 run "$sh" "$awk" "$wrapper" "$tmp/in") >/dev/null
         same "$tag PINENTRY_USER_DATA=USE_TTY=1: pinentry-curses" pinentry-curses "$(cat "$tmp/which")"
     done
 done

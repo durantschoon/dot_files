@@ -257,12 +257,15 @@ if [ -n "$can_detach" ]; then
         "$(head -n 1 "$tmp/gpg.err")"
 fi
 
-STUB_STATUS=5 run_gpg 0x6A2DAE7008D4F938 --status-fd=2 -bsau 0x6A2DAE7008D4F938
+# Subshells: macOS /bin/sh (bash 3.2, POSIX mode) keeps a `VAR=x func`
+# assignment after the function returns, so STUB_STATUS=5 would fail the
+# warm-cache run below.  run_gpg reports through files, so nothing is lost.
+(STUB_STATUS=5 run_gpg 0x6A2DAE7008D4F938 --status-fd=2 -bsau 0x6A2DAE7008D4F938)
 same "container-gpg: real gpg's failing status returned" 5 "$(cat "$tmp/gpg.rc")"
 same "container-gpg: failing gpg still got the original arguments" \
     "$(args_of --status-fd=2 -bsau 0x6A2DAE7008D4F938)" "$(cat "$tmp/sign.args")"
 
-STUB_CACHED=1 run_gpg 0x6A2DAE7008D4F938 -bsau 0x6A2DAE7008D4F938
+(STUB_CACHED=1 run_gpg 0x6A2DAE7008D4F938 -bsau 0x6A2DAE7008D4F938)
 same "container-gpg: warm cache prints no note" "" "$(cat "$tmp/gpg.err")"
 
 run_gpg 0x6A2DAE7008D4F938 --verify sig.asc -

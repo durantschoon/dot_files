@@ -190,7 +190,7 @@ print -r -- '#!/bin/sh
 [ "$1" = --version ] && { echo "0.74.3 (smoke stub)"; exit 0; }
 echo "smoke: the real fzf must never run -- use the fzf shell function" >&2
 exit 127' > "$FZFBIN/fzf"
-chmod +x -- "$FZFBIN/fzf" || exit 1
+chmod +x "$FZFBIN/fzf" || exit 1         # BSD chmod has no `--'
 
 export PATH=$WT/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$SYSBIN:$ENGINEBIN:$FZFBIN
 export SHELL=/bin/sh                      # deterministic pane shell
