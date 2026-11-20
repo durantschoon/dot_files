@@ -1,0 +1,9 @@
+# Ghostty config, linked to ~/.config/ghostty/config by `make setup-native-links`.
+#
+# ssh-env: when ssh starts from a Ghostty shell, send TERM=xterm-256color
+# instead of xterm-ghostty.  Most remote hosts (geeeks, the Guix machines) have
+# no terminfo entry for xterm-ghostty, and without one zsh cannot place the
+# cursor on the right, so it silently drops the whole right prompt (host,
+# history number, time).  Found 2026-11-20 on geeeks; problem stack ps-4s3y.
+# Features not named here keep their defaults.
+shell-integration-features = ssh-env
