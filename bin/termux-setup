@@ -38,7 +38,7 @@ DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 if command -v pkg >/dev/null 2>&1; then
     echo "==> Updating pkg and installing packages..."
     pkg update -y
-    pkg install -y openssh zsh git tmux fzf curl wget file make mg coreutils python
+    pkg install -y openssh zsh git tmux fzf curl wget file make mg coreutils python shellcheck
     pkg install -y cmake myrepos fastfetch starship gnupg termux-services || true
 
     if command -v python3 >/dev/null 2>&1; then

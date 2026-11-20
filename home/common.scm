@@ -640,6 +640,7 @@ socket alone, which any Linux X session has."
     "zsh"
     "starship"
     "grep"
+    "shellcheck"
     "python" ; Python 3, including the python3 executable.
     "ripgrep"
     "fd"

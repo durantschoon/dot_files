@@ -493,6 +493,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
     alias mcd='pushd ~/Repos/ds/media-announce; make calendar-drain; popd'
     alias oemacs='open -a /Applications/Emacs.app'
     alias ssh_fingerprint='ssh-keygen -E SHA256 -lf'
+    alias up-all-night='caffeinate -t 28800'
 
     alias backup='cd ~/DuroData/MacOS/UsersOLD/backup/rsync_mac/backup; \
         # echo "if compaudit errors, run yes | sudo /usr/..."'
