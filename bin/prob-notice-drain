@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""prob-notice-drain -- deliver problem-stack notices into an agent's context.
+
+A UserPromptSubmit hook. Reads Claude Code's hook JSON on stdin, looks for
+notices in central-command's logs/prob-notices/ addressed to THIS session, and
+prints them as additionalContext so the agent sees them on its next turn.
+
+WHY THIS EXISTS. When one session steals an entry off another session's problem
+stack, it renumbers entries the other agent is holding in context. There is no
+way to reach a running agent directly: writing to its tty paints the terminal
+screen and never enters its stdin, TIOCSTI is a privilege-escalation primitive
+and disabled on these machines, and tmux send-keys needs a pane the agent may
+not have. On 2026-11-20 a session had run 15h31m in a bare terminal and the
+human had to carry the message by hand. A hook is the one channel that reaches
+the agent itself, which is why the delivery happens here and not in a skill.
+
+READ-MOSTLY. It never edits or deletes a notice -- the record that a message
+was sent is the point. Its only write is an empty marker under .seen/, so a
+notice is injected ONCE per session instead of on every prompt.
+
+SILENCE IS THE COMMON CASE. No notices, no central-command, no session id,
+malformed JSON: print nothing and exit 0. A hook that chatters on every prompt
+gets turned off, and a hook that fails loudly breaks every prompt.
+"""
+
+import json
+import os
+import sys
+
+# Same resolution order as the prob-push skill: the repo may be renamed from
+# media-announce to central-command (an open decision in its own DECISIONS.md),
+# so never hardcode one. This is also why the script lives in dot_files/bin
+# rather than in central-command itself -- dot_files' path is stable.
+CENTRAL_CANDIDATES = (
+    "~/Repos/ds/central-command",
+    "~/Repos/ds/media-announce",
+)
+
+
+def central_repo():
+    """The first candidate that is a git repo, or None."""
+    for path in CENTRAL_CANDIDATES:
+        expanded = os.path.expanduser(path)
+        if os.path.isdir(os.path.join(expanded, ".git")):
+            return expanded
+    return None
+
+
+def session_id():
+    """The session id from the hook payload, or None if unreadable."""
+    try:
+        return (json.load(sys.stdin) or {}).get("session_id") or None
+    except Exception:
+        return None
+
+
+def pending_notices(notice_dir, seen_dir, session):
+    """(path, notice) pairs addressed to `session` that it has not been shown."""
+    try:
+        names = sorted(os.listdir(notice_dir))
+    except OSError:
+        return []
+
+    out = []
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        if os.path.exists(os.path.join(seen_dir, f"{session}-{name}")):
+            continue
+        path = os.path.join(notice_dir, name)
+        try:
+            with open(path) as fh:
+                notice = json.load(fh)
+        except Exception:
+            continue  # a half-written notice is not worth breaking a prompt over
+        if notice.get("to_session") == session:
+            out.append((path, notice))
+    return out
+
+
+def render(notices):
+    """One block of prose for the agent, naming what moved and what to re-read."""
+    lines = [
+        "PROBLEM-STACK NOTICE -- another session changed a stack you are holding.",
+        "",
+    ]
+    for notice in notices:
+        at = notice.get("at", "unknown time")
+        frm = (notice.get("from_session") or "?")[:8]
+        lines.append(f"[{at}] from session {frm} ({notice.get('op', 'notice')}):")
+        text = notice.get("text")
+        if text:
+            lines.append(f"  {text}")
+        for moved in notice.get("renumbered") or []:
+            lines.append(
+                f"  {moved.get('slug', '?')}: {moved.get('from', '?')}"
+                f" -> {moved.get('to', '?')}"
+            )
+        lines.append("")
+    lines += [
+        "Your cached numbering may be stale. Address entries by ps-xxxx slug, "
+        "and RE-READ docs/problem-stack/<hostname>.md before any prob-* "
+        "operation -- treat this notice as history, not as current state.",
+    ]
+    return "\n".join(lines)
+
+
+def mark_seen(seen_dir, session, paths):
+    """Record delivery, so the same notice is not injected on every prompt."""
+    try:
+        os.makedirs(seen_dir, exist_ok=True)
+        for path in paths:
+            name = os.path.basename(path)
+            open(os.path.join(seen_dir, f"{session}-{name}"), "a").close()
+    except OSError:
+        pass  # failing to mark means a repeat, which beats failing the prompt
+
+
+def main():
+    session = session_id()
+    central = central_repo()
+    if not session or not central:
+        return 0
+
+    notice_dir = os.path.join(central, "logs", "prob-notices")
+    seen_dir = os.path.join(notice_dir, ".seen")
+    pending = pending_notices(notice_dir, seen_dir, session)
+    if not pending:
+        return 0
+
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": render([n for _, n in pending]),
+                },
+                "suppressOutput": True,
+            }
+        )
+    )
+    mark_seen(seen_dir, session, [p for p, _ in pending])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
