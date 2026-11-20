@@ -408,46 +408,12 @@ fi
 # Assertion plumbing: one ok/FAIL line each, stop at the first failure
 # --------------------------------------------------------------------------
 
-typeset -g N_OK=0
-typeset -g N_SKIP=0
-ok()   { (( N_OK++ )); print -r -- "ok   $1" }
-note() { print -r -- "     note: $1" }
-# A skipped assertion is counted and named, never silent and never an `ok':
-# the closing line reports run and skipped separately, so "it passed here" and
-# "it could not be asked here" stay two different facts.
-skip() { (( N_SKIP++ )); print -r -- "SKIP $1  -- $2" }
-skip_all() { local why=$1 m; for m in "${@:2}"; do skip "$m" "$why"; done }
+# ok note skip skip_all fail eq eqlit has hasnt haslit hasntlit starts ends
+# nonzero (and more) live in lib.zsh, next to this file; this suite uses the
+# glob-shaped eq and starts.
+source "${0:A:h}/lib.zsh" || { print -u2 "smoke: sourcing ${0:A:h}/lib.zsh failed"; exit 1 }
 # The real engine, by absolute path, whatever $PATH currently says.
 rctr() { command "$REAL_CTR_BIN" "$@" }
-fail() {
-  print -r -- "FAIL $1"
-  local l; for l in "${@:2}"; do print -r -- "     $l"; done
-  exit 1
-}
-eq()  { [[ $2 == $3 ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
-# eq's right-hand side is a zsh PATTERN, which is what most assertions here
-# want. It is exactly wrong for the record round trip, where the expected
-# value is deliberately full of backslashes: `back\slash' as a pattern means
-# the five letters "backslash". Quoting the right-hand side makes it literal.
-eqlit() { [[ $2 == "$3" ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
-has() { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
-hasnt() { [[ $2 != *$3* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
-# The literal pair, for the same reason eqlit exists. A picker key is
-# "host|name" and an fzf binding is "ctrl-r:reload(...)": `|' is alternation in
-# a zsh pattern and `(' opens a group, so `*local|x*' and `*reload(*' do not
-# mean what they read as. These two quote the needle instead.
-haslit()   { [[ $2 == *"$3"* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
-hasntlit() { [[ $2 != *"$3"* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
-starts() { [[ $2 == $3* ]] && ok "$1" || fail "$1" "expected to start with: [$3]" "actual: [$2]" }
-# The other end, quoted: a row's status is appended to its label, so "ends
-# with" is the whole claim -- and it has to be spelled as an anchored pattern
-# with a LITERAL needle, because a `*...' handed to eq would not work. Measured
-# (zsh 5.9): a pattern that arrives through a parameter is matched literally
-# unless it goes through ${~...}, so eq's right-hand side is a literal string
-# whatever its comment above says.
-ends() { [[ $2 == *"$3" ]] && ok "$1" || fail "$1" "expected to end with: [$3]" "actual: [$2]" }
-# Non-zero exit, whatever the value: several new paths only promise "not 0".
-nonzero() { (( $2 != 0 )) && ok "$1 (rc=$2)" || fail "$1" "expected a non-zero exit, got 0" "${@:3}" }
 # poll CMD... until it succeeds, up to 10s in 0.5s steps (pane shells are slow).
 waitfor() { local i; for i in {1..20}; do "$@" >/dev/null 2>&1 && return 0; sleep 0.5; done; return 1 }
 

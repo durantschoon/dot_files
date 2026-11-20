@@ -192,29 +192,9 @@ trap 'live_on_signal PIPE' PIPE
 # Assertion plumbing: one ok/FAIL line each, stop at the first failure
 # --------------------------------------------------------------------------
 
-typeset -g N_OK=0
-typeset -g N_SKIP=0
-ok()   { (( N_OK++ )); print -r -- "ok   $1" }
-# Same shape and format as smoke.zsh / tee-smoke.zsh: a skip is a MEASURED host
-# limitation with the measurement in its reason, counted separately so the total
-# stays fixed and a section cannot vanish from it silently. (The whole-script
-# preflight SKIP above is different: nothing ran at all, so there is no total.)
-skip() { (( N_SKIP++ )); print -r -- "SKIP $1  -- $2" }
-note() { print -r -- "     note: $1" }
-fail() {
-  print -r -- "FAIL $1"
-  local l; for l in "${@:2}"; do print -r -- "     $l"; done
-  exit 1
-}
-# eq's right-hand side is a zsh PATTERN; eqlit's is literal, which is what the
-# assertions comparing image references and paths want.
-eq()    { [[ $2 == $3   ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
-eqlit() { [[ $2 == "$3" ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
-has()   { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
-# Exit-status assertions carry the command's own output into the failure report:
-# an engine that refused says why on stderr, and that sentence is the finding.
-rc0()  { (( $2 == 0 )) && ok "$1" || fail "$1" "expected exit 0, got $2" "${@:3}" }
-rceq() { [[ $2 == $3 ]] && ok "$1" || fail "$1" "expected exit $3, got $2" "${@:4}" }
+# ok skip note fail eq eqlit has rc0 rceq (and more) live in lib.zsh, next to
+# this file; this suite uses the glob-shaped eq beside the literal eqlit.
+source "${0:A:h}/lib.zsh" || { print -u2 "podman-live: sourcing ${0:A:h}/lib.zsh failed"; exit 1 }
 
 # Every wait here is bounded and every bound is stated: a live engine is slower
 # than a fake but it is not slow, and a test that hangs is a test nobody runs.

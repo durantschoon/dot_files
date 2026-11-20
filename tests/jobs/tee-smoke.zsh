@@ -137,38 +137,14 @@ trap 'tee_on_signal PIPE' PIPE
 # Assertion plumbing: one ok/FAIL line each, stop at the first failure
 # --------------------------------------------------------------------------
 
-typeset -g N_OK=0
-typeset -g N_SKIP=0
-ok()   { (( N_OK++ )); print -r -- "ok   $1" }
-note() { print -r -- "     note: $1" }
-# Same shape and same output format as smoke.zsh:252, so the three suites'
-# lines are greppable together. A skip is a MEASURED host limitation with the
-# measurement in its reason -- never a way to make an unknown look like a pass.
-skip() { (( N_SKIP++ )); print -r -- "SKIP $1  -- $2" }
-fail() {
-  print -r -- "FAIL $1"
-  local l; for l in "${@:2}"; do print -r -- "     $l"; done
-  exit 1
-}
-eq()    { [[ $2 == "$3" ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [$2]" }
-has()   { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
-# Prefix by slicing rather than by a `$2 == $3*' glob: zsh does not re-read the
-# result of a parameter expansion as a pattern (no_glob_subst is the default),
-# so a pattern arriving through "$3" would be compared literally and an
-# assertion written that way would fail for the wrong reason. Measured while
-# writing this file -- `[[ $a == $b ]]' with b='...at *' does NOT match.
-starts() { [[ ${2[1,${#3}]} == "$3" ]] && ok "$1" || fail "$1" "expected to start with: [$3]" "actual: [$2]" }
-rc0()   { (( $2 == 0 )) && ok "$1" || fail "$1" "expected exit 0, got $2" "${@:3}" }
-rceq()  { [[ $2 == $3 ]] && ok "$1" || fail "$1" "expected exit $3, got $2" "${@:4}" }
-# A closed interval, for the one assertion that is about a duration: an
-# escalation that fired too early did not give the command its grace, and one
-# that fired too late spent budget that belongs to the engine's stop timeout.
-# Both bounds are therefore real failures, not slack.
-within() {
-  (( $2 >= $3 && $2 <= $4 )) && ok "$1" \
-    || fail "$1" "expected: $(printf '%.2f <= x <= %.2f' $3 $4)" \
-                 "actual:   $(printf '%.2f' $2)"
-}
+# ok note skip fail has rc0 rceq within (and more) live in lib.zsh, next to
+# this file.
+source "${0:A:h}/lib.zsh" || { print -u2 "tee-smoke: sourcing ${0:A:h}/lib.zsh failed"; exit 1 }
+# This suite's eq and starts were always the LITERAL ones -- a quoted
+# right-hand side, and a prefix by slicing rather than by a `$2 == $3*' glob --
+# so its call sites keep that meaning under the names they were written with.
+eq()     { eqlit "$@" }
+starts() { startslit "$@" }
 
 logtext()  { command cat -- "$LOGS/$1.latest.log" 2>/dev/null }
 log_has()  { command grep -q -- "$2" "$LOGS/$1.latest.log" 2>/dev/null }
