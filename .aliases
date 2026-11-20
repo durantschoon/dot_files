@@ -866,6 +866,16 @@ if [ -n "$ZSH_VERSION" ]; then
         make --no-print-directory -C ~/dot_files "$@"
     }
 
+    # Complete dfmake exactly like `make' run inside ~/dot_files: rewrite the
+    # command line to `make -C ~/dot_files ...' and hand it to zsh's own
+    # _make, which already reads targets and variables from the -C directory.
+    _dfmake() {
+        words=(make -C ~/dot_files "${(@)words[2,-1]}")
+        (( CURRENT += 2 ))
+        _make
+    }
+    (( $+functions[compdef] )) && compdef _dfmake dfmake
+
     # Guix Home: reconfigure dotfiles, then re-source so the new generation's
     # dotfiles are live in this shell rather than only in the next one.
     dot-apply() {
