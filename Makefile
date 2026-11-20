@@ -778,6 +778,9 @@ endif
 	$(CURDIR)/bin/codex-defaults
 	@# Worktree-cleanup grants.  Same merge the Guix activation runs.
 	$(CURDIR)/bin/agent-permissions
+	@# Ghostty config: ssh sends a TERM every remote host knows (see the file)
+	@mkdir -p ~/.config/ghostty
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/ghostty/config ~/.config/ghostty/config
 	@# Yazi keymap config
 	@mkdir -p ~/.config/yazi
 	@if [ -f ~/dot_files/yazi/keymap.toml ]; then \
