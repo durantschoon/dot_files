@@ -1,0 +1,91 @@
+#!/bin/sh
+# Ensure this user's GitHub SSH Host blocks exist, without network access.
+set -eu
+umask 077
+mkdir -p "$HOME/.ssh"
+
+# .gitmodules and bin/register-machine use the plain git@github.com: host;
+# the dot_files remote uses the github.com-ds alias. Both need the ds key.
+# An absent config is created empty (mode 600 from the umask), never backed up.
+config="$HOME/.ssh/config"
+created=0
+if [ ! -e "$config" ]; then
+    : > "$config"
+    created=1
+fi
+
+# Find explicit Host blocks for either name; ssh keeps the first value seen.
+# Match ends a Host block; Include files and wildcard Hosts are not inspected.
+# Existing blocks are never edited, only compared and reported on stdout.
+report=$(awk '
+    BEGIN {
+        n = split("hostname user identityfile identitiesonly addkeystoagent", keys, " ")
+        want["hostname"] = "github.com"; want["user"] = "git"
+        want["identityfile"] = "~/.ssh/id_ed25519_ds"
+        want["identitiesonly"] = "yes"; want["addkeystoagent"] = "yes"
+        name["hostname"] = "HostName"; name["user"] = "User"
+        name["identityfile"] = "IdentityFile"
+        name["identitiesonly"] = "IdentitiesOnly"; name["addkeystoagent"] = "AddKeysToAgent"
+    }
+    {
+        line = $0; sub(/^[ \t]+/, "", line)
+        if (line == "" || line ~ /^#/) next
+        key = line; sub(/[ \t=].*/, "", key); key = tolower(key)
+        val = line; sub(/^[^ \t=]+[ \t]*=?[ \t]*/, "", val); sub(/[ \t]+$/, "", val)
+    }
+    key == "include" { include = 1 }
+    key == "host" || key == "match" { plain = 0; alias = 0 }
+    key == "host" {
+        np = split(val, pats, /[ \t]+/)
+        for (i = 1; i <= np && pats[i] !~ /^#/; i++) {
+            if (tolower(pats[i]) == "github.com") { plain = 1; seen["github.com"] = 1 }
+            if (tolower(pats[i]) == "github.com-ds") { alias = 1; seen["github.com-ds"] = 1 }
+        }
+        next
+    }
+    plain && !(("github.com", key) in got) { got["github.com", key] = val }
+    alias && !(("github.com-ds", key) in got) { got["github.com-ds", key] = val }
+    END {
+        split("github.com-ds github.com", hosts, " ")
+        for (j = 1; j <= 2; j++) {
+            h = hosts[j]
+            if (!(h in seen)) continue
+            print "have " h
+            for (k = 1; k <= n; k++) {
+                kk = keys[k]
+                have = ((h, kk) in got) ? got[h, kk] : ""
+                same = (kk == "identityfile") ? have == want[kk] : tolower(have) == want[kk]
+                if (!same)
+                    printf "Host %s left alone: %s is %s, expected %s\n", h, name[kk],
+                        (have == "" ? "unset" : have), want[kk]
+            }
+        }
+        if (include) print "Include directives present; included files were not inspected."
+    }
+' "$config")
+if [ -n "$report" ]; then
+    printf '%s\n' "$report" | grep -v '^have ' || true
+fi
+
+# Append only the missing blocks, after everything already in the file.
+# Write through any existing symlink, retaining its target and permissions.
+tmp=$(mktemp "$HOME/.ssh/github-config.XXXXXX")
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+cat "$config" > "$tmp"
+for host in github.com-ds github.com; do
+    if printf '%s\n' "$report" | grep -qxF "have $host"; then
+        continue
+    fi
+    if [ -s "$tmp" ]; then
+        [ -z "$(tail -c 1 "$tmp")" ] || printf '\n' >> "$tmp"
+        printf '\n' >> "$tmp"
+    fi
+    printf 'Host %s\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_ed25519_ds\n  IdentitiesOnly yes\n  AddKeysToAgent yes\n' \
+        "$host" >> "$tmp"
+    echo "Added Host $host to $config"
+done
+if ! cmp -s "$config" "$tmp"; then
+    [ "$created" = 1 ] || cp -p "$config" "$config.before-github-ssh"
+    cat "$tmp" > "$config"
+fi
+echo 'GitHub SSH Host blocks for github.com and github.com-ds are present.'

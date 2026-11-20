@@ -86,7 +86,9 @@ else
         note 'github ssh' 'ok'
     else
         note 'github ssh' 'MISSING git@github.com:durantschoon/dot_files.git'
-        note ' ' 'The dot_files remote uses Host github.com-ds in ~/.ssh/config'
+        note ' ' 'Check the plain Host github.com block in ~/.ssh/config first:'
+        note ' ' '.gitmodules and this probe use it. Then Host github.com-ds.'
+        note ' ' 'sh bin/setup-github-ssh adds whichever block is missing'
     fi
 fi
 
