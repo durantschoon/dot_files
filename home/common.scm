@@ -78,6 +78,7 @@
              (guix gexp)
              (ice-9 format)
              (ice-9 ftw)               ;scandir -- for %claude-skill-entries
+             (ice-9 rdelim)            ;read-line -- for orbstack-kernel?
              (srfi srfi-1)
              (srfi srfi-9))
 
@@ -398,6 +399,11 @@ field below follows this file's convention of not importing
 ;;                        likely #t (Smithay implements it) -- but leave #f
 ;;                        until proven, because a wrong #t re-breaks expansion
 ;;                        silently while a wrong #f is merely conservative.
+;;   radicle?             This machine runs Radicle (rad, git-remote-rad and a
+;;                        radicle-node service).  #f only on orb-guix
+;;                        (%orb-guix-session): minius, the Mac hosting it,
+;;                        does all Radicle work, so the container carries
+;;                        neither the tools nor a node (durant, 2026-11-20).
 ;;   wayland-display      The socket name the compositor binds in
 ;;                        XDG_RUNTIME_DIR; espanso's service falls back to it
 ;;                        when shepherd's environment lacks WAYLAND_DISPLAY.
@@ -416,6 +422,7 @@ field below follows this file's convention of not importing
     (never-suspend-on-ac? . #t)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
     (local-gpg-agent?     . #t)
+    (radicle?             . #t)
     (wayland-display      . "wayland-0")))
 
 ;; The foreign-distro session: guix home as a package manager on someone
@@ -443,6 +450,7 @@ field below follows this file's convention of not importing
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
     (local-gpg-agent?     . #t)
+    (radicle?             . #t)
     (wayland-display      . "wayland-0")))
 
 ;; The guix-dev container (OrbStack on the Mac, Docker on WSL): the foreign
@@ -464,6 +472,26 @@ field below follows this file's convention of not importing
            ((local-gpg-agent?) '(local-gpg-agent? . #f))
            (else entry)))
        %foreign-session))
+
+;; orb-guix: the guix-dev container under OrbStack on minius, minus Radicle.
+;; minius does all Radicle work, so the container gets neither the tools nor a
+;; radicle-node service (durant, 2026-11-20).  The Makefile's RADICLE_SKIP
+;; turns the Radicle make targets into no-ops on the same host.
+(define %orb-guix-session
+  (map (lambda (entry)
+         (case (car entry)
+           ((name) '(name . orb-guix))
+           ((radicle?) '(radicle? . #f))
+           (else entry)))
+       %guix-dev-session))
+
+;; True under an OrbStack kernel: its /proc/version names orbstack, the same
+;; test the Makefile's ORBSTACK_CHECK makes.
+(define (orbstack-kernel?)
+  (and (file-exists? "/proc/version")
+       (string-contains-ci (call-with-input-file "/proc/version" read-line)
+                           "orbstack")
+       #t))
 
 ;; The EWM trial session (docs/EWM_TRIAL_PLAN.md), deployed by home/ewm.scm.
 ;;
@@ -515,6 +543,7 @@ field below follows this file's convention of not importing
     (never-suspend-on-ac? . #f)                                     ;[session]
     (wlr-data-control?    . #f)                                     ;[session]
     (local-gpg-agent?     . #t)
+    (radicle?             . #t)
     (wayland-display      . "wayland-1")))
 
 ;; assq rather than assq-ref, so a mistyped key errors instead of returning
@@ -1654,12 +1683,13 @@ call, so extensions never collide; only genuine double ownership does."
 ;; `make setup-radicle' installs.  The identity (`rad auth') is made once per
 ;; person, interactively, so the start is gated on the key existing: without
 ;; it the service stays stopped, and `make check-radicle' plus the login
-;; warning in .shared.zshrc say what to run.  A passphrase-protected key makes
-;; the node exit at once; respawn then gives up, and check-radicle reports it.
+;; warning in .shared.zshrc say what to run.  A passphrase-protected key uses
+;; a user-only passphrase file, created interactively by setup-radicle.
 (define %radicle-layer
   (layer
    #:name 'radicle
    #:synopsis "Radicle CLI + git-remote-rad, and radicle-node under Shepherd"
+   #:requires '(radicle?)
    #:packages '("radicle")
    #:services
    (list
@@ -1674,7 +1704,11 @@ call, so extensions never collide; only genuine double ownership does."
                                         (key (string-append home "/keys/radicle")))
                                    (if (file-exists? key)
                                        (apply (make-forkexec-constructor
-                                               (list #$(file-append (specification->package "radicle")
+                                               ;; #:recursive? #t keeps the executable bit; a
+                                               ;; flat local-file is interned 0444 and fails to exec.
+                                               (list #$(local-file "../bin/radicle-node-service"
+                                                                   #:recursive? #t)
+                                                     #$(file-append (specification->package "radicle")
                                                                     "/bin/radicle-node")))
                                               args)
                                        (begin

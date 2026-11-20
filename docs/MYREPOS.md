@@ -109,13 +109,30 @@ only some hosts carry. Without it, `mr update` would clone every absent
 repo and `mr status` would count each one as a failure.
 
 To bring a new host up: clone `dot_files` by hand (that is where the config
-comes from), run `make setup-native-links` or `make apply`, then
+comes from), run `make setup-native-links` or `make apply`, initialize the
+private submodule so its repo list is included, then run `mr` with an explicit
+scope:
 
 ```sh
-mr --force checkout    # --force overrides the skip; clones what is missing
+git -C ~/dot_files submodule update --init private
+mr -d ~/Repos/enveloped --force ls        # should list ENVELOPE_MAIN and eGIPS
+mr -d ~/Repos/enveloped --force checkout  # create the envelope clone and worktrees
 ```
 
-`--force -d <path> checkout` clones just one.
+`mr -d ~ --force checkout` covers every configured repo under the home
+directory; running `mr --force checkout` from inside `~/dot_files` only covers
+that repo. `mr -d <path> --force checkout` selects one directory tree.
+The private repo list creates `~/Repos/enveloped/eGIPS` as an envelope
+worktree, but its `GIPS` Radicle submodule needs a separate initialization:
+
+```sh
+make setup-radicle
+git -C ~/Repos/enveloped/eGIPS submodule update --init GIPS
+```
+
+Run the Radicle setup before initializing `GIPS`, since its `rad://` remote
+needs the helper and node. On a small disk, use `mr-clone NAME` or selected
+`mr` directories instead of checking out every configured repo.
 
 ### `mr-agents`: agents and their tasks, with an editable Org table
 
@@ -207,10 +224,27 @@ on macOS, the official installer into `~/.local/bin` on native Linux, and the
 the node: as a LaunchAgent on macOS (`com.durantschoon.radicle-node`), a
 systemd user service on native Linux (`radicle-node.service`), and a Shepherd
 service on Guix hosts. All three survive reboots once `rad auth` has created
-the identity (once per machine, interactively). `make check-radicle` (also part
-of `make check`) checks rad, `git-remote-rad`, the identity, the service and
-the node, and every new zsh prints a one-line warning while the node is down
+the identity (once per machine, interactively). `make setup-radicle` also
+installs missing tools and runs `rad auth` when the identity is missing.
+`make check-radicle` (also part of `make check`) only reads: it checks rad,
+`git-remote-rad`, the identity, the service and the node, and changes nothing.
+Every new zsh prints a one-line warning while the node is down
 (`RADICLE_WARN=0` silences it).
+
+**Not on orb-guix.** The OrbStack container runs no Radicle; minius, the Mac
+hosting it, does all of it. There the Guix Home `radicle` layer is inactive
+(`%orb-guix-session` sets `radicle? #f`), so neither the tools nor a
+`radicle-node` service are deployed, and `install-radicle`, `setup-radicle`
+and `check-radicle` each print one "skipped on orb-guix" line and succeed
+(`RADICLE_SKIP` in the Makefile). Fetch and push `rad://` remotes from minius.
+
+For a protected identity key, `make setup-radicle` offers an interactive
+choice: save the passphrase in `~/.radicle/keys/radicle.passphrase` (mode 600)
+for unattended startup, remove the key passphrase, or stop. The service reads
+the file at startup. On Guix Home, the first saved passphrase triggers
+`make apply` so Shepherd receives the new wrapper. Run it in a terminal so it
+can prompt; without a terminal it stops with that instruction instead of
+hanging.
 
 ### `mr-hygiene`: zero-token repository hygiene tracking
 

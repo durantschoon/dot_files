@@ -6,19 +6,21 @@
   <string>com.durantschoon.radicle-node</string>
 
   <!--
-    Template: `make setup-radicle' renders @RADICLE_NODE@, @PATH@ and @LOG@.
+    Template: `make setup-radicle' renders @RADICLE_SERVICE@, @RADICLE_NODE@,
+    @PATH@ and @LOG@.
 
     The Radicle node: gossips with the seeds, serves `git fetch' from
     rad:// remotes out of ~/.radicle/storage and announces what
     git-remote-rad pushes.  Without it a push lands in local storage only.
     `rad node start' would spawn the same `radicle-node --force' (--force
     clears a stale control socket), but nothing restarts it after a reboot.
-    It needs the secret key in ~/.radicle/keys/radicle to be UNENCRYPTED:
-    launchd has no terminal to ask for a passphrase (check-radicle says so).
+    For a protected key, the wrapper reads a user-only passphrase file that
+    check-radicle can create interactively.
     PATH matters: the node shells out to git for fetches.
   -->
   <key>ProgramArguments</key>
   <array>
+    <string>@RADICLE_SERVICE@</string>
     <string>@RADICLE_NODE@</string>
     <string>--force</string>
   </array>

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Start a Radicle service with an optional user-owned passphrase file.
+set -eu
+
+radicle_home=${RAD_HOME:-"$HOME/.radicle"}
+passphrase_file="$radicle_home/keys/radicle.passphrase"
+if [ -f "$passphrase_file" ]; then
+    IFS= read -r RAD_PASSPHRASE < "$passphrase_file" || :
+    if [ -z "$RAD_PASSPHRASE" ]; then
+        echo "radicle-node-service: empty passphrase file: $passphrase_file" >&2
+        exit 1
+    fi
+    export RAD_PASSPHRASE
+fi
+exec "$@"

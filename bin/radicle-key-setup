@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Guide an interactive user through preparing an encrypted Radicle key for a service.
+set -euo pipefail
+
+radicle_home=${RAD_HOME:-"$HOME/.radicle"}
+key="$radicle_home/keys/radicle"
+passphrase_file="$radicle_home/keys/radicle.passphrase"
+
+[[ -f $key ]] || { echo "Radicle identity is missing; run 'rad auth' first." >&2; exit 1; }
+if ssh-keygen -y -P '' -f "$key" >/dev/null 2>&1; then
+    exit 0
+fi
+if [[ -s $passphrase_file ]]; then
+    chmod 600 "$passphrase_file"
+    exit 0
+fi
+
+echo "Your Radicle key is passphrase protected. A service needs that passphrase after reboot."
+echo "  1) Save it in $passphrase_file (mode 600) for automatic startup"
+echo "  2) Remove the key passphrase interactively with ssh-keygen"
+echo "  3) Keep the passphrase and stop here (start the node manually)"
+if [[ ! -t 0 ]]; then
+    echo "Run 'make setup-radicle' in an interactive terminal to choose an option." >&2
+    exit 1
+fi
+read -r -p 'Choose [1/2/3]: ' choice
+case $choice in
+    1)
+        read -r -s -p 'Radicle key passphrase: ' passphrase
+        echo
+        if [[ -z $passphrase ]]; then
+            echo 'Empty passphrase entered; no file was saved.' >&2
+            exit 1
+        fi
+        umask 077
+        printf '%s\n' "$passphrase" > "$passphrase_file"
+        unset passphrase
+        chmod 600 "$passphrase_file"
+        echo "Saved a user-only passphrase file at $passphrase_file."
+        if [[ -d $HOME/.guix-home ]] && command -v herd >/dev/null 2>&1; then
+            mkdir -p "$radicle_home/node"
+            touch "$radicle_home/node/credential-needs-deploy"
+        fi
+        ;;
+    2)
+        echo 'ssh-keygen will ask for the old passphrase and a new one. Leave the new one empty.'
+        ssh-keygen -p -f "$key"
+        ssh-keygen -y -P '' -f "$key" >/dev/null 2>&1 || {
+            echo 'The key is still passphrase protected; rerun make setup-radicle.' >&2
+            exit 1
+        }
+        ;;
+    *)
+        echo 'Radicle service setup was not changed.' >&2
+        exit 1
+        ;;
+esac
