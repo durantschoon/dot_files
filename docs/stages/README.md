@@ -317,3 +317,32 @@ ran after the reports landed and covers 17–25 (26 was still executing).
   session while the batch ran (`4a27c9c`, `f692f69`), one of them editing the
   same `check:` line as stage 17. The integration-branch rule kept that to one
   inspected merge instead of a race.
+
+### Addendum after the serial wave (reports 26–29)
+
+- **Never run `make` with no goal, whatever the flags.** The default goal is
+  `apply`. Stage 29's executor ran `make -qp` bare for a target list, and the
+  coordinator did the same once while merging `main`. Nothing ran — `apply`'s
+  first prerequisite has a non-recursive recipe, so `-q` stops there — but GNU
+  make executes any recipe line spelling `$(MAKE)` even under `-n`, `-q` and
+  `-t`, so "it was only a dry run" is not a guarantee. For the rule database use
+  `make -pq <a goal with no recipe>`; for a dry print name a goal whose recipe
+  has no literal `$(MAKE)`. Prompts now say this in their safety constraints.
+- **Merging someone else's branch is its own stage shape, and it worked three
+  times (21, 27, 29).** `git merge --no-ff --no-commit`, resolve, and carry the
+  report in the merge commit, so the original commits keep their hashes. The
+  prompt lists what the branch set out to do, and the executor shows where each
+  thing lives after the merge. A Blocked condition of the form "the base already
+  carries an equivalent fix" needs the word *whole*: stage 27 met a one-line
+  partial equivalent and had to judge it.
+- **A branch's script arrives under the gates that exist now, not the ones it
+  was written under.** `install-bazel.sh` predates `check-shell`; the stage
+  allowed only error-level fixes and left one info finding. That is the right
+  default for a file whose author is not the executor, and it means COMMON's
+  "0 findings at default severity" applies to scripts a stage writes, not ones
+  it merges.
+- **The wiring stage paid for the split.** Stage 28 replaced four recipes in one
+  reviewed change with a 44-cell equivalence table, and found the one thing the
+  per-stage proposals got wrong (`$(MAKE)` in a thin line defeats `-n`). Its
+  open question is real: each recipe's comment block now exists in the Makefile
+  and in the script header, and one pair has already drifted.
