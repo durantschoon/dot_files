@@ -244,7 +244,12 @@ alias spew='wget -qO-' # URL to spew the contents to stdout
 alias tls='tailscale'
 
 # tls-status -- `tailscale status', with the two facts you actually scan for
-# given visual weight: THIS machine bold, offline peers dimmed.
+# given visual weight: THIS machine bold bright cyan, offline peers dimmed.
+# Bold alone was the first attempt and read as nothing on this font -- several
+# terminals render it as a barely brighter foreground, and every line of the
+# table is already the same width and colour, so there was no contrast to
+# borrow. Hue is what separates the self line at a glance; the bold stays
+# because 96 on a light background is thin on its own.
 #
 # It colours tailscale's OWN output rather than rebuilding the table from
 # --json.  Rebuilding means reimplementing the status column, which is free
@@ -264,7 +269,7 @@ tls-status() {
       | python3 -c '
 import json, os, subprocess, sys
 color = sys.argv[1] == "1"
-B, D, R = ("\033[1m", "\033[2m", "\033[0m") if color else ("", "", "")
+B, D, R = ("\033[1;96m", "\033[2m", "\033[0m") if color else ("", "", "")
 try:
     d = json.load(sys.stdin)
 except Exception:
