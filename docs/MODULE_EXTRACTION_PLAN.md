@@ -145,9 +145,9 @@ Existing commands, to be rechecked against the execution base:
 | Logger | `./tests/jobs/tee-smoke.zsh` | Logging and signals; inspect capability requirements and skips. |
 | Runner integration | `./tests/jobs/smoke.zsh` | Private tmux and host/runner tests; some integration uses launchd. |
 | Agent integration | `./tests/jobs/claude-smoke.zsh` | Historical filename; current engine wrappers and macOS recovery. |
-| Aggregate jobs | `make check-jobs` | Runs the three suites above. |
-| Live container behavior | `make check-jobs-live` | Explicitly granted disposable containers and an available engine. |
-| Submodule publishing | `make check-submodule-publish` | Disposable Git repositories; relevant to release/integration changes. |
+| Aggregate jobs | `make check-jobs-tests` | Runs the three suites above. |
+| Live container behavior | `make check-jobs-live-tests` | Explicitly granted disposable containers and an available engine. |
+| Submodule publishing | `make check-submodule-publish-tests` | Disposable Git repositories; relevant to release/integration changes. |
 | Patch hygiene | `git diff --check` | Every implementation stage. |
 
 The stage envelope's original “no test suite” description is historical. Before

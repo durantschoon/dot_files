@@ -3,14 +3,14 @@
 #
 # tests/jobs/tee-smoke.zsh -- bin/job-tee on its own, with no engine at all.
 #
-#   ./tests/jobs/tee-smoke.zsh            (also: the first line of make check-jobs)
+#   ./tests/jobs/tee-smoke.zsh            (also: the first line of make check-jobs-tests)
 #
 # The other two suites in this directory need a machine: smoke.zsh starts tmux
 # servers and a launchd agent, podman-live.zsh needs a real container engine.
 # job-tee is underneath all of them and needs none of it -- a scratch
 # directory, a real /bin/sh and the ability to send a signal is the whole
 # apparatus -- so this is the one jobs test that runs everywhere, which is why
-# check-jobs opens with it.
+# check-jobs-tests opens with it.
 #
 # Section 5c is the single exception and stays an exception: where a container
 # engine and the images are already there it runs the INT assertions inside

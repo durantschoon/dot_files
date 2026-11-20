@@ -3,7 +3,7 @@
 #
 # tests/remindme/smoke.zsh -- smoke tests for bin/remindme.
 #
-#   ./tests/remindme/smoke.zsh          (also: make check-remindme)
+#   ./tests/remindme/smoke.zsh          (also: make check-remindme-tests)
 
 emulate -L zsh
 setopt no_nomatch

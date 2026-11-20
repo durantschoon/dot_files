@@ -307,9 +307,9 @@ help-text:
 	@echo "                       (refuses rather than record a pointer no other clone can fetch)"
 	@echo "  make remindme-publish - Publish the remindme/private submodule the same way"
 	@echo "  make submodule-publish SUBMODULE=<path> - the same for any submodule path"
-	@echo "  make check-submodule-publish - Run the bin/submodule-publish and submodule-pull smoke test"
+	@echo "  make check-submodule-publish-tests - Run the bin/submodule-publish and submodule-pull smoke test"
 	@echo "                       (scratch repos in a mktemp dir only; not part of 'make check')"
-	@echo "  make check-remindme  - Run the bin/remindme smoke test"
+	@echo "  make check-remindme-tests - Run the bin/remindme smoke test"
 	@echo ""
 	@echo "Keys, SSH and Commit Signing (GPG):"
 	@echo "  make install-gnupg - Link gnupg/*.conf into ~/.gnupg and, on mac, render gpg-agent.conf"
@@ -320,7 +320,7 @@ help-text:
 	@echo "  make check-gpg     - Check commit signing end to end: gpg, secret key, pinentry, git config"
 	@echo "                       (not part of 'make check': may prompt for the passphrase)"
 	@echo "  make check-gpg-tests - Run the bin/check-gpg smoke test (stub gpg, fake HOME; never signs)"
-	@echo "  make check-gpg-enrollment - Run the gpg-hub enrollment, bin/gpg-key-owner and tests/gpg/pinentry-label.sh tests (no real keyring)"
+	@echo "  make check-gpg-enrollment-tests - Run the gpg-hub enrollment, bin/gpg-key-owner and tests/gpg/pinentry-label.sh tests (no real keyring)"
 	@echo "  make setup-sshd-for-ingress - Install/enable the incoming SSH server (automatic during apply/setup-native)"
 	@echo "  make check-sshd-for-ingress - Check the incoming SSH server (distinct from check-ssh-with-gpg-for-egress)"
 	@echo "                       (not part of 'make check': may prompt for sudo)"
@@ -360,7 +360,7 @@ help-text:
 	@echo "                       remote has a session; verifies and restores on failure"
 	@echo "  make cloud-creds-login - Re-authenticate the rclone remote when the session expires,"
 	@echo "                       then remove the password again automatically"
-	@echo "  make check-cloud   - Run the bin/cloud-dirs.sh smoke test (hermetic: scratch HOME and"
+	@echo "  make check-cloud-tests - Run the bin/cloud-dirs.sh smoke test (hermetic: scratch HOME and"
 	@echo "                       a stand-in Proton root, so it needs no account; not part of 'make check')"
 	@echo ""
 	@echo "Daemons and System Services:"
@@ -395,9 +395,9 @@ help-text:
 	@echo ""
 	@echo "Verification and Smoke Tests:"
 	@echo "  make check         - Run all repo config, secrets, and coupling integrity checks"
-	@echo "  make check-jobs    - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
+	@echo "  make check-jobs-tests - Run the bin/job-tee, .jobs.zsh and .agent-jobs.zsh smoke tests (not part of 'make check': they start containers, tmux servers and a launchd agent)"
 	@echo "                       (tests/jobs/tee-smoke.zsh runs first and needs none of that, so it works on any host)"
-	@echo "  make check-jobs-live - Run the .jobs.zsh container assertions against a REAL engine"
+	@echo "  make check-jobs-live-tests - Run the .jobs.zsh container assertions against a REAL engine"
 	@echo "                       (needs a live container engine; skips loudly without one; not part of 'make check')"
 	@echo "  make check-home-ownership-tests - Run the bin/check-home-ownership smoke test (fake HOME in a temp dir)"
 	@echo ""
@@ -1305,14 +1305,14 @@ endif
 	@echo "==> gnupg config done; now: make check-gpg"
 
 # Inventory-backed hub/spoke enrollment; Python 3.11+ is required.
-.PHONY: gpg-hub-create gpg-spoke-copy gpg-hub-teardown check-gpg-enrollment
+.PHONY: gpg-hub-create gpg-spoke-copy gpg-hub-teardown check-gpg-enrollment-tests
 gpg-hub-create:
 	@python3 "$(CURDIR)/bin/gpg-hub" hub-create $(if $(MACHINE),--machine "$(MACHINE)")
 gpg-spoke-copy:
 	@python3 "$(CURDIR)/bin/gpg-hub" spoke-copy $(if $(MACHINE),--machine "$(MACHINE)") $(if $(HUB),--hub "$(HUB)")
 gpg-hub-teardown:
 	@python3 "$(CURDIR)/bin/gpg-hub" hub-teardown
-check-gpg-enrollment:
+check-gpg-enrollment-tests:
 	@python3 "$(CURDIR)/tests/gpg/enrollment.py"
 	@"$(CURDIR)/tests/gpg/key-owner.sh"
 	@"$(CURDIR)/tests/gpg/pinentry-label.sh"
@@ -2356,10 +2356,10 @@ cloud-creds-strip:
 # The cloud test suites.  Both hermetic -- dirs-smoke uses a scratch HOME and a
 # scratch stand-in for the Proton root; creds-smoke puts a stub rclone in front
 # of the real one on PATH -- so neither needs an account, a network or rclone
-# itself.  Kept out of `make check' for the same reason check-jobs is: `check'
+# itself.  Kept out of `make check' for the same reason check-jobs-tests is: `check'
 # reports on THIS machine's state, while these prove the scripts' behaviour.
-.PHONY: check-cloud
-check-cloud:
+.PHONY: check-cloud-tests
+check-cloud-tests:
 	@./tests/cloud/dirs-smoke.zsh
 	@./tests/cloud/creds-smoke.zsh
 
@@ -2698,8 +2698,8 @@ check-agent-permissions:
 check-link-dotfile:
 	@sh tests/link-dotfile-smoke.sh
 
-.PHONY: check-radicle-smoke
-check-radicle-smoke:
+.PHONY: check-radicle-tests
+check-radicle-tests:
 	@sh tests/radicle-smoke.sh
 
 .PHONY: check-worktrees
@@ -3316,7 +3316,7 @@ check-home-ownership-tests:
 # check-agent-permissions reads the grant files and runs a scratch-HOME smoke
 # test; it writes nothing.  check-worktrees classifies scratch git repos.
 # check-shell runs shellcheck over bin/ and writes nothing.
-check: check-link-dotfile check-radicle-smoke check-timezone check-system check-session-coupling check-shellcheck $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees check-shell
+check: check-link-dotfile check-radicle-tests check-timezone check-system check-session-coupling check-shellcheck $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees check-shell
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
@@ -3351,23 +3351,23 @@ check-sshd-for-ingress-tests:
 # none of which are a machine's to refuse, while the two below need tmux and
 # launchd. It is also the layer underneath them, so a failure there explains
 # failures in the others rather than being explained by them.
-.PHONY: check-jobs
-check-jobs:
+.PHONY: check-jobs-tests
+check-jobs-tests:
 	@python3 tests/jobs/mr-agents.py
 	@./tests/jobs/tee-smoke.zsh
 	@./tests/jobs/smoke.zsh
 	@./tests/jobs/claude-smoke.zsh
 
 # The container half of .jobs.zsh against a REAL engine -- the one thing
-# check-jobs above cannot do, because its `docker' and `podman' are scratch-dir
+# check-jobs-tests above cannot do, because its `docker' and `podman' are scratch-dir
 # scripts that record argv and so can only prove what was ASKED, never what was
 # ANSWERED.  Needs a live container engine (podman or docker); without one the
 # script prints one SKIP line and exits 0, so it is safe to invoke anywhere.
-# Like check-jobs, deliberately NOT a prerequisite of `check': it starts real
+# Like check-jobs-tests, deliberately NOT a prerequisite of `check': it starts real
 # containers, and `check' must stay something you can run on any machine at any
 # time without side effects.
-.PHONY: check-jobs-live
-check-jobs-live:
+.PHONY: check-jobs-live-tests
+check-jobs-live-tests:
 	@./tests/jobs/podman-live.zsh
 
 # bin/submodule-publish and the rewritten submodule-pull, against scratch repos
@@ -3375,14 +3375,14 @@ check-jobs-live:
 # acting as a submodule's origin, and superprojects carrying them.  No network,
 # and this repo's own `claude' and `espanso/private' are never touched.
 #
-# Deliberately NOT a prerequisite of `check', for the same reason as check-jobs:
+# Deliberately NOT a prerequisite of `check', for the same reason as check-jobs-tests:
 # it makes commits and pushes (inside the scratch area), and `check' must stay
 # something you can run on any machine at any time without side effects.
-.PHONY: check-submodule-publish check-remindme
-check-submodule-publish:
+.PHONY: check-submodule-publish-tests check-remindme-tests
+check-submodule-publish-tests:
 	@./tests/submodule/publish-smoke.zsh
 
-check-remindme:
+check-remindme-tests:
 	@./tests/remindme/smoke.zsh
 
 # The file name IS the host class, and a machine of that class takes the class
@@ -3890,7 +3890,7 @@ check-guix-clean-tests:
 	zsh tests/disk/guix-clean.zsh
 
 # Rootless tests of the foreign-distro installer policy transaction.
-.PHONY: check-guix-installer
-check-guix-installer:
+.PHONY: check-guix-installer-tests
+check-guix-installer-tests:
 	bash -n guix-install.sh bin/seed-linux
 	python3 tests/guix/apparmor.py

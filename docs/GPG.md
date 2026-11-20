@@ -231,7 +231,7 @@ master passphrase", but the key being unlocked is the **first** ID; the
   without the `0x` that `keyid-format 0xlong` (`gnupg/gpg.conf`) adds. The
   agent also serves the guix-dev container's requests, so container prompts
   are labelled too. `tests/gpg/pinentry-label.sh` (run by
-  `make check-gpg-enrollment`) checks the label against fakes, never a real
+  `make check-gpg-enrollment-tests`) checks the label against fakes, never a real
   pinentry.
 - **The container's terminal note.** When the container's cache is cold,
   `build-aux/guix-container-gpg` prints which key gpg will sign with and

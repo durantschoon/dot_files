@@ -45,7 +45,7 @@ sees make targets -- renaming an alias or a concept is on you to notice.
 The repository contains a unified job runner abstraction for `tmux`, `launchd`, and `docker` to handle long-running local tasks. All three runners use the same verb convention (`-run`, `-ls`, `-status`, `-logs`).
 *   **Core Implementation:** `.jobs.zsh`
 *   **Logging utility:** `bin/job-tee`
-*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/tee-smoke.zsh`, `tests/jobs/private-tmux` (`make check-jobs`), and `tests/jobs/lib.zsh` (shared ok/FAIL/SKIP assertion helpers, sourced by smoke, tee-smoke and podman-live); `tests/jobs/podman-live.zsh` needs a real container engine (`make check-jobs-live`)
+*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/tee-smoke.zsh`, `tests/jobs/private-tmux` (`make check-jobs-tests`), and `tests/jobs/lib.zsh` (shared ok/FAIL/SKIP assertion helpers, sourced by smoke, tee-smoke and podman-live); `tests/jobs/podman-live.zsh` needs a real container engine (`make check-jobs-live-tests`)
 
 **Agent Instruction:** If the user asks about `tmux-new`, `tmux-run`, `tmux-ls`, `job-recap`, etc., load `.jobs.zsh` and skip everything else.
 
@@ -62,7 +62,7 @@ When you are stuck, blocked (a merge conflict, a question only the user can answ
 * **First-machine seed:** `bin/seed-linux`, `docs/LINUX_SEED.md` cover prerequisites, Guix installation, SSH/GitHub access, cloning and `make apply`. Reusable agent instructions: `~/.codex/skills/linux-dotfiles-seed/SKILL.md`. `make register-machine` (`bin/register-machine`, `docs/REGISTER_MACHINE.md`) is the checklist that chooses native, foreign Guix, or Guix System before those commands.
 *   **Disk floor:** `bin/check-disk-floor` (`make check-disk-floor`) refuses `apply`, `apply-wayland`, and `apply-ewm` when `/` has under 20 GiB free. `FORCE_APPLY=1` overrides. Tests: `make check-disk-floor-tests`.
 The user is migrating to a declarative Guix setup with distinct "home" and "system" layers.
-*   **Foreign-distro installer / AppArmor:** `guix-install.sh`, `bin/seed-linux`, `tests/guix/apparmor.py` and its fixtures (`make check-guix-installer`). The decision is the 2026-11-09 entry in `docs/LEARNINGS.md`.
+*   **Foreign-distro installer / AppArmor:** `guix-install.sh`, `bin/seed-linux`, `tests/guix/apparmor.py` and its fixtures (`make check-guix-installer-tests`). The decision is the 2026-11-09 entry in `docs/LEARNINGS.md`.
 *   **Entry points:** `Makefile` (Look at targets like `apply`, `reconfigure`, `guix-config`)
 *   **Home Layer (User prefs):** `home/base.scm`, `home/common.scm`, `home/wayland.scm`, `home/ewm.scm` (EWM trial, `make apply-ewm`)
 *   **System Layer (Host configs):** `system/`, `system/README.md`
@@ -138,7 +138,7 @@ For standard shell setup not related to the background job runners:
 *   **Bazel (as bazelisk):** `bin/install-bazel.sh` (`make install-bazel`; also run by `apply`, `apply-wayland`, `update` and `setup-native`). Homebrew on macOS, checksummed release binary in `~/.local/bin` with `bazel -> bazelisk` on Linux. Guix does not package Bazel, and on Guix System the Bazel binaries bazelisk downloads need an FHS container.
 *   **Multi-repo sync (myrepos / `mr`):** `.mrconfig`, `docs/MYREPOS.md`, the `mr-register` helper in `.aliases`, `bin/mr-clone` (clone a configured repo by name anywhere)
 *   **Radicle (`rad://` remotes):** `%radicle-layer` in `home/common.scm` (package + `radicle-node` Shepherd service), `install-radicle` / `setup-radicle` / `check-radicle` in `Makefile` (LaunchAgent template `system/launchd/com.durantschoon.radicle-node.plist` on mac), the login warning in `.shared.zshrc`; see `docs/MYREPOS.md`
-*   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` / `check-ssh-with-gpg-for-egress` targets in `Makefile`, and `machines.toml` / `bin/gpg-hub` (`make gpg-hub-create`, `make gpg-spoke-copy`: inventory-backed subkey enrollment). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`. `bin/gpg-key-owner` answers which machine in `machines.toml` owns a key ID, and `build-aux/guix-container-gpg` uses it to name the key in the container's cold-cache note (tests: `tests/gpg/key-owner.sh`, run by `make check-gpg-enrollment`). On the Mac, `bin/pinentry-auto` labels each passphrase prompt with the machine that owns the key, reading `machines.toml` itself (tests: `tests/gpg/pinentry-label.sh`, also run by `make check-gpg-enrollment`); `build-aux/guix-container-gpg-bridge.sh` pins the container to the hub's subkey in `~/.config/git/gpg-machine.conf`.
+*   **GPG / signed commits:** `docs/GPG.md`, `gnupg/` (tracked gpg.conf, dirmngr.conf, mac gpg-agent template), the `[user] signingkey` and `[commit] gpgsign` in `.gitconfig`, the `install-gnupg` / `check-gpg` / `check-ssh-with-gpg-for-egress` targets in `Makefile`, and `machines.toml` / `bin/gpg-hub` (`make gpg-hub-create`, `make gpg-spoke-copy`: inventory-backed subkey enrollment). The Linux agent config is the `%gpg-ssh-agent-layer` in `home/common.scm`. `bin/gpg-key-owner` answers which machine in `machines.toml` owns a key ID, and `build-aux/guix-container-gpg` uses it to name the key in the container's cold-cache note (tests: `tests/gpg/key-owner.sh`, run by `make check-gpg-enrollment-tests`). On the Mac, `bin/pinentry-auto` labels each passphrase prompt with the machine that owns the key, reading `machines.toml` itself (tests: `tests/gpg/pinentry-label.sh`, also run by `make check-gpg-enrollment-tests`); `build-aux/guix-container-gpg-bridge.sh` pins the container to the hub's subkey in `~/.config/git/gpg-machine.conf`.
 
 **Agent Instruction:** Note that Guix environments (like Linux or `orb-guix`) construct `.zshrc` dynamically by concatenating configs, while native environments (like Mac without Guix) rely on `make setup-native-links` to symlink `.zshrc.starship` and source `.shared.zshrc` manually. If asked to add a command, alias, or shell feature "everywhere" or "on all platforms," make sure it is added to the shared configs or updated in both the Guix `home/*.scm` files and the native Zsh files so it isn't lost on one platform.
 
@@ -156,10 +156,10 @@ For standard shell setup not related to the background job runners:
 ## 8. Cloud-Backed Directories (Proton Drive)
 *   **Scripts:** `bin/cloud-dirs.sh`, `bin/cloud-sync.sh` (Linux only), `bin/cloud-creds.sh`
 *   **Make targets:** `setup-cloud-dirs`, `check-cloud-dirs`, `cloud-sync`, `check-cloud-creds`, `cloud-creds-login`, `cloud-creds-strip`
-*   **Testing:** `tests/cloud/dirs-smoke.zsh`, `tests/cloud/creds-smoke.zsh` (`make check-cloud`)
+*   **Testing:** `tests/cloud/dirs-smoke.zsh`, `tests/cloud/creds-smoke.zsh` (`make check-cloud-tests`)
 
 ## 9. Submodules (`claude`, `espanso/private`, `private`, `remindme/private`)
 *   **Publishing a bump:** `bin/submodule-publish` (`make claude-publish`, `make remindme-publish`, `make submodule-publish SUBMODULE=...`); also `submodule-update`, `submodule-pull`, `submodule-push` in `Makefile`
-*   **Personal Markdown Reminders (`remindme`):** `bin/remindme`, Zsh completion `_remindme` in `.shared.zshrc`, private sheets in `remindme/private/*.md` (`git@github.com:durantschoon/remindme-private.git`), tests in `tests/remindme/smoke.zsh` (`make check-remindme`)
-*   **Testing:** `tests/submodule/publish-smoke.zsh` (`make check-submodule-publish`)
+*   **Personal Markdown Reminders (`remindme`):** `bin/remindme`, Zsh completion `_remindme` in `.shared.zshrc`, private sheets in `remindme/private/*.md` (`git@github.com:durantschoon/remindme-private.git`), tests in `tests/remindme/smoke.zsh` (`make check-remindme-tests`)
+*   **Testing:** `tests/submodule/publish-smoke.zsh` (`make check-submodule-publish-tests`)
 
