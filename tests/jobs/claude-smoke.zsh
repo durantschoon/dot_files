@@ -643,6 +643,17 @@ typeset -g HOME2=$BASE/home2
 typeset -g REPO_NEW=$HOME2/$REPO_REL
 mkdir -p -- "$REPO_NEW" "$HOME2/Library/LaunchAgents" && git init -q -- "$REPO_NEW"
 for s in "$SLUG-t2" "$SLUG-sx" "$SLUG-ax" "$SLUG2-t3"; do ptmux kill-session -t "=$s" >/dev/null 2>&1; done
+# On darwin both $HOMEs share one launchd domain, so the originals are still
+# loaded under the labels the pop is about to register, with their plists in
+# the OTHER $HOME -- and agent-* refuses a label "loaded without a readable
+# plist".  On a real second machine they would not be loaded here at all, so
+# boot them out.  Their plists stay in $HOME_LOCAL, which is where cleanup's
+# bootout loop finds the labels, so the popped agents are unloaded with them.
+if (( HAS_LAUNCHD )); then
+  for t in t2 sx ax t3; do
+    launchctl bootout "gui/$(id -u)/local.job.$JOB_LAUNCHD_SLUG.$t" >/dev/null 2>&1
+  done
+fi
 : > "$ARGV_FILE"; : > "$BASE/codex-argv.txt"; : > "$BASE/agy-argv.txt"
 export HOME=$HOME2 XDG_DATA_HOME=$HOME2/.local/share
 agent-stash-pop --dry-run "$ST_FILE" 2>"$BASE/pop-dry.err"
