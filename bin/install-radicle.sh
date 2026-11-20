@@ -6,7 +6,7 @@
 #   * Guix (System or foreign distro): Guix Home layer 'radicle' (`make apply`)
 #   * Native Linux: official installer https://radicle.xyz/install into ~/.local/bin
 #
-# Safe to re-run at any time: if `rad` and `radicle-node` already run, exits 0.
+# Safe to re-run at any time: exits when all three Radicle tools are present.
 
 set -euo pipefail
 
@@ -17,6 +17,8 @@ log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 radicle_already_works() {
+    command -v radicle-node >/dev/null 2>&1 || return 1
+    command -v git-remote-rad >/dev/null 2>&1 || return 1
     local candidate
     for candidate in "$(command -v rad 2>/dev/null || true)" "$BIN_DIR/rad" /usr/local/bin/rad; do
         [ -n "$candidate" ] && [ -x "$candidate" ] || continue

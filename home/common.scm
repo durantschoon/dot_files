@@ -1654,8 +1654,8 @@ call, so extensions never collide; only genuine double ownership does."
 ;; `make setup-radicle' installs.  The identity (`rad auth') is made once per
 ;; person, interactively, so the start is gated on the key existing: without
 ;; it the service stays stopped, and `make check-radicle' plus the login
-;; warning in .shared.zshrc say what to run.  A passphrase-protected key makes
-;; the node exit at once; respawn then gives up, and check-radicle reports it.
+;; warning in .shared.zshrc say what to run.  A passphrase-protected key uses
+;; a user-only passphrase file, created interactively by setup-radicle.
 (define %radicle-layer
   (layer
    #:name 'radicle
@@ -1674,7 +1674,11 @@ call, so extensions never collide; only genuine double ownership does."
                                         (key (string-append home "/keys/radicle")))
                                    (if (file-exists? key)
                                        (apply (make-forkexec-constructor
-                                               (list #$(file-append (specification->package "radicle")
+                                               ;; #:recursive? #t keeps the executable bit; a
+                                               ;; flat local-file is interned 0444 and fails to exec.
+                                               (list #$(local-file "../bin/radicle-node-service"
+                                                                   #:recursive? #t)
+                                                     #$(file-append (specification->package "radicle")
                                                                     "/bin/radicle-node")))
                                               args)
                                        (begin

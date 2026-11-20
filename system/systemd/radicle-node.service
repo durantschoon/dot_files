@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=@RADICLE_NODE@ --force
+ExecStart=@RADICLE_SERVICE@ @RADICLE_NODE@ --force
 Restart=always
 RestartSec=3
 KillMode=process
