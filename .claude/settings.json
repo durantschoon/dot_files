@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rad id list*)",
+      "Bash(rad id show *)",
+      "Bash(fc-list*)",
+      "Bash(rad inspect *)",
+      "Bash(pactl list*)",
+      "Bash(zcat *)",
+      "Bash(findmnt *)",
+      "Bash(rad self *)",
+      "Bash(rad node status*)",
+      "Bash(tailscale status*)",
+      "Bash(dumpkeys*)",
+      "Bash(col *)",
+      "Bash(tailscale ping *)"
+    ]
+  }
+}
