@@ -787,6 +787,8 @@ endif
 	@$(CURDIR)/bin/link-dotfile ~/dot_files/.zshrc.starship ~/.zshrc
 	@$(CURDIR)/bin/link-dotfile ~/dot_files/.aliases ~/.aliases
 	@$(CURDIR)/bin/link-dotfile ~/dot_files/.tmux.conf ~/.tmux.conf
+	@# Bazel memory/CPU limits (Guix Home deploys it on Linux via home/common.scm)
+	@$(CURDIR)/bin/link-dotfile ~/dot_files/bazel/bazelrc ~/.bazelrc
 	@# Starship prompt config (Guix Home deploys it on Linux via home/common.scm)
 	@mkdir -p ~/.config
 	@$(CURDIR)/bin/link-dotfile ~/dot_files/starship/starship.toml ~/.config/starship.toml

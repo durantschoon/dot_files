@@ -1047,6 +1047,10 @@ call, so extensions never collide; only genuine double ownership does."
       (service home-files-service-type
                (list `(".aliases" ,(local-file "../.aliases" "aliases"))
                      `(".tmux.conf" ,(local-file "../.tmux.conf" "tmux.conf"))
+                     ;; Bazel limits: server heap, idle timeout, half the
+                     ;; CPUs/RAM for local actions.  An unbounded build
+                     ;; once exhausted orb-guix's memory; see bazel/bazelrc.
+                     `(".bazelrc" ,(local-file "../bazel/bazelrc" "bazelrc"))
                      `(".config/herdr/config.toml"
                        ,(local-file "../herdr/config.toml" "herdr-config.toml"))
                      `(".config/yazi/keymap.toml"

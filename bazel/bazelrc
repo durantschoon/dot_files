@@ -1,0 +1,26 @@
+# bazel/bazelrc -- user-wide Bazel limits, deployed as ~/.bazelrc
+# (Guix Home: home/common.scm; native: make setup-native-links).
+#
+# Why: a Bazel build in orb-guix (7 GiB RAM, 10 CPUs) used up all of the
+# container's memory.  Bazel's defaults assume the whole machine is its own:
+# the server JVM may grow to a quarter of RAM, and the scheduler runs one
+# local action per CPU, each counted as only ~250 MB however much it really
+# uses.  These lines leave room for everything else running alongside it
+# (agents, editors, the Herdr server).
+#
+# A workspace's own .bazelrc is read after this file and can override any
+# line.  Lift a limit for a single run on the command line, e.g.
+#   bazel build --local_resources=cpu=HOST_CPUS //...
+# These flags are valid for Bazel 7 and later (checked against 9.3.2).
+
+# Server JVM: cap its heap, and shut it down after 15 idle minutes instead of
+# the default 3 hours, so an idle server does not sit on gigabytes.
+startup --host_jvm_args=-Xmx2g
+startup --max_idle_secs=900
+
+# Local action scheduling: half the CPUs and half the RAM.  Too many
+# compile/link actions in parallel is what actually exhausts memory.
+# HOST_RAM comes from /proc/meminfo, not from a cgroup limit: on a host with
+# a cgroup memory cap, give an absolute value instead (memory=3072, in MB).
+build --local_resources=cpu=HOST_CPUS*.5
+build --local_resources=memory=HOST_RAM*.5

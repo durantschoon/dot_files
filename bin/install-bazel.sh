@@ -18,6 +18,10 @@
 #   * Termux (Android): Bazel has no Android host build; handled (skipped) in
 #     the Makefile target.
 #
+# Resource limits (server heap, idle timeout, half the CPUs and RAM for local
+# actions) live in bazel/bazelrc, deployed as ~/.bazelrc; an unbounded build
+# once used up all of orb-guix's memory.  This script warns when it is missing.
+#
 # Safe to re-run: if `bazel` already runs, this exits without touching
 # anything.  Pass --force to reinstall (e.g. after bumping BAZELISK_VERSION).
 
@@ -29,6 +33,12 @@ BIN_DIR="$HOME/.local/bin"
 
 log() { printf '==> %s\n' "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+warn_missing_bazelrc() {
+    [ -e "$HOME/.bazelrc" ] \
+        || log "warning: no ~/.bazelrc, so Bazel runs without memory limits; run 'make apply' (Guix) or 'make setup-native-links' (native)"
+}
+trap warn_missing_bazelrc EXIT
 
 force=0
 [ "${1:-}" = "--force" ] && force=1
@@ -57,7 +67,7 @@ esac
 
 asset="bazelisk-linux-$arch"
 download_dir=$(mktemp -d)
-trap 'command rm -rf -- "$download_dir"' EXIT
+trap 'command rm -rf -- "$download_dir"; warn_missing_bazelrc' EXIT
 
 log "downloading $asset $BAZELISK_VERSION"
 curl -fsSL --retry 3 -o "$download_dir/$asset" "$RELEASE_URL/$asset"
