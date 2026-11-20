@@ -1,0 +1,236 @@
+#!/bin/sh
+# bin/check-home-ownership -- extracted verbatim from the Makefile recipe
+# `check-home-ownership' (stage 22).  Read-only: it inspects $HOME and
+# prints; it changes nothing.
+#
+# Make context is passed in, never re-derived here:
+#
+#   GUIX_ZSH_OWNED  required, non-empty.  Space-separated paths relative to
+#                   $HOME; the Makefile's $(GUIX_ZSH_OWNED).
+#   DOTFILES_HOME   required, non-empty.  The repo checkout that native links
+#                   point into; the Makefile's $(DOTFILES_HOME).
+#   FLAVOR          required, non-empty.  The Makefile's $(flavor) (wsl,
+#                   orbstack, ...); only `wsl' changes the output.
+#   PREFLIGHT       optional.  Non-empty selects the preflight exit rule (how
+#                   `apply' calls it); the Makefile's $(PREFLIGHT).
+#
+# Also read from the environment, exactly as the recipe's shell did: HOME,
+# NO_COLOR, TERM.  It reads home/common.scm RELATIVE TO THE CURRENT DIRECTORY,
+# as the recipe did under make (whose cwd is the repo root), so run it from
+# the repo root.
+#
+# Thin target (for the wiring stage):
+#   check-home-ownership:
+#   	@GUIX_ZSH_OWNED="$(GUIX_ZSH_OWNED)" DOTFILES_HOME="$(DOTFILES_HOME)" \
+#   	  FLAVOR="$(flavor)" PREFLIGHT="$(PREFLIGHT)" "$(CURDIR)/bin/check-home-ownership"
+#
+# --- The recipe's comment block, carried over unchanged ($$ -> $) ---------
+#
+# Who actually owns each dotfile in $HOME: Guix Home, the native symlinks, or
+# neither.  The point is to make a half-migrated account visible, because that
+# state is otherwise silent -- both kinds of link are just symlinks, and `ls'
+# does not tell you which system intends to manage them.
+#
+# The claimed set is DERIVED, not restated, so this cannot drift as the config
+# grows.  It is the union of three sources, because no single one is complete:
+#
+#   home/common.scm, grepped  home-files-service-type entries written as
+#                            `(".aliases" ,(local-file ...)).  Works BEFORE the
+#                            first apply, which is when it matters most, but
+#                            misses any entry whose name is computed (the
+#                            per-skill .claude/skills/<name> entries are).
+#   ~/.guix-home/files       what the active generation really deployed: exact,
+#                            computed entries included, but only exists once a
+#                            generation has been activated.
+#   GUIX_ZSH_OWNED           home-zsh-service-type SYNTHESISES its files out of
+#                            the zshrc/zshenv/zprofile field lists, so before
+#                            an apply they appear nowhere.  Note WHERE they
+#                            land: under ~/.config/zsh, with only a
+#                            ZDOTDIR-setting stub at ~/.zshenv.  ~/.zshrc is
+#                            NOT claimed -- with ZDOTDIR set, zsh never reads
+#                            it, so a leftover native ~/.zshrc is dead weight,
+#                            not a conflict.  That layout is fixed by the
+#                            service type, not by our config, so naming it here
+#                            is a constant rather than a duplicated fact.
+#
+# Beyond ownership it reports two HAZARDS.  Both are states in which `guix home
+# reconfigure' does damage or dies, both come from the symlink manager's backup
+# step (gnu/home/services/symlink-manager.scm), and both were found the hard
+# way on the first WSL apply:
+#
+#   symlinked ancestor   ~/.ipython -> ~/dot_files/.ipython, guix claims
+#                        .ipython/profile_default/startup/x.py.  The manager
+#                        backs up a colliding path only when it is NOT a
+#                        directory, and it asks with file-is-directory?, which
+#                        FOLLOWS symlinks.  So the symlink is kept, mkdir's
+#                        EEXIST is swallowed, and the walk continues through it
+#                        -- deleting the real files on the far side and leaving
+#                        /gnu/store symlinks INSIDE THE GIT REPO.
+#   real directory       guix wants a symlink where a real directory stands.
+#                        The backup is a copy-file, which cannot copy a
+#                        directory: "sendfile: Is a directory", and the
+#                        activation aborts half-done, before ~/.guix-home
+#                        exists, with some paths already switched over.
+#
+# And, once a generation is active, one kind of LEFTOVER: a $HOME symlink into
+# this repo that Guix Home does not claim.  setup-native-links made it; guix neither
+# owns it nor replaces it, so it outlives the migration.  At best it is dead
+# weight (~/.zshrc -- zsh reads $ZDOTDIR instead).  At worst something still
+# reads it, and reads the LIVE repo alongside the deployed snapshot: a leftover
+# ~/.shared.zshenv made .linux.zshenv's `source' line run .shared.zshenv a
+# second time, so its edits took effect without an apply while nothing else's
+# did.  The loop over claimed paths cannot see these -- by definition they are
+# not claimed -- so this is a separate scan of $HOME's top level, which is the
+# only place setup-native-links links into.  Links that ARE ancestors of a claimed
+# path are skipped here; the hazard check above already reports them.
+#
+# An ABSENT path gets one more distinction once a generation is active: if
+# common.scm declares it but ~/.guix-home/files does not contain it, its layer
+# is simply off for this session (espanso under %foreign-session, say), and the
+# report says so instead of leaving a bare "absent" that reads like a fault.
+# That is derived from the generation, not from a list of layers kept here.
+#
+# The path column is coloured (cyan) so the two columns stay apart even where a
+# long path overruns its 28 characters and the padding disappears.  Only on a
+# terminal, and never with NO_COLOR set or TERM=dumb: piped into a file, a
+# pager or `grep', the output stays plain text with no escape codes in it.
+# An absent path is printed dim instead, the whole row: nothing is there to
+# look at, so it should not compete with the rows that are.
+#
+# Exit status.  Normally: non-zero only when a generation is active and
+# something is wrong, so `make check' stays green on a native-only machine
+# where none of this applies.  With PREFLIGHT=1 (how `apply' calls it):
+# non-zero iff a hazard exists, active generation or not -- and conflicts are
+# NOT fatal there, because applying is precisely what resolves a conflict.
+#
+# Exit 64 with a usage line when a required variable is missing.
+
+usage='usage: GUIX_ZSH_OWNED="..." DOTFILES_HOME=DIR FLAVOR=FLAVOR [PREFLIGHT=1] bin/check-home-ownership'
+for required in GUIX_ZSH_OWNED DOTFILES_HOME FLAVOR; do
+  eval "required_value=\${$required:-}"
+  if [ -z "$required_value" ]; then
+    echo "check-home-ownership: $required is not set" >&2
+    echo "$usage" >&2
+    exit 64
+  fi
+done
+
+echo "==> \$HOME dotfiles: Guix Home vs native symlinks"
+guix_home=0; [ -e "$HOME/.guix-home" ] && guix_home=1
+deployed=""
+if [ $guix_home -eq 1 ]; then
+  deployed="$(cd "$HOME/.guix-home/files/" 2>/dev/null && find . -mindepth 1 ! -type d | sed 's|^\./||')"
+fi
+# shellcheck disable=SC2086 # word-splitting the path lists is the recipe's intent
+claimed="$( { printf '%s\n' $GUIX_ZSH_OWNED $deployed
+              grep -oE '`\("[^"]+"' home/common.scm | sed 's/^`("//; s/"$//'; } | sort -u)"
+dfroot="$(cd "$DOTFILES_HOME" 2>/dev/null && pwd -P)"
+[ -n "$dfroot" ] || dfroot="/nonexistent"
+conflicts=0; hazards=0; inactive=0; espanso_off=0
+c1=""; c0=""; cd=""
+if [ -t 1 ] && [ -z "$NO_COLOR" ] && [ "$TERM" != dumb ]; then
+  c1="$(printf '\033[36m')"; c0="$(printf '\033[0m')"; cd="$(printf '\033[2m')"
+fi
+for p in $claimed; do
+  t="$HOME/$p"
+  anc=""; rest="$p"; via=""
+  while case "$rest" in */*) true ;; *) false ;; esac; do
+    anc="${anc:+$anc/}${rest%%/*}"; rest="${rest#*/}"
+    if [ -L "$HOME/$anc" ]; then via="$anc"; break; fi
+  done
+  if [ -n "$via" ]; then
+    printf '    %s%-47s%s %s\n' "$c1" "$p" "$c0" "HAZARD: ~/$via is a symlink -> $(readlink "$HOME/$via")"
+    hazards=1; continue
+  fi
+  if [ ! -e "$t" ] && [ ! -L "$t" ]; then
+    owner="absent"
+    # shellcheck disable=SC2086 # word-splitting the path list is the recipe's intent
+    if [ $guix_home -eq 1 ] && ! printf '%s\n' $deployed | grep -qxF "$p"; then
+      owner="absent -- OK: not part of this session"; inactive=1
+      case "$p" in .config/espanso/*) espanso_off=1 ;; esac
+    fi
+  elif [ -L "$t" ]; then
+    dest="$(readlink -f "$t" 2>/dev/null)"
+    case "$dest" in
+      /gnu/store/*) owner="guix" ;;
+      "$dfroot"/*) owner="native" ;;
+      *) owner="other -> $dest" ;;
+    esac
+  elif [ -d "$t" ]; then
+    owner="real directory"
+  else
+    owner="real file"
+  fi
+  case "$owner" in
+    "real directory")
+      printf '    %s%-47s%s %s\n' "$c1" "$p" "$c0" "HAZARD: real directory where guix wants a symlink"
+      hazards=1 ;;
+    native|"real file")
+      if [ $guix_home -eq 1 ]; then
+        printf '    %s%-47s%s %s\n' "$c1" "$p" "$c0" "CONFLICT: $owner, but Guix Home is active"
+        conflicts=1
+      else
+        printf '    %s%-47s%s %s\n' "$c1" "$p" "$c0" "$owner"
+      fi ;;
+    absent*) printf '    %s%-47s %s%s\n' "$cd" "$p" "$owner" "$c0" ;;
+    *) printf '    %s%-47s%s %s\n' "$c1" "$p" "$c0" "$owner" ;;
+  esac
+done
+leftovers=0
+if [ $guix_home -eq 1 ]; then
+  # shellcheck disable=SC2086 # word-splitting the path list is the recipe's intent
+  claimed_words=" $(printf '%s ' $claimed)"
+  for t in "$HOME"/.[!.]* "$HOME"/bin; do
+    [ -L "$t" ] || continue
+    # shellcheck disable=SC2295 # kept verbatim from the recipe (unquoted $HOME pattern)
+    n="${t#$HOME/}"
+    case "$(readlink -f "$t" 2>/dev/null)" in "$dfroot"/*) ;; *) continue ;; esac
+    case "$claimed_words" in *" $n "*|*" $n/"*) continue ;; esac
+    printf '    %s%-47s%s %s\n' "$c1" "$n" "$c0" "LEFTOVER: native link -> $(readlink "$t")"
+    leftovers=1
+  done
+fi
+if [ $guix_home -eq 0 ]; then
+  echo "    (no ~/.guix-home: no home generation active, so native ownership is expected)"
+fi
+if [ $inactive -eq 1 ]; then
+  echo ""
+  echo "    \"absent -- OK\" = home/common.scm declares the path, but the ACTIVE generation"
+  echo "    does not deploy it: its layer is switched off for this session (the apply"
+  echo "    output says which, as \"inactive (unmet session facts)\").  Wanted, not broken."
+  if [ $espanso_off -eq 1 ] && [ "$FLAVOR" = wsl ]; then
+    echo "    espanso in particular: this is guix inside WSL, and we want it this way --"
+    echo "    a Linux espanso cannot see keystrokes typed into Windows apps, so espanso"
+    echo "    runs on the WINDOWS side, reading the same config out of Proton Drive."
+    echo "    See: make check-espanso-windows"
+  fi
+fi
+if [ $hazards -eq 1 ]; then
+  echo ""
+  echo "    HAZARD = \`guix home reconfigure' will do damage or abort half-done here."
+  echo "      symlinked ancestor: guix walks THROUGH it and replaces the files on the"
+  echo "        far side (your git repo) with store symlinks.  Fix: rm the symlink --"
+  echo "        only the link; guix then makes a real directory in its place."
+  echo "      real directory: guix backs up with copy-file, which cannot copy a"
+  echo "        directory (\"sendfile: Is a directory\").  Fix: mv it aside, e.g. to"
+  echo "        <name>.native_BAK, and move any contents you need back afterwards."
+fi
+if [ $conflicts -eq 1 ]; then
+  echo ""
+  echo "    CONFLICT = claimed by Guix Home but currently something else, so Guix Home"
+  echo "    will not see your repo edits for it.  Run: make apply  (guix backs up a"
+  echo "    colliding FILE by itself, into ~/<timestamp>-guix-home-legacy-configs-backup)."
+fi
+if [ $leftovers -eq 1 ]; then
+  echo ""
+  echo "    LEFTOVER = a native-setup link into this repo that Guix Home does not"
+  echo "    claim, so no apply will ever remove it.  Dead weight at best; at worst"
+  echo "    something still reads it LIVE beside the deployed snapshot (a leftover"
+  echo "    ~/.shared.zshenv runs .shared.zshenv twice).  Fix: rm the link -- only"
+  echo "    the link; the file in the repo is untouched."
+fi
+if [ -n "$PREFLIGHT" ]; then
+  [ $hazards -eq 0 ]
+elif [ $guix_home -eq 1 ]; then
+  [ $hazards -eq 0 ] && [ $conflicts -eq 0 ] && [ $leftovers -eq 0 ]
+fi
