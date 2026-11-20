@@ -197,6 +197,17 @@ What the restricted socket means in practice:
   environment fix above.
 - `gpg: problem with fast path key listing: Forbidden - ignored` is noise from
   the same restriction.
+- **The container signs as the hub.** The hub's agent holds every machine's
+  signing subkey, and with only the bare primary ID gpg picks the newest one,
+  so until 2026-11-20 the container asked for framepop's passphrase while the
+  Mac asked for minius's. The bridge script now writes
+  `~/.config/git/gpg-machine.conf` in the container, selecting the hub's
+  `signing_subkey` from `machines.toml` with `!`, so both want the same
+  passphrase.
+- **Every Mac prompt names its key.** `bin/pinentry-auto` looks up the key ID
+  of each prompt in `machines.toml` and adds a first line such as
+  `Passphrase: minius's signing key (agent on minius)` or `Passphrase: MASTER
+  key`. The Linux chooser in `home/common.scm` does not do this yet.
 
 ## When the key expires (2027-02-08)
 

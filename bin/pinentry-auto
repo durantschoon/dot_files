@@ -19,6 +19,17 @@
 #
 # --version and --help pass straight through, so `pinentry-auto --version'
 # shows which program a plain (non-ssh) request would get.
+#
+# Every prompt says WHOSE passphrase it wants.  Each machine has its own
+# signing subkey with its own passphrase (machines.toml), and this hub's
+# agent holds all of them, so a bare "unlock the OpenPGP secret key" left
+# the user guessing between machine passwords.  gpg-agent describes each
+# prompt with an Assuan `SETDESC <text>' line on the pinentry's stdin; the
+# text carries the key's long ID ("ID 1FE5BBBC0A765369").  label_requests
+# looks that ID up in machines.toml and puts a first line on the prompt:
+#   Passphrase: framepop's signing key  (agent on minius)
+#   Passphrase: MASTER key  (agent on minius)
+# An ID it does not know gets "key <id>"; it never blocks the prompt.
 
 find_pinentry() {
     # $1 = program name.  brew's prefix first (the agent's PATH may be the
@@ -30,6 +41,46 @@ find_pinentry() {
         fi
     done
     command -v "$1"
+}
+
+agent_host() {
+    # macOS's LocalHostName (minius), else the short hostname.
+    scutil --get LocalHostName 2>/dev/null || hostname -s 2>/dev/null || hostname
+}
+
+label_requests() {
+    # Copy the agent's Assuan commands through unchanged except SETDESC, one
+    # line at a time (fflush) because the conversation is interactive.
+    # $1 = machines.toml (may be missing), $2 = this host's name.
+    awk -v inventory="$1" -v host="$2" '
+        BEGIN {
+            # Long key ID (last 16 hex digits) -> machine, from lines like
+            #   [machines.framepop]  signing_subkey = "890B...5369"
+            while ((getline line < inventory) > 0) {
+                if (match(line, /^\[machines\.[^]]+\]/))
+                    machine = substr(line, 11, RLENGTH - 11)
+                else if (line ~ /^(signing_subkey|existing_subkey_id) *= *"[0-9A-Fa-f]+"/) {
+                    split(line, part, "\"")
+                    owner[toupper(substr(part[2], length(part[2]) - 15))] = machine
+                } else if (line ~ /^primary_fingerprint *= *"/) {
+                    split(line, part, "\"")
+                    primary = toupper(substr(part[2], length(part[2]) - 15))
+                }
+            }
+            gsub(/%/, "%25", host)
+        }
+        /^SETDESC / {
+            who = ""
+            if (match($0, /ID [0-9A-Fa-f]+/)) {
+                id = toupper(substr($0, RSTART + 3, RLENGTH - 3))
+                if (id == primary)   who = "MASTER key"
+                else if (id in owner) who = owner[id] "%27s signing key"
+                else                 who = "key " id
+            }
+            if (who != "")
+                sub(/^SETDESC /, "SETDESC Passphrase: " who "  (agent on " host ")%0A%0A")
+        }
+        { print; fflush() }'
 }
 
 case "${PINENTRY_USER_DATA:-}" in
@@ -63,4 +114,12 @@ if [ -z "$program" ]; then
     exit 1
 fi
 
-exec "$program" "$@"
+case "${1:-}" in
+    --version|--help)
+        exec "$program" "$@"   # no Assuan session: nothing to label
+        ;;
+esac
+
+# machines.toml sits at the top of dot_files, one level above bin/.  The
+# pipeline's status is the pinentry's (the last command), which gpg-agent reads.
+label_requests "$(dirname "$0")/../machines.toml" "$(agent_host)" | "$program" "$@"

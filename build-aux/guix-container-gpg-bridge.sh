@@ -60,6 +60,30 @@ grep -qx no-autostart "$gnupghome/common.conf" 2>/dev/null ||
 # under $XDG_RUNTIME_DIR is left alone (it serves ssh, not this socket).
 kill_matching gpg-agent "--homedir $gnupghome *--daemon*"
 
+# Sign as the HUB.  The agent across the bridge is the hub's, and it holds
+# every machine's signing subkey; with only the bare primary ID from
+# .gitconfig, gpg picks the newest one (framepop's, measured 2026-11-20), so
+# the container asked for a different machine's passphrase than the Mac
+# itself.  Selecting the hub's subkey with `!', in the same include file
+# `make gpg-spoke-copy' writes, makes both sides want one passphrase.
+inventory=/root/dot_files/machines.toml
+hub=$(sed -n 's/^hub *= *"\(.*\)"/\1/p' "$inventory" 2>/dev/null)
+hub_subkey=$(awk -v section="[machines.$hub]" '
+    $0 == section { inside = 1; next }
+    /^\[/ { inside = 0 }
+    inside && /^signing_subkey *= *"[0-9A-Fa-f]+"/ { split($0, part, "\""); print part[2]; exit }
+' "$inventory" 2>/dev/null)
+machine_conf=/root/.config/git/gpg-machine.conf
+if [ -n "$hub_subkey" ]; then
+    wanted=$(printf '[user]\n\tsigningkey = %s!' "$hub_subkey")
+    if [ "$(cat "$machine_conf" 2>/dev/null)" != "$wanted" ]; then
+        install -d "${machine_conf%/*}"
+        printf '%s\n' "$wanted" >"$machine_conf.tmp" && mv "$machine_conf.tmp" "$machine_conf"
+    fi
+else
+    echo "gpg bridge: no signing_subkey for hub '$hub' in $inventory; git falls back to the primary key ID" >&2
+fi
+
 # The listener stays up even while the Mac side is down, so gpg sees a
 # refused request instead of a missing socket.
 while :; do
