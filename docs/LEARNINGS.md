@@ -35,7 +35,7 @@ is the only command that shows the tally and says `Quorum: no`.
 
 **Measurement.** The kernel log was `apparmor="DENIED" operation="exec" requested_mask="x" denied_mask="x"` for `guix-daemon//guix-builder`. The installed builder profile granted only `owner /tmp/** rw,`. Unix execute bits and a Bash shebang do not satisfy that. Upstream fixed the bundled policy in commit `8ead7a983706` (2026-03-08, issue 6501) with `owner /tmp/** rwklmux,`, which is `ux`: the new executable leaves confinement. `guix pull` does not replace `/etc/apparmor.d/guix-daemon`, and a Guix 1.5.0 version string does not say which profile was copied onto the host. No audit record was collected for the separate `--keep-failed` cleanup denials, so those were not attributed to this rule.
 
-**Decision.** `guix-install.sh` vendors the installer and, only inside a recognized old `guix-builder` child profile, adds `owner /tmp/guix-build-*/** klmix,`. That is `ix`: the script runs, and it stays in the builder profile. `ux` was rejected because it drops confinement and keeps the environment. The original `owner /tmp/** rw,` line stays. `--keep-failed` is a different failure (a root daemon moving a tree owned by the build user) and this rule does not claim to fix it. Re-apply on an existing install with `sudo bash ./guix-install.sh --setup-apparmor`. `make check-guix-installer` is the rootless check. The long deploy note and the one-shot Pop!_OS script were removed after that script had been run; both are listed in `docs/archive/README.md`.
+**Decision.** `guix-install.sh` vendors the installer and, only inside a recognized old `guix-builder` child profile, adds `owner /tmp/guix-build-*/** klmix,`. That is `ix`: the script runs, and it stays in the builder profile. `ux` was rejected because it drops confinement and keeps the environment. The original `owner /tmp/** rw,` line stays. `--keep-failed` is a different failure (a root daemon moving a tree owned by the build user) and this rule does not claim to fix it. Re-apply on an existing install with `sudo bash ./guix-install.sh --setup-apparmor`. `make check-guix-installer-tests` is the rootless check. The long deploy note and the one-shot Pop!_OS script were removed after that script had been run; both are listed in `docs/archive/README.md`.
 
 ## 2026-09-21 — an over-long `TMUX_TMPDIR` does not fail; tmux silently uses the default server
 
@@ -101,9 +101,9 @@ before; that guard is itself exercised against a deliberate mismatch by
 passed has proved nothing.
 
 The 100-byte limit is chosen so the measured worst case above still runs (it is
-exactly 100) while anything worse stops rather than guesses. If `make check-jobs`
+exactly 100) while anything worse stops rather than guesses. If `make check-jobs-tests`
 ever does start refusing from an interactive shell, the fix is a shorter scratch
-root — `TMPDIR=/tmp make check-jobs` — not a larger limit.
+root — `TMPDIR=/tmp make check-jobs-tests` — not a larger limit.
 
 **Pointers.** `tests/jobs/private-tmux`; `docs/stages/stage-14-REPORT.md` D1;
 `docs/stages/stage-15-REPORT.md`; `docs/stages/README.md`, "Added at the stage 15

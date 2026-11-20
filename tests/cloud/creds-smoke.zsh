@@ -3,7 +3,7 @@
 #
 # tests/cloud/creds-smoke.zsh -- bin/cloud-creds.sh against a stub rclone.
 #
-#   ./tests/cloud/creds-smoke.zsh          (also: part of make check-cloud)
+#   ./tests/cloud/creds-smoke.zsh          (also: part of make check-cloud-tests)
 #
 # Runs anywhere, with no Proton account and no network: a stub `rclone' goes in
 # front of the real one on PATH, so the script under test is exercised unmodified

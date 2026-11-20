@@ -677,7 +677,7 @@ command rm -f -- "$FAKEBIN/herdr"; rehash
 unset AGENT_HOMEBASE_BIN
 
 # 5. make wiring.
-assert "make check-jobs runs this file" grep -q "claude-smoke.zsh" "$WT/Makefile"
+assert "make check-jobs-tests runs this file" grep -q "claude-smoke.zsh" "$WT/Makefile"
 
 # 6. agent-prune. Fixtures, all claude, with labels pinned like the rest:
 #   p1  missing, checkout deleted             -> orphaned

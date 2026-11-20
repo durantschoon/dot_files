@@ -4,7 +4,7 @@
 # tests/submodule/publish-smoke.zsh -- smoke test for bin/submodule-publish and
 # the rewritten `make submodule-pull'.
 #
-#   ./tests/submodule/publish-smoke.zsh        # or: make check-submodule-publish
+#   ./tests/submodule/publish-smoke.zsh        # or: make check-submodule-publish-tests
 #
 # Run it with -f (no rc files): it must pass with nothing from the developer's
 # interactive shell in scope. The copies under test are the ones next to this
@@ -353,7 +353,7 @@ run_in "$WT" make help; RC=$?
 eq  "W2 make help exits 0" "$RC" "0"
 has "W2 ... lists claude-publish" "$OUT" "make claude-publish"
 has "W2 ... lists submodule-publish with its variable" "$OUT" "make submodule-publish SUBMODULE=<path>"
-has "W2 ... lists check-submodule-publish" "$OUT" "make check-submodule-publish"
+has "W2 ... lists check-submodule-publish-tests" "$OUT" "make check-submodule-publish-tests"
 has "W2 ... and says submodule-pull leaves the gitlink modified" "$OUT" "gitlink MODIFIED"
 
 run_in "$WT" make -n check; RC=$?
