@@ -4,7 +4,14 @@ Classifies linked worktrees and prints paste-ready cleanup commands.
 It never deletes a worktree, a branch, or a remote-tracking ref.
 
 A worktree is reported only when its tip is at least IDLE_DAYS old, or
-when its directory is already gone.  Envelope checkouts under
+when its directory is already gone.
+
+A gone directory outside the repo's own tree (not under the main worktree or
+the directory holding it) is reported as "foreign" and gets no command: on a
+checkout two machines share (orb-guix sees minius's dot_files over virtiofs;
+geeeks and framepop share a partition) that is usually the other machine's
+live worktree, and a plain `git worktree prune` would orphan it.  The prune
+command offered is bin/git-worktree-prune-safe, which skips such records.  Envelope checkouts under
 ~/Repos/enveloped/e* and each repo's main worktree are skipped.
 """
 
@@ -21,6 +28,8 @@ IDLE_DAYS = 3
 STAMP_HOURS = 24
 
 CLASSES_READY = ("prune", "remove", "remove-force")
+
+SAFE_PRUNE = Path(__file__).resolve().parent / "git-worktree-prune-safe"
 
 
 def git(cwd: Path, *args: str, timeout: int = 15) -> subprocess.CompletedProcess[str]:
@@ -143,10 +152,23 @@ def idle_days(day: str, today: datetime.date) -> int | None:
     return max(0, (today - committed).days)
 
 
+def is_foreign(path: str, main_path: str) -> bool:
+    """True when path is outside main_path and the directory that holds it.
+
+    Same rule as bin/git-worktree-prune-safe.  When the main worktree sits
+    directly under /, only main_path itself counts as local.
+    """
+    main = main_path.rstrip("/") or "/"
+    parent = os.path.dirname(main)
+    roots = [main] if parent == "/" else [main, parent]
+    return not any(path == root or path.startswith(root + "/") for root in roots)
+
+
 def classify(prunable: bool, missing: bool, locked: bool, idle: int | None,
-             dirty: int, stashes: int, how: str | None) -> str:
+             dirty: int, stashes: int, how: str | None, foreign: bool = False) -> str:
     if prunable or missing:
-        return "prune"
+        # A locked record is never pruned by git; a foreign one must not be.
+        return "foreign" if foreign or locked else "prune"
     if idle is not None and idle < IDLE_DAYS:
         return "active"
     if locked:
@@ -372,7 +394,9 @@ def scan_unit(unit: Path, today: datetime.date, envelope_root: Path, fetch: bool
         how, onto = (None, None)
         if not recent:
             how, onto = landed(unit, entry, candidates)
-        kind = classify(bool(entry["prunable"]), missing, bool(entry["locked"]), idle, dirty, stashes, how)
+        foreign = missing and is_foreign(raw, main_path)
+        kind = classify(bool(entry["prunable"]), missing, bool(entry["locked"]), idle, dirty, stashes, how,
+                        foreign)
         if kind == "active":
             continue
         count, subjects = (0, [])
@@ -424,7 +448,7 @@ def cleanup_commands(findings: list[dict]) -> list[str]:
     live = {
         (item["repo"], item["branch"])
         for item in findings
-        if item["class"] != "prune" and item["branch"]
+        if item["class"] not in ("prune", "foreign") and item["branch"]
     }
     lines: list[str] = []
     pruned: set[str] = set()
@@ -432,7 +456,7 @@ def cleanup_commands(findings: list[dict]) -> list[str]:
         repo = shlex.quote(item["repo"])
         if item["class"] == "prune":
             if item["repo"] not in pruned:
-                lines.append(f"cd {repo} && git worktree prune -v")
+                lines.append(f"{shlex.quote(str(SAFE_PRUNE))} -C {repo} -v")
                 pruned.add(item["repo"])
             branch = item["branch"]
             if not branch or (item["repo"], branch) in live:
@@ -458,6 +482,9 @@ def _bullet(item: dict) -> str:
     place = f"{_tilde(item['path'])} [{label}]"
     if item["class"] == "prune":
         return f"- {place} directory missing"
+    if item["class"] == "foreign":
+        why = "locked" if item["locked"] else "outside this repo's tree"
+        return f"- {place} not visible here ({why}); remove it with `git worktree remove` where it lives"
     if item["class"] == "remove":
         idle = item["idle"] if item["idle"] is not None else "?"
         return f"- {place} clean, idle {idle}d"
@@ -488,6 +515,7 @@ def render(report: dict, *, fetched: bool = True) -> str:
         "remove": [item for item in findings if item["class"] == "remove"],
         "remove-force": [item for item in findings if item["class"] == "remove-force"],
         "prune": [item for item in findings if item["class"] == "prune"],
+        "foreign": [item for item in findings if item["class"] == "foreign"],
         "review": [item for item in findings if item["class"] == "review"],
     }
     if report["fetch_failures"]:
@@ -512,6 +540,7 @@ def render(report: dict, *, fetched: bool = True) -> str:
         ("remove-force", "Patch-equivalent (needs -D)"),
         ("prune", "Directory gone"),
         ("review", "Needs a look"),
+        ("foreign", "Not on this machine (left alone)"),
     )
     for key, title in sections:
         rows = groups[key]

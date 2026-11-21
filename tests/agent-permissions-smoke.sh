@@ -36,6 +36,8 @@ want_claude = [
     "Bash(git -C * branch -D *)",
     "Bash(git worktree remove:*)",
     "Bash(git -C * worktree remove *)",
+]
+deny_claude = [
     "Bash(git worktree prune:*)",
     "Bash(git -C * worktree prune*)",
 ]
@@ -44,16 +46,20 @@ want_cursor = [
     "Shell(git:-C * branch -D*)",
     "Shell(git:worktree remove*)",
     "Shell(git:-C * worktree remove*)",
+]
+deny_cursor = [
     "Shell(git:worktree prune*)",
     "Shell(git:-C * worktree prune*)",
 ]
 assert claude["permissions"]["allow"] == want_claude, claude
+assert claude["permissions"]["deny"] == deny_claude, claude
 assert cursor["version"] == 1
 assert cursor["permissions"]["allow"] == want_cursor, cursor
-assert cursor["permissions"]["deny"] == []
+assert cursor["permissions"]["deny"] == deny_cursor, cursor
 rules = (home / ".codex/rules/dot_files.rules").read_text()
 assert 'pattern=["git", "branch", "-D"]' in rules
-assert 'pattern=["git", "worktree", ["remove", "prune"]]' in rules
+assert 'pattern=["git", "worktree", "remove"], decision="allow"' in rules
+assert 'pattern=["git", "worktree", "prune"], decision="forbidden"' in rules
 PY
 
 # Second apply is a no-op.
@@ -112,12 +118,13 @@ assert claude["model"] == "kept"
 assert claude["permissions"]["allow"][0] == "Bash(git status:*)"
 cursor = json.loads((home / ".cursor/cli-config.json").read_text())
 assert cursor["editor"]["vimMode"] is True
-assert cursor["permissions"]["deny"] == ["Shell(rm)"]
+assert cursor["permissions"]["deny"][0] == "Shell(rm)"
+assert "Shell(git:worktree prune*)" in cursor["permissions"]["deny"]
 assert cursor["permissions"]["allow"][0] == "Shell(ls)"
 assert "Shell(git:branch -D*)" in cursor["permissions"]["allow"]
 rules = (home / ".codex/rules/dot_files.rules").read_text().splitlines()
 assert rules[0].startswith("prefix_rule(pattern=[\"git\", \"branch\", \"-D\"]")
-assert len(rules) == 2
+assert len(rules) == 3
 PY
 
 # permissions object with deny and no allow.
@@ -131,11 +138,50 @@ import json, pathlib, sys
 home = pathlib.Path(sys.argv[1])
 claude = json.loads((home / ".claude/settings.json").read_text())
 assert claude["keep"] is True
-assert claude["permissions"]["deny"] == ["Bash(rm:*)"]
+assert claude["permissions"]["deny"][0] == "Bash(rm:*)"
+assert "Bash(git worktree prune:*)" in claude["permissions"]["deny"]
 assert "Bash(git branch -D:*)" in claude["permissions"]["allow"]
 cursor = json.loads((home / ".cursor/cli-config.json").read_text())
 assert set(cursor) == {"permissions"}
-assert "Shell(git:worktree prune*)" in cursor["permissions"]["allow"]
+assert "Shell(git:worktree prune*)" in cursor["permissions"]["deny"]
+assert "Shell(git:worktree prune*)" not in cursor["permissions"]["allow"]
+PY
+
+# An allow list written by an older version (prune GRANTED) has the grants
+# taken out, in every position, with the other entries and layout kept.
+export HOME="$tmp/revoke"
+mkdir -p "$HOME/.claude" "$HOME/.cursor" "$HOME/.codex/rules"
+cat > "$HOME/.claude/settings.json" <<'EOF'
+{
+  "permissions": {
+    "allow": [
+      "Bash(git worktree prune:*)",
+      "Bash(git status:*)",
+      "Bash(git -C * worktree prune*)",
+      "Bash(ls:*)"
+    ]
+  }
+}
+EOF
+printf '%s\n' '{"permissions": {"allow": ["Shell(git:worktree prune*)"], "deny": []}}' > "$HOME/.cursor/cli-config.json"
+if "$script" --check >/dev/null 2>&1; then
+    fail "--check passed with prune still granted"
+fi
+"$script" >/dev/null
+"$script" --check >/dev/null
+python3 - "$HOME" <<'PY'
+import json, pathlib, sys
+home = pathlib.Path(sys.argv[1])
+text = (home / ".claude/settings.json").read_text()
+claude = json.loads(text)
+allow = claude["permissions"]["allow"]
+assert allow[:2] == ["Bash(git status:*)", "Bash(ls:*)"], allow
+assert not any("prune" in entry for entry in allow), allow
+assert "Bash(git -C * worktree prune*)" in claude["permissions"]["deny"]
+assert '      "Bash(git status:*)",\n      "Bash(ls:*)"' in text, text
+cursor = json.loads((home / ".cursor/cli-config.json").read_text())
+assert not any("prune" in entry for entry in cursor["permissions"]["allow"]), cursor
+assert "Shell(git:worktree prune*)" in cursor["permissions"]["deny"]
 PY
 
 # A symlink is refused and left in place.  Invalid JSON is refused too.

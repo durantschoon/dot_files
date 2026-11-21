@@ -384,7 +384,7 @@ help-text:
 	@echo "                       reboots: a LaunchAgent on mac, the Shepherd service elsewhere"
 	@echo "                       (stops a hand-started node first). Interactive."
 	@echo "  make check-radicle - Verify rad, git-remote-rad, the identity, the service and the node"
-	@echo "  make agent-permissions - Grant git branch -D / worktree remove / worktree prune"
+	@echo "  make agent-permissions - Grant git branch -D / worktree remove; deny raw worktree prune (use bin/git-worktree-prune-safe)"
 	@echo "                       to Claude Code, Codex, and the Cursor CLI (agy has no allowlist)"
 	@echo "  make check-agent-permissions - Smoke-test that grant and report gaps (part of make check)"
 	@echo "  make check-worktrees - Classify abandoned worktrees in scratch repos (part of make check)"
@@ -2738,6 +2738,7 @@ check-radicle-tests:
 .PHONY: check-worktrees
 check-worktrees:
 	@python3 tests/hygiene/worktrees.py
+	@sh tests/hygiene/prune-safe-smoke.sh
 
 # shellcheck over bin/.  Scripts are chosen by shebang, not extension, so a new
 # one is covered without editing a list: line 1 names sh, bash or dash, either

@@ -1,0 +1,112 @@
+#!/bin/sh
+# git-worktree-prune-safe -- `git worktree prune` that leaves another
+# machine's worktrees alone.
+#
+# usage: git-worktree-prune-safe [-C DIR] [-n|--dry-run] [-v|--verbose]
+#
+# Why: some checkouts are shared between two machines that see them under
+# different paths -- orb-guix mounts minius's /Users/durant/dot_files at
+# /root/dot_files over virtiofs, and geeeks/framepop reach one data partition
+# through ~/Repos symlinks.  A worktree's admin record
+# ($GIT_COMMON_DIR/worktrees/<id>/gitdir) holds the absolute path of the side
+# that made it, so from the other side that path does not exist and plain
+# `git worktree prune` deletes the record, orphaning a live worktree.  That is
+# how /root/dot_files_orb-guix-radicle was lost (problem stack ps-3wl3).
+#
+# What it does: a record whose path is missing is pruned only when that path
+# lies under this side's main worktree or the directory containing it (where
+# worktree-start puts worktrees: ROOT/.claude/worktrees/NAME or
+# ROOT/../ROOT_NAME).  Any other missing path is treated as FOREIGN: it is
+# locked for the duration of the prune, then unlocked, so git skips it.  A
+# false "foreign" only means a stale record survives; it never loses work.
+#
+# Records that are already locked, or whose path exists, are git's business
+# and are left to it as usual.
+
+set -eu
+
+me=git-worktree-prune-safe
+dir=.
+dry=
+verbose=
+
+usage() {
+    sed -n '4p' "$0" | sed 's/^# //'
+}
+
+die() {
+    printf '%s: %s\n' "$me" "$*" >&2
+    exit 2
+}
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        -C) [ $# -ge 2 ] || die "-C needs a directory"; dir=$2; shift 2 ;;
+        -n|--dry-run) dry=1; shift ;;
+        -v|--verbose) verbose=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage >&2; die "unknown argument: $1" ;;
+    esac
+done
+
+common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir) \
+    || die "not a git repository: $dir"
+# The first record of `worktree list` is the main worktree, as THIS side sees
+# it (git derives it from the common dir, not from a stored path).
+root=$(git -C "$dir" worktree list --porcelain | sed -n '1s/^worktree //p')
+[ -n "$root" ] || die "cannot find the main worktree of $dir"
+parent=$(dirname "$root")
+
+# is_local PATH: true when PATH is under ROOT, or under ROOT's parent unless
+# that parent is / (a repo at /x would otherwise make every path local).
+is_local() {
+    case $1 in
+        "$root"/*) return 0 ;;
+    esac
+    [ "$parent" != / ] || return 1
+    case $1 in
+        "$parent"/*) return 0 ;;
+    esac
+    return 1
+}
+
+marker="$me: foreign worktree, locked during a prune by pid $$"
+held=   # admin dirs this run locked, newline-separated
+
+release() {
+    printf '%s\n' "$held" | while IFS= read -r admin; do
+        [ -n "$admin" ] || continue
+        # Only remove a lock this run wrote; never someone else's.
+        if [ "$(cat "$admin/locked" 2>/dev/null)" = "$marker" ]; then
+            command rm -f "$admin/locked"
+        fi
+    done
+}
+trap release EXIT
+trap 'exit 130' INT TERM HUP
+
+foreign=0
+for admin in "$common"/worktrees/*; do
+    [ -d "$admin" ] || continue
+    [ -e "$admin/locked" ] && continue
+    [ -f "$admin/gitdir" ] || continue
+    gitdir=$(cat "$admin/gitdir")
+    [ -e "$gitdir" ] && continue
+    path=${gitdir%/.git}
+    if is_local "$path"; then
+        continue
+    fi
+    printf '%s\n' "$marker" > "$admin/locked"
+    held="$held
+$admin"
+    foreign=$((foreign + 1))
+    printf '%s: keeping %s (not under %s; another machine'"'"'s worktree?)\n' \
+        "$me" "$path" "$parent" >&2
+done
+
+git -C "$dir" worktree prune ${dry:+-n} ${verbose:+-v}
+
+if [ "$foreign" -gt 0 ]; then
+    printf '%s: kept %d foreign record(s); remove one deliberately with\n' "$me" "$foreign" >&2
+    printf '  git worktree remove <path>   (on the machine that made it)\n' >&2
+fi
