@@ -55,10 +55,9 @@ typeset -g JOBS_ZSH=$WT/.jobs.zsh
 # --------------------------------------------------------------------------
 # The probe in _docker_guard costs one `<cli> info' per shell, and stage 06
 # judged that cheap from a ~90 ms measurement on a Mac.  The three runs below
-# are the first engine calls this process makes, so they carry whatever this
-# machine charges for a `podman info' that nothing in this process has warmed.
-# They double as the preflight: the first one's exit status decides whether
-# there is anything here to test at all.
+# follow only the engine probe's one `info', so they carry close to whatever
+# this machine charges for an `info' that this process has barely warmed.
+# The probe is the preflight: without an engine there is nothing to test.
 #
 # "Cold" has a floor: the page cache and any already-running podman machinery
 # belong to the machine, not to this script, and evicting them needs root --
@@ -66,14 +65,29 @@ typeset -g JOBS_ZSH=$WT/.jobs.zsh
 # this process", not "first since boot", and the warm trio at the end is the
 # number the once-per-shell judgment actually turns on.
 
-typeset -g SKIP_LINE="SKIP: no reachable podman -- nothing tested"
-command -v podman >/dev/null 2>&1 || { print -r -- "$SKIP_LINE"; exit 0 }
+typeset -g SKIP_LINE="SKIP: no reachable docker or podman -- nothing tested"
 
-# One timed `podman info'; prints whole milliseconds, returns podman's status.
+# Which engine SHOULD win the probe, worked out here rather than asked of the
+# code under test: the first candidate, in _job_ctr's order, that is both on
+# PATH and answers `info'.  On the Linux host this test was written for that is
+# podman, because docker is not installed at all -- so assertion 1 watches the
+# first candidate fall through for real instead of through a fake with a
+# flipped exit status.  On minius it is OrbStack's docker.  Chosen before the
+# timing below, which used to run `podman info' unconditionally and so skipped
+# a Mac with a working docker and no podman.
+typeset -g ENGINE="" DOCKER_WHERE
+DOCKER_WHERE=$(command -v docker 2>/dev/null) || DOCKER_WHERE=""
+local c
+for c in docker podman; do
+  command -v -- "$c" >/dev/null 2>&1 && command "$c" info >/dev/null 2>&1 && { ENGINE=$c; break }
+done
+[[ -n $ENGINE ]] || { print -r -- "$SKIP_LINE"; exit 0 }
+
+# One timed `$ENGINE info'; prints whole milliseconds, returns the engine's status.
 live_info_ms() {
   local t0 t1 rc
   t0=$EPOCHREALTIME
-  command podman info >/dev/null 2>&1; rc=$?
+  command "$ENGINE" info >/dev/null 2>&1; rc=$?
   t1=$EPOCHREALTIME
   printf '%.0f' $(( (t1 - t0) * 1000 ))
   return $rc
@@ -115,18 +129,6 @@ typeset -ga JOB_DOCKER_ARGS=()
 typeset -ga JOB_HOSTS=()
 typeset -g  JOB_HOST=local
 
-# Which engine SHOULD win the probe, worked out here rather than asked of the
-# code under test: the first candidate that is both on PATH and answers `info'.
-# On the host this test was written for that is podman, because docker is not
-# installed at all -- so assertion 1 watches the first candidate fall through
-# for real instead of through a fake with a flipped exit status.
-typeset -g ENGINE="" DOCKER_WHERE
-DOCKER_WHERE=$(command -v docker 2>/dev/null) || DOCKER_WHERE=""
-local c
-for c in docker podman; do
-  command -v -- "$c" >/dev/null 2>&1 && command "$c" info >/dev/null 2>&1 && { ENGINE=$c; break }
-done
-[[ -n $ENGINE ]] || { print -r -- "$SKIP_LINE"; exit 0 }
 # Independent verification goes straight to the engine, never through _job_ctr.
 xctr() { command "$ENGINE" "$@" }
 # The default image _docker_image should land on for the engine that won.
@@ -435,26 +437,44 @@ waitfor ctr_stopped "$SLUG-t4" \
 typeset -g Q2_EXIT;   Q2_EXIT=$(xctr container inspect -f '{{.State.ExitCode}}' "$SLUG-t4" 2>&1)
 typeset -g Q2_ENGLOG; Q2_ENGLOG=$(xctr logs "$SLUG-t4" 2>&1)
 
-eqlit "Q2 the container exits 1 where stage 08 measured a silent 0" "$Q2_EXIT" "1"
-has   "Q2 ... and job-tee's refusal names the log path it could not write" "$Q2_ENGLOG" "logs/t4."
-has   "Q2 ... and the uid it ran as, which nothing outside the container could guess" \
-      "$Q2_ENGLOG" "(uid 1000)"
-has   "Q2 ... and says plainly that it refused" "$Q2_ENGLOG" "refusing to run unrecorded"
-# The refusal is only worth anything if the command really did not run: its
-# output would be in the engine's ring buffer even with logs/ unwritable, which
-# is exactly how stage 08 saw `from-a-non-root-user' there over an empty logs/.
-# The test is a WHOLE-LINE match, not a substring: the refusal quotes the
-# command it is refusing, so `*from-a-non-root-user*' matches job-tee's own
-# diagnostic and proves nothing. (It did, on this block's first run.)
-eq    "Q2 ... and the command never ran at all" \
-      "$(print -r -- "$Q2_ENGLOG" | command awk '{ sub(/\r$/, "") } $0 == "from-a-non-root-user" { print "it-ran"; exit }')" ""
-eq    "Q2 ... having stopped before it wrote even a log header" \
-      "$([[ $Q2_ENGLOG == *"== job-tee start"* ]] && print started)" ""
-# Specifically no LOG. logs/t4.job is there and should be: the per-task record
-# is written on the HOST by docker-run before any container exists, so it says
-# what was asked for, while the missing t4.*.log says the container never got
-# to answer. Globbing logs/t4.* instead would conflate the two.
-eq    "Q2 ... while logs/ gains no log file for t4" "$(print -r -- $REPO/logs/t4.*.log(N))" ""
+# Which half of the contract applies depends on the engine's bind mount, not
+# on the code under test.  Rootless podman maps uid 1000 into the subuid
+# range, where it cannot write the host's logs/, so job-tee must refuse.
+# OrbStack's docker on macOS lets it write, so the job runs and must leave a
+# real log.  The failure stage 08 found -- exit 0 with no log -- fails both.
+if [[ $Q2_EXIT == 0 ]]; then
+  note  "Q2 this engine's bind mount let uid 1000 write logs/ -- the recorded-run half applies"
+  # The timestamped log itself: t4.*.log would also match t4.latest.log.
+  typeset -g Q2_LOG; Q2_LOG=$(print -r -- $REPO/logs/t4.<->-<->.log(N))
+  [[ -n $Q2_LOG && -f $Q2_LOG ]] \
+    && ok   "Q2 the container exits 0 AND logs/ gains a log file for t4" \
+    || fail "Q2 the container exits 0 AND logs/ gains a log file for t4" \
+            "logs/: [$(print -r -- $REPO/logs/*(N:t))]"
+  has   "Q2 ... which job-tee started properly" "$(command cat -- "$Q2_LOG" 2>/dev/null)" "== job-tee start"
+  eq    "Q2 ... and which holds the command's own output line" \
+        "$(command awk '{ sub(/\r$/, "") } $0 == "from-a-non-root-user" { print "it-ran"; exit }' "$Q2_LOG" 2>/dev/null)" "it-ran"
+else
+  eqlit "Q2 the container exits 1 where stage 08 measured a silent 0" "$Q2_EXIT" "1"
+  has   "Q2 ... and job-tee's refusal names the log path it could not write" "$Q2_ENGLOG" "logs/t4."
+  has   "Q2 ... and the uid it ran as, which nothing outside the container could guess" \
+        "$Q2_ENGLOG" "(uid 1000)"
+  has   "Q2 ... and says plainly that it refused" "$Q2_ENGLOG" "refusing to run unrecorded"
+  # The refusal is only worth anything if the command really did not run: its
+  # output would be in the engine's ring buffer even with logs/ unwritable, which
+  # is exactly how stage 08 saw `from-a-non-root-user' there over an empty logs/.
+  # The test is a WHOLE-LINE match, not a substring: the refusal quotes the
+  # command it is refusing, so `*from-a-non-root-user*' matches job-tee's own
+  # diagnostic and proves nothing. (It did, on this block's first run.)
+  eq    "Q2 ... and the command never ran at all" \
+        "$(print -r -- "$Q2_ENGLOG" | command awk '{ sub(/\r$/, "") } $0 == "from-a-non-root-user" { print "it-ran"; exit }')" ""
+  eq    "Q2 ... having stopped before it wrote even a log header" \
+        "$([[ $Q2_ENGLOG == *"== job-tee start"* ]] && print started)" ""
+  # Specifically no LOG. logs/t4.job is there and should be: the per-task record
+  # is written on the HOST by docker-run before any container exists, so it says
+  # what was asked for, while the missing t4.*.log says the container never got
+  # to answer. Globbing logs/t4.* instead would conflate the two.
+  eq    "Q2 ... while logs/ gains no log file for t4" "$(print -r -- $REPO/logs/t4.*.log(N))" ""
+fi
 eqlit "Q2 ... though the host-written task record is there, as it always is" \
       "$(print -r -- $REPO/logs/t4.job(N:t))" "t4.job"
 note  "Q2 docker-run said: [$(oneline "$out")]"
@@ -462,13 +482,13 @@ note  "Q2 the engine's view of the container's output: [$(oneline "$Q2_ENGLOG")]
 note  "Q2 job-logfile t4: [$(job-logfile t4 2>/dev/null || print nothing)]"
 
 # --------------------------------------------------------------------------
-# Question 1, second half: `podman info' once everything above has warmed it
+# Question 1, second half: `$ENGINE info' once everything above has warmed it
 # --------------------------------------------------------------------------
 
 typeset -ga WARM_MS=()
 for i in 1 2 3; do WARM_MS+=("$(live_info_ms)"); done
-note "Q1 podman info, first three in this process: ${(j:, :)COLD_MS} ms"
-note "Q1 podman info, three more after all the container work: ${(j:, :)WARM_MS} ms"
+note "Q1 $ENGINE info, first three in this process: ${(j:, :)COLD_MS} ms"
+note "Q1 $ENGINE info, three more after all the container work: ${(j:, :)WARM_MS} ms"
 
 # --------------------------------------------------------------------------
 # 10. Clean exit
