@@ -66,8 +66,5 @@ if [ -n "$SSH_CLIENT" ]; then
     add_to_front_of_path "$HOME/bin"
 fi
 
-# GPG-Agent as SSH agent (when not already set by session manager)
-if [[ -z "$SSH_AUTH_SOCK" ]] && (( $+commands[gpgconf] )); then
-    export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket 2>/dev/null)"
-    unset SSH_AGENT_PID
-fi
+# GPG-Agent as SSH agent is handled across all platforms in .shared.zshenv.
+
