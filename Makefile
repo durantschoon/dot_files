@@ -333,6 +333,8 @@ help-text:
 	@echo "  make check-github-ssh - Test the GitHub SSH Host blocks without network access"
 	@echo "  make check-ssh-github - check-ssh-with-gpg-for-egress, then a live 'ssh -T git@github.com' with triage hints"
 	@echo "                       (needs the network, may prompt; SSH_TEST_HOST=git@other.host to test elsewhere)"
+	@echo "  make check-ssh-bitbucket - check-ssh-with-gpg-for-egress, then a live 'ssh -T git@ssh.bitbucket.org' with triage hints"
+	@echo "                       (needs the network; BITBUCKET_SSH_TEST_HOST=git@... to test elsewhere)"
 	@echo "  make setup-guix-github-key - Create a container-only GitHub SSH key and show its public key"
 	@echo "  make setup-guix-bitbucket-key - The same for Bitbucket"
 	@echo "  make guix-container-stop - Stop guix-dev in place (agent sessions get GUIX_CONTAINER_STOP_TIMEOUT s"
@@ -1362,7 +1364,7 @@ check-gpg-tests:
 # hour, so it would make `check' fail for reasons that are not config drift.
 # The socket test comes before any gpg-connect-agent call, because that
 # command autostarts an agent and this target must not have side effects.
-.PHONY: setup-bitbucket-ssh check-bitbucket-ssh setup-github-ssh check-github-ssh check-ssh-with-gpg-for-egress
+.PHONY: setup-bitbucket-ssh check-bitbucket-ssh setup-github-ssh check-github-ssh check-ssh-with-gpg-for-egress check-ssh-bitbucket
 setup-bitbucket-ssh:
 	@sh bin/setup-bitbucket-ssh
 
@@ -1378,7 +1380,7 @@ check-github-ssh:
 check-ssh-with-gpg-for-egress:
 	@echo "==> gpg-agent as ssh agent"
 	@if [ -n "$(IN_GUIX_DEV)" ]; then \
-	  echo "    skipped in guix-dev: ssh uses per-forge key files (make setup-guix-github-key);"; \
+	  echo "    skipped in guix-dev: ssh uses per-forge key files (make setup-guix-github-key, make setup-guix-bitbucket-key);"; \
 	  echo "    gpg goes through the Mac bridge (make check-gpg-bridge, on the Mac)"; \
 	  exit 0; \
 	fi; \
@@ -1457,6 +1459,22 @@ check-ssh-github: check-ssh-with-gpg-for-egress
 	  echo "              ssh -vvvT $(SSH_TEST_HOST) 2>&1 | grep -E 'identity file|Offering|Server accepts|denied'"; \
 	  echo "         then compare 'ssh-add -l -E sha256' with GitHub -> Settings -> SSH and GPG keys"; \
 	  echo "         (agent refused operation: run gpg-here in this shell and retry)"; \
+	  exit 1; \
+	fi
+
+BITBUCKET_SSH_TEST_HOST ?= git@ssh.bitbucket.org
+.PHONY: check-ssh-bitbucket
+check-ssh-bitbucket: check-ssh-with-gpg-for-egress
+	@echo "==> ssh to $(BITBUCKET_SSH_TEST_HOST)"
+	@out=$$(ssh -o ConnectTimeout=10 -T $(BITBUCKET_SSH_TEST_HOST) 2>&1); \
+	if echo "$$out" | grep -q 'authenticated via ssh key'; then \
+	  echo "    [ok] remote   : authenticated via ssh key"; \
+	  echo "==> ssh to $(BITBUCKET_SSH_TEST_HOST) OK"; \
+	else \
+	  echo "    [--] remote   : $$(echo "$$out" | tail -1)"; \
+	  echo "         the local agent chain is fine, so look at what ssh offered:"; \
+	  echo "              ssh -vvvT $(BITBUCKET_SSH_TEST_HOST) 2>&1 | grep -E 'identity file|Offering|Server accepts|denied'"; \
+	  echo "         then compare with Bitbucket -> Personal settings -> SSH keys"; \
 	  exit 1; \
 	fi
 

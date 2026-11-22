@@ -197,6 +197,19 @@ What the restricted socket means in practice:
   environment fix above.
 - `gpg: problem with fast path key listing: Forbidden - ignored` is noise from
   the same restriction.
+- **The bridge is for signing only; SSH egress uses static keys.** The bridged
+  extra socket (`S.gpg-agent.extra`) forwards GPG signing and decryption only.
+  It does NOT forward `S.gpg-agent.ssh` or provide SSH authentication to the
+  container. Container SSH egress instead uses dedicated static keys
+  (`/root/.ssh/github_orbstack_guix`, `/root/.ssh/bitbucket_orbstack_guix`, etc.)
+  generated and configured via `make setup-guix-github-key` or
+  `make setup-guix-bitbucket-key`.
+  Therefore, `make check-gpg` (or `dfmake check-gpg`) passing has **no bearing**
+  on whether `git push` succeeds: `check-gpg` checks commit signing, not network
+  egress. If `git push` hangs in the container, it is not a GPG issue—it is
+  waiting for interactive input (such as an unconfirmed host key in `known_hosts`,
+  a missing SSH key passphrase, or an HTTPS credential prompt). Test egress with
+  `make check-ssh-github` or `make check-ssh-bitbucket`.
 - **The container signs as the hub.** The hub's agent holds every machine's
   signing subkey, and with only the bare primary ID gpg picks the newest one,
   so until 2026-11-20 the container asked for framepop's passphrase while the
