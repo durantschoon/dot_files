@@ -1010,7 +1010,9 @@ call, so extensions never collide; only genuine double ownership does."
              ;; Package OBJECTS (defined above), not specs -- the fold
              ;; resolves both.
              (list github-cli glow freeplane babashka
-                   font-caskaydia-cove-nerd)))
+                   font-caskaydia-cove-nerd
+                   ;; Zone files for TZDIR below.
+                   (specification->package "tzdata"))))
    #:services
    (lambda (session)
      (list
@@ -1027,7 +1029,15 @@ call, so extensions never collide; only genuine double ownership does."
                         ;; HOMEBASE.
                         ("HOMEBASE" . "minius")
                         ("HOMEBASE_GUIX" . "orb-guix")
-                        ("TZ" . "America/New_York")))
+                        ("TZ" . "America/New_York")
+                        ;; Guix's glibc has no built-in zoneinfo path, so
+                        ;; without TZDIR every Guix program (tmux, whose
+                        ;; status-right clock is the one Herdr panes show,
+                        ;; and coreutils' date) prints UTC with the bogus
+                        ;; zone name "America".  Debian's /usr/bin/date
+                        ;; looked right only because it uses Debian's glibc
+                        ;; and /usr/share/zoneinfo (problem stack ps-t3by).
+                        ("TZDIR" . "$HOME/.guix-home/profile/share/zoneinfo")))
       (simple-service 'local-bin-activation home-activation-service-type
                       #~(begin
                           (let* ((home (getenv "HOME"))
