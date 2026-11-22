@@ -7,3 +7,19 @@
 # history number, time).  Found 2026-11-20 on geeeks; problem stack ps-4s3y.
 # Features not named here keep their defaults.
 shell-integration-features = ssh-env
+
+# --- Emacs Meta (Cmd -> Esc+key) word navigation & editing ---
+keybind = super+f=text:\x1bf
+keybind = super+b=text:\x1bb
+keybind = super+d=text:\x1bd
+keybind = super+backspace=text:\x1b\x7f
+
+# --- Search on Ctrl+Shift+s (plain C-s stays free for Emacs C-x C-s) ---
+keybind = ctrl+shift+s=start_search
+
+# --- Emacs-style split panes (C-x 2 / C-x 3) ---
+keybind = ctrl+x>2=new_split:down
+keybind = ctrl+x>3=new_split:right
+
+# Optional: pass a literal Ctrl+x through to the shell/Emacs by pressing Ctrl+x twice
+keybind = ctrl+x>ctrl+x=text:\x18
