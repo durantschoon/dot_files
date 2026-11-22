@@ -271,3 +271,50 @@ from this plan when requested. Implementation and forecast sealing have not begu
   helper consolidation (its own executor stage — stage 17 if the pipeline resumes),
   the Claude-side `/recap` skill (lives in the `claude` submodule), and the stale
   macOS Login Items cleanup (admin: `sfltool resetbtm` or the Settings pane).
+- **2026-11-21. Owner decision: task identity, renaming and numbering
+  (settles the display-label question for W01/W02, R1/R2).** Agreed with
+  durant in session `claude-b0a99b5a`; his words are quoted, the rest is the
+  design he accepted.
+  - **Identity lives on the session, with no tmux hook.** "yes, identity on
+    the session, no hook". A `session-renamed` hook that snaps a rename back
+    and keeps it as a label was tested on a private tmux 3.6b server and
+    works, but was rejected: the status bar would keep showing the old name,
+    every tmux server (local, remote, container) would need the global hook,
+    and a public module would be changing a stranger's tmux setup.
+  - **Three layers.** *Identity* `<project>/<task>`, chosen at creation and
+    never changed. *Live link*: the session option `@job-id`, set when the
+    session is created. *Label*: the tmux session name or `@job-label`,
+    freely changed by ctrl-n in `tmux-pick` or by tmux's own `prefix $`.
+    Every lookup lists sessions with their `@job-id`. None guesses a name
+    (that fixes R1: a `foo-bar` session does not carry `@job-id=foo/…`).
+    Relaunch asks "is there a session with this id?", not `has-session -t
+    =<name>` (that fixes R2's duplicate on recovery). Renaming is
+    harmless, whichever way it is done.
+  - **The record file is the source of truth:** `<checkout>/logs/<task>.job`
+    (`_job_record`, gitignored). It gains `id=`, plus `name=` and `label=`
+    lines that are updated on rename. It travels with the checkout, so both
+    sides of a shared checkout (orb-guix and minius) see one record. The
+    per-machine agent registry (`~/.local/share/agent-jobs/*.conf`) is
+    re-keyed by id instead of by session name. Today's relaunch `cmd=` lines
+    hard-code the tmux name, for example `has-session -t =dot-files-sol2` in
+    `logs/Sol2.job`.
+  - **Uniqueness ignores letter case.** On minius (case-insensitive APFS)
+    `logs/Sol2.job` and `logs/sol2.job` are one file, and tasks `Sol2` and
+    `sol2` were found sharing it. Creation refuses an id that matches an
+    existing record, live session or notes file, ignoring case.
+  - **Numbering on request: option (a).** "1 (a)". `claude-run sol+` (or
+    `--next sol`) capitalizes the name and takes the first free integer:
+    `Sol1`, `Sol2`, …, where free means no record, live session or notes
+    file for that number, ignoring case. Without `+`, a task name is taken
+    literally, as today.
+  - **Numbers are reused, with archiving.** "2 reuse w/ archving sounds
+    good". Removing a task moves its record, notes and logs to
+    `logs/archive/<Task>-<date>/`, which frees the number, so a new `Sol1`
+    inherits nothing from an old one.
+  - **Still open:** where the project half of the id is set. A committed
+    `.job-project` file or `jobs.project` in the repo's `.git/config`, with
+    the directory slug as the fallback. Both are visible from both sides of a
+    shared checkout; only the committed file follows the repo to other clones.
+    The other owner questions (repo names and visibility, license, history
+    preservation, platform floor, deadline) are unanswered. They are not
+    needed before M3 (W09–W12).
