@@ -468,9 +468,21 @@ job-note() {
   fi
   local -a ed; ed=(${(z)${VISUAL:-${EDITOR:-$default_ed}}})
   (( $#ed )) || ed=(${(z)default_ed})
-  # emacsclient -t needs a pty of its own when called from the picker.
-  local -a run; run=("${ed[@]}")
-  [[ ${ed[1]:t} == emacsclient ]] && run=(script -q /dev/null "${ed[@]}")
+  # emacsclient -t needs a pty of its own when called from the picker, so it
+  # runs under script(1).  The two scripts disagree on the syntax:
+  #   BSD/macOS:  script -q /dev/null CMD ARGS...   (the command is argv)
+  #   util-linux: script -q -e -c 'CMD ARGS' /dev/null   (one string; -e passes
+  #               the child's exit status through)
+  # util-linux rejects the BSD form with "unexpected number of arguments", so
+  # the file name has to ride inside the -c string there.
+  local -a run tail; run=("${ed[@]}"); tail=("$file")
+  if [[ ${ed[1]:t} == emacsclient ]]; then
+    if script --version 2>/dev/null | command grep -q util-linux; then
+      run=(script -q -e -c "${(j: :)${(@q)ed}} ${(q)file}" /dev/null); tail=()
+    else
+      run=(script -q /dev/null "${ed[@]}")
+    fi
+  fi
   # The picker calls this with stdin/stdout on its own pipes, so the editor is
   # pointed at the terminal -- when there is one.  With no controlling
   # terminal (a script, a test, a job) /dev/tty cannot even be opened, and
@@ -478,9 +490,9 @@ job-note() {
   # stdin/stdout it was given.
   local rc
   if { : </dev/tty } 2>/dev/null; then
-    "${run[@]}" "$file" </dev/tty >/dev/tty; rc=$?
+    "${run[@]}" "${tail[@]}" </dev/tty >/dev/tty; rc=$?
   else
-    "${run[@]}" "$file"; rc=$?
+    "${run[@]}" "${tail[@]}"; rc=$?
   fi
   (( rc == 0 )) || {
     print -u2 -r -- "job-note: editor '${ed[*]}' failed. (sleeping 3s to show this error)"
