@@ -2352,6 +2352,23 @@ _hib1_running() { tmux-status hib1 2>&1 | grep -q 'running' }
 waitfor _hib1_running || fail "16g hib1 never reported running after revive" "$(tmux-status hib1 2>&1)"
 ok "16g hib1 is running again"
 
+# A failing autosave stops the hibernation before any job is touched;
+# JOB_AUTOSAVE=no skips the snapshot.
+fake_autosave=$HOME_LOCAL/Repos/ds/media-announce/scripts/autosave.sh
+mkdir -p -- "${fake_autosave:h}"
+print -r -- '#!/bin/sh
+echo "autosave FAILED (fake)"; exit 1' > "$fake_autosave"
+chmod +x -- "$fake_autosave"
+out=$(JOB_CONFIRM=no tmux-hibernate 2>&1); rc=$?
+eq "16h tmux-hibernate refuses when autosave fails" "$rc" "1"
+has "16h ... says nothing was stopped" "$out" "nothing stopped"
+out=$(tmux-status hib1 2>&1)
+has "16h ... hib1 still running" "$out" "running"
+out=$(JOB_AUTOSAVE=no JOB_CONFIRM=no tmux-hibernate 2>&1); rc=$?
+eq "16i JOB_AUTOSAVE=no skips the snapshot" "$rc" "0"
+hasnt "16i ... autosave not run" "$out" "FAILED"
+command rm -rf -- "$HOME_LOCAL/Repos/ds"
+
 tmux-stop hib1 >/dev/null 2>&1
 tmux-stop hib2 >/dev/null 2>&1
 command rm -f -- "$hib_file"

@@ -1834,7 +1834,7 @@ Commands:
   tmux-logs [TASK]      Tail the logs of a session
   tmux-stop [TASK]      Stop a session (prompts for confirmation)
   tmux-rm [TASK|--all]  Kill the task's session(s)
-  tmux-hibernate        Save local jobs to ~/.tmux-hibernated-jobs and stop them
+  tmux-hibernate        Autosave, then save local jobs to ~/.tmux-hibernated-jobs and stop them
   tmux-revive           Restart all jobs previously saved by tmux-hibernate
   herdr-revive [ENGINE] Recover agent sessions (claude/agy/codex/grok) and
                         open each in its own Herdr workspace (.agent-jobs.zsh)
@@ -1934,8 +1934,23 @@ tmux-rm() {
 }
 
 # tmux-hibernate: save all local tmux jobs to ~/.tmux-hibernated-jobs and gracefully stop them.
+# First snapshots uncommitted work with media-announce's scripts/autosave.sh
+# (every checkout and worktree it knows), so a shutdown never loses edits.
+# A failed snapshot stops the hibernation; JOB_AUTOSAVE=no skips it.
 tmux-hibernate() {
   local f=~/.tmux-hibernated-jobs
+  local autosave=$HOME/Repos/ds/media-announce/scripts/autosave.sh
+  if [[ $JOB_AUTOSAVE != no ]]; then
+    if [[ -x $autosave ]]; then
+      print -u2 "tmux-hibernate: snapshotting uncommitted work ($autosave)..."
+      "$autosave" || {
+        print -u2 "tmux-hibernate: autosave FAILED; nothing stopped. Fix it, or rerun with JOB_AUTOSAVE=no"
+        return 1
+      }
+    else
+      print -u2 "tmux-hibernate: no $autosave here; skipping the snapshot"
+    fi
+  fi
   local r host name spath task agent
   local -a rows
   _tmux_all_rows; rows=("${reply[@]}")
