@@ -19,6 +19,8 @@ services:
       XDG_RUNTIME_DIR: /tmp/xdg-runtime-root
       SHELL: /bin/zsh
       TZ: America/New_York
+      # Cap JVM heap for background test runners and Clojure / Java builds
+      _JAVA_OPTIONS: "-Xmx1200m"
       # The Mac's gpg-agent, via the loopback socat LaunchAgent that
       # `make setup-gpg-bridge' installs.  Port must match GPG_BRIDGE_PORT.
       GPG_AGENT_BRIDGE: host.docker.internal:45123

@@ -140,6 +140,10 @@ export HOMEBASE="${HOMEBASE:-orb-guix}"
 # Default timezone across all environments (America/New_York follows EDT/EST)
 export TZ="${TZ:-America/New_York}"
 
+# Cap JVM heap for background test runners and Clojure / Java builds so they
+# do not starve the host / container memory pool (default 1200m).
+export _JAVA_OPTIONS="${_JAVA_OPTIONS:--Xmx1200m}"
+
 # GPG-Agent as SSH agent (when not already set by session manager)
 if [[ -z "$SSH_AUTH_SOCK" ]] && (( $+commands[gpgconf] )); then
     export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket 2>/dev/null)"

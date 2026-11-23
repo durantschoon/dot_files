@@ -1037,7 +1037,9 @@ call, so extensions never collide; only genuine double ownership does."
                         ;; zone name "America".  Debian's /usr/bin/date
                         ;; looked right only because it uses Debian's glibc
                         ;; and /usr/share/zoneinfo (problem stack ps-t3by).
-                        ("TZDIR" . "$HOME/.guix-home/profile/share/zoneinfo")))
+                        ("TZDIR" . "$HOME/.guix-home/profile/share/zoneinfo")
+                        ;; Cap JVM heap for background test runners and builds
+                        ("_JAVA_OPTIONS" . "-Xmx1200m")))
       (simple-service 'local-bin-activation home-activation-service-type
                       #~(begin
                           (let* ((home (getenv "HOME"))
