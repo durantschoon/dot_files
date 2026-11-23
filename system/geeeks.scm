@@ -60,6 +60,7 @@
              (gnu services base)       ;udev-service-type, udev-rule
              (gnu services containers) ;rootless-podman-service-type
              (gnu services desktop)    ;%desktop-services, gnome-desktop-service-type,
+                                       ;bluetooth-service-type, bluetooth-configuration,
                                        ;elogind-service-type, elogind-configuration
              (gnu services linux)      ;kernel-module-loader-service-type
              (gnu services shepherd)   ;shepherd-service, shepherd-root-service-type
@@ -514,6 +515,17 @@ leftcontrol = capslock
    ;; itself changes neither -- EWM runs from a TTY on its own VT while GNOME
    ;; keeps this service).
    (list (service gnome-desktop-service-type)                       ;[session]
+
+         ;; Bluetooth (BlueZ / bluetoothd).  %desktop-services does not include
+         ;; bluetooth-service-type by default, even though the Framework 13's
+         ;; MediaTek adapter (hci0) is already up in /sys/class/bluetooth.
+         ;; Adding it registers bluetoothd with shepherd, installs the org.bluez
+         ;; D-Bus policy, and puts bluetoothctl on PATH; auto-enable? powers the
+         ;; controller on at boot so BLE peripherals (e.g. immurok) can connect
+         ;; without a manual `bluetoothctl power on'.
+         (service bluetooth-service-type
+                  (bluetooth-configuration
+                   (auto-enable? #t)))
 
          (service zram-device-service-type
                   (zram-device-configuration
