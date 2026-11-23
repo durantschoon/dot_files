@@ -21,15 +21,26 @@
 #   OS_MAC         make's $(OS_MAC): the value $(os) has on macOS ("mac")
 #   FLAVOR         make's $(flavor): the Linux flavor make detected
 #   FLAVOR_TERMUX  make's $(FLAVOR_TERMUX): the value $(flavor) has on Termux
+#   DOTFILES       make's $(CURDIR): the repo path, which `make install-gnupg'
+#                  substitutes for @DOTFILES@ when it renders the mac template
+#
+# Two warnings that do not change the exit status (signing works today):
+#   - macOS: ~/.gnupg/gpg-agent.conf differs from what `make install-gnupg'
+#     would render now from gnupg/gpg-agent.mac.conf (same whole-file test
+#     as that recipe), naming any cache TTL that drifted.  Linux and Termux
+#     are not compared: guix home / the Termux recipe own those files.
+#   - GPG_AGENT_BRIDGE set (the guix-dev container): the agent is minius's,
+#     reached over the bridge, so its TTLs cannot be read from here.
+# Files only: this script never calls gpgconf or gpg-connect-agent.
 #
 # Exit status: 0 when signing is usable (or the sign step is skipped because
 # stdin is not a terminal), 1 at the first broken link, 64 when a required
 # variable above is missing.
 
-for required_var in OS OS_MAC FLAVOR FLAVOR_TERMUX; do
+for required_var in OS OS_MAC FLAVOR FLAVOR_TERMUX DOTFILES; do
   eval "required_value=\${$required_var:-}"
   if [ -z "$required_value" ]; then
-    echo "usage: OS=<os> OS_MAC=<mac value> FLAVOR=<flavor> FLAVOR_TERMUX=<termux value> $0" >&2
+    echo "usage: OS=<os> OS_MAC=<mac value> FLAVOR=<flavor> FLAVOR_TERMUX=<termux value> DOTFILES=<repo path> $0" >&2
     echo "check-gpg: $required_var is not set (run it as: make check-gpg)" >&2
     exit 64
   fi
@@ -81,6 +92,33 @@ elif [ -z "$pin" ] && [ "$OS" = "$OS_MAC" ]; then
   echo "         fix: make install-gnupg"
 else
   echo "    [ok] pinentry : ${pin:-gpg default}"
+fi
+# conf_value FILE KEY: the value of the last KEY line in FILE, or "(unset)".
+conf_value() {
+  awk -v key="$2" '$1 == key { value = $2 } END { print (value == "" ? "(unset)" : value) }' "$1" 2>/dev/null
+}
+agent_conf="$HOME/.gnupg/gpg-agent.conf"
+agent_template="$DOTFILES/gnupg/gpg-agent.mac.conf"
+if [ "$OS" = "$OS_MAC" ] && [ -e "$agent_conf" ]; then
+  # The predicate of `make install-gnupg' (Makefile, "already current"):
+  # the whole file, @DOTFILES@ replaced by the repo path.
+  if [ ! -r "$agent_template" ]; then
+    echo "    [!!] agent    : cannot read $agent_template to compare ~/.gnupg/gpg-agent.conf with"
+  elif [ "$(cat "$agent_conf")" != "$(sed "s|@DOTFILES@|$DOTFILES|g" "$agent_template")" ]; then
+    ttl_drift=
+    for ttl_key in default-cache-ttl max-cache-ttl default-cache-ttl-ssh max-cache-ttl-ssh; do
+      have_ttl=$(conf_value "$agent_conf" "$ttl_key")
+      want_ttl=$(conf_value "$agent_template" "$ttl_key")
+      if [ "$have_ttl" != "$want_ttl" ]; then
+        ttl_drift="$ttl_drift${ttl_drift:+, }$ttl_key $have_ttl (template: $want_ttl)"
+      fi
+    done
+    echo "    [!!] agent    : ~/.gnupg/gpg-agent.conf differs from gnupg/gpg-agent.mac.conf${ttl_drift:+: $ttl_drift}"
+    echo "         fix: make install-gnupg   (restarts gpg-agent: unlock again afterwards)"
+  fi
+fi
+if [ -n "${GPG_AGENT_BRIDGE:-}" ]; then
+  echo "    [..] agent    : gpg-agent here is minius's, reached over the bridge at $GPG_AGENT_BRIDGE; its cache TTLs are minius's and cannot be read from here (run make check-gpg on minius to see them)"
 fi
 sign=$(git config --get commit.gpgsign)
 if [ "$sign" = true ]; then

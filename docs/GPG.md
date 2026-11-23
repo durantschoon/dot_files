@@ -351,6 +351,24 @@ messages behind the usual failures:
   `gpg.program = /usr/local/bin/gpg` in `~/.gitconfig` pointing at an old
   MacGPG2 is the classic mac cause; the tracked config sets no
   `gpg.program` so git uses the one on PATH.
+- **A key unlocked in the evening is locked again by morning**, or the
+  cache TTLs are not the ones `gnupg/gpg-agent.mac.conf` sets (measured
+  2026-11-23). Two separate facts:
+  - In the guix-dev container, `gpgconf --list-options gpg-agent` prints
+    600/7200 (and 1800/7200 for ssh). Those are gpg's compiled defaults for
+    an agent that never runs there: the current-value field is empty on
+    every TTL line. The container's `~/.gnupg/S.gpg-agent` is the bridge's
+    socket to minius's restricted extra socket, so the cache, and its TTLs,
+    are minius's. `make check-gpg` in the container says so, and the TTLs
+    can only be checked on minius.
+  - On minius, `~/.gnupg/gpg-agent.conf` was still the template's first
+    render (`892822c`: `default-cache-ttl 28800`, `default-cache-ttl-ssh
+    3600`, `max-cache-ttl-ssh 28800`). `aa31399` raised the template to
+    57600/86400 for both, but `make install-gnupg` re-renders only when it
+    is run. An 8 h idle TTL drops a key unlocked at 22:00 by 06:00.
+    `make check-gpg` on a Mac now prints a `[!!] agent` line naming each
+    drifted TTL. Fix: `make install-gnupg`, which restarts gpg-agent, so
+    unlock again afterwards.
 - **`No secret key`**. The signing subkey is not on this machine; run `make gpg-spoke-copy`.
 - **`unsafe permissions on homedir`**. `chmod 700 ~/.gnupg`.
 - **Piles of `.#lk0x...` files in `~/.gnupg`**. Lock files from gpg

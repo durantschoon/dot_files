@@ -21,6 +21,7 @@
 
 here=$(cd "$(dirname "$0")" && pwd)
 check_gpg="$here/../../bin/check-gpg"
+mac_template="$here/../../gnupg/gpg-agent.mac.conf"
 fail=0
 skipped=0
 
@@ -34,6 +35,14 @@ git_config="$work_dir/gitconfig"
 call_log="$work_dir/forbidden-calls.log"
 mkdir -p "$stub_bin" "$gnupg_dir"
 : >"$call_log"
+
+# A fake repo for DOTFILES: the real mac template, and an executable stub
+# where the rendered pinentry-program line points.
+fake_repo="$work_dir/repo"
+mkdir -p "$fake_repo/gnupg" "$fake_repo/bin"
+cp "$mac_template" "$fake_repo/gnupg/gpg-agent.mac.conf" || { echo "FAIL setup: cannot copy $mac_template"; exit 1; }
+printf '#!/bin/sh\nexit 0\n' >"$fake_repo/bin/pinentry-auto"
+chmod +x "$fake_repo/bin/pinentry-auto"
 
 # Real tools the script (and the stubs) call, linked onto the private PATH.
 for tool_name in awk cat cut date find git grep head ls mktemp rm sed tail tr wc; do
@@ -98,7 +107,7 @@ run_check() {
     PATH="$stub_bin" HOME="$fake_home" GNUPGHOME="$gnupg_dir" \
     GIT_CONFIG_GLOBAL="$git_config" GIT_CONFIG_NOSYSTEM=1 \
     GIT_CEILING_DIRECTORIES="$work_dir" TMPDIR="$work_dir" \
-    OS=linux OS_MAC=mac FLAVOR=unknown FLAVOR_TERMUX=termux \
+    OS=linux OS_MAC=mac FLAVOR=unknown FLAVOR_TERMUX=termux DOTFILES="$fake_repo" \
     "$@" "$check_gpg" </dev/null 2>&1)
   case_rc=$?
   report_case "$case_name" "$want_rc" "$needle"
@@ -125,7 +134,7 @@ run_check_tty() {
     PATH="$stub_bin" HOME="$fake_home" GNUPGHOME="$gnupg_dir" \
     GIT_CONFIG_GLOBAL="$git_config" GIT_CONFIG_NOSYSTEM=1 \
     GIT_CEILING_DIRECTORIES="$work_dir" \
-    OS=linux OS_MAC=mac FLAVOR=unknown FLAVOR_TERMUX=termux \
+    OS=linux OS_MAC=mac FLAVOR=unknown FLAVOR_TERMUX=termux DOTFILES="$fake_repo" \
     "$@" "$check_gpg")
   # SHELL=/bin/sh: script(1) runs the command with $SHELL -c, and a login
   # zsh would source the real ~/.zshenv (which may talk to the agent).
@@ -152,15 +161,19 @@ report_case() {
 }
 
 # --- missing make context: exit 64 with a usage line -------------------------
-for missing_var in OS OS_MAC FLAVOR FLAVOR_TERMUX; do
+for missing_var in OS OS_MAC FLAVOR FLAVOR_TERMUX DOTFILES; do
   reset_state
   case_out=$(cd "$work_dir" && env -i PATH="$stub_bin" HOME="$fake_home" \
     GIT_CONFIG_GLOBAL="$git_config" GIT_CONFIG_NOSYSTEM=1 \
-    OS=linux OS_MAC=mac FLAVOR=unknown FLAVOR_TERMUX=termux \
+    OS=linux OS_MAC=mac FLAVOR=unknown FLAVOR_TERMUX=termux DOTFILES="$fake_repo" \
     "$missing_var=" "$check_gpg" </dev/null 2>&1)
   case_rc=$?
   report_case "missing $missing_var exits 64 with usage" 64 "usage: OS="
 done
+case "$case_out" in
+  *"DOTFILES=<repo path>"*) echo "ok usage line names DOTFILES" ;;
+  *) echo "FAIL usage line names DOTFILES"; printf '%s\n' "$case_out" | sed 's/^/     | /'; fail=1 ;;
+esac
 
 # --- step 1: gpg on PATH -----------------------------------------------------
 reset_state
@@ -224,6 +237,53 @@ esac
 reset_state
 : >"$gnupg_dir/.#lk0x1.host.1"; : >"$gnupg_dir/.#lk0x2.host.2"
 run_check "stale locks are counted" 0 "[..] locks    : 2 stale .#lk* lock files" STUB_SECRET=never
+
+# --- gpg-agent.conf drift from the mac template (a warning, not a failure) -----------
+# lacks NAME NEEDLE: assert the last case's output does not contain NEEDLE.
+lacks() {
+  case "$case_out" in
+    *"$2"*) echo "FAIL $1: output has: $2"; printf '%s\n' "$case_out" | sed 's/^/     | /'; fail=1 ;;
+    *) echo "ok $1" ;;
+  esac
+}
+# render_template: what `make install-gnupg' would write, for the fake repo.
+render_template() {
+  sed "s|@DOTFILES@|$fake_repo|g" "$fake_repo/gnupg/gpg-agent.mac.conf"
+}
+reset_state
+render_template >"$gnupg_dir/gpg-agent.conf"
+run_check "mac, conf equals the rendered template" 0 "[ok] pinentry : $fake_repo/bin/pinentry-auto" STUB_SECRET=never OS=mac
+lacks "mac, current conf has no [!!] agent line" "[!!] agent"
+reset_state
+# The 892822c TTLs: 28800 / 86400 / 3600 / 28800.
+render_template | sed -e 's/^default-cache-ttl 57600$/default-cache-ttl 28800/' \
+  -e 's/^default-cache-ttl-ssh 57600$/default-cache-ttl-ssh 3600/' \
+  -e 's/^max-cache-ttl-ssh 86400$/max-cache-ttl-ssh 28800/' >"$gnupg_dir/gpg-agent.conf"
+run_check "mac, old TTLs: drift line names default-cache-ttl" 0 "[!!] agent    : ~/.gnupg/gpg-agent.conf differs from gnupg/gpg-agent.mac.conf: default-cache-ttl 28800 (template: 57600)" STUB_SECRET=never OS=mac
+case "$case_out" in
+  *"default-cache-ttl-ssh 3600 (template: 57600)"*"max-cache-ttl-ssh 28800 (template: 86400)"*"fix: make install-gnupg   (restarts gpg-agent: unlock again afterwards)"*)
+    echo "ok mac, old TTLs: drift line names the ssh TTLs and the fix" ;;
+  *) echo "FAIL mac, old TTLs: drift line names the ssh TTLs and the fix"; printf '%s\n' "$case_out" | sed 's/^/     | /'; fail=1 ;;
+esac
+lacks "mac, old TTLs: max-cache-ttl (unchanged) is not named" "max-cache-ttl 86400"
+reset_state
+printf '#!/bin/sh\nexit 0\n' >"$work_dir/pinentry-other"; chmod +x "$work_dir/pinentry-other"
+render_template | sed "s|^pinentry-program .*|pinentry-program $work_dir/pinentry-other|" >"$gnupg_dir/gpg-agent.conf"
+run_check "mac, only pinentry-program differs" 0 "[!!] agent    : ~/.gnupg/gpg-agent.conf differs from gnupg/gpg-agent.mac.conf" STUB_SECRET=never OS=mac
+lacks "mac, only pinentry-program differs: no TTL named" "(template:"
+reset_state
+run_check "mac, no conf: the pinentry error" 1 "[--] pinentry : none configured" STUB_SECRET=never OS=mac
+lacks "mac, no conf: no [!!] agent line" "[!!] agent"
+reset_state
+render_template | sed 's/^default-cache-ttl 57600$/default-cache-ttl 28800/' >"$gnupg_dir/gpg-agent.conf"
+run_check "linux, drifted conf" 0 "==> gpg signing OK" STUB_SECRET=never OS=linux
+lacks "linux, drifted conf: no [!!] agent line" "[!!] agent"
+reset_state
+run_check "bridge: says whose agent it is" 0 "[..] agent    : gpg-agent here is minius's, reached over the bridge at host.docker.internal:45123" \
+  STUB_SECRET=never GPG_AGENT_BRIDGE=host.docker.internal:45123
+reset_state
+run_check "no bridge" 0 "==> gpg signing OK" STUB_SECRET=never
+lacks "no bridge: no [..] agent line" "[..] agent"
 
 # --- step 6: terminal branches (stdin on a pty) ---------------------------------------
 have_script=

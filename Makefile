@@ -1338,7 +1338,7 @@ check-gpg-enrollment-tests:
 # answer depends on this machine's keyring rather than on the repo.
 .PHONY: check-gpg check-gpg-tests
 check-gpg:
-	@OS="$(os)" OS_MAC="$(OS_MAC)" FLAVOR="$(flavor)" FLAVOR_TERMUX="$(FLAVOR_TERMUX)" "$(CURDIR)/bin/check-gpg"
+	@OS="$(os)" OS_MAC="$(OS_MAC)" FLAVOR="$(flavor)" FLAVOR_TERMUX="$(FLAVOR_TERMUX)" DOTFILES="$(CURDIR)" "$(CURDIR)/bin/check-gpg"
 
 check-gpg-tests:
 	@"$(CURDIR)/tests/gpg/check-gpg-smoke.sh"
