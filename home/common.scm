@@ -1607,19 +1607,51 @@ call, so extensions never collide; only genuine double ownership does."
                                    (agents (string-append claude "/agents")))
                               (unless (file-exists? claude) (mkdir claude))
                               (unless (file-exists? agents) (mkdir agents))
-                              ;; Seed-if-absent: /memory owns CLAUDE.md and
-                              ;; /config owns settings.json once they exist.
-                              ;; Copy changes back to the claude/ submodule by
-                              ;; hand; do not overwrite them here.
-                              (for-each
-                               (lambda (name source)
-                                 (let ((dest (string-append claude "/" name)))
-                                   (unless (file-exists? dest)
-                                     (copy-file source dest)
-                                     (chmod dest #o644))))
-                               (list "CLAUDE.md" "settings.json")
-                               (list #$(local-file "../claude/CLAUDE.md")
-                                     #$(local-file "../claude/settings.json")))
+                              ;; settings.json: seed-if-absent.  /config owns
+                              ;; it once it exists; copy changes back to the
+                              ;; claude/ submodule by hand.
+                              (let ((dest (string-append claude "/settings.json")))
+                                (unless (file-exists? dest)
+                                  (copy-file #$(local-file "../claude/settings.json") dest)
+                                  (chmod dest #o644)))
+                              ;; CLAUDE.md: /memory writes it, so it cannot be
+                              ;; a store symlink, but the repo's copy is the
+                              ;; shared one.  Follow the repo while the local
+                              ;; file is untouched: .CLAUDE.md.seeded is the
+                              ;; repo copy this machine last installed; a local
+                              ;; file that still equals it has no edits to lose.
+                              ;; A locally edited file is never overwritten.
+                              (let* ((slurp (lambda (f)
+                                              (call-with-input-file f
+                                                (lambda (p)
+                                                  (let lp ((acc '()))
+                                                    (let ((c (read-char p)))
+                                                      (if (eof-object? c)
+                                                          (list->string (reverse acc))
+                                                          (lp (cons c acc)))))))))
+                                     (src #$(local-file "../claude/CLAUDE.md"))
+                                     (dest (string-append claude "/CLAUDE.md"))
+                                     (seeded (string-append claude "/.CLAUDE.md.seeded"))
+                                     (install (lambda ()
+                                                (when (file-exists? dest) (delete-file dest))
+                                                (copy-file src dest)
+                                                (chmod dest #o644)))
+                                     (record (lambda ()
+                                               (when (file-exists? seeded) (delete-file seeded))
+                                               (copy-file src seeded)
+                                               (chmod seeded #o644))))
+                                (cond
+                                 ((not (file-exists? dest)) (install) (record))
+                                 ((string=? (slurp dest) (slurp src)) (record))
+                                 ((and (file-exists? seeded)
+                                       (string=? (slurp dest) (slurp seeded)))
+                                  (install) (record)
+                                  (display "claude: ~/.claude/CLAUDE.md updated from the repo\n"))
+                                 (else
+                                  (display (string-append
+                                            "claude: ~/.claude/CLAUDE.md differs from the repo and "
+                                            "was edited here; not overwritten.  Merge by hand: diff "
+                                            src " " dest "\n")))))
                               ;; Hand-maintained and written by nothing on
                               ;; this machine, so the repo stays
                               ;; authoritative: overwrite every time.
