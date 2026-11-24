@@ -1961,14 +1961,25 @@ tmux-rm() {
   _job_tmux "$host" kill-session -t "=$name" && print -u2 "tmux-rm: killed session '$name' on $host"
 }
 
-# tmux-hibernate: save all local tmux jobs to ~/.tmux-hibernated-jobs and gracefully stop them.
+# tmux-hibernate [-n|--dry-run]: save all local tmux jobs to
+# ~/.tmux-hibernated-jobs and gracefully stop them.
 # First snapshots uncommitted work with media-announce's scripts/autosave.sh
 # (every checkout and worktree it knows), so a shutdown never loses edits.
 # A failed snapshot stops the hibernation; JOB_AUTOSAVE=no skips it.
+#
+# --dry-run prints the jobs it WOULD save, one `DIR<TAB>TASK' per line, and
+# changes nothing (no snapshot either): job-hibernate's survey.
+#
+# The saved list is rewritten on every real run, even when there is nothing to
+# save. It used to be left alone then, so tmux-revive after the next reboot
+# replayed whatever an earlier hibernation had saved (seen 2026-11-24: a list
+# from the day before).
 tmux-hibernate() {
+  local -i dry=0
+  [[ ${1-} == (-n|--dry-run) ]] && dry=1
   local f=~/.tmux-hibernated-jobs
   local autosave=$HOME/Repos/ds/media-announce/scripts/autosave.sh
-  if [[ $JOB_AUTOSAVE != no ]]; then
+  if (( ! dry )) && [[ $JOB_AUTOSAVE != no ]]; then
     if [[ -x $autosave ]]; then
       print -u2 "tmux-hibernate: snapshotting uncommitted work ($autosave)..."
       "$autosave" || {
@@ -2024,7 +2035,12 @@ tmux-hibernate() {
     to_hibernate+=("$spath"$'\t'"$task")
   done
   
+  if (( dry )); then
+    (( ${#to_hibernate} )) && print -rl -- "${to_hibernate[@]}"
+    return 0
+  fi
   if (( ${#to_hibernate} == 0 )); then
+    : > "$f" 2>/dev/null
     print -u2 "tmux-hibernate: no local jobs running."
     return 0
   fi
@@ -2061,7 +2077,9 @@ tmux-hibernate() {
   print -u2 "tmux-hibernate: $count jobs saved to $f. Use 'tmux-revive' to restart them."
 }
 
-# tmux-revive: restart jobs saved by tmux-hibernate.
+# tmux-revive: restart jobs saved by tmux-hibernate. The list is then moved
+# to ~/.tmux-hibernated-jobs.revived, so a second run (or the next reboot)
+# does not start the same jobs again.
 tmux-revive() {
   local f=~/.tmux-hibernated-jobs
   if [[ ! -f $f ]]; then
@@ -2091,6 +2109,7 @@ tmux-revive() {
     ) && (( count++ ))
   done < "$f"
   
+  command mv -f -- "$f" "$f.revived" 2>/dev/null
   print -u2 "tmux-revive: revived $count jobs."
 }
 
