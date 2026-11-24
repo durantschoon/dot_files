@@ -1233,6 +1233,20 @@ haslit "16b the notes are printed verbatim after the Notes heading" \
        "$(job-note-context stage-03 2>/dev/null)" \
        "### Notes"$'\n'"> waiting on review"$'\n'"and the detail under it"
 
+# Whitespace after a heading or status marker is not the user's text: one
+# space is kept, the rest (and trailing blanks) go. A code fence is verbatim.
+print -r -- '#   the headline'        >  "$CTX/logs/stage-03.notes.md"
+print -r -- '>'$'\t''tabbed status  ' >> "$CTX/logs/stage-03.notes.md"
+print -r -- '```'                     >> "$CTX/logs/stage-03.notes.md"
+print -r -- '#   a shell comment'     >> "$CTX/logs/stage-03.notes.md"
+print -r -- '```'                     >> "$CTX/logs/stage-03.notes.md"
+print -r -- '#'                       >> "$CTX/logs/stage-03.notes.md"
+out=$(job-note-context stage-03 2>/dev/null)
+haslit "16b a heading keeps one space after its #"     "$out" $'\n''# the headline'$'\n'
+haslit "16b ... a status line one space after its >"   "$out" $'\n''> tabbed status'$'\n'
+haslit "16b ... a fenced line keeps its own spacing"   "$out" '#   a shell comment'
+hasntlit "16b ... and the extra spaces are gone"       "$out" '#   the headline'
+
 # --- item 4: job-note, through the recorded $EDITOR -------------------------
 typeset -g CTX_NOTES=$CTX/logs/n1.notes.md
 command rm -f -- "$ED_ARGV"

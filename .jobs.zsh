@@ -645,6 +645,26 @@ _job_note_recap() {
   fi
 }
 
+# The user's notes file as the context view shows it: verbatim, except that a
+# heading or status line keeps exactly one space after its marker (`#  x' and
+# `>\tx' print as `# x' and `> x') and loses trailing whitespace -- the same
+# tidying the row status and the Herdr headline already do. It matters when the
+# view is printed raw, which is every remote row: the preview runs there under
+# `zsh -f', whose PATH has no glow. Lines inside ``` fences are left alone, so
+# a shell comment in a code block keeps its spacing.
+_job_notes_tidy() {
+  command awk '
+    /^```/ { fence = !fence; print; next }
+    fence  { print; next }
+    /^(#+|>)[ \t]/ {
+      match($0, /^(#+|>)/); marker = substr($0, 1, RLENGTH)
+      text = substr($0, RLENGTH + 1); sub(/^[ \t]+/, "", text); sub(/[ \t]+$/, "", text)
+      print (text == "" ? marker : marker " " text); next
+    }
+    { print }
+  ' "$1"
+}
+
 # job-note-context [TASK]: the GENERATED half of the context view.
 #
 # Regenerated on every render and stored nowhere, so the top of the view is
@@ -672,7 +692,7 @@ job-note-context() {
     print                                             # (b)
     print -r -- "### Notes"
     local notes=$root/logs/$task.notes.md
-    if [[ -r $notes ]]; then command cat -- "$notes"
+    if [[ -r $notes ]]; then _job_notes_tidy "$notes"
     else print -r -- "*(none — ctrl-e to start one)*"
     fi
 
