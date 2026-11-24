@@ -1031,7 +1031,35 @@ if [ -n "$ZSH_VERSION" ]; then
     epoch_date () { date -r $(echo $1 | cut -c1-10); } # epoch_date 1679656475630
     epoch_date2 () { date -r $(echo $1 | cut -c1-10) +'%Y-%m-%d %H:%M:%S'; }
 
-    rm() { [[ "$(uname)" == "Darwin" ]] && (mv $* ~/.Trash) || =rm $* ; } # builtin rm; the `;' is for bash -- see f2m
+    # rm: on macOS, send files to the Trash instead of deleting them; elsewhere
+    # the real rm. The old one-liner (`mv $* ~/.Trash') handed rm's options to
+    # mv, so `rm -rf dir' died on mv's missing -r; split names with spaces,
+    # since $* was unquoted; and with a glob that matched nothing, ran
+    # `mv ~/.Trash' and printed mv's usage (seen 2026-11-24 pasting a
+    # reminder). Now options are dropped -- the Trash needs none -- `-f'
+    # keeps its meaning of "a missing file is not an error", and no files
+    # means nothing to do. /usr/bin/trash is the Finder's Trash (Put Back
+    # works, a second file of the same name does not overwrite the first);
+    # mv into ~/.Trash is the fallback where it is missing. `command rm',
+    # not `=rm': it needs no EQUALS option, and bash, which parses this block,
+    # would read `=rm' as a command name. The `;'s are for bash -- see f2m.
+    rm() {
+        if [[ $OSTYPE != darwin* ]]; then command rm "$@"; return; fi
+        local a; local -a files; local -i force=0 opts=1 rc=0
+        for a in "$@"; do
+            if (( opts )) && [[ $a == -- ]]; then opts=0; continue; fi
+            if (( opts )) && [[ $a == -?* ]]; then [[ $a == -*f* ]] && force=1; continue; fi
+            if [[ ! -e $a && ! -L $a ]]; then
+                (( force )) || { print -u2 "rm: $a: No such file or directory"; rc=1; }
+                continue
+            fi
+            files+=("$a");
+        done
+        (( $#files )) || return $rc
+        if [[ -x /usr/bin/trash ]]; then /usr/bin/trash "${files[@]}" || return;
+        else command mv -- "${files[@]}" ~/.Trash/ || return; fi
+        return $rc
+    }
 
     function killport(){ lsof -nti:$1 | xargs kill -9 ; } # killport 3000
 
