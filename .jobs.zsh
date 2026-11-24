@@ -36,7 +36,7 @@
 #   rm [TASK|--all]      stop it and remove the definition
 #
 # plus tmux-new / tmux-go (alias tmux-take) for plain interactive sessions, tmux-pick /
-# tmux-dash to choose one interactively (live: ctrl-r or `r' refreshes, and a
+# tmux-dash to choose one interactively (live: ctrl-l or `r' refreshes, and a
 # JOB_PICK_POLL timer refreshes by itself), docker-clean for exited containers,
 # and job-* for the runner-independent pieces:
 #
@@ -1385,7 +1385,7 @@ tmux-remote-launch() {
 : ${JOB_PICK_POLL:=120}
 # The fzf minor version that introduced the every(N) timer event: 0.73.0,
 # "Timer-driven `every(N)` event for `--bind`" (fzf CHANGELOG.md). reload()
-# has been there since 0.19.0, so ctrl-r needs no version test -- only the
+# has been there since 0.19.0, so ctrl-l needs no version test -- only the
 # timer does, and an unknown event name makes fzf exit with a usage error
 # instead of starting. --track/--id-nth hang off the SAME probe, deliberately
 # conservatively: their own introducing version was not looked up, so an fzf
@@ -1613,7 +1613,7 @@ _tmux_fzf_has_every() {
 # repo's sessions on every host (or every session everywhere with --all), plus
 # a "new session" row. Uses fzf when installed, else a numbered menu.
 #
-# Live in both: ctrl-r (fzf) or `r' (menu) rebuilds the list, and it rebuilds
+# Live in both: ctrl-l (fzf) or `r' (menu) rebuilds the list, and it rebuilds
 # itself every JOB_PICK_POLL seconds -- default 120, 0 for never, --poll
 # SECONDS for this one call. How a chosen row is attached is unchanged: the
 # polite attach, read-only when another client holds the session.
@@ -1655,7 +1655,7 @@ tmux-pick() {
     renamecmd=$(_tmux_pick_rename_cmd)
     killcmd=$(_tmux_pick_kill_cmd)
     (( poll > 0 )) && _tmux_fzf_has_every && timer=1
-    local hint="enter attach · ctrl-r refresh · ? notes · ctrl-e edit · ctrl-n rename · ctrl-k kill"
+    local hint="enter attach · ctrl-r rename · ctrl-l refresh · ? notes · ctrl-e edit · ctrl-k kill"
     if (( timer )); then                     hint+=" · auto every ${poll}s"
     elif (( poll > 0 )); then                hint+=" · no auto (fzf < 0.$_JOB_FZF_EVERY_MINOR)"
     else                                     hint+=" · auto off"
@@ -1667,7 +1667,11 @@ tmux-pick() {
     local stamp_fmt="+$hint · updated %H:%M:%S"
     local stamp_cmd="date ${(qq)stamp_fmt}"
     local -a binds
-    binds=(--bind "ctrl-r:reload($reload)+transform-header($stamp_cmd)")
+    # Refresh is ctrl-l -- the terminal's own "redraw" key, and fzf's default
+    # for it is only clear-screen, which a reload repaints anyway. ctrl-r is
+    # rename: R for rename, as k is kill and e is edit. (Rename was ctrl-n until
+    # 2026-11-24; fzf's ctrl-n, next row, is its own again.)
+    binds=(--bind "ctrl-l:reload($reload)+transform-header($stamp_cmd)")
     (( timer )) && binds+=(--bind "every($poll):reload($reload)+transform-header($stamp_cmd)")
     # The preview toggle is `?', not ctrl-/: ctrl-/ reaches an application only
     # on terminals that send 0x1f for it, which is not something a phone
@@ -1680,7 +1684,7 @@ tmux-pick() {
     # row comes out of the file that was just edited and a list still showing
     # the old one would be lying about work the user had done a second ago.
     binds+=(--bind "ctrl-e:execute($editcmd)+reload($reload)+transform-header($stamp_cmd)")
-    binds+=(--bind "ctrl-n:execute($renamecmd)+reload($reload)+transform-header($stamp_cmd)")
+    binds+=(--bind "ctrl-r:execute($renamecmd)+reload($reload)+transform-header($stamp_cmd)")
     binds+=(--bind "ctrl-k:execute($killcmd)+reload($reload)+transform-header($stamp_cmd)")
     # A preview beside the list would squeeze a 60-column phone screen to
     # nothing, so on a narrow terminal it goes BELOW the list (and fzf gets
@@ -1697,7 +1701,7 @@ tmux-pick() {
     fi
     # --track --id-nth 1 keeps the cursor on the SAME session across a reload
     # (field 1 is the host|name key), instead of on whatever row now happens
-    # to hold that index. Wanted for ctrl-r too, so it hangs off the version
+    # to hold that index. Wanted for ctrl-l too, so it hangs off the version
     # probe rather than off the timer being on.
     local -a track; _tmux_fzf_has_every && track=(--track --id-nth 1)
     choice=$(print -l -- "${lines[@]}" \
@@ -1889,10 +1893,10 @@ Commands:
 
 Interactive Keys (tmux-pick / tmux-dash):
   enter    Attach to the selected session
-  ctrl-r   Refresh the list of sessions
+  ctrl-r   Rename the selected session
+  ctrl-l   Refresh the list of sessions
   ?        Toggle the notes preview window
   ctrl-e   Edit the notes for the selected session
-  ctrl-n   Rename the selected session
   ctrl-k   Kill the selected session (prompts for confirmation)
   esc      Quit the menu
   

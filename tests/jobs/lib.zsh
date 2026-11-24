@@ -47,7 +47,7 @@ eqlit() { [[ $2 == "$3" ]] && ok "$1" || fail "$1" "expected: [$3]" "actual:   [
 has()   { [[ $2 == *$3* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }
 hasnt() { [[ $2 != *$3* ]] && ok "$1" || fail "$1" "expected NOT to contain: [$3]" "actual: [$2]" }
 # The literal pair, for the same reason eqlit exists. A picker key is
-# "host|name" and an fzf binding is "ctrl-r:reload(...)": `|' is alternation in
+# "host|name" and an fzf binding is "ctrl-l:reload(...)": `|' is alternation in
 # a zsh pattern and `(' opens a group, so `*local|x*' and `*reload(*' do not
 # mean what they read as. These two quote the needle instead.
 haslit()   { [[ $2 == *"$3"* ]] && ok "$1" || fail "$1" "expected to contain: [$3]" "actual: [$2]" }

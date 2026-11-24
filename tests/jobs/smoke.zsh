@@ -950,9 +950,12 @@ command rm -f -- "$FZF_ARGV"
 SMOKE_PICK=1
 tmux-pick >/dev/null 2>&1
 typeset -g PICK_ARGV="$(command cat "$FZF_ARGV")"
-haslit "9i tmux-pick binds ctrl-r to a reload"       "$PICK_ARGV" "ctrl-r:reload("
+haslit "9i tmux-pick binds ctrl-l to a reload"       "$PICK_ARGV" "ctrl-l:reload("
 haslit "9i ... and the default poll to the timer"    "$PICK_ARGV" "every(120):reload("
-haslit "9i ... the header names the refresh key"     "$PICK_ARGV" "ctrl-r refresh"
+haslit "9i ... the header names the refresh key"     "$PICK_ARGV" "ctrl-l refresh"
+haslit "9i ... ctrl-r renames the row"               "$PICK_ARGV" "ctrl-r:execute("
+haslit "9i ... and the header says so"               "$PICK_ARGV" "ctrl-r rename"
+hasntlit "9i ... ctrl-n is fzf's own again (next row)" "$PICK_ARGV" "ctrl-n:"
 haslit "9i ... and the poll"                         "$PICK_ARGV" "auto every 120s"
 haslit "9i ... and carries an updated stamp"         "$PICK_ARGV" "updated "
 haslit "9i ... the cursor survives a reload by key, not by index" "$PICK_ARGV" "--id-nth"
@@ -964,7 +967,7 @@ command rm -f -- "$FZF_ARGV"
 JOB_PICK_POLL=0
 tmux-pick >/dev/null 2>&1
 hasntlit "9j JOB_PICK_POLL=0 leaves no timer binding" "$(command cat "$FZF_ARGV")" "every("
-haslit   "9j ... but ctrl-r is still bound"           "$(command cat "$FZF_ARGV")" "ctrl-r:reload("
+haslit   "9j ... but ctrl-l is still bound"           "$(command cat "$FZF_ARGV")" "ctrl-l:reload("
 JOB_PICK_POLL=120
 command rm -f -- "$FZF_ARGV"
 tmux-pick --poll 0 >/dev/null 2>&1
@@ -1004,7 +1007,7 @@ export JOB_HOSTS_EXPORT="${(j: :)JOB_HOSTS}" JOB_HOST="$JOB_HOST"
 
 command rm -f -- "$FZF_ARGV"
 tmux-pick >/dev/null 2>&1
-typeset -g RELOAD_PICK="$(smoke_reload_cmd ctrl-r)"
+typeset -g RELOAD_PICK="$(smoke_reload_cmd ctrl-l)"
 eqlit "9k the reload command is a fresh zsh with no rc files" \
       "${RELOAD_PICK%% -c *}" "'$_JOB_ZSH_BIN' -f"
 haslit "9k ... re-sourcing this worktree's copy, not ~/dot_files" \
@@ -1017,7 +1020,7 @@ hasntlit "9k ... and JOB_HOSTS_EXPORT is what carries the hosts: emptied, the re
 
 command rm -f -- "$FZF_ARGV"
 tmux-dash >/dev/null 2>&1
-typeset -g RELOAD_DASH="$(smoke_reload_cmd ctrl-r)"
+typeset -g RELOAD_DASH="$(smoke_reload_cmd ctrl-l)"
 haslit "9l tmux-dash's reload asks for the whole dashboard" "$RELOAD_DASH" "_tmux_pick_lines --all"
 smoke_pick_pair "$RELOAD_DASH" --all \
   || fail "9l the clock ticked on all 20 tries" "$RELOAD_DASH"
