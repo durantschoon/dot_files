@@ -9,6 +9,12 @@ if ! typeset -f add_to_end_of_path > /dev/null; then
     exit 1
 fi
 
+# A `#' starts a comment at the prompt too, as it does in a script. Off by
+# default in interactive zsh, so a pasted block's comment lines ran as
+# commands: `# Remove ... & cache/database' put `#' in the background and then
+# ran `cache/database' (remindme macos, 2026-11-24).
+setopt interactive_comments
+
 ######
 # rust
 ######
