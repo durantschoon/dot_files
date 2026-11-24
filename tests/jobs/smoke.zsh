@@ -1247,6 +1247,16 @@ haslit "16b ... a status line one space after its >"   "$out" $'\n''> tabbed sta
 haslit "16b ... a fenced line keeps its own spacing"   "$out" '#   a shell comment'
 hasntlit "16b ... and the extra spaces are gone"       "$out" '#   the headline'
 
+# A remote context view runs under `zsh -f' with the transport's bare PATH;
+# the prefix puts the far host's user-profile bins (glow, the editor) first.
+typeset -g RP_HOME=$BASE/remote-home
+mkdir -p -- "$RP_HOME/.guix-home/profile/bin" "$RP_HOME/.local/bin"
+out=$(HOME=$RP_HOME PATH=/usr/bin:/bin command zsh -f -c "${_JOB_REMOTE_PATH_SH}print -r -- \$PATH")
+eq "16b the remote shell puts ~/.local/bin first" "${out%%:*}" "$RP_HOME/.local/bin"
+haslit "16b ... then the Guix Home profile" "$out" "$RP_HOME/.local/bin:$RP_HOME/.guix-home/profile/bin:"
+hasntlit "16b ... and skips profiles that are not there" "$out" "$RP_HOME/.guix-profile/bin"
+haslit "16b ... keeping the transport's PATH after them" "$out" ":/usr/bin:/bin"
+
 # --- item 4: job-note, through the recorded $EDITOR -------------------------
 typeset -g CTX_NOTES=$CTX/logs/n1.notes.md
 command rm -f -- "$ED_ARGV"

@@ -1443,8 +1443,16 @@ _tmux_pick_lines() {
 # a preview that fires on every cursor move is not an answer worth waiting for.
 # Set-but-empty is how the host block spells "no other hosts", which is exactly
 # what is meant here, as against unset, which means "nobody said".
-typeset -g _JOB_REMOTE_CTX_SH='source "$HOME/dot_files/.jobs.zsh" 2>/dev/null; job-note-context "$1"'
-typeset -g _JOB_REMOTE_NOTE_SH='source "$HOME/dot_files/.jobs.zsh" 2>/dev/null; job-note "$1"'
+#
+# `zsh -f' reads no startup file, so the far side starts with whatever PATH the
+# transport hands it -- for a container, `docker exec's bare
+# /usr/local/sbin:...:/bin. Neither glow (the context view's renderer) nor the
+# user's editor lives there: on guix-dev both are in the Guix Home profile, on
+# a Mac in Homebrew. So the user-profile directories that exist on that host
+# go in front first. Without it every remote preview printed raw markdown.
+typeset -g _JOB_REMOTE_PATH_SH='local d; for d in /opt/homebrew/bin "$HOME/.guix-profile/bin" "$HOME/.guix-home/profile/bin" "$HOME/.local/bin"; do [[ -d $d ]] && path=("$d" $path); done; '
+typeset -g _JOB_REMOTE_CTX_SH="${_JOB_REMOTE_PATH_SH}"'source "$HOME/dot_files/.jobs.zsh" 2>/dev/null; job-note-context "$1"'
+typeset -g _JOB_REMOTE_NOTE_SH="${_JOB_REMOTE_PATH_SH}"'source "$HOME/dot_files/.jobs.zsh" 2>/dev/null; job-note "$1"'
 
 # Host, session name and task of a row, into three globals. Fails for the
 # "new" row, whose key is not a host|name pair.
