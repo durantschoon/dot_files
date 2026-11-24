@@ -922,6 +922,7 @@ if [ -n "$ZSH_VERSION" ]; then
     dfmake() {
         make --no-print-directory -C ~/dot_files "$@"
     }
+    alias dfmhg='dfmake help G'
 
     # Complete dfmake exactly like `make' run inside ~/dot_files: rewrite the
     # command line to `make -C ~/dot_files ...' and hand it to zsh's own
