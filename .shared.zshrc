@@ -229,6 +229,8 @@ _remindme() {
         '(-l --list)'{-l,--list}'[List available reminder topics]' \
         '(-s --search)'{-s,--search}'[Search inside reminder sheets]:search pattern:' \
         '--path[Print REMINDME_DIR or path to topic]:reminder topic:->topics' \
+        '(-c --copy)'{-c,--copy}'[Copy a section'"'"'s code blocks to the clipboard]:reminder topic:->topics' \
+        '(-r --raw)'{-r,--raw}'[Print a section'"'"'s code blocks verbatim]:reminder topic:->topics' \
         '(-h --help)'{-h,--help}'[Show help]' \
         '1:reminder topic:->topics'
     if [[ "$state" == topics ]]; then

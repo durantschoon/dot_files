@@ -12,6 +12,8 @@
 #   remindme -l, --list       List available reminder topics
 #   remindme -s <pattern>     Search across reminder files
 #   remindme --path [<topic>] Print the directory or topic file path
+#   remindme -c <topic> <N>   Copy the code blocks of section N to the clipboard
+#   remindme -r <topic> <N>   Print the code blocks of section N, verbatim
 #   remindme                  Open glow's interactive TUI in REMINDME_DIR
 
 set -u
@@ -38,6 +40,11 @@ Options:
   -l, --list            List available reminder topics
   -s, --search <regex>  Search inside all reminder sheets
       --path [<topic>]  Print REMINDME_DIR or the path to <topic>.md
+  -c, --copy <topic> <N>
+                        Copy the code blocks of section N (the "## N." heading)
+                        to the clipboard, exactly as written: no indentation,
+                        no wrapping. Without N, list the numbered sections.
+  -r, --raw <topic> <N> The same, printed to stdout
   -h, --help            Show this help message
 EOF
 }
@@ -98,6 +105,45 @@ list_topics() {
     fi
 }
 
+# The numbered sections of a sheet: its "## N. title" headings.
+list_sections() {
+    printf 'Sections in %s:\n' "$(strip_md "${1##*/}")" >&2
+    sed -n 's/^##[[:space:]]\{1,\}\([0-9]\{1,\}\.\)/  \1/p' "$1" >&2
+}
+
+# section_code FILE N: the fenced code blocks under "## N." up to the next
+# "## " heading, verbatim, one blank line between blocks. What glow shows is
+# indented and wrapped to the terminal, so a block copied off the screen is
+# not the block in the file; this is. Exit 2: no such section; 3: no code.
+section_code() {
+    awk -v n="$2" '
+        /^##[ \t]/ && !/^###/ {
+            head = $0; sub(/^##[ \t]+/, "", head)
+            insec = (index(head, n ".") == 1)
+            if (insec) found = 1
+            next
+        }
+        !insec { next }
+        /^[ \t]*```/ {
+            if (infence) { infence = 0 } else { infence = 1; if (blocks++) print "" }
+            next
+        }
+        infence { print }
+        END { if (!found) exit 2; if (!blocks) exit 3 }
+    ' "$1"
+}
+
+# Write stdin to the system clipboard with whatever this machine has.
+copy_to_clipboard() {
+    if command -v pbcopy >/dev/null 2>&1; then pbcopy
+    elif [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then wl-copy
+    elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then xclip -selection clipboard
+    elif [ -n "${DISPLAY:-}" ] && command -v xsel >/dev/null 2>&1; then xsel --clipboard --input
+    elif [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then tmux load-buffer -w -
+    else return 1
+    fi
+}
+
 render_file() {
     file=$1
     pager_flag=$2
@@ -116,6 +162,7 @@ render_file() {
 pager_flag=''
 action='view'
 arg=''
+section=''
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -143,6 +190,14 @@ while [ $# -gt 0 ]; do
             arg=$2
             shift 2
             ;;
+        -c|--copy)
+            action='copy'
+            shift
+            ;;
+        -r|--raw)
+            action='raw'
+            shift
+            ;;
         --path)
             action='path'
             if [ $# -ge 2 ]; then
@@ -162,6 +217,8 @@ while [ $# -gt 0 ]; do
         *)
             if [ -z "$arg" ]; then
                 arg=$1
+            elif [ -z "$section" ]; then
+                section=$1
             else
                 die "unexpected argument: $1"
             fi
@@ -174,7 +231,40 @@ if [ -z "$arg" ] && [ $# -gt 0 ]; then
     arg=$1
 fi
 
+# A second positional argument is a section number, which only --copy and
+# --raw take.
 case $action in
+    copy|raw) ;;
+    *) [ -z "$section" ] || die "unexpected argument: $section" ;;
+esac
+
+case $action in
+    copy|raw)
+        [ -n "$arg" ] || die "--$action requires a <topic> (and a section number)"
+        topic=$(strip_md "$arg")
+        target="$REMINDME_DIR/$topic.md"
+        [ -f "$target" ] || die "no reminder named '$topic' ($target)"
+        if [ -z "$section" ]; then
+            list_sections "$target"
+            printf '%s: give a section number, e.g. %s --%s %s 1\n' "$PROG" "$PROG" "$action" "$topic" >&2
+            exit 1
+        fi
+        case $section in
+            *[!0-9]*) die "section must be a number, got '$section'" ;;
+        esac
+        code=$(section_code "$target" "$section")
+        rc=$?
+        if [ "$rc" -eq 2 ]; then list_sections "$target"; die "no section $section in $topic"; fi
+        [ "$rc" -eq 3 ] && die "section $section of $topic has no code blocks"
+        if [ "$action" = raw ]; then
+            printf '%s\n' "$code"
+        else
+            printf '%s\n' "$code" | copy_to_clipboard \
+                || die "no clipboard tool found (pbcopy, wl-copy, xclip, xsel or tmux); use --raw"
+            printf '%s: copied %s line(s) from section %s of %s\n' \
+                "$PROG" "$(printf '%s\n' "$code" | wc -l | tr -d ' ')" "$section" "$topic" >&2
+        fi
+        ;;
     list)
         list_topics
         ;;

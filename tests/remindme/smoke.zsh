@@ -133,6 +133,73 @@ else
     fail "missing topic unexpected: rc=$rc out=$out"
 fi
 
+print "==> 9. --raw / --copy give a section's code blocks verbatim"
+cat > "$SCRATCH/notes/fix.md" <<'EOF'
+# Fixes
+
+## 1. First thing
+
+Some prose that is not code.
+
+```sh
+# a comment & something after it
+sudo do-the-thing --with "quotes"   # trailing comment
+```
+
+### A subsection
+
+```sh
+second block line
+```
+
+## 10. Tenth thing
+
+```sh
+tenth only
+```
+
+## 2. Prose only
+
+No code here.
+EOF
+out=$("$SCRIPT_UNDER_TEST" --raw fix 1 2>&1); rc=$?
+expected=$'# a comment & something after it\nsudo do-the-thing --with "quotes"   # trailing comment\n\nsecond block line'
+if (( rc == 0 )) && [[ "$out" == "$expected" ]]; then
+    ok "--raw prints every block of section 1, verbatim, blank line between"
+else
+    fail "--raw fix 1 unexpected: rc=$rc out=[$out]"
+fi
+out=$("$SCRIPT_UNDER_TEST" -r fix 10 2>&1)
+[[ "$out" == "tenth only" ]] && ok "section 10 is not confused with section 1" || fail "-r fix 10 gave [$out]"
+out=$("$SCRIPT_UNDER_TEST" -r fix 2>&1); rc=$?
+if (( rc != 0 )) && [[ "$out" == *"1. First thing"* && "$out" == *"10. Tenth thing"* ]]; then
+    ok "no section number lists the numbered sections"
+else
+    fail "-r fix without N: rc=$rc out=$out"
+fi
+out=$("$SCRIPT_UNDER_TEST" -r fix 7 2>&1); rc=$?
+(( rc != 0 )) && [[ "$out" == *"no section 7"* ]] && ok "a missing section says so" || fail "-r fix 7: rc=$rc out=$out"
+out=$("$SCRIPT_UNDER_TEST" -r fix 2 2>&1); rc=$?
+(( rc != 0 )) && [[ "$out" == *"has no code blocks"* ]] && ok "a section without code says so" || fail "-r fix 2: rc=$rc out=$out"
+out=$("$SCRIPT_UNDER_TEST" -r fix x 2>&1); rc=$?
+(( rc != 0 )) && [[ "$out" == *"must be a number"* ]] && ok "a non-numeric section is refused" || fail "-r fix x: rc=$rc out=$out"
+out=$("$SCRIPT_UNDER_TEST" ewm 2 2>&1); rc=$?
+(( rc != 0 )) && [[ "$out" == *"unexpected argument: 2"* ]] && ok "only --copy/--raw take a section" || fail "ewm 2: rc=$rc out=$out"
+
+# --copy goes through the first clipboard tool found: a fake pbcopy here, so
+# the test never touches the real clipboard.
+cat > "$SCRATCH/bin/pbcopy" <<EOF
+#!/bin/sh
+cat > "$SCRATCH/clipboard"
+EOF
+chmod +x "$SCRATCH/bin/pbcopy"
+out=$("$SCRIPT_UNDER_TEST" --copy fix 1 2>&1); rc=$?
+if (( rc == 0 )) && [[ "$(<"$SCRATCH/clipboard")" == "$expected" && "$out" == *"copied 4 line(s) from section 1 of fix"* ]]; then
+    ok "--copy puts the same text on the clipboard and says how much"
+else
+    fail "--copy unexpected: rc=$rc out=$out clip=[$(<"$SCRATCH/clipboard")]"
+fi
+
 if (( FAILED > 0 )); then
     print -u2 "\nFAILED: $FAILED check(s)"
     exit 1
