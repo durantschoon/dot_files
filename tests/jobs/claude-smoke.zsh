@@ -109,6 +109,12 @@ if [ "\$(cat "$BASE/claude-fail-mode" 2>/dev/null)" = exit-1 ]; then
   echo "No conversation found to continue." >&2
   exit 1
 fi
+# Exit on demand, per task: with claude-exit-on-TASK present, wait for
+# claude-exit-now-TASK and exit with the status it holds (section 7).
+if [ -n "\$JOB_TASK" ] && [ -e "$BASE/claude-exit-on-\$JOB_TASK" ]; then
+  while [ ! -e "$BASE/claude-exit-now-\$JOB_TASK" ]; do sleep 0.2; done
+  exit "\$(cat "$BASE/claude-exit-now-\$JOB_TASK")"
+fi
 exec sleep 300
 FAKE
 chmod +x "$FAKEBIN/claude"
@@ -251,8 +257,9 @@ cleanup() {
   [[ -n ${REPO2-} ]] && cd "$REPO2" 2>/dev/null && claude-rm t4 >/dev/null 2>&1
   # agent-prune fixtures, removed by label: p1's checkout is deleted on
   # purpose, so a cwd-based claude-rm could not find it.
-  local pl; for pl in p1 p2 p3 p4; do
+  local pl; for pl in p1 p2 p3 p4 e1 e2 q1 u1; do
     ptmux kill-session -t "=${PRUNE_SLUG_OF[$pl]:-none}" >/dev/null 2>&1
+    ptmux kill-session -t "=${ENDED_SLUG_OF[$pl]:-none}" >/dev/null 2>&1
     _agent_prune_remove "local.job.$JOB_LAUNCHD_SLUG.$pl" >/dev/null 2>&1
   done
   cd "$REPO" 2>/dev/null && codex-rm cx >/dev/null 2>&1
@@ -745,8 +752,10 @@ assert "… keeps the recent p3"                   test -f "$REG_DIR/local.job.$
 assert "… never touches the live p4"             ptmux has-session -t "=$PRUNE_SLUG_OF[p4]"
 typeset -g PR_STAMP; PR_STAMP=$(grep -o -- '--restore [0-9-]*' <<<"$PR_OUT" | awk '{print $2}')
 assert "… and names the backup to restore"       test -n "$PR_STAMP"
-assert "the backup manifest holds both rows" \
-  test "$(grep -vc '^#' "$REG_DIR/pruned/$PR_STAMP/manifest.tsv" 2>/dev/null)" -eq 2
+# Other rows can be pruned too: by now an earlier section has left t3's
+# conf behind with its launchd agent unloaded, which is the `unloaded' group.
+assert "the backup manifest holds the orphan p1"  grep -q -- "^orphaned	local.job.$JOB_LAUNCHD_SLUG.p1	" "$REG_DIR/pruned/$PR_STAMP/manifest.tsv"
+assert "… and the stale p2"                       grep -q -- "^stale	local.job.$JOB_LAUNCHD_SLUG.p2	" "$REG_DIR/pruned/$PR_STAMP/manifest.tsv"
 
 assert "--restore lists the backup"              grep -q -- "$PR_STAMP" <<<"$(agent-prune --restore 2>&1)"
 agent-prune --restore "$PR_STAMP" >/dev/null 2>"$BASE/prune-restore.err"; RC=$?
@@ -756,6 +765,87 @@ assert "… says how to start the sessions"        grep -q -- "agent-relaunch cl
 agent-prune --restore "$PR_STAMP" >/dev/null 2>"$BASE/prune-restore2.err"
 assert "restoring twice leaves existing rows alone" grep -q -- "registered again" "$BASE/prune-restore2.err"
 unset AGENT_PRUNE_MIN_UPTIME
+
+# 7. Clean exits. In a checkout of their own, so the one-per-checkout rule
+# does not decide the relaunch:
+#   e1  the agent exits 0 (the user quit it)  -> ended
+#   e2  the agent exits 3 (a crash)           -> MISSING, relaunched
+typeset -gA ENDED_SLUG_OF
+typeset -g REPO4=$HOME_LOCAL/Repos/Claude_Smoke4.$$
+mkdir -p -- "$REPO4" && git init -q -- "$REPO4"
+cd "$REPO4" || exit 1
+for t in e1 e2; do
+  : > "$BASE/claude-exit-on-$t"
+  claude-run $t "exit fixture $t" 2>/dev/null >/dev/null
+  ENDED_SLUG_OF[$t]=$(job-name $t)
+  wait_agent_ran "local.job.$JOB_LAUNCHD_SLUG.$t" || fail "$t's agent never finished its RunAtLoad pass"
+done
+typeset -g E1_LABEL=local.job.$JOB_LAUNCHD_SLUG.e1 E2_LABEL=local.job.$JOB_LAUNCHD_SLUG.e2
+print 0 > "$BASE/claude-exit-now-e1"; print 3 > "$BASE/claude-exit-now-e2"
+wait_gone() { local i; for i in {1..40}; do ptmux has-session -t "=$1" 2>/dev/null || return 0; sleep 0.25; done; return 1 }
+assert "e1's agent exits and its session closes" wait_gone "$ENDED_SLUG_OF[e1]"
+assert "e2's agent exits and its session closes" wait_gone "$ENDED_SLUG_OF[e2]"
+assert "a clean exit (status 0) marks e1 ended"   test -s "$REG_DIR/$E1_LABEL.ended"
+refute "a crash (status 3) leaves e2 unmarked"     test -e "$REG_DIR/$E2_LABEL.ended"
+typeset -g ST_E; ST_E="$(NO_COLOR=1 claude-status 2>&1)"
+assert "claude-status shows e1 as ended"          grep -q -- "$ENDED_SLUG_OF[e1] *ended" <<<"$ST_E"
+assert "… and e2 as MISSING"                      grep -q -- "$ENDED_SLUG_OF[e2] *MISSING" <<<"$ST_E"
+
+# The login relaunch runs the stored command with no shell of ours: its guard
+# must leave an ended agent alone.
+/bin/sh -c "$(_agent_agent_relaunch_cmd "$E1_LABEL")" >/dev/null 2>&1
+refute "the stored relaunch command does not restart an ended agent" ptmux has-session -t "=$ENDED_SLUG_OF[e1]"
+
+command rm -f -- "$BASE/claude-exit-on-e2" "$BASE/claude-exit-now-e2"
+typeset -g RL_E; RL_E="$(claude-relaunch --all 2>&1)"
+assert "claude-relaunch skips the ended e1"       grep -q -- "SKIPPED.*$ENDED_SLUG_OF[e1].*ended cleanly" <<<"$RL_E"
+refute "… which stays down"                       ptmux has-session -t "=$ENDED_SLUG_OF[e1]"
+assert "… while the crashed e2 comes back"        ptmux has-session -t "=$ENDED_SLUG_OF[e2]"
+print "  note claude-relaunch with one ended and one crashed agent:"
+print -r -- "$RL_E" | sed 's/^/       | /'
+
+typeset -gx AGENT_PRUNE_MIN_UPTIME=0
+assert "agent-prune lists e1 as ended"            grep -q -- "^ended .* $ENDED_SLUG_OF[e1] " <<<"$(agent-prune 2>&1)"
+unset AGENT_PRUNE_MIN_UPTIME
+
+# Starting the task again clears the mark; a killed session is not a quit.
+command rm -f -- "$BASE/claude-exit-on-e1" "$BASE/claude-exit-now-e1"
+claude-run e1 2>/dev/null >/dev/null
+assert "claude-run on an ended task starts it"    ptmux has-session -t "=$ENDED_SLUG_OF[e1]"
+refute "… and clears the ended mark"              test -e "$REG_DIR/$E1_LABEL.ended"
+wait_agent_ran "$E1_LABEL" >/dev/null
+ptmux kill-session -t "=$ENDED_SLUG_OF[e1]"
+sleep 0.5
+refute "a killed session is not marked ended"     test -e "$REG_DIR/$E1_LABEL.ended"
+claude-rm e2 >/dev/null 2>&1
+refute "claude-rm removes the mark with the row"  test -e "$REG_DIR/$E2_LABEL.ended"
+cd "$REPO" || exit 1
+
+# 8. Definitions only launchd knows about (macOS). An agent with a plist but
+# no registry conf used to vanish from every agent-* command: the readers
+# declared `local path', which replaced $PATH, so `command plutil' failed.
+if (( HAS_LAUNCHD )); then
+  cd "$REPO4" || exit 1
+  claude-run q1 "plist only" 2>/dev/null >/dev/null
+  ENDED_SLUG_OF[q1]=$(job-name q1)
+  command rm -f -- "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.q1.conf"
+  assert "an agent with only a plist is listed"   grep -q -- "$ENDED_SLUG_OF[q1] *up" <<<"$(NO_COLOR=1 claude-status 2>&1)"
+  claude-rm q1 >/dev/null 2>"$BASE/rm-q1.err"; RC=$?
+  assert "… and claude-rm removes it"             test $RC -eq 0
+  refute "… plist and all"                        test -f "$HOME_LOCAL/Library/LaunchAgents/local.job.$JOB_LAUNCHD_SLUG.q1.plist"
+  cd "$REPO" || exit 1
+
+  # A registry conf whose launchd agent is not loaded: listed by agent-prune
+  # (nothing else shows it) and removable.
+  _agent_conf_save "local.job.$JOB_LAUNCHD_SLUG.u1" claude u1 "$SLUG-u1" "$REPO" "true"
+  PR_OUT="$(AGENT_PRUNE_MIN_UPTIME=0 agent-prune 2>&1)"
+  assert "agent-prune lists an unloaded definition" grep -q -- "^unloaded .* $SLUG-u1 " <<<"$PR_OUT"
+  AGENT_PRUNE_MIN_UPTIME=0 AGENT_JOB_CONFIRM=no agent-prune --apply </dev/null >/dev/null 2>&1
+  refute "… and --apply removes it"               test -f "$REG_DIR/local.job.$JOB_LAUNCHD_SLUG.u1.conf"
+else
+  skip "plist-only agents (no launchd here)"
+  skip "unloaded definitions (no launchd here)"
+fi
 
 # The cleanup, and with it the default-server guard, run explicitly: zsh
 # ignores what an EXIT trap returns (measured in stage 15), so a guard left to

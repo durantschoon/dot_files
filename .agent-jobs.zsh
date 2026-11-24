@@ -37,8 +37,9 @@
 #                                 anywhere; always asks first (AGENT_JOB_CONFIRM=no
 #                                 lets a script through, one match only).
 # agent-prune [--apply] [--days N] sort registered agents into orphaned (checkout
-#                                 gone), stale (missing, untouched N days) and idle
-#                                 (up, quiet); --apply removes the first two after
+#                                 gone), ended (quit cleanly), unloaded (macOS: not
+#                                 loaded), stale (missing, untouched N days) and idle
+#                                 (up, quiet); --apply removes all but idle after
 #                                 backing them up. Refuses right after a restart.
 # agent-prune --restore [STAMP]    list prune backups, or put one back.
 # agent-stash-all [--keep-homebase] [FILE]
@@ -89,6 +90,44 @@ _agent_registry_dir() {
 
 _agent_conf_file() {
   print -r -- "$(_agent_registry_dir)/$1.conf"
+}
+
+# Clean exits. An agent session runs its CLI through _agent_wrap_cmd, which
+# writes LABEL.ended (one ISO-8601 stamp) beside the registry conf when the
+# agent exits with status 0 -- the user quit it. Nothing is written when the
+# session is killed (agent-rm, tmux-rm), when the tmux server dies or the
+# machine reboots (the wrapper shell gets the same SIGHUP/SIGTERM and dies
+# first), or when the agent crashes or is OOM-killed (non-zero status). So
+# "ended" means "the user finished it", and every other MISSING row is still
+# one to bring back. agent-status shows it, agent-relaunch and the login
+# relaunch skip it, agent-prune removes it; agent-run and agent-adopt clear it.
+#
+# Measured first (2026-11-24, tmux 3.7c) as the alternative: a pane-exited
+# hook fires only on a program's own exit -- not on kill-session,
+# kill-server, SIGTERM or SIGKILL to the server -- but cannot see the exit
+# status (#{pane_dead_status} is empty there), so a crash would read as a
+# clean quit. The wrapper can tell them apart.
+_agent_ended_file() { print -r -- "$(_agent_registry_dir)/$1.ended" }
+
+# _agent_ended_at LABEL: the stamp, if LABEL ended cleanly.
+_agent_ended_at() {
+  local f; f=$(_agent_ended_file "$1")
+  [[ -f $f ]] || return 1
+  local stamp; stamp=$(<"$f"); print -r -- "${stamp:-unknown}"
+}
+
+# _agent_wrap_cmd LABEL QUOTED_CMD: QUOTED_CMD (already sh-quoted) followed by
+# the clean-exit marker, as one sh command string for tmux new-session.
+_agent_wrap_cmd() {
+  local marker; marker=$(_agent_ended_file "$1")
+  print -r -- "$2; rc=\$?; [ \"\$rc\" -eq 0 ] && date '+%Y-%m-%dT%H:%M:%S%z' > ${(qq)marker}; exit \"\$rc\""
+}
+
+# _agent_relaunch_guard LABEL: the prefix every stored relaunch command starts
+# with, so the login relaunch (launchd runs it with no shell of ours) leaves an
+# agent the user ended alone.
+_agent_relaunch_guard() {
+  print -r -- "[ -e ${(qq)$(_agent_ended_file "$1")} ] && exit 0; "
 }
 
 _agent_conf_get() {
@@ -178,6 +217,9 @@ agent-run() {
   name=$(job-name "$task") || return
   root=$(job-root); bin=$(_agent_bin "$engine") || return; tmux_bin=${commands[tmux]:?tmux not on PATH}
   _agent_job_check_owner "$engine" "$task" || return
+  local label; label=$(launchd-label "$task") || return
+  # Starting or refreshing a task means it is wanted again.
+  command rm -f -- "$(_agent_ended_file "$label")"
   # JOB_TASK / JOB_REPO in the session's environment, so that a recap skill
   # running inside this session can write logs/<task>.recap.md without
   # being told which task it is (.jobs.zsh, _job_tmux_env_flags; empty on a
@@ -213,7 +255,7 @@ agent-run() {
     # inside them zsh would join the array into one word before (qq) applies
     # (the same trap tmux-run documents).
     local quoted_cmd=${(j: :)${(qq)cmd}}
-    tmux new-session -d -s "$name" -n "$engine" -c "$root" "${cenv[@]}" "$quoted_cmd" || return
+    tmux new-session -d -s "$name" -n "$engine" -c "$root" "${cenv[@]}" "$(_agent_wrap_cmd "$label" "$quoted_cmd")" || return
     tmux set-option -t "$name" @agent-job-engine "$engine" || return
     [[ $engine == agy ]] && tmux set-option -t "$name" mouse on 2>/dev/null
     print -u2 "agent-run: started '$name' at $root  ($bin $start_args${@:+ + prompt})"
@@ -229,15 +271,14 @@ agent-run() {
   local resume_args=$(_agent_resume_args "$engine")
   local -a resume_cmd; resume_cmd=("$bin" ${(z)resume_args})
   local resume=${(j: :)${(qq)resume_cmd}}
+  resume=$(_agent_wrap_cmd "$label" "$resume")
   # Persist ownership in the registry as well as the live tmux session.
   # The fixed marker also works on tmux versions without new-session -e.
-  local envp="export JOB_AGENT_ENGINE=$engine; "
+  local envp="export JOB_AGENT_ENGINE=$engine; $(_agent_relaunch_guard "$label")"
   [[ -n $TMUX_TMPDIR ]] && envp+="export TMUX_TMPDIR=${(qq)TMUX_TMPDIR}; "
   local tmuxq=${(qq)tmux_bin}
   local relaunch="${envp}${tmuxq} has-session -t ${(qq):-=$name} 2>/dev/null || $tmuxq new-session -d -s ${(qq)name} -n ${(qq)engine} -c ${(qq)root} ${cenvq}${(qq)resume}; $tmuxq set-option -t ${(qq)name} @agent-job-engine ${(qq)engine}"
   [[ $engine == agy ]] && relaunch+="; $tmuxq set-option -t ${(qq)name} mouse on"
-  local label
-  label=$(launchd-label "$task") || return
 
   # Persist definition in the cross-platform registry
   _agent_conf_save "$label" "$engine" "$task" "$name" "$root" "$relaunch"
@@ -320,16 +361,22 @@ _agent_job_labels() {
 }
 # The session name an agent's relaunch command recreates; failure when
 # it is not an agent-run agent.
+# The registry readers below name the meta file's path `mpath', never `path':
+# zsh's `path' is the array tied to $PATH, so `local path=...' replaced the
+# whole command search path and the next `command cat' / `command plutil'
+# failed. That silently hid every agent defined only by a launchd plist (no
+# registry conf) from agent-status, -relaunch, -rm and -prune -- 24 of 55
+# rows on minius (2026-11-24). .jobs.zsh learned the same lesson as `spath'.
 _agent_agent_session() {
   local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
   [[ -n $meta[1] ]] || return 1
-  local type=${meta[1]%% *} path=${meta[1]#* }
+  local type=${meta[1]%% *} mpath=${meta[1]#* }
   if [[ $type == conf ]]; then
-    local name; name=$(_agent_conf_get "$path" "name") || return 1
+    local name; name=$(_agent_conf_get "$mpath" "name") || return 1
     print -r -- "$name"
     return 0
   fi
-  local plist=$path xml rest
+  local plist=$mpath xml rest
   [[ -f $plist ]] || return 1
   xml=$(command cat -- "$plist" 2>/dev/null) || return 1
   rest=${xml#*new-session -d -s }
@@ -342,13 +389,13 @@ _agent_agent_session() {
 _agent_agent_wd() {
   local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
   [[ -n $meta[1] ]] || return 1
-  local type=${meta[1]%% *} path=${meta[1]#* }
+  local type=${meta[1]%% *} mpath=${meta[1]#* }
   if [[ $type == conf ]]; then
-    local wd; wd=$(_agent_conf_get "$path" "root") || return 1
+    local wd; wd=$(_agent_conf_get "$mpath" "root") || return 1
     print -r -- "$wd"
     return 0
   fi
-  command plutil -extract WorkingDirectory raw -o - -- "$path" 2>/dev/null
+  command plutil -extract WorkingDirectory raw -o - -- "$mpath" 2>/dev/null
 }
 
 # Engine marker from conf or plist. For pre-marker plists, read the
@@ -356,16 +403,16 @@ _agent_agent_wd() {
 _agent_agent_engine() {
   local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
   [[ -n $meta[1] ]] || return 1
-  local type=${meta[1]%% *} path=${meta[1]#* }
+  local type=${meta[1]%% *} mpath=${meta[1]#* }
   if [[ $type == conf ]]; then
-    local engine; engine=$(_agent_conf_get "$path" "engine") || return 1
+    local engine; engine=$(_agent_conf_get "$mpath" "engine") || return 1
     _agent_engine_check "$engine" 2>/dev/null || return 1
     print -r -- "$engine"
     return 0
   fi
   local cmd rest engine
-  _agent_agent_session "$path" >/dev/null || return 1
-  cmd=$(command plutil -extract ProgramArguments.4 raw -o - -- "$path" 2>/dev/null) || return 1
+  _agent_agent_session "$mpath" >/dev/null || return 1
+  cmd=$(command plutil -extract ProgramArguments.4 raw -o - -- "$mpath" 2>/dev/null) || return 1
   if [[ $cmd == 'export JOB_AGENT_ENGINE='* ]]; then
     rest=${cmd#export JOB_AGENT_ENGINE=}; engine=${rest%%;*}
     _agent_engine_check "$engine" 2>/dev/null || return 1
@@ -389,13 +436,13 @@ _agent_agent_engine() {
 _agent_agent_relaunch_cmd() {
   local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
   [[ -n $meta[1] ]] || return 1
-  local type=${meta[1]%% *} path=${meta[1]#* }
+  local type=${meta[1]%% *} mpath=${meta[1]#* }
   if [[ $type == conf ]]; then
-    local cmd; cmd=$(_agent_conf_get "$path" "relaunch") || return 1
+    local cmd; cmd=$(_agent_conf_get "$mpath" "relaunch") || return 1
     print -r -- "$cmd"
     return 0
   fi
-  command plutil -extract ProgramArguments.4 raw -o - -- "$path" 2>/dev/null
+  command plutil -extract ProgramArguments.4 raw -o - -- "$mpath" 2>/dev/null
 }
 
 # The conversation an adopted agent is pinned to, and failure for an ordinary
@@ -404,9 +451,9 @@ _agent_agent_relaunch_cmd() {
 _agent_agent_conversation() {
   local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
   [[ -n $meta[1] ]] || return 1
-  local type=${meta[1]%% *} path=${meta[1]#* }
+  local type=${meta[1]%% *} mpath=${meta[1]#* }
   [[ $type == conf ]] || return 1
-  local conv; conv=$(_agent_conf_get "$path" "conversation") || return 1
+  local conv; conv=$(_agent_conf_get "$mpath" "conversation") || return 1
   [[ -n $conv ]] || return 1
   print -r -- "$conv"
 }
@@ -453,15 +500,15 @@ _agent_agent_at() {
 }
 _agent_agent_mtime() {
   local -a meta; meta=(${(f)"$(_agent_find_meta "$1")"})
-  local path
+  local mpath
   if [[ -n $meta[1] ]]; then
-    path=${meta[1]#* }
+    mpath=${meta[1]#* }
   else
-    path=$1
+    mpath=$1
   fi
   local -a s
   zmodload -F zsh/stat b:zstat 2>/dev/null || return 1
-  zstat -A s +mtime -- "$path" 2>/dev/null || return 1
+  zstat -A s +mtime -- "$mpath" 2>/dev/null || return 1
   print -r -- "$s[1]"
 }
 
@@ -585,6 +632,8 @@ agent-status() {
       any=1
       if tmux has-session -t "=$name" 2>/dev/null; then
         state="${c_up}up      ${c_reset}"
+      elif _agent_ended_at "$label" >/dev/null; then
+        state="${c_wd}ended   ${c_reset}"   # quit cleanly; agent-prune removes it
       else
         state="${c_missing}MISSING ${c_reset}"
       fi
@@ -720,7 +769,18 @@ agent-relaunch() {
   local -a skip_label skip_why
   local cur a_at b_at a_mt b_mt why
   integer pause_rc
+  local ended_at
   for label in "${missing[@]}"; do
+    # Ended cleanly: the user quit it. Naming the task overrides that.
+    if ended_at=$(_agent_ended_at "$label"); then
+      if [[ -n $want ]]; then
+        command rm -f -- "$(_agent_ended_file "$label")"
+      else
+        skip_label+=("$label")
+        skip_why+=("ended cleanly at $ended_at (agent-relaunch $engine $taskof[$label] brings it back)")
+        continue
+      fi
+    fi
     _agent_pause_check "$nameof[$label]"
     pause_rc=$?
     if (( pause_rc != 1 )); then
@@ -783,10 +843,17 @@ agent-relaunch() {
   # Each reason is already a whole clause, because the two kinds of skip -- a
   # live holder, and the loser of a ranking -- have nothing in common but the
   # rule they both serve, which is the sentence at the end.
+  # The per-checkout sentence explains only the checkout skips; an ended,
+  # PAUSED or unreadable-controls skip has a reason of its own.
   integer i
+  local tail
   for (( i = 1; i <= $#skip_label; i++ )); do
     label=$skip_label[i]
-    print -u2 "agent-relaunch: SKIPPED $label ($nameof[$label]) -- $skip_why[i]; $engine recovery resumes one conversation per checkout"
+    case $skip_why[i] in
+      "ended cleanly"*|PAUSED*|"cannot read"*) tail="" ;;
+      *) tail="; $engine recovery resumes one conversation per checkout" ;;
+    esac
+    print -u2 "agent-relaunch: SKIPPED $label ($nameof[$label]) -- $skip_why[i]$tail"
   done
 
   local -a kicked
@@ -993,6 +1060,7 @@ agent-rm() {
   label=$(launchd-label "$task") || return; name=$(job-name "$task") || return
   conf=$(_agent_conf_file "$label")
   [[ -f $conf ]] && command rm -f "$conf"
+  command rm -f -- "$(_agent_ended_file "$label")"
   if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
     [[ -f $(_launchd_plist "$label") ]] && { launchd-rm "$task" || return }
   fi
@@ -1056,6 +1124,11 @@ _agent_conv_dir() {
 #
 #   orphaned  no tmux session, and its checkout directory is gone (a removed
 #             worktree, a deleted clone). Nothing could resume it there.
+#   ended     no tmux session, and the agent exited with status 0: the user
+#             quit it (see _agent_wrap_cmd). Removed at any age.
+#   unloaded  macOS only: a registry conf or plist whose launchd agent is not
+#             loaded, so nothing would ever relaunch it and agent-status does
+#             not list it (a hand-made or half-removed definition).
 #   stale     no tmux session, not PAUSED, and nothing has touched it for
 #             --days (default AGENT_PRUNE_DAYS, 14): not the last start in
 #             logs/<task>.job, not its registry conf, not its plist.
@@ -1110,6 +1183,8 @@ _agent_prune_backup() {
   [[ -f $conf ]]  && { command cp -p -- "$conf" "$dir/" || return }
   [[ -f $plist ]] && { command cp -p -- "$plist" "$dir/" || return }
   [[ -d $support ]] && { mkdir -p -- "$dir/support" && command cp -R -- "$support" "$dir/support/" || return }
+  local ended; ended=$(_agent_ended_file "$label")
+  [[ -f $ended ]] && { command cp -p -- "$ended" "$dir/" || return }
   return 0
 }
 
@@ -1128,6 +1203,7 @@ _agent_prune_remove() {
       && command rm -rf -- "$support"
   fi
   [[ -f $conf ]] && command rm -f -- "$conf"
+  command rm -f -- "$(_agent_ended_file "$label")"
   return 0
 }
 
@@ -1155,6 +1231,7 @@ _agent_prune_restore() {
     fi
     src=$dir/$label
     [[ -f $src/$label.conf ]] && command cp -p -- "$src/$label.conf" "$conf"
+    [[ -f $src/$label.ended ]] && command cp -p -- "$src/$label.ended" "$(_agent_ended_file "$label")"
     if [[ -f $src/$label.plist ]]; then
       mkdir -p -- "${plist:h}" && command cp -p -- "$src/$label.plist" "$plist"
       [[ -d $src/support/$label ]] && mkdir -p -- "${$(_launchd_support_dir "$label"):h}" \
@@ -1224,7 +1301,20 @@ agent-prune() {
   while read -r sname sact; do activity[$sname]=$sact; done \
     < <(tmux list-sessions -F '#{session_name} #{session_activity}' 2>/dev/null)
   local -a labels rows; labels=(${(f)"$(_agent_job_labels)"})
-  local label engine name wd task group why
+  # On macOS _agent_job_labels lists only LOADED agents. Definitions that
+  # exist but are not loaded are invisible everywhere else, so walk them here.
+  local -A unloaded
+  if [[ $OSTYPE == darwin* ]] && (( $+commands[launchctl] )); then
+    local -A listed; local ul uf
+    for ul in "${labels[@]}"; do listed[$ul]=1; done
+    for uf in "$(_agent_registry_dir)"/"${JOB_LAUNCHD_PREFIX:-local.job}".*.conf(N) \
+              "$HOME"/Library/LaunchAgents/"${JOB_LAUNCHD_PREFIX:-local.job}".*.plist(N); do
+      ul=${${uf:t}%.(conf|plist)}
+      [[ -n ${listed[$ul]-} || -n ${unloaded[$ul]-} ]] && continue
+      unloaded[$ul]=1; labels+=("$ul")
+    done
+  fi
+  local label engine name wd task group why ended_at
   local -i seen kept=0 i=0
   # PAUSED rows are kept. An unreadable control file protects every row,
   # as agent-relaunch blocks recovery on it rather than guess.
@@ -1248,7 +1338,10 @@ agent-prune() {
       fi
     else
       seen=$(_agent_prune_last_seen "$label" "$wd" "$task")
+      ended_at=""
       if [[ ! -d $wd ]]; then group=orphaned why="checkout is gone"
+      elif ended_at=$(_agent_ended_at "$label"); then group=ended why="quit cleanly at $ended_at"
+      elif [[ -n ${unloaded[$label]-} ]]; then group=unloaded why="definition not loaded in launchd"
       elif (( seen <= cutoff )); then group=stale why="missing, untouched"
       fi
       if [[ -n $group ]] && { (( ! pause_ok )) || [[ -n ${paused[$name]-} ]] }; then
@@ -1262,7 +1355,7 @@ agent-prune() {
   _agent_prune_progress
   (( pause_ok )) || print -u2 "agent-prune: cannot read the mr-agents pause table; every missing agent is kept"
   local -a removable; local r
-  local -A order; order=(orphaned 1 stale 2 idle 3)
+  local -A order; order=(orphaned 1 ended 2 unloaded 3 stale 4 idle 5)
   rows=(${(f)"$(for r in "${rows[@]}"; do print -r -- "$order[${r%%$'\t'*}]"$'\t'"$r"; done | sort -t $'\t' -k1,1n -k8,8nr | cut -f2-)"})
   if (( ! $#rows )); then
     print "agent-prune: nothing to prune ($kept agents active within $days days, PAUSED or protected)"
@@ -1277,7 +1370,7 @@ agent-prune() {
   done
   print "kept: $kept (active within $days days, PAUSED, or the pause table was unreadable)"
   if (( ! apply )); then
-    (( $#removable )) && print "dry run: agent-prune --apply removes the ${#removable} orphaned and stale rows; idle ones are never removed here"
+    (( $#removable )) && print "dry run: agent-prune --apply removes the ${#removable} orphaned, ended, unloaded and stale rows; idle ones are never removed here"
     return 0
   fi
   (( $#removable )) || { print "agent-prune: only idle sessions; nothing to remove"; return 0 }
@@ -1371,6 +1464,8 @@ agent-adopt() {
   name=$(job-name "$task") || return
   root=$(job-root); bin=$(_agent_bin "$engine") || return; tmux_bin=${commands[tmux]:?tmux not on PATH}
   _agent_job_check_owner "$engine" "$task" || return
+  local label; label=$(launchd-label "$task") || return
+  command rm -f -- "$(_agent_ended_file "$label")"
 
   _agent_adopt_args "$engine" "$conv" || return
   local -a adopt; adopt=("${reply[@]}")
@@ -1379,6 +1474,7 @@ agent-adopt() {
   # applies and the whole command arrives as one word (the trap tmux-run
   # documents).
   local quoted_cmd=${(j: :)${(qq)cmd}}
+  quoted_cmd=$(_agent_wrap_cmd "$label" "$quoted_cmd")
 
   local -a cenv; _job_tmux_env_flags local "$task"; cenv=("${reply[@]}")
   local cenvq=${(j: :)${(qq)cenv}}; [[ -n $cenvq ]] && cenvq+=" "
@@ -1396,13 +1492,11 @@ agent-adopt() {
 
   # The same resume-by-id command is what recovery runs, so a relaunch returns
   # to this conversation rather than to whichever one is newest.
-  local envp="export JOB_AGENT_ENGINE=$engine; "
+  local envp="export JOB_AGENT_ENGINE=$engine; $(_agent_relaunch_guard "$label")"
   [[ -n $TMUX_TMPDIR ]] && envp+="export TMUX_TMPDIR=${(qq)TMUX_TMPDIR}; "
   local tmuxq=${(qq)tmux_bin}
   local relaunch="${envp}${tmuxq} has-session -t ${(qq):-=$name} 2>/dev/null || $tmuxq new-session -d -s ${(qq)name} -n ${(qq)engine} -c ${(qq)root} ${cenvq}${(qq)quoted_cmd}; $tmuxq set-option -t ${(qq)name} @agent-job-engine ${(qq)engine}"
   [[ $engine == agy ]] && relaunch+="; $tmuxq set-option -t ${(qq)name} mouse on"
-  local label
-  label=$(launchd-label "$task") || return
 
   _agent_conf_save "$label" "$engine" "$task" "$name" "$root" "$relaunch" "$conv"
 
