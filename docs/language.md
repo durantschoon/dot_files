@@ -5,6 +5,8 @@ The term in **Use** is the one to write now. A later row may replace it again.
 
 | Since | Commit | Use | Instead of | Why |
 | --- | --- | --- | --- | --- |
+| 2026-11-24 | `e6a9c3edb79bdff16a28cf7d1f0d0b35845c203a` | ctrl-r (rename, in `tmux-pick` / `tmux-dash`) | ctrl-n | R for rename, matching ctrl-k kill and ctrl-e edit. ctrl-n is unbound, so it is fzf's next-row again. The numbered menu without fzf still renames with `m N`. |
+| 2026-11-24 | `e6a9c3edb79bdff16a28cf7d1f0d0b35845c203a` | ctrl-l (refresh, in `tmux-pick` / `tmux-dash`) | ctrl-r | ctrl-r went to rename; ctrl-l is the terminal's usual redraw key, and fzf's default for it is only clear-screen. The numbered menu still refreshes with `r`. |
 | 2026-11-20 | `b738e03a7cef2192b68ba9992b247a3bc4b81615` | `check-jobs-tests` | `check-jobs` | It runs the job-runner test suites against fakes and inspects nothing on the machine, so it takes the `check-X-tests` shape that separates test suites from live `check-X` checks; `check-jobs` is removed, not aliased, and was last in place at `0865254db94bc30c5346917b86afb48695bd5e28`. |
 | 2026-11-20 | `b738e03a7cef2192b68ba9992b247a3bc4b81615` | `check-jobs-live-tests` | `check-jobs-live` | It runs the `.jobs.zsh` container assertions as a test suite (against a real engine, skipping without one), not a check of this machine's state, so it takes the `-tests` suffix; `check-jobs-live` is removed, not aliased. |
 | 2026-11-20 | `b738e03a7cef2192b68ba9992b247a3bc4b81615` | `check-cloud-tests` | `check-cloud` | It runs the hermetic cloud-dirs and cloud-creds smoke tests, while `check-cloud-dirs` and `check-cloud-creds` (unchanged) report on the live machine, and the bare name read as a third live check; `check-cloud` is removed, not aliased. |
