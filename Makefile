@@ -3409,6 +3409,7 @@ check-jobs-tests:
 	@./tests/jobs/tee-smoke.zsh
 	@./tests/jobs/smoke.zsh
 	@./tests/jobs/claude-smoke.zsh
+	@./tests/jobs/hibernate-smoke.zsh
 
 # The container half of .jobs.zsh against a REAL engine -- the one thing
 # check-jobs-tests above cannot do, because its `docker' and `podman' are scratch-dir

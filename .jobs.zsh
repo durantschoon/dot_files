@@ -1867,6 +1867,9 @@ Commands:
   herdr-revive [ENGINE] Recover agent sessions (claude/agy/codex/grok) and
                         open each in its own Herdr workspace (.agent-jobs.zsh)
 
+  Rebooting?  job-hibernate before and job-revive after do all of the below,
+  on this machine and its container hosts, in numbered stages (.agent-jobs.zsh).
+
   Which revive?  They cover different sessions; after a reboot or a container
   restart, run both.
     tmux-revive    plain jobs (servers, builds, tmux-run commands). Only works

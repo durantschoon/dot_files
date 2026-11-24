@@ -42,6 +42,9 @@
 #                                 (up, quiet); --apply removes all but idle after
 #                                 backing them up. Refuses right after a restart.
 # agent-prune --restore [STAMP]    list prune backups, or put one back.
+# job-hibernate                    before a reboot, on this machine and its container
+#                                 hosts: snapshot work, save and stop plain jobs,
+#                                 record which agents are up. job-revive after it.
 # agent-stash-all [--keep-homebase] [FILE]
 #                                 pack every registered agent -- registry
 #                                 entry, exact conversation id, its transcripts,
@@ -108,6 +111,8 @@ _agent_conf_file() {
 # status (#{pane_dead_status} is empty there), so a crash would read as a
 # clean quit. The wrapper can tell them apart.
 _agent_ended_file() { print -r -- "$(_agent_registry_dir)/$1.ended" }
+# Present while job-hibernate has the machine shutting down: see job-hibernate.
+_agent_hibernating_file() { print -r -- "$(_agent_registry_dir)/.hibernating" }
 
 # _agent_ended_at LABEL: the stamp, if LABEL ended cleanly.
 _agent_ended_at() {
@@ -119,8 +124,8 @@ _agent_ended_at() {
 # _agent_wrap_cmd LABEL QUOTED_CMD: QUOTED_CMD (already sh-quoted) followed by
 # the clean-exit marker, as one sh command string for tmux new-session.
 _agent_wrap_cmd() {
-  local marker; marker=$(_agent_ended_file "$1")
-  print -r -- "$2; rc=\$?; [ \"\$rc\" -eq 0 ] && date '+%Y-%m-%dT%H:%M:%S%z' > ${(qq)marker}; exit \"\$rc\""
+  local marker flag; marker=$(_agent_ended_file "$1"); flag=$(_agent_hibernating_file)
+  print -r -- "$2; rc=\$?; [ \"\$rc\" -eq 0 ] && [ ! -e ${(qq)flag} ] && date '+%Y-%m-%dT%H:%M:%S%z' > ${(qq)marker}; exit \"\$rc\""
 }
 
 # _agent_relaunch_guard LABEL: the prefix every stored relaunch command starts
@@ -1032,6 +1037,270 @@ herdr-revive() {
   (( opened )) || { print -u2 "herdr-revive: no agent sessions to open"; return 1 }
 }
 
+# ---------------------------------------------------------------------------
+# job-hibernate / job-revive: a whole-machine reboot in two commands
+# ---------------------------------------------------------------------------
+# job-hibernate   before a reboot: on this machine and every container host
+#                 that goes down with it (ctr:* in JOB_HOSTS -- guix-dev on
+#                 the Mac), snapshot uncommitted work, save and stop the plain
+#                 tmux jobs (tmux-hibernate), and record which agents were up.
+#                 Agents are left running: they come back by themselves (the
+#                 login LaunchAgents on a Mac, the container's start script in
+#                 guix-dev), and stopping them here would only lose a turn.
+# job-revive      after it: wait for the container hosts and the login
+#                 relaunch, restart the saved jobs (tmux-revive), relaunch
+#                 stragglers (agent-relaunch ENGINE --all), check every agent
+#                 recorded at hibernation is back and say how to restart any
+#                 that are not, then reopen Herdr tabs where a Herdr server runs.
+#
+# ssh hosts are left alone: they do not reboot with this machine. Run both from
+# the machine that reboots (the Mac); inside guix-dev they cover guix-dev only.
+#
+# While hibernated, every host carries a flag beside its agent registry
+# (_agent_hibernating_file). The clean-exit wrapper (_agent_wrap_cmd) does not
+# mark an agent ended while it is there, so an agent that exits 0 as the
+# machine shuts down is relaunched after it like any other. job-revive removes
+# the flags -- run it even if the reboot never happened.
+#
+# Each stage prints `=== stage X of Y: WHAT ==='. JOB_CONFIRM=no skips the one
+# question job-hibernate asks; JOB_REVIVE_WAIT (default 300 s) bounds the wait
+# for container hosts, JOB_REVIVE_SETTLE (90 s) the wait for the login relaunch.
+
+typeset -g _JOB_HIB_ENGINES="claude agy codex grok"
+
+_job_state_dir() {
+  local d="${XDG_STATE_HOME:-$HOME/.local/state}/job-hibernate"
+  mkdir -p -- "$d" 2>/dev/null; print -r -- "$d"
+}
+
+_job_stage() { print -r -- "=== stage $1 of $2: $3 ===" }
+
+# The hosts that go down with this one: local, then every reachable ctr: host.
+_job_hib_hosts() {
+  typeset -ga reply; reply=(local)
+  local h
+  for h in "${JOB_HOSTS[@]}"; do
+    _job_host_is_ctr "$h" || continue
+    _job_is_self "$h" && continue
+    _job_host_offline "$h" && continue
+    reply+=("$h")
+  done
+}
+
+# What job-hibernate and job-revive ask each host. Runs ON that host: here in
+# a subshell, on a container host through _job_hib_on.
+_job_hib_host() {
+  local cmd=$1; shift
+  case $cmd in
+    ping) print -r -- ok ;;
+    survey)
+      # agent<TAB>ENGINE<TAB>SESSION<TAB>DIR for each registered agent that is
+      # up, then job<TAB>-<TAB>TASK<TAB>DIR for each job tmux-hibernate saves.
+      local -A live; local s
+      for s in ${(f)"$(tmux list-sessions -F '#{session_name}' 2>/dev/null)"}; do live[$s]=1; done
+      local l name eng wd row
+      for l in ${(f)"$(_agent_job_labels)"}; do
+        [[ -n $l ]] || continue
+        name=$(_agent_agent_session "$l") || continue
+        [[ -n ${live[$name]-} ]] || continue
+        eng=$(_agent_agent_engine "$l") || continue
+        wd=$(_agent_agent_wd "$l")
+        print -r -- "agent"$'\t'"$eng"$'\t'"$name"$'\t'"$wd"
+      done
+      for row in ${(f)"$(tmux-hibernate --dry-run 2>/dev/null)"}; do
+        print -r -- "job"$'\t'"-"$'\t'"${row#*$'\t'}"$'\t'"${row%%$'\t'*}"
+      done ;;
+    up)  tmux list-sessions -F '#{session_name}' 2>/dev/null ;;
+    flag-on)  _job_now > "$(_agent_hibernating_file)" ;;
+    flag-off) command rm -f -- "$(_agent_hibernating_file)" ;;
+    hibernate) JOB_CONFIRM=no tmux-hibernate ;;
+    revive-jobs)
+      if [[ -s ~/.tmux-hibernated-jobs ]]; then tmux-revive
+      else print -u2 "tmux-revive: no saved jobs"; fi ;;
+    relaunch)
+      local e
+      for e in "$@"; do AGENT_JOB_CONFIRM=no agent-relaunch "$e" --all </dev/null 2>&1 | sed "s/^/  [$e] /"; done ;;
+    herdr)
+      (( $+commands[herdr] )) && herdr status 2>/dev/null | command grep -q 'status: running' \
+        || return 3
+      herdr-revive ;;
+    *) print -u2 "_job_hib_host: unknown '$cmd'"; return 64 ;;
+  esac
+}
+
+# The command a container host runs: the profile PATH first (zsh -f reads no
+# startup file and docker exec's PATH has neither tmux nor the agents), then
+# both job files, then the entry point above.
+# JOB_HIB_DOTFILES points it at another checkout of these files (a worktree
+# under test, or the smoke test's fake container); default ~/dot_files.
+typeset -g _JOB_HIB_REMOTE_SH="${_JOB_REMOTE_PATH_SH}"'df=${JOB_HIB_DOTFILES:-$HOME/dot_files}; source "$df/.jobs.zsh" 2>/dev/null; source "$df/.agent-jobs.zsh" 2>/dev/null; _job_hib_host "$@"'
+
+# _job_hib_on HOST CMD [ARGS...]: run _job_hib_host CMD on HOST.
+_job_hib_on() {
+  local host=$1; shift
+  if [[ $host == local ]]; then
+    ( _job_hib_host "$@" )
+  else
+    local q=${(j: :)${(qq)@}} df=""
+    [[ -n ${JOB_HIB_DOTFILES-} ]] && df="JOB_HIB_DOTFILES=${(qq)JOB_HIB_DOTFILES} "
+    _job_sh "$host" "cd \"\$HOME\" && ${df}JOB_HOSTS_EXPORT= zsh -f -c ${(qq)_JOB_HIB_REMOTE_SH} job-hib $q"
+  fi
+}
+
+_job_hib_label() { [[ $1 == local ]] && print -r -- "this machine (${HOST%%.*})" || print -r -- "$1" }
+
+job-hibernate() {
+  _agent_job_guard || return
+  [[ -n ${JOB_CONTAINER_SELF-} ]] && print -u2 "job-hibernate: inside $JOB_CONTAINER_SELF -- this covers it alone; run job-hibernate on the Mac to cover both"
+  _job_hib_hosts; local -a hosts; hosts=("${reply[@]}")
+  integer total=$(( 3 + $#hosts )) n=0
+  local h out row
+
+  _job_stage $((++n)) $total "survey: what is running where"
+  local -A survey; integer agents=0 jobs=0
+  for h in "${hosts[@]}"; do
+    out=$(_job_hib_on "$h" survey 2>/dev/null) || { print -u2 "job-hibernate: $h did not answer; stopping before anything changed"; return 1 }
+    survey[$h]=$out
+    local -a arows jrows; arows=(${(M)${(f)out}:#agent*}); jrows=(${(M)${(f)out}:#job*})
+    (( agents += $#arows, jobs += $#jrows ))
+    print -r -- "  $(_job_hib_label "$h"): $#arows agent(s) up, $#jrows job(s) to save and stop"
+    for row in "${jrows[@]}"; do print -r -- "    job ${${(ps:\t:)row}[3]}  (${${(ps:\t:)row}[4]})"; done
+  done
+  print -r -- "  Agents keep running and come back by themselves; job-revive checks that they did."
+  if [[ -t 0 && $JOB_CONFIRM != no ]]; then
+    local ans
+    read -q "ans?Hibernate: snapshot work, save and stop $jobs job(s) on $#hosts host(s)? [y/N] " || { print; return 1 }
+    print
+  fi
+
+  _job_stage $((++n)) $total "flag every host as shutting down, record the manifest"
+  local man; man="$(_job_state_dir)/manifest.tsv"
+  {
+    print -r -- "# job-hibernate at=$(_job_now)"
+    print -r -- "# host"$'\t'"kind"$'\t'"engine"$'\t'"session"$'\t'"dir"
+    for h in "${hosts[@]}"; do
+      for row in ${(f)survey[$h]}; do print -r -- "$h"$'\t'"$row"; done
+    done
+  } > "$man" || return 1
+  for h in "${hosts[@]}"; do
+    _job_hib_on "$h" flag-on || print -u2 "job-hibernate: could not flag $h (a clean exit there during shutdown would be marked ended)"
+  done
+  print -r -- "  manifest: $man ($agents agent(s), $jobs job(s))"
+
+  # Container hosts first: they are reached through this machine.
+  local -a order; order=("${(@)hosts:#local}" local)
+  for h in "${order[@]}"; do
+    _job_stage $((++n)) $total "snapshot and hibernate on $(_job_hib_label "$h")"
+    _job_hib_on "$h" hibernate 2>&1 | sed 's/^/  /'
+    (( ${pipestatus[1]} )) && { print -u2 "job-hibernate: hibernation on $h FAILED (see above); nothing after it was run"; return 1 }
+  done
+
+  _job_stage $((++n)) $total "ready"
+  print -r -- "  Safe to reboot. Afterwards run: job-revive"
+  print -r -- "  Reminder (not built yet): a login LaunchAgent that runs job-revive automatically"
+  print -r -- "  whenever the flag from hibernate exists, so a reboot needs nothing afterwards."
+}
+
+job-revive() {
+  _agent_job_guard || return
+  local T=$'\t'   # the manifest separator, named so no literal tab sits in a pattern
+  local man; man="$(_job_state_dir)/manifest.tsv"
+  local -a hosts rows
+  if [[ -s $man ]]; then
+    rows=(${(f)"$(command grep -v '^#' "$man")"})
+    hosts=(local ${(u)${(@)${rows%%$'\t'*}:#local}})
+  else
+    print -u2 "job-revive: no manifest at $man (no job-hibernate since the last revive); reviving what can be found"
+    _job_hib_hosts; hosts=("${reply[@]}")
+  fi
+  integer total=7 n=0
+  local h row
+
+  _job_stage $((++n)) $total "wait for every host to answer"
+  integer waited wait_max=${JOB_REVIVE_WAIT:-300}
+  for h in "${hosts[@]}"; do
+    waited=0
+    until _job_hib_on "$h" ping >/dev/null 2>&1; do
+      (( waited >= wait_max )) && { print -r -- "  $h: no answer after ${wait_max}s; carrying on without it"; hosts=("${(@)hosts:#$h}"); break }
+      (( waited % 30 == 0 )) && print -r -- "  waiting for $h ..."
+      sleep 5; (( waited += 5 ))
+    done
+    (( ${hosts[(Ie)$h]} )) && print -r -- "  $(_job_hib_label "$h"): up"
+  done
+
+  _job_stage $((++n)) $total "let the login relaunch finish"
+  integer settle=${JOB_REVIVE_SETTLE:-90}
+  local -A upset; local -a want missing
+  waited=0
+  while :; do
+    missing=()
+    for h in "${hosts[@]}"; do
+      upset[$h]=" ${(j: :)${(f)"$(_job_hib_on "$h" up 2>/dev/null)"}} "
+      for row in "${(@M)rows:#$h${T}agent${T}*}"; do
+        [[ ${upset[$h]} == *" ${${(ps:\t:)row}[4]} "* ]] || missing+=("$row")
+      done
+    done
+    (( ! $#missing || waited >= settle )) && break
+    (( waited % 30 == 0 )) && print -r -- "  $#missing agent(s) not back yet ..."
+    sleep 5; (( waited += 5 ))
+  done
+  print -r -- "  $(( ${#${(M)rows:#*${T}agent${T}*}} - $#missing )) of ${#${(M)rows:#*${T}agent${T}*}} recorded agent(s) back on their own"
+
+  _job_stage $((++n)) $total "restart the saved jobs (tmux-revive)"
+  for h in "${hosts[@]}"; do
+    print -r -- "  $(_job_hib_label "$h"):"
+    _job_hib_on "$h" revive-jobs 2>&1 | sed 's/^/    /'
+  done
+
+  _job_stage $((++n)) $total "relaunch stragglers (agent-relaunch ENGINE --all)"
+  local -a engs
+  for h in "${hosts[@]}"; do
+    engs=(${(u)${(@)${(@M)rows:#$h${T}agent${T}*}#$h${T}agent${T}}%%$'\t'*})
+    (( $#engs )) || engs=(${=_JOB_HIB_ENGINES})
+    print -r -- "  $(_job_hib_label "$h"):"
+    _job_hib_on "$h" relaunch "${engs[@]}" 2>&1 | command grep -E 'kickstarting|is back|did NOT|SKIPPED|nothing to relaunch' | sed 's/^/  /'
+  done
+
+  _job_stage $((++n)) $total "check against the manifest"
+  integer bad=0
+  local sess wd eng
+  for h in "${hosts[@]}"; do
+    upset[$h]=" ${(j: :)${(f)"$(_job_hib_on "$h" up 2>/dev/null)"}} "
+  done
+  for row in "${rows[@]}"; do
+    h=${row%%$'\t'*}; eng=${${(ps:\t:)row}[3]}; sess=${${(ps:\t:)row}[4]}; wd=${${(ps:\t:)row}[5]}
+    [[ ${${(ps:\t:)row}[2]} == agent ]] || continue
+    if (( ! ${hosts[(Ie)$h]} )); then print -r -- "  NOT CHECKED $sess on $h (host did not answer)"; (( bad++ )); continue; fi
+    [[ ${upset[$h]} == *" $sess "* ]] && continue
+    (( bad++ ))
+    print -r -- "  MISSING $eng $sess on $(_job_hib_label "$h")  ->  cd ${(q)wd} && agent-relaunch $eng ${sess##*-}"
+  done
+  (( bad )) || print -r -- "  every recorded agent is back"
+
+  _job_stage $((++n)) $total "clear the shutdown flags"
+  for h in "${hosts[@]}"; do _job_hib_on "$h" flag-off; done
+  # A host that never answered still carries its flag, so the manifest stays
+  # until a later job-revive reaches it.
+  local -a unreached; unreached=(${${${(u)rows%%${T}*}:|hosts}})
+  if (( $#unreached )); then
+    print -r -- "  flags cleared where reachable; ${unreached[*]} did not answer -- run job-revive again once it is up"
+  else
+    [[ -s $man ]] && command mv -f -- "$man" "$man.revived"
+    print -r -- "  done (manifest kept as ${man:t}.revived)"
+  fi
+
+  _job_stage $((++n)) $total "reopen Herdr tabs (herdr-revive)"
+  integer opened=0 hrc
+  for h in "${hosts[@]}"; do
+    _job_hib_on "$h" herdr 2>&1 | sed 's/^/  /'; hrc=${pipestatus[1]}
+    (( hrc == 3 )) && continue
+    (( opened++ ))
+  done
+  (( opened )) || print -r -- "  no Herdr server is running: start herdr (in orb-guix), then run herdr-revive there"
+  (( bad )) && return 1
+  return 0
+}
+
 agent-rm() {
   _agent_job_guard || return
   local engine=$1
@@ -1385,7 +1654,7 @@ agent-prune() {
   local stamp bk; stamp=$(command date +%Y%m%d-%H%M%S)
   bk="$(_agent_registry_dir)/pruned/$stamp"
   mkdir -p -- "$bk" || return
-  print -r -- "# group	label	engine	task	session	dir" > "$bk/manifest.tsv"
+  print -r -- "# group"$'\t'"label"$'\t'"engine"$'\t'"task"$'\t'"session"$'\t'"dir" > "$bk/manifest.tsv"
   local -i removed=0
   i=0
   for r in "${removable[@]}"; do
@@ -1926,7 +2195,7 @@ agent-help() {
       # The all/any forms span engines, so a per-engine help (claude-help)
       # has no $e- spelling of them: drop each, with its indented lines.
       if ($e ne "agent") {
-        if (/^agent-(status|rm) (all|any)\b|^agent-prune\b/) { $skip = 1; next }
+        if (/^agent-(status|rm) (all|any)\b|^agent-prune\b|^job-(hibernate|revive)\b/) { $skip = 1; next }
         if ($skip && /^\s/) { next }
         $skip = 0;
         s/agent-(run|status|relaunch|herdr|adopt|conversations|rm|help)/$e-$1/g;

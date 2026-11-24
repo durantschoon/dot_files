@@ -45,7 +45,7 @@ sees make targets -- renaming an alias or a concept is on you to notice.
 The repository contains a unified job runner abstraction for `tmux`, `launchd`, and `docker` to handle long-running local tasks. All three runners use the same verb convention (`-run`, `-ls`, `-status`, `-logs`).
 *   **Core Implementation:** `.jobs.zsh`
 *   **Logging utility:** `bin/job-tee`
-*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/tee-smoke.zsh`, `tests/jobs/private-tmux` (`make check-jobs-tests`), and `tests/jobs/lib.zsh` (shared ok/FAIL/SKIP assertion helpers, sourced by smoke, tee-smoke and podman-live); `tests/jobs/podman-live.zsh` needs a real container engine (`make check-jobs-live-tests`)
+*   **Testing:** `tests/jobs/smoke.zsh`, `tests/jobs/tee-smoke.zsh`, `tests/jobs/private-tmux`, `tests/jobs/hibernate-smoke.zsh` (`job-hibernate` / `job-revive` against a fake container host) (`make check-jobs-tests`), and `tests/jobs/lib.zsh` (shared ok/FAIL/SKIP assertion helpers, sourced by smoke, tee-smoke and podman-live); `tests/jobs/podman-live.zsh` needs a real container engine (`make check-jobs-live-tests`)
 
 **Agent Instruction:** If the user asks about `tmux-new`, `tmux-run`, `tmux-ls`, `job-recap`, etc., load `.jobs.zsh` and skip everything else.
 
