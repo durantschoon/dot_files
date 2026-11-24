@@ -45,3 +45,20 @@ signing_subkey = "0AF4326CAEE372A0C2D5C875E15E9B401A45E25D"
 # see make check-gpg-bridge and make setup-gpg-bridge run from minius
 # [machines.orb-guix]
 # signing_subkey = ""
+
+# Machines that see the SAME files under different paths. On each side a
+# worktree's admin record holds that side's absolute path, so a raw
+# `git worktree prune' on one side deletes the other side's live records.
+# Use bin/git-worktree-prune-safe there (agent-prune offers it); bin/shared-dirs
+# answers "is this directory shared, and with whom" from this table.
+#
+# Names are what a machine calls itself: its short hostname, or inside a
+# container its JOB_CONTAINER_SELF (guix-dev is the container `orb-guix'
+# enters; it mounts minius's ~/Repos and ~/dot_files at /root/...).
+[shared.minius-orb-guix]
+machines = ["minius", "guix-dev"]
+dirs = ["~/Repos", "~/dot_files"]
+
+[shared.geeeks-framepop]
+machines = ["geeeks", "framepop"]
+dirs = ["~/Repos"]

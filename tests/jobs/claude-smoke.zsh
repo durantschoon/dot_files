@@ -847,6 +847,39 @@ else
   skip "unloaded definitions (no launchd here)"
 fi
 
+# 9. Shared checkouts: the worktree step of agent-prune. A machine pair from a
+# test inventory shares $HOME_LOCAL/Repos. R6 there holds two stale worktree
+# records: w1 under R6 itself (this side's, prunable) and w2 at a path outside
+# R6 and its parent (another machine's, as far as the safe prune can tell).
+typeset -g SHARED_TOML=$BASE/machines.toml
+print -r -- "[shared.test-pair]
+machines = [\"testbox\", \"otherbox\"]
+dirs = [\"$HOME_LOCAL/Repos\"]" > "$SHARED_TOML"
+typeset -g R6=$HOME_LOCAL/Repos/Claude_Smoke6.$$
+mkdir -p -- "$R6" "$BASE/elsewhere" && git -C "$R6" init -q \
+  && git -C "$R6" -c commit.gpgsign=false -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git -C "$R6" worktree add -q "$R6/.claude/worktrees/w1" -b w1 2>/dev/null
+git -C "$R6" worktree add -q "$BASE/elsewhere/w2" -b w2 2>/dev/null
+command rm -rf -- "$R6/.claude/worktrees/w1" "$BASE/elsewhere/w2"
+_agent_conf_save "local.job.$JOB_LAUNCHD_SLUG.w6" claude w6 "$SLUG-w6" "$R6" "true"
+assert "fixture: R6 has both worktree records" test -d "$R6/.git/worktrees/w1" -a -d "$R6/.git/worktrees/w2"
+
+typeset -gx SHARED_DIRS_FILE=$SHARED_TOML SHARED_DIRS_SELF=testbox AGENT_PRUNE_MIN_UPTIME=0
+PR_OUT="$(agent-prune 2>&1)"
+assert "agent-prune finds the stale record in a shared repo" grep -q -- "Claude_Smoke6.$$: 1 stale worktree record(s)" <<<"$PR_OUT"
+assert "… says who the repo is shared with"   grep -q -- "with otherbox" <<<"$PR_OUT"
+assert "… and that --apply offers the safe prune" grep -q -- "agent-prune --apply offers to clear" <<<"$PR_OUT"
+assert "… while the dry run removes nothing"  test -d "$R6/.git/worktrees/w1"
+AGENT_JOB_CONFIRM=no agent-prune --apply </dev/null >"$BASE/prune-wt.out" 2>&1
+refute "--apply clears this side's stale record" test -d "$R6/.git/worktrees/w1"
+assert "… and keeps the other machine's"       test -d "$R6/.git/worktrees/w2"
+_agent_conf_save "local.job.$JOB_LAUNCHD_SLUG.w7" claude w7 "$SLUG-w7" "$R6" "true"
+git -C "$R6" worktree add -q "$R6/.claude/worktrees/w3" -b w3 2>/dev/null; command rm -rf -- "$R6/.claude/worktrees/w3"
+PR_OUT="$(SHARED_DIRS_SELF=lonebox agent-prune 2>&1)"
+refute "on a machine in no pair the worktree step is silent" grep -q -- "stale worktree record" <<<"$PR_OUT"
+unset SHARED_DIRS_FILE SHARED_DIRS_SELF AGENT_PRUNE_MIN_UPTIME
+_agent_prune_remove "local.job.$JOB_LAUNCHD_SLUG.w7" >/dev/null 2>&1
+
 # The cleanup, and with it the default-server guard, run explicitly: zsh
 # ignores what an EXIT trap returns (measured in stage 15), so a guard left to
 # the trap alone could print FAIL and still let this suite exit 0.

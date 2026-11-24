@@ -1423,6 +1423,12 @@ _agent_conv_dir() {
 #
 # The registry is per machine: run it on the Mac and inside guix-dev
 # separately. It judges only the rows agent-status lists.
+#
+# Then, on a machine that shares files with another (minius and guix-dev;
+# geeeks and framepop -- the [shared] table in machines.toml), it lists the
+# stale worktree records in the shared repos behind those rows, and --apply
+# offers to clear them with bin/git-worktree-prune-safe, which keeps the other
+# machine's records. A raw `git worktree prune' there would delete them.
 typeset -g AGENT_PRUNE_DAYS=${AGENT_PRUNE_DAYS:-14}
 typeset -g AGENT_PRUNE_MIN_UPTIME=${AGENT_PRUNE_MIN_UPTIME:-600}
 
@@ -1538,6 +1544,62 @@ _agent_prune_paused() {
   python3 "$helper" --paused
 }
 
+# _agent_prune_worktrees MODE DIR...: after agent-prune, the worktree half.
+# On a machine that shares files with another (bin/shared-dirs, the [shared]
+# table in machines.toml) a raw `git worktree prune' deletes the other side's
+# records, so stale ones pile up. For every repo behind DIR... that lies in a
+# shared directory, dry-run bin/git-worktree-prune-safe and report what it
+# would remove; MODE apply then offers to run it (once, for all of them).
+# Silent on a machine in no pair, and when nothing is stale.
+_agent_prune_worktrees() {
+  local mode=$1; shift
+  local bin=${_AGENT_JOBS_FILE:h}/bin
+  [[ -x $bin/shared-dirs && -x $bin/git-worktree-prune-safe ]] || return 0
+  local -a shared; shared=(${(f)"$("$bin/shared-dirs" 2>/dev/null)"})
+  (( $#shared )) || return 0
+  local -aU roots; local d c root sd
+  for d in "$@"; do
+    [[ -n $d ]] || continue
+    while [[ ! -d $d ]]; do d=${d:h}; done          # a removed worktree: its parent
+    c=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || continue
+    [[ $c == */.git ]] || continue                  # a submodule's or bare repo's: skip
+    root=${c:h:A}
+    for sd in "${shared[@]}"; do
+      [[ $root == "$sd" || $root == "$sd"/* ]] && { roots+=("$root"); break }
+    done
+  done
+  (( $#roots )) || return 0
+  local -a stale; local out line
+  integer total=0
+  for root in "${roots[@]}"; do
+    # git prints its "Removing worktrees/<id>: ..." lines on stderr.
+    out=$("$bin/git-worktree-prune-safe" -C "$root" -n -v 2>&1)
+    line=(${(M)${(f)out}:#Removing *})
+    (( $#line )) || continue
+    stale+=("$root"); (( total += $#line ))
+    print -r -- "  ${root/#$HOME/~}: $#line stale worktree record(s)"
+    print -rl -- "${(@)line/#/      }"
+  done
+  (( total )) || return 0
+  print -r -- "This machine shares ${(j:, :)${shared/#$HOME/~}} with $("$bin/shared-dirs" --with | paste -sd, -); a raw \`git worktree prune' there would also delete the other side's records."
+  if [[ $mode != apply ]]; then
+    print -r -- "agent-prune --apply offers to clear the $total record(s) above with git-worktree-prune-safe."
+    return 0
+  fi
+  if [[ -t 0 ]]; then
+    local ans
+    read -q "ans?Prune these $total record(s) with git-worktree-prune-safe (other machines' records are kept)? [y/N] " \
+      || { print; return 0 }
+    print
+  elif [[ $AGENT_JOB_CONFIRM != no ]]; then
+    print -r -- "agent-prune: no terminal to confirm the worktree prune; run: ${bin/#$HOME/~}/git-worktree-prune-safe -C <repo> for each repo above"
+    return 0
+  fi
+  for root in "${stale[@]}"; do
+    "$bin/git-worktree-prune-safe" -C "$root" -v 2>&1 | sed 's/^/  /'
+  done
+}
+
 agent-prune() {
   _agent_job_guard || return
   local -i apply=0 days=$AGENT_PRUNE_DAYS
@@ -1584,6 +1646,7 @@ agent-prune() {
     done
   fi
   local label engine name wd task group why ended_at
+  local -aU alldirs                 # every row's checkout, for the worktree step
   local -i seen kept=0 i=0
   # PAUSED rows are kept. An unreadable control file protects every row,
   # as agent-relaunch blocks recovery on it rather than guess.
@@ -1598,6 +1661,7 @@ agent-prune() {
     name=$(_agent_agent_session "$label") || continue
     engine=$(_agent_agent_engine "$label") || continue
     wd=$(_agent_agent_wd "$label") || continue
+    alldirs+=("$wd")
     task=${label##*.}
     group="" why=""
     if [[ -n ${activity[$name]-} ]]; then
@@ -1628,6 +1692,7 @@ agent-prune() {
   rows=(${(f)"$(for r in "${rows[@]}"; do print -r -- "$order[${r%%$'\t'*}]"$'\t'"$r"; done | sort -t $'\t' -k1,1n -k8,8nr | cut -f2-)"})
   if (( ! $#rows )); then
     print "agent-prune: nothing to prune ($kept agents active within $days days, PAUSED or protected)"
+    _agent_prune_worktrees "${${apply/1/apply}/0/dry}" "${alldirs[@]}"
     return 0
   fi
   local -a f
@@ -1640,9 +1705,10 @@ agent-prune() {
   print "kept: $kept (active within $days days, PAUSED, or the pause table was unreadable)"
   if (( ! apply )); then
     (( $#removable )) && print "dry run: agent-prune --apply removes the ${#removable} orphaned, ended, unloaded and stale rows; idle ones are never removed here"
+    _agent_prune_worktrees dry "${alldirs[@]}"
     return 0
   fi
-  (( $#removable )) || { print "agent-prune: only idle sessions; nothing to remove"; return 0 }
+  (( $#removable )) || { print "agent-prune: only idle sessions; nothing to remove"; _agent_prune_worktrees apply "${alldirs[@]}"; return 0 }
   if [[ -t 0 ]]; then
     local ans
     read -q "ans?Remove ${#removable} agents (backed up first)? [y/N] " || { print; return 1 }
@@ -1670,6 +1736,7 @@ agent-prune() {
   done
   _agent_prune_progress
   print "agent-prune: removed $removed agents; undo with: agent-prune --restore $stamp"
+  _agent_prune_worktrees apply "${alldirs[@]}"
 }
 
 # agent-conversations ENGINE: this checkout's conversation ids, newest first,
