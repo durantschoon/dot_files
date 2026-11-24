@@ -370,6 +370,7 @@ help-text:
 	@echo "                       runs at boot before login, unlike the menu-bar app)"
 	@echo "  make check-tailscale - Start and verify Tailscale on Termux; verify the macOS daemon"
 	@echo "  make check-tailscale-tests - Run the bin/check-tailscale smoke test (stubs; mac and Termux branches)"
+	@echo "  make check-agent-resume-tests - Run the bin/agent-resume smoke test (fixture stack; never launches an agent)"
 	@echo "  make setup-orbstack - Make OrbStack the sole startup container runtime (mac only;"
 	@echo "                       disables Colima startup and selects the orbstack context)"
 	@echo "  make check-orbstack - Verify startup ownership, CLI, context, and Docker engine"
@@ -3043,6 +3044,10 @@ check-tailscale:
 .PHONY: check-tailscale-tests
 check-tailscale-tests:
 	@"$(CURDIR)/tests/tailscale/check-smoke.sh"
+
+.PHONY: check-agent-resume-tests
+check-agent-resume-tests:
+	@"$(CURDIR)/tests/agent-resume/smoke.sh"
 
 # The aggregate check only reads state, including on Termux.
 .PHONY: check-tailscale-status

@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""Resume an agent session from its short handle: cd to its directory, run its resume command.
+
+    agent-resume claude-cb1d1b6f      # handle, as /prob-tree prints it
+    agent-resume cb1d1b6f             # bare 8-hex prefix
+    agent-resume cb1d                 # any prefix of 4 or more hex digits
+    agent-resume -n cb1d1b6f          # dry run: print the cd and the command only
+    agent-resume --list               # every session this machine's stack knows
+
+Same-machine only (v0).  A session's transcript lives on the machine that ran
+it, so this resolves against that machine's problem-stack file and, for Claude,
+falls back to the transcripts under ~/.claude/projects.  When the handle is
+only known to another machine's stack, it says which machine to run it on.
+
+Lookup order:
+  1. <CENTRAL>/docs/problem-stack/<hostname>.md: the `### <handle> · task`
+     roots, with their `Session:`, `Resume:` and `cwd:` lines (open and closed
+     sessions; never `## Resolved`).
+  2. ~/.claude/projects/*/<prefix>*.jsonl, the cwd read from the transcript.
+
+Refuses an ambiguous prefix (lists the candidates), warns when the session is
+still live (~/.claude/sessions/*.json), and only ever runs `claude`, `codex` or
+`agy`, because the Resume line comes out of a git-synced file.
+
+Test hooks (environment): AGENT_RESUME_CENTRAL, AGENT_RESUME_HOST.
+"""
+import glob
+import json
+import os
+import re
+import shlex
+import socket
+import sys
+import time
+
+ALLOWED_AGENTS = {"claude", "codex", "agy"}
+MIN_PREFIX = 4
+CENTRAL_CANDIDATES = ("~/Repos/ds/central-command", "~/Repos/ds/media-announce")
+
+
+def central_repo():
+    """Return the central-command checkout, never a hardcoded name (a rename is pending)."""
+    override = os.environ.get("AGENT_RESUME_CENTRAL")
+    candidates = (override,) if override else CENTRAL_CANDIDATES
+    for candidate in candidates:
+        path = os.path.expanduser(candidate)
+        if os.path.exists(os.path.join(path, ".git")) or override:
+            return path
+    return None
+
+
+def parse_stack(path):
+    """Return the session roots of one stack file as a list of dicts.
+
+    Reads `## Sessions` and `## Closed sessions`; stops at `## Resolved`.
+    """
+    roots, current, section = [], None, None
+    with open(path, encoding="utf-8") as stack:
+        for line in stack:
+            line = line.rstrip("\n")
+            if line.startswith("## "):
+                section = line[3:].strip()
+                current = None
+                continue
+            if section not in ("Sessions", "Closed sessions"):
+                continue
+            heading = re.match(r"^### (\S+) · (.*)$", line)
+            if heading:
+                current = {"handle": heading.group(1), "task": heading.group(2),
+                           "closed": section == "Closed sessions", "machine": None}
+                roots.append(current)
+                continue
+            if current is None:
+                continue
+            field = re.match(r"^- (Session|Resume|cwd):\s*(.*)$", line)
+            if field:
+                value = field.group(2).strip().strip("`")
+                current[field.group(1).lower()] = value
+    return [r for r in roots if r.get("session")]
+
+
+def stack_sessions(central, host):
+    """Return (this machine's roots, {other machine: roots})."""
+    stack_dir = os.path.join(central, "docs", "problem-stack")
+    mine, others = [], {}
+    for path in sorted(glob.glob(os.path.join(stack_dir, "*.md"))):
+        machine = os.path.basename(path)[:-3]
+        if machine == "README":
+            continue
+        roots = parse_stack(path)
+        for root in roots:
+            root["machine"] = machine
+        if machine == host:
+            mine = roots
+        elif roots:
+            others[machine] = roots
+    return mine, others
+
+
+def transcript_sessions(prefix):
+    """Return Claude sessions found as transcripts whose id starts with `prefix`."""
+    found = []
+    pattern = os.path.expanduser(f"~/.claude/projects/*/{prefix}*.jsonl")
+    for path in glob.glob(pattern):
+        session = os.path.basename(path)[:-len(".jsonl")]
+        cwd = None
+        try:
+            with open(path, encoding="utf-8") as transcript:
+                for line in transcript:
+                    try:
+                        cwd = json.loads(line).get("cwd")
+                    except (ValueError, AttributeError):
+                        continue
+                    if cwd:
+                        break
+        except OSError:
+            continue
+        found.append({"handle": f"claude-{session[:8]}", "task": "(from transcript)",
+                      "session": session, "cwd": cwd, "closed": False,
+                      "resume": f"claude --resume {session}"})
+    return found
+
+
+def normalise(query):
+    """Split a query into (agent or None, lowercase hex prefix)."""
+    match = re.match(r"^(?:([a-z]+)-)?([0-9a-f-]+)$", query.lower())
+    if not match:
+        return None, None
+    return match.group(1), match.group(2).replace("-", "")
+
+
+def matches(root, agent, prefix):
+    """True when a root's handle agent and session id fit the query."""
+    handle_agent = root["handle"].split("-", 1)[0]
+    session = root["session"].replace("-", "").lower()
+    return (agent is None or agent == handle_agent) and session.startswith(prefix)
+
+
+def live_status(session):
+    """Return a short description when the session has a live process, else None."""
+    for path in glob.glob(os.path.expanduser("~/.claude/sessions/*.json")):
+        try:
+            with open(path, encoding="utf-8") as registry:
+                entry = json.load(registry)
+            if entry.get("sessionId") != session:
+                continue
+            os.kill(entry["pid"], 0)
+        except (OSError, ValueError, KeyError):
+            continue
+        updated = (entry.get("statusUpdatedAt") or entry.get("updatedAt") or 0) / 1000
+        age = int(time.time() - updated)
+        return f"pid {entry['pid']}, {entry.get('status', '?')} {age}s ago"
+    return None
+
+
+def describe(root):
+    """One line for a candidate, for ambiguity and --list output."""
+    where = f" on {root['machine']}" if root.get("machine") else ""
+    closed = " [closed]" if root.get("closed") else ""
+    return f"  {root['handle']}  {root['session']}{where}{closed}  {root['task']}"
+
+
+def main(argv):
+    dry_run = "-n" in argv or "--dry-run" in argv
+    force = "--force" in argv
+    listing = "--list" in argv
+    words = [a for a in argv if not a.startswith("-")]
+    if "-h" in argv or "--help" in argv or (not words and not listing):
+        print(__doc__.strip().split("\n\n")[0])
+        print("usage: agent-resume [-n] [--force] <handle|prefix> | --list")
+        return 0 if ("-h" in argv or "--help" in argv) else 2
+
+    host = os.environ.get("AGENT_RESUME_HOST") or socket.gethostname().split(".")[0]
+    central = central_repo()
+    mine, others = stack_sessions(central, host) if central else ([], {})
+
+    if listing:
+        print(f"{host}: {len(mine)} session(s) in the stack")
+        for root in mine:
+            print(describe(root))
+        return 0
+
+    agent, prefix = normalise(words[0])
+    if not prefix or len(prefix) < MIN_PREFIX:
+        print(f"agent-resume: give at least {MIN_PREFIX} hex digits of the session id "
+              f"(got {words[0]!r})", file=sys.stderr)
+        return 2
+
+    candidates = [r for r in mine if matches(r, agent, prefix)]
+    if not candidates and agent in (None, "claude"):
+        candidates = transcript_sessions(prefix)
+    unique = {r["session"]: r for r in candidates}
+    if not unique:
+        elsewhere = [r for roots in others.values() for r in roots if matches(r, agent, prefix)]
+        if elsewhere:
+            print(f"agent-resume: {words[0]} is not a session of {host}. "
+                  f"It is known on another machine; run this there:", file=sys.stderr)
+            for root in elsewhere:
+                print(describe(root), file=sys.stderr)
+                print(f"    cwd: {root.get('cwd')}", file=sys.stderr)
+        else:
+            print(f"agent-resume: no session matches {words[0]!r} on {host}. "
+                  f"`agent-resume --list` shows what this machine's stack knows.",
+                  file=sys.stderr)
+        return 1
+    if len(unique) > 1:
+        print(f"agent-resume: {words[0]!r} is ambiguous; give more digits:", file=sys.stderr)
+        for root in unique.values():
+            print(describe(root), file=sys.stderr)
+        return 2
+
+    root = next(iter(unique.values()))
+    resume = root.get("resume")
+    cwd = os.path.expanduser(root.get("cwd") or "")
+    if not resume:
+        print(f"agent-resume: {root['handle']} has no Resume line in the stack", file=sys.stderr)
+        return 1
+    argv_resume = shlex.split(resume)
+    if os.path.basename(argv_resume[0]) not in ALLOWED_AGENTS:
+        print(f"agent-resume: refusing to run {argv_resume[0]!r}; only "
+              f"{', '.join(sorted(ALLOWED_AGENTS))} are allowed", file=sys.stderr)
+        return 1
+    if not cwd or not os.path.isdir(cwd):
+        print(f"agent-resume: {root['handle']} wants cwd {cwd or '(none recorded)'}, which does "
+              f"not exist here; the session probably belongs to another machine.", file=sys.stderr)
+        return 1
+
+    print(f"{root['handle']} · {root['task']}\n  cd {cwd} && {resume}", file=sys.stderr)
+    status = live_status(root["session"])
+    if status and not dry_run:
+        print(f"agent-resume: WARNING, this session looks live ({status}); resuming starts "
+              f"a second copy of it.", file=sys.stderr)
+        if not force:
+            if not sys.stdin.isatty():
+                print("agent-resume: not a terminal; pass --force to go ahead.", file=sys.stderr)
+                return 1
+            if input("Resume anyway? [y/N] ").strip().lower() != "y":
+                return 1
+    if dry_run:
+        return 0
+    os.chdir(cwd)
+    os.execvp(argv_resume[0], argv_resume)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
