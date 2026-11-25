@@ -83,6 +83,7 @@ There are dedicated tools for running interactive AI sessions as background jobs
 *   **Core Implementation:** `.agent-jobs.zsh` (built on `.jobs.zsh`; defines `agent-run ENGINE TASK`, `agent-status`, `agent-relaunch`, `agent-rm`, `agent-help`, plus the `claude-*`, `agy-*` and `codex-*` wrappers that supply ENGINE)
 *   **Claude Configs/Docs:** `claude/CLAUDE.md`, `claude/README.md`, `claude/agent-roles.conf` (`claude/` is a git submodule; empty until `git submodule update --init claude`)
 *   **Testing:** `tests/jobs/claude-smoke.zsh`
+*   **Capacity roadmap (planned, not built):** `docs/AGENT_CAPACITY_ROADMAP.md` -- a per-host agent cap (v1), resource-based limits (v2), a task queue (v3) and dispatch to other machines with resumable tasks (v4). New work on agent counts, limits or queuing should go through its `_agent_capacity` seam.
 *   **Gemini Configs:** `gemini/hooks.json`, `gemini/scripts/`, `gemini/skills/`
 
 *   **Homebase hygiene jobs:** `bin/homebase` (`on`/`off`/`status`/`tick`; gates `bin/mr-hygiene` + `bin/tmux-hygiene` and media-announce autosave to one machine), the `homebase` layer in `home/common.scm` (shepherd timer), and the homebase handoff in `agent-stash-all`/`agent-stash-pop`. Once a day `mr-hygiene` also reports abandoned worktrees (`bin/worktree_hygiene.py`); it never deletes them.
