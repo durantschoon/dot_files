@@ -311,10 +311,14 @@ from this plan when requested. Implementation and forecast sealing have not begu
     good". Removing a task moves its record, notes and logs to
     `logs/archive/<Task>-<date>/`, which frees the number, so a new `Sol1`
     inherits nothing from an old one.
-  - **Still open:** where the project half of the id is set. A committed
-    `.job-project` file or `jobs.project` in the repo's `.git/config`, with
-    the directory slug as the fallback. Both are visible from both sides of a
-    shared checkout; only the committed file follows the repo to other clones.
-    The other owner questions (repo names and visibility, license, history
-    preservation, platform floor, deadline) are unanswered. They are not
-    needed before M3 (W09–W12).
+  - **Project half of the id: decided 2026-11-25.** Lookup order, first match
+    wins: (1) a top-level `.job-project` file in the repo (committed, so it
+    follows the repo to other clones and is visible from both sides of a shared
+    checkout); (2) `jobs.project` in the repo's git config; (3) the directory
+    slug. A worktree appends a suffix, `<project>@<worktree-name>` (for example
+    `dot_files@voice`). The project cannot be changed while any record for it
+    exists; changing it means archiving first. Approved by Durant, 2026-11-25,
+    on Claude's proposal.
+  - **Still open:** the other owner questions (repo names and visibility,
+    license, history preservation, platform floor, deadline). They are
+    unanswered and not needed before M3 (W09–W12).
