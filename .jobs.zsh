@@ -1970,7 +1970,7 @@ tmux-rm() {
 
 # tmux-hibernate [-n|--dry-run]: save all local tmux jobs to
 # ~/.tmux-hibernated-jobs and gracefully stop them.
-# First snapshots uncommitted work with media-announce's scripts/autosave.sh
+# First snapshots uncommitted work with media-announce's scripts/autosave-worktrees.sh
 # (every checkout and worktree it knows), so a shutdown never loses edits.
 # A failed snapshot stops the hibernation; JOB_AUTOSAVE=no skips it.
 #
@@ -1985,7 +1985,9 @@ tmux-hibernate() {
   local -i dry=0
   [[ ${1-} == (-n|--dry-run) ]] && dry=1
   local f=~/.tmux-hibernated-jobs
-  local autosave=$HOME/Repos/ds/media-announce/scripts/autosave.sh
+  local autosave=$HOME/Repos/ds/media-announce/scripts/autosave-worktrees.sh
+  # Renamed from autosave.sh 2026-11-24; a checkout not yet pulled has the old name.
+  [[ -e $autosave ]] || autosave=$HOME/Repos/ds/media-announce/scripts/autosave.sh
   if (( ! dry )) && [[ $JOB_AUTOSAVE != no ]]; then
     if [[ -x $autosave ]]; then
       print -u2 "tmux-hibernate: snapshotting uncommitted work ($autosave)..."

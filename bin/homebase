@@ -11,7 +11,7 @@
 #                          The abandoned-worktree report inside that scan
 #                          runs once a day (stamp: ~/.config/repo-hygiene/
 #                          worktrees.last) and never deletes anything.
-#   autosave.sh            media-announce's snapshot of uncommitted work to
+#   autosave-worktrees.sh  media-announce's snapshot of uncommitted work to
 #                          origin wip/<name>/<label>, every tick (10 min)
 #   mr-agents --refresh    update the editable Org activity table every tick;
 #                          preserve PAUSED and notes, never restart agents
@@ -53,7 +53,9 @@ worktree_stamp=${HOME}/.config/repo-hygiene/worktrees.last
 tick_lock=$state_dir/tick.lock   # global: the EXIT trap outlives tick()
 hygiene_minutes=${HOMEBASE_HYGIENE_MINUTES:-55}
 autosave_repo=${HOMEBASE_AUTOSAVE_REPO:-$HOME/Repos/ds/media-announce}
-autosave_script=$autosave_repo/scripts/autosave.sh
+autosave_script=$autosave_repo/scripts/autosave-worktrees.sh
+# Renamed from autosave.sh 2026-11-24; a checkout not yet pulled still has the old name.
+[ -e "$autosave_script" ] || autosave_script=$autosave_repo/scripts/autosave.sh
 
 # macOS scheduler.  The label sits next to autosave's own
 # com.durantschoon.autosave.<repo>, which `on' retires: one timer, not two.

@@ -2381,7 +2381,7 @@ ok "16g hib1 is running again"
 
 # A failing autosave stops the hibernation before any job is touched;
 # JOB_AUTOSAVE=no skips the snapshot.
-fake_autosave=$HOME_LOCAL/Repos/ds/media-announce/scripts/autosave.sh
+fake_autosave=$HOME_LOCAL/Repos/ds/media-announce/scripts/autosave-worktrees.sh
 mkdir -p -- "${fake_autosave:h}"
 print -r -- '#!/bin/sh
 echo "autosave FAILED (fake)"; exit 1' > "$fake_autosave"
