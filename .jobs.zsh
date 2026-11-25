@@ -1535,6 +1535,77 @@ _tmux_pick_preview_cmd() {
   local script='source "$1" 2>/dev/null; _tmux_pick_preview "$2" "$3" 2>/dev/null'
   print -r -- "${(qq)_JOB_ZSH_BIN} -f -c ${(qq)script} tmux-pick ${(qq)_JOB_ZSH_FILE} {1} {3}"
 }
+# The repo prefix a session name carries: <prefix> or <prefix>-<task>.
+# `tmux-pick' lists a repo's sessions by this prefix (^<repo>(-|$)), so a rename
+# that drops it makes the session vanish from the picker; and the task, and with
+# it the notes file, is whatever follows the prefix. The prefix is the slug of
+# the session's own directory, or of the main checkout when that directory is a
+# linked worktree (a worktree session carries the MAIN repo's slug; decided
+# 2026-11-25, media-announce docs/DECISIONS.md). Prints it, or fails when OLD
+# carries neither (a hand-named session).
+_tmux_rename_prefix() {
+  local old=$1 spath=$2 cand common
+  local -a cands; cands=("$(_job_slugify "$spath")")
+  if [[ -d $spath ]]; then
+    common=$(git -C "$spath" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+    [[ -n $common ]] && cands+=("$(_job_slugify "${common:h}")")
+  fi
+  for cand in "${cands[@]}"; do
+    [[ -n $cand && ( $old == $cand || $old == $cand-* ) ]] && { print -r -- "$cand"; return 0 }
+  done
+  return 1
+}
+
+# _tmux_rename_check OLD NEW SPATH: 0 when NEW is an acceptable name for OLD,
+# else 1 with the reason on stderr. Acceptable: only [A-Za-z0-9_-], and NEW keeps
+# OLD's repo prefix. When OLD has no recognizable prefix nothing can be enforced,
+# so NEW is accepted with a note.
+_tmux_rename_check() {
+  local old=$1 new=$2 spath=$3 prefix
+  if [[ ! $new =~ '^[A-Za-z0-9_-]+$' ]]; then
+    print -u2 "rename: a session name may only use [A-Za-z0-9_-], got '$new'"; return 1
+  fi
+  if prefix=$(_tmux_rename_prefix "$old" "$spath"); then
+    if [[ $new != $prefix && $new != $prefix-* ]]; then
+      print -u2 "rename: the name must start with '$prefix' (or '$prefix-...'), or tmux-pick stops listing it under this repo; got '$new'"
+      return 1
+    fi
+  else
+    print -u2 "rename: '$old' carries no repo prefix I can recognize, so none is enforced"
+  fi
+  return 0
+}
+
+# After a rename, keep what is keyed on the OLD name in step (local sessions
+# only: Herdr and the session environment are per machine). The Herdr tab for
+# the task is labelled with the task, inside the workspace labelled with the
+# checkout's directory name (see _agent_herdr_tab), so it is found the same way
+# and relabelled; and JOB_TASK, which agent-herdr reads, is reset. Notes and
+# job files are keyed on the task too, and are NOT moved here: they are only
+# reported (the stable-id work in docs/MODULE_EXTRACTION_PLAN.md fixes that).
+_tmux_rename_follow() {
+  local old=$1 new=$2 spath=$3
+  local ot nt
+  ot=$(_tmux_row_task "local|$old||||$spath"); nt=$(_tmux_row_task "local|$new||||$spath")
+  tmux set-environment -t "=$new" JOB_TASK "$nt" 2>/dev/null
+  if (( $+commands[herdr] && $+commands[jq] )); then
+    local snap ws tab
+    snap=$(herdr api snapshot 2>/dev/null) && {
+      ws=$(jq -r --arg l "${spath:t}" 'first(.result.snapshot.workspaces[] | select(.label == $l) | .workspace_id) // empty' <<< "$snap")
+      [[ -n $ws ]] && tab=$(jq -r --arg w "$ws" --arg l "$ot" \
+        'first(.result.snapshot.tabs[] | select(.workspace_id == $w and .label == $l) | .tab_id) // empty' <<< "$snap")
+      if [[ -n $tab ]]; then
+        herdr tab rename "$tab" "$nt" >/dev/null && print -u2 "rename: Herdr tab '$ot' is now '$nt'"
+      fi
+    }
+  fi
+  local f
+  for f in "$spath/logs/$ot.notes.md" "$spath/logs/$ot.job"; do
+    [[ -e $f ]] && print -u2 "rename: $f is keyed on the old task name '$ot' and was not moved"
+  done
+  return 0
+}
+
 _tmux_pick_rename() {
   local key=$1 spath=$2
   _tmux_pick_row "$key" "$spath" || {
@@ -1545,8 +1616,10 @@ _tmux_pick_rename() {
   printf "Rename session '%s' on %s to: " "$_tmux_pick_name" "$_tmux_pick_host"
   read -r new_name
   if [[ -n $new_name && $new_name != "$_tmux_pick_name" ]]; then
+    _tmux_rename_check "$_tmux_pick_name" "$new_name" "$spath" || { sleep 3; return 1 }
     if [[ $_tmux_pick_host == local ]]; then
-      tmux rename-session -t "=$_tmux_pick_name" "$new_name"
+      tmux rename-session -t "=$_tmux_pick_name" "$new_name" \
+        && _tmux_rename_follow "$_tmux_pick_name" "$new_name" "$spath"
     else
       _job_sh "$_tmux_pick_host" "tmux rename-session -t ${(qq):-=$_tmux_pick_name} ${(qq)new_name}"
     fi
@@ -1852,6 +1925,41 @@ tmux-run() {
 }
 
 # tmux-help: Print a quick reference guide to the tmux job runner and its keys.
+# job-help [TOPIC]: how-tos by topic, for the things that are easy to do the
+# wrong way. No topic lists them.
+job-help() {
+  case ${1-} in
+    "")
+      command cat << 'EOF'
+job-help TOPIC -- topics:
+  rename      how to change a session's name
+See also: tmux-help (the verbs), claude-help, agy-help, codex-help.
+EOF
+      ;;
+    rename)
+      command cat << 'EOF'
+How to change a session name
+
+  Only through tmux-pick (ctrl-r) or tmux-dash (m N, in the menu).
+
+  They are the only paths that:
+    - refuse a name that drops the repo prefix (the name must start with the
+      repo's slug, or the main repo's slug for a worktree session), because
+      tmux-pick lists a repo's sessions by that prefix and a session without it
+      vanishes from the picker;
+    - relabel the Herdr tab (it is named after the task) and reset JOB_TASK;
+    - tell you when logs/<task>.notes.md or logs/<task>.job still carry the old
+      task name. They are not moved yet; rename them by hand until the stable
+      @job-id work lands (docs/MODULE_EXTRACTION_PLAN.md, 2026-11-21).
+
+  Not those: `tmux rename-session` and tmux's own `prefix $` skip all of the
+  above. Local sessions only: a session on another host is renamed there.
+EOF
+      ;;
+    *) print -u2 "job-help: no topic '$1'. Try: job-help"; return 64 ;;
+  esac
+}
+
 tmux-help() {
   command cat << 'EOF'
 Tmux Job Runner - Quick Reference
@@ -1866,6 +1974,7 @@ Commands:
   tmux-logs [TASK]      Tail the logs of a session
   tmux-stop [TASK]      Stop a session (prompts for confirmation)
   tmux-rm [TASK|--all]  Kill the task's session(s)
+  job-help [TOPIC]      How-tos by topic (rename a session, ...)
   tmux-hibernate        Autosave, then save local jobs to ~/.tmux-hibernated-jobs and stop them
   tmux-revive           Restart all jobs previously saved by tmux-hibernate
   herdr-revive [ENGINE] Recover agent sessions (claude/agy/codex/grok) and

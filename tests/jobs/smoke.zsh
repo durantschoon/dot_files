@@ -957,6 +957,13 @@ haslit "9i ... ctrl-r renames the row"               "$PICK_ARGV" "ctrl-r:execut
 haslit "9i ... and the header says so"               "$PICK_ARGV" "ctrl-r rename"
 hasntlit "9i ... ctrl-n is fzf's own again (next row)" "$PICK_ARGV" "ctrl-n:"
 haslit "9i ... and the poll"                         "$PICK_ARGV" "auto every 120s"
+# The rename guard: a new name must keep the session's repo prefix (pure checks, no tmux).
+_tmux_rename_check media-announce-voice media-announce-audio /x/media-announce 2>/dev/null; eq "9j rename keeps the repo prefix" "$?" "0"
+_tmux_rename_check media-announce-voice audio /x/media-announce 2>/dev/null; eq "9j ... and refuses one that drops it" "$?" "1"
+_tmux_rename_check media-announce-voice media-announcex /x/media-announce 2>/dev/null; eq "9j ... even when only the dash is missing" "$?" "1"
+_tmux_rename_check media-announce-voice "media-announce-a b" /x/media-announce 2>/dev/null; eq "9j ... and one with characters tmux-pick cannot carry" "$?" "1"
+_tmux_rename_check handnamed anything /x/media-announce 2>/dev/null; eq "9j ... but cannot enforce on a hand-named session" "$?" "0"
+haslit "9j job-help lists the rename topic"          "$(job-help)" "rename"
 haslit "9i ... and carries an updated stamp"         "$PICK_ARGV" "updated "
 haslit "9i ... the cursor survives a reload by key, not by index" "$PICK_ARGV" "--id-nth"
 
