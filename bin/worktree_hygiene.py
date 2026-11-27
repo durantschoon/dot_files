@@ -603,3 +603,114 @@ def write_cache(cache: Path, stamp: Path, report: dict, *, fetched: bool) -> dic
     temporary.replace(cache)
     stamp.write_text(payload["scanned"] + "\n", encoding="utf-8")
     return payload
+
+
+# ---------------------------------------------------------------------------
+# --list: every live worktree, read-only.  No fetch, no cache, no stamp.
+# ---------------------------------------------------------------------------
+
+LIST_KEYS = ("repo", "path", "branch", "detached", "head", "locked", "missing", "foreign", "main")
+
+
+def list_unit(unit: Path, envelope_root: Path) -> list[dict]:
+    """Every worktree of one repo unit: main first, then linked ones by path.
+
+    Uses only `git worktree list --porcelain`.  Envelope checkouts and
+    records that resolve to the main worktree are skipped, as scan_unit does.
+    A gone directory is `missing`; `foreign` is scan_unit's rule (missing
+    and outside the repo's tree).  Git's word on detached is final: no
+    branch name is guessed for a detached HEAD.
+    """
+    listed = git(unit, "worktree", "list", "--porcelain")
+    if listed.returncode != 0:
+        return []
+    entries = parse_worktrees(listed.stdout)
+    if not entries:
+        return []
+    main = entries[0]
+    try:
+        main_path = str(Path(main["path"]).resolve())
+    except OSError:
+        main_path = main["path"]
+
+    def row(entry: dict, is_main: bool) -> dict:
+        raw = entry["path"]
+        missing = bool(entry["prunable"]) or not Path(raw).is_dir()
+        return {
+            "repo": main["path"],
+            "path": raw,
+            "branch": entry["branch"] or None,
+            "detached": bool(entry["detached"]),
+            "head": entry["head"],
+            "locked": bool(entry["locked"]),
+            "missing": missing,
+            "foreign": (not is_main) and missing and is_foreign(raw, main_path),
+            "main": is_main,
+        }
+
+    linked: list[dict] = []
+    for entry in entries[1:]:
+        path = Path(entry["path"])
+        if is_envelope_worktree(path, envelope_root):
+            continue
+        try:
+            if str(path.resolve()) == main_path:
+                continue
+        except OSError:
+            pass
+        linked.append(row(entry, False))
+    linked.sort(key=lambda item: item["path"])
+    return [row(main, True), *linked]
+
+
+def list_worktrees(paths: list[str], *, envelope_root: Path | None = None) -> list[dict]:
+    """--list rows for paths (and their submodules), one unit per common dir."""
+    root = envelope_root or (Path.home() / "Repos" / "enveloped")
+    rows: list[dict] = []
+    for unit in repo_units(paths):
+        rows.extend(list_unit(unit, root))
+    return rows
+
+
+def list_line(item: dict) -> str:
+    if item["detached"]:
+        label = "(detached)"
+    else:
+        label = item["branch"] or "(no branch)"
+    line = f"`{label}` at `{item['path']}`"
+    for flag in ("main", "locked", "missing", "foreign"):
+        if item[flag]:
+            line += f" [{flag}]"
+    return line
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        prog="worktree_hygiene.py",
+        description="List every live worktree (read-only: no fetch, no cache, no stamp).",
+    )
+    parser.add_argument("--list", action="store_true", required=True,
+                        help="list every live worktree of each PATH, main worktree first")
+    parser.add_argument("--json", action="store_true", help="print a JSON array")
+    parser.add_argument("paths", nargs="*", metavar="PATH",
+                        help="repos to list (default: the repo containing the current directory)")
+    args = parser.parse_args(argv)
+    paths = args.paths or [os.getcwd()]
+    for raw in paths:
+        if not Path(raw).is_dir() or git_common_dir(Path(raw)) is None:
+            print(f"worktree_hygiene.py: not a git repository: {raw}", file=sys.stderr)
+            return 2
+    rows = list_worktrees([str(Path(raw).resolve()) for raw in paths])
+    if args.json:
+        print(json.dumps(rows, indent=2))
+    else:
+        for item in rows:
+            print(list_line(item))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
