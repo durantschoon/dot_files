@@ -105,45 +105,65 @@
 ;;     than an error.  That is fine: `make apply' initializes the submodule
 ;;     first and the literal claude/ local-files in the service below still
 ;;     fail loudly if it is missing.
+(define (skill-directory-names source-dir)
+  (if (file-exists? source-dir)
+      (let ((root (canonicalize-path source-dir)))
+        (filter-map
+         (lambda (name)
+           (let ((dir (string-append root "/" name)))
+             (and (not (member name '("." "..")))
+                  (eq? 'directory (stat:type (stat dir)))
+                  name)))
+         (scandir root)))
+      '()))
+
+(define (scan-skill-entries source-dir target-prefix store-prefix exclude)
+  (if (file-exists? source-dir)
+      (let ((root (canonicalize-path source-dir)))
+        (filter-map
+         (lambda (name)
+           (let ((dir (string-append root "/" name)))
+             (and (not (member name '("." "..")))
+                  (not (member name exclude))
+                  (eq? 'directory (stat:type (stat dir)))
+                  `(,(string-append target-prefix "/" name)
+                    ,(local-file (assume-valid-file-name dir)
+                                 (string-append store-prefix "-" name)
+                                 #:recursive? #t)))))
+         (scandir root)))
+      '()))
+
 (define %claude-skills-directory
   (string-append (dirname (or (current-filename) "home/common.scm"))
                  "/../claude/skills"))
 
 (define %claude-skill-entries
-  (if (file-exists? %claude-skills-directory)
-      (let ((root (canonicalize-path %claude-skills-directory)))
-        (filter-map
-         (lambda (name)
-           (let ((dir (string-append root "/" name)))
-             (and (not (member name '("." "..")))
-                  (eq? 'directory (stat:type (stat dir)))
-                  `(,(string-append ".claude/skills/" name)
-                    ,(local-file (assume-valid-file-name dir)
-                                 (string-append "claude-skill-" name)
-                                 #:recursive? #t)))))
-         (scandir root)))
-      '()))
+  (scan-skill-entries %claude-skills-directory
+                      ".claude/skills"
+                      "claude-skill"
+                      '()))
 
-;; One home-files entry per skill directory under gemini/skills, so that
-;; ~/.gemini/config/skills is a real directory holding store symlinks.
+;; One home-files entry per skill directory under gemini/skills, plus the
+;; shared skills under claude/skills (with gemini/skills winning on any name
+;; collision), so that ~/.gemini/config/skills is a real directory holding
+;; store symlinks and Antigravity automatically picks up Claude skills on every
+;; apply.  Reusing the "claude-skill-" store name deduplicates the store
+;; derivations with %claude-skill-entries.
 (define %gemini-skills-directory
   (string-append (dirname (or (current-filename) "home/common.scm"))
                  "/../gemini/skills"))
 
 (define %gemini-skill-entries
-  (if (file-exists? %gemini-skills-directory)
-      (let ((root (canonicalize-path %gemini-skills-directory)))
-        (filter-map
-         (lambda (name)
-           (let ((dir (string-append root "/" name)))
-             (and (not (member name '("." "..")))
-                  (eq? 'directory (stat:type (stat dir)))
-                  `(,(string-append ".gemini/config/skills/" name)
-                    ,(local-file (assume-valid-file-name dir)
-                                 (string-append "gemini-skill-" name)
-                                 #:recursive? #t)))))
-         (scandir root)))
-      '()))
+  (let ((own-names (skill-directory-names %gemini-skills-directory)))
+    (append
+     (scan-skill-entries %gemini-skills-directory
+                         ".gemini/config/skills"
+                         "gemini-skill"
+                         '())
+     (scan-skill-entries %claude-skills-directory
+                         ".gemini/config/skills"
+                         "claude-skill"
+                         own-names))))
 
 ;; Babashka: native Clojure interpreter (not in Guix, fetch binary from GitHub)
 (define babashka
