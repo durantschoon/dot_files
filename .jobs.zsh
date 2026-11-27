@@ -1612,10 +1612,31 @@ _tmux_pick_rename() {
     print -u2 "tmux-pick: there is no session yet to rename. (sleeping 3s)"; sleep 3
     return 1
   }
-  local new_name
-  printf "Rename session '%s' on %s to: " "$_tmux_pick_name" "$_tmux_pick_host"
-  read -r new_name
-  if [[ -n $new_name && $new_name != "$_tmux_pick_name" ]]; then
+  # Ask until the name is usable, or the answer is empty (which cancels). A name
+  # that lacks the repo prefix is not refused outright: the prefixed name is
+  # offered, because what the user typed is almost always the task part.
+  local new_name prefix yn
+  prefix=$(_tmux_rename_prefix "$_tmux_pick_name" "$spath")
+  while true; do
+    printf "Rename session '%s' on %s to (empty cancels): " "$_tmux_pick_name" "$_tmux_pick_host"
+    read -r new_name || return 0
+    [[ -z $new_name ]] && return 0
+    if [[ ! $new_name =~ '^[A-Za-z0-9_-]+$' ]]; then
+      print -u2 "A session name may only use letters, digits, - and _. Try again."
+      continue
+    fi
+    if [[ -n $prefix && $new_name != $prefix && $new_name != $prefix-* ]]; then
+      printf "'%s' does not start with '%s', which tmux-pick lists this repo's sessions by. Use '%s-%s'? [Y/n] " \
+        "$new_name" "$prefix" "$prefix" "$new_name"
+      read -r yn || return 0
+      case $yn in
+        ""|[yY]*) new_name=$prefix-$new_name ;;
+        *) continue ;;
+      esac
+    fi
+    break
+  done
+  if [[ $new_name != "$_tmux_pick_name" ]]; then
     _tmux_rename_check "$_tmux_pick_name" "$new_name" "$spath" || { sleep 3; return 1 }
     if [[ $_tmux_pick_host == local ]]; then
       tmux rename-session -t "=$_tmux_pick_name" "$new_name" \

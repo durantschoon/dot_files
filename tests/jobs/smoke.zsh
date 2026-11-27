@@ -964,6 +964,14 @@ _tmux_rename_check media-announce-voice media-announcex /x/media-announce 2>/dev
 _tmux_rename_check media-announce-voice "media-announce-a b" /x/media-announce 2>/dev/null; eq "9j ... and one with characters tmux-pick cannot carry" "$?" "1"
 _tmux_rename_check handnamed anything /x/media-announce 2>/dev/null; eq "9j ... but cannot enforce on a hand-named session" "$?" "0"
 haslit "9j job-help lists the rename topic"          "$(job-help)" "rename"
+# The rename prompt offers the prefixed name instead of refusing, and asks again after a no.
+# tmux and the follow-up are stubbed in a subshell: nothing real is renamed.
+_rename_run() ( tmux() { print -r -- "tmux $*"; }; _tmux_rename_follow() { :; }
+  _tmux_pick_row() { typeset -g _tmux_pick_host=local _tmux_pick_name=media-announce-voice _tmux_pick_task=voice; }
+  _tmux_pick_rename "local|media-announce-voice" /x/media-announce <<< "$1" 2>&1 )
+haslit "9k a bare name is offered with the prefix"   "$(_rename_run $'audio\n\n')" "tmux rename-session -t =media-announce-voice media-announce-audio"
+haslit "9k ... a no asks for another name"           "$(_rename_run $'audio\nn\nmedia-announce-sing\n')" "media-announce-sing"
+hasntlit "9k ... and a cancel renames nothing"       "$(_rename_run $'\n')" "rename-session"
 haslit "9i ... and carries an updated stamp"         "$PICK_ARGV" "updated "
 haslit "9i ... the cursor survives a reload by key, not by index" "$PICK_ARGV" "--id-nth"
 
