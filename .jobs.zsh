@@ -1576,28 +1576,47 @@ _tmux_rename_check() {
   return 0
 }
 
+# _tmux_session_herdr_tab NAME: print the id of the Herdr tab that hosts NAME,
+# found through the tmux client attached to it: that client's parent chain
+# reaches the shell of one Herdr pane, and the pane knows its tab. A tab's LABEL
+# is not used, because labels are set by hand ("Sonnet for /prob-tree") and say
+# nothing about the session. Fails when no client is attached or Herdr does not
+# host it.
+_tmux_session_herdr_tab() {
+  local name=$1 snap pane pid cp p
+  (( $+commands[herdr] && $+commands[jq] )) || return 1
+  snap=$(herdr api snapshot 2>/dev/null) || return 1
+  local -A shellpane
+  for pane in ${(f)"$(jq -r '.result.snapshot.panes[].pane_id' <<< "$snap")"}; do
+    pid=$(herdr pane process-info --pane "$pane" 2>/dev/null | jq -r '.result.process_info.shell_pid // empty')
+    [[ -n $pid ]] && shellpane[$pid]=$pane
+  done
+  for cp in ${(f)"$(tmux list-clients -t "=$name" -F '#{client_pid}' 2>/dev/null)"}; do
+    p=$cp
+    while [[ -n $p ]] && (( p > 1 )); do
+      if [[ -n ${shellpane[$p]-} ]]; then
+        jq -r --arg p "${shellpane[$p]}" 'first(.result.snapshot.panes[] | select(.pane_id == $p) | .tab_id) // empty' <<< "$snap"
+        return 0
+      fi
+      p=$(command ps -o ppid= -p "$p" 2>/dev/null | command tr -d ' ')
+    done
+  done
+  return 1
+}
+
 # After a rename, keep what is keyed on the OLD name in step (local sessions
-# only: Herdr and the session environment are per machine). The Herdr tab for
-# the task is labelled with the task, inside the workspace labelled with the
-# checkout's directory name (see _agent_herdr_tab), so it is found the same way
-# and relabelled; and JOB_TASK, which agent-herdr reads, is reset. Notes and
-# job files are keyed on the task too, and are NOT moved here: they are only
-# reported (the stable-id work in docs/MODULE_EXTRACTION_PLAN.md fixes that).
+# only: Herdr and the session environment are per machine). The Herdr tab that
+# hosts the session is relabelled with the new task (decided 2026-11-26: always,
+# even over a hand-set label), and JOB_TASK, which agent-herdr reads, is reset.
+# Notes and job files are keyed on the task too, and are NOT moved here: they are
+# only reported (the stable-id work in docs/MODULE_EXTRACTION_PLAN.md fixes that).
 _tmux_rename_follow() {
   local old=$1 new=$2 spath=$3
-  local ot nt
+  local ot nt tab
   ot=$(_tmux_row_task "local|$old||||$spath"); nt=$(_tmux_row_task "local|$new||||$spath")
   tmux set-environment -t "=$new" JOB_TASK "$nt" 2>/dev/null
-  if (( $+commands[herdr] && $+commands[jq] )); then
-    local snap ws tab
-    snap=$(herdr api snapshot 2>/dev/null) && {
-      ws=$(jq -r --arg l "${spath:t}" 'first(.result.snapshot.workspaces[] | select(.label == $l) | .workspace_id) // empty' <<< "$snap")
-      [[ -n $ws ]] && tab=$(jq -r --arg w "$ws" --arg l "$ot" \
-        'first(.result.snapshot.tabs[] | select(.workspace_id == $w and .label == $l) | .tab_id) // empty' <<< "$snap")
-      if [[ -n $tab ]]; then
-        herdr tab rename "$tab" "$nt" >/dev/null && print -u2 "rename: Herdr tab '$ot' is now '$nt'"
-      fi
-    }
+  if tab=$(_tmux_session_herdr_tab "$new") && [[ -n $tab ]]; then
+    herdr tab rename "$tab" "$nt" >/dev/null && print -u2 "rename: Herdr tab $tab is now '$nt'"
   fi
   local f
   for f in "$spath/logs/$ot.notes.md" "$spath/logs/$ot.job"; do
@@ -1968,7 +1987,8 @@ How to change a session name
       repo's slug, or the main repo's slug for a worktree session), because
       tmux-pick lists a repo's sessions by that prefix and a session without it
       vanishes from the picker;
-    - relabel the Herdr tab (it is named after the task) and reset JOB_TASK;
+    - relabel the Herdr tab that hosts the session (found through its attached
+      tmux client, whatever it is called now) with the new task, and reset JOB_TASK;
     - tell you when logs/<task>.notes.md or logs/<task>.job still carry the old
       task name. They are not moved yet; rename them by hand until the stable
       @job-id work lands (docs/MODULE_EXTRACTION_PLAN.md, 2026-11-21).
