@@ -1,0 +1,52 @@
+#!/bin/sh
+# Link Gemini/Antigravity config (hooks, scripts, gemini/skills, and shared
+# claude/skills) into ~/.gemini/config/ for native (non-Guix) hosts.
+set -eu
+
+script_dir=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+link_dotfile="$script_dir/link-dotfile"
+dotfiles_dir="${1:-$(CDPATH='' cd -- "$script_dir/.." && pwd)}"
+
+mkdir -p "$HOME/.gemini/config/skills"
+
+if [ -f "$dotfiles_dir/gemini/hooks.json" ]; then
+    "$link_dotfile" "$dotfiles_dir/gemini/hooks.json" "$HOME/.gemini/config/hooks.json"
+fi
+
+if [ -d "$HOME/.gemini/config/scripts" ] && [ ! -L "$HOME/.gemini/config/scripts" ]; then
+    echo "NOTE: ~/.gemini/config/scripts is a directory, not a symlink. Move or merge scripts into gemini/scripts/, remove ~/.gemini/config/scripts, then run make setup-gemini-links again."
+elif [ -d "$dotfiles_dir/gemini/scripts" ]; then
+    "$link_dotfile" "$dotfiles_dir/gemini/scripts" "$HOME/.gemini/config/scripts"
+fi
+
+link_skill_dir() {
+    src="$1"
+    name="$2"
+    dst="$HOME/.gemini/config/skills/$name"
+    if [ -d "$dst" ] && [ ! -L "$dst" ]; then
+        echo "NOTE: ~/.gemini/config/skills/$name is a directory, not a symlink; leaving it alone."
+        return 0
+    fi
+    "$link_dotfile" "$src" "$dst"
+}
+
+if [ -d "$dotfiles_dir/gemini/skills" ]; then
+    for skill_dir in "$dotfiles_dir/gemini/skills"/*; do
+        [ -d "$skill_dir" ] || continue
+        skill_name=$(basename "$skill_dir")
+        link_skill_dir "$skill_dir" "$skill_name"
+    done
+fi
+
+if [ -d "$dotfiles_dir/claude/skills" ]; then
+    for skill_dir in "$dotfiles_dir/claude/skills"/*; do
+        [ -d "$skill_dir" ] || continue
+        skill_name=$(basename "$skill_dir")
+        if [ -d "$dotfiles_dir/gemini/skills/$skill_name" ]; then
+            continue
+        fi
+        link_skill_dir "$skill_dir" "$skill_name"
+    done
+else
+    echo "NOTE: claude/skills not found (run 'git submodule update --init claude' to include shared Claude skills)"
+fi

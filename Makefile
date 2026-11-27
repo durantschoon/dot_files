@@ -809,6 +809,8 @@ endif
 	$(CURDIR)/bin/codex-defaults
 	@# Worktree-cleanup grants.  Same merge the Guix activation runs.
 	$(CURDIR)/bin/agent-permissions
+	@# Gemini/Antigravity config: hooks, scripts, and skills (gemini/skills + shared claude/skills)
+	@$(CURDIR)/bin/setup-gemini-links "$(CURDIR)"
 	@# Ghostty config: ssh sends a TERM every remote host knows (see the file)
 	@mkdir -p ~/.config/ghostty
 	@$(CURDIR)/bin/link-dotfile ~/dot_files/ghostty/config ~/.config/ghostty/config
@@ -2750,6 +2752,13 @@ check-agent-permissions:
 check-link-dotfile:
 	@sh tests/link-dotfile-smoke.sh
 
+.PHONY: setup-gemini-links check-gemini-links
+setup-gemini-links: warn-dotfiles-home guard-native-over-guix
+	@$(CURDIR)/bin/setup-gemini-links "$(CURDIR)"
+
+check-gemini-links:
+	@sh tests/gemini/links-smoke.sh
+
 .PHONY: check-radicle-tests
 check-radicle-tests:
 	@sh tests/radicle-smoke.sh
@@ -3373,7 +3382,7 @@ check-home-ownership-tests:
 # check-agent-permissions reads the grant files and runs a scratch-HOME smoke
 # test; it writes nothing.  check-worktrees classifies scratch git repos.
 # check-shell runs shellcheck over bin/ and writes nothing.
-check: check-link-dotfile check-radicle-tests check-timezone check-system check-session-coupling check-shellcheck $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees check-shell
+check: check-link-dotfile check-gemini-links check-radicle-tests check-timezone check-system check-session-coupling check-shellcheck $(if $(filter $(FLAVOR_TERMUX),$(flavor)),check-tailscale-status,check-tailscale) check-orbstack check-protondrive check-espanso-windows check-home-ownership check-cloud-dirs check-radicle check-agent-permissions check-worktrees check-shell
 	@echo "==> all checks passed"
 
 check-system: check-system-hosts check-keyd-sync check-channels-sync check-system-secrets
